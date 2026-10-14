@@ -99,7 +99,31 @@ type identity struct {
 	texture     []byte
 }
 
-func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []byte) {
+// Origin is where a connection comes from, for connections that are not
+// accepted by Serve (the Kallisti server's web bridge).
+type Origin struct {
+	Host    netip.Addr  // the real client address
+	Account *WebAccount // a Kallisti account, or nil for a guest
+}
+
+// WebAccount is a Kallisti account: a registered user identified by the
+// certificate it has (it never connects with TLS itself).
+type WebAccount struct {
+	Name     string
+	CertHash string
+}
+
+// ServeConn serves one connection without TLS, for example one end of a
+// net.Pipe. Limits per IP are the caller's job.
+func (s *Server) ServeConn(conn net.Conn, o Origin) {
+	if s.banned(o.Host, "") != nil {
+		conn.Close()
+		return
+	}
+	s.handle(conn, o, false)
+}
+
+func (s *Server) identify(h hello, hash string, host netip.Addr, account *WebAccount) (identity, []byte) {
 	if s.logins.blocked(host) {
 		return identity{}, mumble.RejectFrame(pb.Reject_None, "Too many failed logins. Please try again later.")
 	}
@@ -109,6 +133,9 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 			reason = "You are banned from this server: " + b.Reason
 		}
 		return identity{}, mumble.RejectFrame(pb.Reject_None, reason)
+	}
+	if account != nil {
+		return s.identifyAccount(h, account)
 	}
 	var byName, byHash *Registered
 	if db := s.cfg.DB; db != nil {
@@ -136,11 +163,55 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 	if why := names.Check(h.name); why != "" {
 		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername, why)
 	}
+	if s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(h.name)) {
+		return identity{}, mumble.RejectFrame(pb.Reject_UsernameInUse, "This name belongs to an account. Log in to use it.")
+	}
 	if s.cfg.Password != "" && subtle.ConstantTimeCompare([]byte(h.password), []byte(s.cfg.Password)) != 1 {
 		s.logins.failed(host)
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongServerPW, "Wrong server password.")
 	}
 	return identity{name: h.name, hash: hash, tokens: h.tokens}, nil
+}
+
+// identifyAccount: a Kallisti account is a registered user, made on its
+// first visit. Its name must be the account's.
+func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
+	if names.Key(h.name) != names.Key(a.Name) {
+		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername, "Use your account name, "+a.Name+".")
+	}
+	db := s.cfg.DB
+	if db == nil || a.CertHash == "" {
+		return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "This server does not register users.")
+	}
+	fail := func(err error) (identity, []byte) {
+		slog.Error("registering a web account", "account", a.Name, "err", err)
+		return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "Please try again later.")
+	}
+	r, err := db.UserByHash(a.CertHash)
+	if err != nil {
+		return fail(err)
+	}
+	if r == nil {
+		// A Mumble user with this name but another certificate: an account
+		// must not take over a registration (names are kept apart from now
+		// on, see Config.ReservedName).
+		if other, err := db.UserByName(a.Name); err != nil {
+			return fail(err)
+		} else if other != nil {
+			return fail(fmt.Errorf("name registered by Mumble user %d", other.ID))
+		}
+		id, err := db.RegisterUser(a.Name, a.CertHash)
+		if err != nil {
+			return fail(err)
+		}
+		r = &Registered{ID: id, Name: a.Name}
+	}
+	comment, texture, err := db.UserContent(r.ID)
+	if err != nil {
+		slog.Error("loading a comment", "user", r.ID, "err", err)
+	}
+	return identity{name: r.Name, registered: true, userID: r.ID, hash: a.CertHash, tokens: h.tokens,
+		lastChannel: r.LastChannel, comment: comment, texture: texture}, nil
 }
 
 // checkPassword runs argon2 with the limit on parallel hashes.
@@ -149,19 +220,26 @@ func checkPassword(encoded, pw string) bool {
 	return password.Check(encoded, pw)
 }
 
-func (s *Server) handle(conn net.Conn) {
+// handle serves a connection. counted: Serve counted it in conns.
+func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 	defer conn.Close()
-	pending := true // counted by Serve until it authenticates
-	defer func() { s.conns.remove(remoteHost(conn), pending) }()
+	pending := counted // counted by Serve until it authenticates
+	if counted {
+		defer func() { s.conns.remove(o.Host, pending) }()
+	}
 	conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	h, reject, err := handshake(conn)
 	if err != nil {
 		return
 	}
-	host := remoteHost(conn)
+	host := o.Host
+	hash := certHash(conn)
+	if o.Account != nil {
+		hash = o.Account.CertHash
+	}
 	id := identity{}
 	if reject == nil {
-		id, reject = s.identify(h, certHash(conn), host)
+		id, reject = s.identify(h, hash, host, o.Account)
 	}
 	if reject != nil {
 		conn.Write(reject)
@@ -184,8 +262,10 @@ func (s *Server) handle(conn net.Conn) {
 		conn.Write(reject)
 		return
 	}
-	s.conns.authenticated()
-	pending = false
+	if pending {
+		s.conns.authenticated()
+		pending = false
+	}
 	if h.noOpus { // as Murmur: such clients can neither talk nor hear
 		c.sendMsg(mumble.TypeTextMessage, &pb.TextMessage{Message: proto.String(
 			"Your client does not support the Opus codec: you will not be able to talk or hear. Please update Mumble.")})

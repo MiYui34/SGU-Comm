@@ -28,7 +28,10 @@ type Config struct {
 	Password string // for guests; registered users need none
 	MaxUsers int    // default 100
 	MaxPerIP int    // connections per IP (IPv6: per /64); 0: no limit
-	DB       *DB    // nil: nothing is saved
+	// ReservedName reports names (as names.Key) that belong to Kallisti
+	// accounts: nobody else may use them. Nil: none.
+	ReservedName func(key string) bool
+	DB           *DB // nil: nothing is saved
 }
 
 const (
@@ -154,7 +157,7 @@ func (s *Server) Serve(ln net.Listener) error {
 			conn.Close()
 			continue
 		}
-		go s.handle(conn)
+		go s.handle(conn, Origin{Host: host}, true)
 	}
 }
 

@@ -46,6 +46,12 @@ func openACL(s *Server) {
 
 func startServer(t *testing.T, host string, cfg Config, setup func(*Server)) string {
 	t.Helper()
+	_, addr := startServerAndListen(t, host, cfg, setup)
+	return addr
+}
+
+func startServerAndListen(t *testing.T, host string, cfg Config, setup func(*Server)) (*Server, string) {
+	t.Helper()
 	certPEM, keyPEM, err := certs.GenerateServer("test")
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +79,7 @@ func startServer(t *testing.T, host string, cfg Config, setup func(*Server)) str
 		udp.Close()
 		s.Close()
 	})
-	return ln.Addr().String()
+	return s, ln.Addr().String()
 }
 
 type frame struct {
@@ -83,7 +89,7 @@ type frame struct {
 
 type testClient struct {
 	t       *testing.T
-	conn    *tls.Conn
+	conn    net.Conn
 	frames  chan frame
 	session uint32
 	crypt   *cryptstate.CryptState
@@ -155,6 +161,12 @@ func tryDialWith(t *testing.T, addr string, o dialOpts) (*testClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	return startClient(t, conn, major, minor, name, o.password), nil
+}
+
+// startClient reads frames from a connection and sends Version and
+// Authenticate.
+func startClient(t *testing.T, conn net.Conn, major, minor uint64, name, password string) *testClient {
 	c := &testClient{t: t, conn: conn, frames: make(chan frame, 256)}
 	t.Cleanup(func() { conn.Close() })
 	go func() {
@@ -181,8 +193,8 @@ func tryDialWith(t *testing.T, addr string, o dialOpts) (*testClient, error) {
 	}()
 	v1, v2 := uint32(major<<16|minor<<8), major<<48|minor<<32
 	c.send(mumble.TypeVersion, &pb.Version{VersionV1: &v1, VersionV2: &v2, Release: proto.String("test")})
-	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Password: proto.String(o.password), Opus: proto.Bool(true)})
-	return c, nil
+	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Password: proto.String(password), Opus: proto.Bool(true)})
+	return c
 }
 
 func (c *testClient) send(typ uint16, m proto.Message) {
