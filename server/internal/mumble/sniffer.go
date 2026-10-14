@@ -9,21 +9,32 @@ import (
 
 // TCP message types (the order of messages in Mumble.proto).
 const (
-	TypeVersion         = 0
-	TypeUDPTunnel       = 1
-	TypeAuthenticate    = 2
-	TypePing            = 3
-	TypeReject          = 4
-	TypeServerSync      = 5
-	TypeChannelState    = 7
-	TypeUserRemove      = 8
-	TypeUserState       = 9
-	TypeTextMessage     = 11
-	TypeCryptSetup      = 15
-	TypePermissionQuery = 20
-	TypeCodecVersion    = 21
-	TypeUserStats       = 22
-	TypeServerConfig    = 24
+	TypeVersion             = 0
+	TypeUDPTunnel           = 1
+	TypeAuthenticate        = 2
+	TypePing                = 3
+	TypeReject              = 4
+	TypeServerSync          = 5
+	TypeChannelRemove       = 6
+	TypeChannelState        = 7
+	TypeUserRemove          = 8
+	TypeUserState           = 9
+	TypeBanList             = 10
+	TypeTextMessage         = 11
+	TypePermissionDenied    = 12
+	TypeACL                 = 13
+	TypeQueryUsers          = 14
+	TypeCryptSetup          = 15
+	TypeContextActionModify = 16
+	TypeContextAction       = 17
+	TypeUserList            = 18
+	TypeVoiceTarget         = 19
+	TypePermissionQuery     = 20
+	TypeCodecVersion        = 21
+	TypeUserStats           = 22
+	TypeRequestBlob         = 23
+	TypeServerConfig        = 24
+	TypeSuggestConfig       = 25
 )
 
 const (
