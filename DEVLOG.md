@@ -81,3 +81,11 @@ Server language: Rust or Go are preferred. Decide when sidecar work starts.
   emits an extra packet for the Opus lookahead, after the terminator and with
   a repeated frame number. Chrome's encoder gives one output per 20 ms input,
   so no packet is held back. Firefox and Safari are not checked yet.
+- In this sandbox, `navigator.mediaDevices.enumerateDevices()` and a
+  `devicechange` listener crash the headless Chrome tab (it lands on
+  `about:blank`). The fake microphone script for tests must stub both.
+- Svelte 5: an effect that reads `prefs.x`, where `prefs` is a derived
+  object that is replaced on every change, re-runs on any settings change.
+  This reopened the microphone on every slider step. Fix: derive the
+  primitive (`$derived(prefs.inputDeviceId)`), which only notifies when the
+  value changes.
