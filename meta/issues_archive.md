@@ -37,3 +37,4 @@
 - [x] [Mumble server: permissions](issues/mumble-server-permissions.md)
 - [x] [Mumble server: moderation](issues/mumble-server-moderation.md)
 - [x] [Mumble server: whispers and shouts](issues/mumble-server-voice-targets.md)
+- [x] [Mumble server: Mumble 1.4 clients](issues/mumble-server-legacy-clients.md)

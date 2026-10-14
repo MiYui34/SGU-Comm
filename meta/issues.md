@@ -5,7 +5,6 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Built-in Mumble server (replace Murmur)](issues/built-in-mumble-server.md)
-  - [ ] [Mumble server: Mumble 1.4 clients](issues/mumble-server-legacy-clients.md)
   - [ ] [Mumble server: avatars, comments, descriptions](issues/mumble-server-blobs.md)
   - [ ] [Mumble server: limits and server list ping](issues/mumble-server-limits.md)
   - [ ] [Mumble server: integration into the Kallisti server](issues/mumble-server-integration.md)
