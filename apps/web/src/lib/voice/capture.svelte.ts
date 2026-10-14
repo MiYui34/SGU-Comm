@@ -104,11 +104,15 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     (nodePromise ??= (async () => {
       await ctx.audioWorklet.addModule(new URL("./capture.worklet.js", import.meta.url));
       node = new AudioWorkletNode(ctx, "capture", {
-        numberOfOutputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
         channelCount: 1,
         channelCountMode: "explicit",
         processorOptions: { frameSize: FRAME_SIZE },
       });
+      // Some browsers (Safari) only run nodes that lead to the speakers. The
+      // output is silent anyway; the gain of 0 keeps it that way.
+      node.connect(new GainNode(ctx, { gain: 0 })).connect(ctx.destination);
       node.port.onmessage = (event: MessageEvent<Float32Array<ArrayBuffer>>) =>
         onFrame(event.data);
       return node;
