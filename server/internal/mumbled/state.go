@@ -74,7 +74,9 @@ func NewState(rootName string, saved []Channel) *State {
 	s.Channels[0] = &Channel{ID: 0, Name: rootName, Links: map[uint32]bool{}}
 	for _, c := range saved {
 		if c.ID == 0 {
-			s.Channels[0].Description, s.Channels[0].Position = c.Description, c.Position
+			root := s.Channels[0]
+			root.Description, root.Position = c.Description, c.Position
+			root.NoInheritACL, root.ACLs, root.Groups = c.NoInheritACL, c.ACLs, c.Groups
 			continue
 		}
 		c := c

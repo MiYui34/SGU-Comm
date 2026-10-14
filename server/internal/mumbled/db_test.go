@@ -127,3 +127,68 @@ func TestRegisteredUsers(t *testing.T) {
 		t.Fatalf("names %v", got)
 	}
 }
+
+func TestNewDatabasesHaveTheDefaultACL(t *testing.T) {
+	db := testDB(t)
+	saved, _ := db.Channels()
+	s := NewState("Root", saved)
+	acls, groups := DefaultRootACL()
+	if len(s.Channels[0].ACLs) != len(acls) || s.Channels[0].Groups["admin"] == nil || len(groups) != 1 {
+		t.Fatalf("root ACL %+v groups %+v", s.Channels[0].ACLs, s.Channels[0].Groups)
+	}
+	// An admin who removes all root ACLs keeps it that way after a restart.
+	s.Channels[0].ACLs = nil
+	db.SaveChannel(s.Channels[0])
+	db2, err := OpenDB(db.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = db2.Channels()
+	if len(NewState("Root", saved).Channels[0].ACLs) != 0 {
+		t.Fatal("default ACL came back")
+	}
+}
+
+func TestACLsAndGroupsAreSaved(t *testing.T) {
+	db := testDB(t)
+	s := NewState("Root", nil)
+	a, _ := s.AddChannel(0, "A", false)
+	a.NoInheritACL = true
+	a.ACLs = []ACL{
+		{ApplyHere: true, ApplySubs: false, Group: "all", Deny: Enter},
+		{ApplyHere: true, ApplySubs: true, HasUser: true, UserID: 5, Allow: Enter | Speak},
+	}
+	g := newGroup("mods")
+	g.Inheritable = false
+	g.Add[5], g.Remove[6] = true, true
+	a.Groups = map[string]*Group{"mods": g}
+	if err := db.SaveChannel(a); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := db.Channels()
+	got := NewState("Root", saved).Channels[a.ID]
+	if !got.NoInheritACL || len(got.ACLs) != 2 || got.ACLs[0] != a.ACLs[0] || got.ACLs[1] != a.ACLs[1] {
+		t.Fatalf("ACLs %+v", got.ACLs)
+	}
+	mods := got.Groups["mods"]
+	if mods == nil || mods.Inheritable || !mods.Inherit || !mods.Add[5] || !mods.Remove[6] {
+		t.Fatalf("group %+v", mods)
+	}
+	db.DeleteChannels([]uint32{a.ID})
+	var n int
+	db.db.QueryRow(`SELECT (SELECT COUNT(*) FROM mumble_acl WHERE channel_id = ?) + (SELECT COUNT(*) FROM mumble_groups WHERE channel_id = ?)`, a.ID, a.ID).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d ACL rows left", n)
+	}
+}
+
+func TestOldDatabasesGetTheNewColumn(t *testing.T) {
+	sqlDB, _ := sql.Open("sqlite", ":memory:")
+	sqlDB.SetMaxOpenConns(1)
+	defer sqlDB.Close()
+	sqlDB.Exec(`CREATE TABLE mumble_channels (id INTEGER PRIMARY KEY, parent INTEGER NOT NULL, name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0)`)
+	if _, err := OpenDB(sqlDB); err != nil {
+		t.Fatal(err)
+	}
+}

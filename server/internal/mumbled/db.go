@@ -18,6 +18,31 @@ CREATE TABLE IF NOT EXISTS mumble_channels (
 	description TEXT NOT NULL DEFAULT '',
 	position    INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS mumble_acl (
+	channel_id INTEGER NOT NULL,
+	priority   INTEGER NOT NULL,
+	apply_here INTEGER NOT NULL,
+	apply_subs INTEGER NOT NULL,
+	user_id    INTEGER,
+	group_name TEXT NOT NULL DEFAULT '',
+	allow      INTEGER NOT NULL,
+	deny       INTEGER NOT NULL,
+	PRIMARY KEY (channel_id, priority)
+);
+CREATE TABLE IF NOT EXISTS mumble_groups (
+	channel_id  INTEGER NOT NULL,
+	name        TEXT NOT NULL,
+	inherit     INTEGER NOT NULL,
+	inheritable INTEGER NOT NULL,
+	PRIMARY KEY (channel_id, name)
+);
+CREATE TABLE IF NOT EXISTS mumble_group_members (
+	channel_id INTEGER NOT NULL,
+	group_name TEXT NOT NULL,
+	user_id    INTEGER NOT NULL,
+	removed    INTEGER NOT NULL, -- 0: added, 1: removed from inherited members
+	PRIMARY KEY (channel_id, group_name, user_id)
+);
 CREATE TABLE IF NOT EXISTS mumble_meta (
 	key   TEXT PRIMARY KEY,
 	value INTEGER NOT NULL
@@ -40,16 +65,55 @@ CREATE TABLE IF NOT EXISTS mumble_channel_links (
 );
 `
 
+// Columns added after the first version, for databases made before.
+var migrations = []struct{ table, column, def string }{
+	{"mumble_channels", "no_inherit_acl", "INTEGER NOT NULL DEFAULT 0"},
+}
+
 func OpenDB(db *sql.DB) (*DB, error) {
 	if _, err := db.Exec(dbSchema); err != nil {
 		return nil, err
 	}
-	return &DB{db}, nil
+	for _, m := range migrations {
+		if err := addColumn(db, m.table, m.column, m.def); err != nil {
+			return nil, err
+		}
+	}
+	d := &DB{db}
+	return d, d.initACL()
+}
+
+func addColumn(db *sql.DB, table, column, def string) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
+	return err
+}
+
+// initACL gives a new database Murmur's default root ACL, once.
+func (d *DB) initACL() error {
+	var done int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM mumble_meta WHERE key = 'acl_initialized'`).Scan(&done)
+	if err != nil || done > 0 {
+		return err
+	}
+	root := &Channel{ID: 0, Name: "Root", Links: map[uint32]bool{}}
+	root.ACLs, root.Groups = DefaultRootACL()
+	if err := d.SaveChannel(root); err != nil {
+		return err
+	}
+	_, err = d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('acl_initialized', 1)`)
+	return err
 }
 
 // Channels returns the saved channels with their links.
 func (d *DB) Channels() ([]Channel, error) {
-	rows, err := d.db.Query(`SELECT id, parent, name, description, position FROM mumble_channels`)
+	rows, err := d.db.Query(`SELECT id, parent, name, description, position, no_inherit_acl FROM mumble_channels`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +121,8 @@ func (d *DB) Channels() ([]Channel, error) {
 	byID := map[uint32]*Channel{}
 	var order []uint32
 	for rows.Next() {
-		c := &Channel{Links: map[uint32]bool{}}
-		if err := rows.Scan(&c.ID, &c.Parent, &c.Name, &c.Description, &c.Position); err != nil {
+		c := &Channel{Links: map[uint32]bool{}, Groups: map[string]*Group{}}
+		if err := rows.Scan(&c.ID, &c.Parent, &c.Name, &c.Description, &c.Position, &c.NoInheritACL); err != nil {
 			return nil, err
 		}
 		byID[c.ID] = c
@@ -81,11 +145,80 @@ func (d *DB) Channels() ([]Channel, error) {
 			byID[a].Links[b] = true
 		}
 	}
+	if err := links.Err(); err != nil {
+		return nil, err
+	}
+	if err := d.loadACLs(byID); err != nil {
+		return nil, err
+	}
 	out := make([]Channel, 0, len(order))
 	for _, id := range order {
 		out = append(out, *byID[id])
 	}
-	return out, links.Err()
+	return out, nil
+}
+
+func (d *DB) loadACLs(byID map[uint32]*Channel) error {
+	rows, err := d.db.Query(`SELECT channel_id, apply_here, apply_subs, user_id, group_name, allow, deny
+		FROM mumble_acl ORDER BY channel_id, priority`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ch uint32
+		var a ACL
+		var user sql.NullInt64
+		if err := rows.Scan(&ch, &a.ApplyHere, &a.ApplySubs, &user, &a.Group, &a.Allow, &a.Deny); err != nil {
+			return err
+		}
+		a.HasUser, a.UserID = user.Valid, uint32(user.Int64)
+		if c := byID[ch]; c != nil {
+			c.ACLs = append(c.ACLs, a)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	groups, err := d.db.Query(`SELECT channel_id, name, inherit, inheritable FROM mumble_groups`)
+	if err != nil {
+		return err
+	}
+	defer groups.Close()
+	for groups.Next() {
+		var ch uint32
+		g := newGroup("")
+		if err := groups.Scan(&ch, &g.Name, &g.Inherit, &g.Inheritable); err != nil {
+			return err
+		}
+		if c := byID[ch]; c != nil {
+			c.Groups[g.Name] = g
+		}
+	}
+	if err := groups.Err(); err != nil {
+		return err
+	}
+	members, err := d.db.Query(`SELECT channel_id, group_name, user_id, removed FROM mumble_group_members`)
+	if err != nil {
+		return err
+	}
+	defer members.Close()
+	for members.Next() {
+		var ch, user uint32
+		var name string
+		var removed bool
+		if err := members.Scan(&ch, &name, &user, &removed); err != nil {
+			return err
+		}
+		if c := byID[ch]; c != nil && c.Groups[name] != nil {
+			if removed {
+				c.Groups[name].Remove[user] = true
+			} else {
+				c.Groups[name].Add[user] = true
+			}
+		}
+	}
+	return members.Err()
 }
 
 // SaveChannel writes a channel and its links (each link once, a < b).
@@ -95,10 +228,13 @@ func (d *DB) SaveChannel(c *Channel) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO mumble_channels (id, parent, name, description, position) VALUES (?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO mumble_channels (id, parent, name, description, position, no_inherit_acl) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET parent = excluded.parent, name = excluded.name,
-		description = excluded.description, position = excluded.position`,
-		c.ID, c.Parent, c.Name, c.Description, c.Position); err != nil {
+		description = excluded.description, position = excluded.position, no_inherit_acl = excluded.no_inherit_acl`,
+		c.ID, c.Parent, c.Name, c.Description, c.Position, c.NoInheritACL); err != nil {
+		return err
+	}
+	if err := saveACLs(tx, c); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM mumble_channel_links WHERE a = ? OR b = ?`, c.ID, c.ID); err != nil {
@@ -128,6 +264,11 @@ func (d *DB) DeleteChannels(ids []uint32) error {
 		}
 		if _, err := tx.Exec(`DELETE FROM mumble_channels WHERE id = ? AND id != 0`, id); err != nil {
 			return err
+		}
+		if id != 0 {
+			if err := deleteACLs(tx, id); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
@@ -213,4 +354,45 @@ func (d *DB) UserNames(ids []uint32) (map[uint32]string, error) {
 		out[id] = name
 	}
 	return out, nil
+}
+
+func deleteACLs(tx *sql.Tx, channel uint32) error {
+	for _, table := range []string{"mumble_acl", "mumble_groups", "mumble_group_members"} {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE channel_id = ?`, channel); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// saveACLs replaces a channel's ACL entries and groups.
+func saveACLs(tx *sql.Tx, c *Channel) error {
+	if err := deleteACLs(tx, c.ID); err != nil {
+		return err
+	}
+	for i, a := range c.ACLs {
+		var user any
+		if a.HasUser {
+			user = a.UserID
+		}
+		if _, err := tx.Exec(`INSERT INTO mumble_acl (channel_id, priority, apply_here, apply_subs, user_id, group_name, allow, deny)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, i, a.ApplyHere, a.ApplySubs, user, a.Group, a.Allow, a.Deny); err != nil {
+			return err
+		}
+	}
+	for _, g := range c.Groups {
+		if _, err := tx.Exec(`INSERT INTO mumble_groups (channel_id, name, inherit, inheritable) VALUES (?, ?, ?, ?)`,
+			c.ID, g.Name, g.Inherit, g.Inheritable); err != nil {
+			return err
+		}
+		for removed, ids := range []map[uint32]bool{g.Add, g.Remove} {
+			for id := range ids {
+				if _, err := tx.Exec(`INSERT OR REPLACE INTO mumble_group_members (channel_id, group_name, user_id, removed)
+					VALUES (?, ?, ?, ?)`, c.ID, g.Name, id, removed); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
