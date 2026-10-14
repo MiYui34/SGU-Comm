@@ -1,6 +1,5 @@
 # Open issues
 
-- [ ] [Per-user volume and user context menu](issues/per-user-volume-and-user-context-menu.md)
 - [ ] [Refine the UI towards Discord](issues/refine-the-ui-towards-discord.md)
 - [ ] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
   - [ ] [Rewrite the server in Rust or Go](issues/rewrite-the-server-in-rust-or-go.md)
