@@ -18,3 +18,4 @@ Make the client look and feel as refined and familiar as Discord, so Discord use
 ## Notes
 
 - Familiar layout patterns are fine; brand assets and trade dress are not.
+- Client.svelte grows: the direct-message state (dm, readCounts, unread) is a clean candidate for a `lib/directMessages.svelte.ts` factory.
