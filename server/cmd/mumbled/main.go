@@ -16,19 +16,21 @@ import (
 
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/mumbled"
+	"kallisti.chat/server/internal/password"
 )
 
 func main() {
 	listen := flag.String("listen", ":64738", "TCP and UDP address")
 	data := flag.String("data", "mumbled-data", "folder for the server certificate and database")
 	welcome := flag.String("welcome", "Welcome to Kallisti.", "welcome text")
+	serverPassword := flag.String("password", "", "server password for guests")
 	flag.Parse()
 
 	cert, err := loadOrCreateCert(*data)
 	if err != nil {
 		log.Fatal(err)
 	}
-	ln, err := tls.Listen("tcp", *listen, &tls.Config{Certificates: []tls.Certificate{cert}})
+	ln, err := tls.Listen("tcp", *listen, mumbled.TLSConfig(cert))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -48,7 +50,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	s, err := mumbled.New(mumbled.Config{Welcome: *welcome, DB: db})
+	// SuperUser's password, from the environment (not visible in ps).
+	if pw := os.Getenv("MUMBLED_SUPERUSER_PASSWORD"); pw != "" {
+		hash, err := password.Hash(pw)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := db.SetPassword(0, hash); err != nil {
+			log.Fatal(err)
+		}
+		os.Unsetenv("MUMBLED_SUPERUSER_PASSWORD")
+	}
+	s, err := mumbled.New(mumbled.Config{Welcome: *welcome, Password: *serverPassword, DB: db})
 	if err != nil {
 		log.Fatal(err)
 	}
