@@ -4,14 +4,22 @@
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
 
-  let { me, onSelfState }: { me: User; onSelfState: (s: SelfState) => void } = $props();
+  let {
+    me,
+    micError,
+    onSelfState,
+  }: { me: User; micError: string | null; onSelfState: (s: SelfState) => void } = $props();
 </script>
 
 <section class="panel" aria-label="Your status">
   <Avatar name={me.name} size={32} />
   <div class="who">
     <div class="name">{me.name}</div>
-    <div class="status">Connected</div>
+    {#if micError}
+      <div class="status error" title={micError}>No microphone</div>
+    {:else}
+      <div class="status">Voice connected</div>
+    {/if}
   </div>
   <button
     title={me.selfMute ? "Unmute" : "Mute"}
@@ -50,6 +58,9 @@
   .status {
     color: var(--accent);
     font-size: 12px;
+  }
+  .status.error {
+    color: var(--danger);
   }
   button {
     display: inline-flex;

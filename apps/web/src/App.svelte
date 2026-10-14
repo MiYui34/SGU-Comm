@@ -3,7 +3,7 @@
   import Login from "./components/Login.svelte";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
   import { connectionError, proxyUrl } from "./lib/status";
-  import { createPlayback, voiceSupported } from "./lib/voice/playback.svelte";
+  import { voiceSupported } from "./lib/voice/support";
 
   const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? proxyUrl(location);
 
@@ -19,10 +19,10 @@
   const start = (credentials: Credentials) => {
     connection?.close();
     // Created here: browsers allow audio only after a user gesture.
-    const playback = voiceSupported()
-      ? createPlayback(new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }))
+    const audio = voiceSupported()
+      ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" })
       : null;
-    connection = connect(PROXY_URL, credentials, playback);
+    connection = connect(PROXY_URL, credentials, audio);
   };
 </script>
 

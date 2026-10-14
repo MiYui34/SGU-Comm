@@ -15,8 +15,6 @@ type Speaker = {
   timer?: ReturnType<typeof setTimeout>;
 };
 
-export const voiceSupported = () => typeof AudioDecoder !== "undefined";
-
 export type Playback = ReturnType<typeof createPlayback>;
 
 export const createPlayback = (ctx: AudioContext) => {
@@ -101,9 +99,6 @@ export const createPlayback = (ctx: AudioContext) => {
       output.gain.value = deaf ? 0 : 1;
       if (deaf) [...speakers.keys()].forEach(remove);
     },
-    close: () => {
-      [...speakers.keys()].forEach(remove);
-      void ctx.close();
-    },
+    close: () => [...speakers.keys()].forEach(remove),
   };
 };

@@ -22,10 +22,15 @@
   const serverName = $derived(state.channels[0]?.name ?? "Mumble");
   const users = $derived(usersSorted(state));
 
-  const NOBODY: ReadonlySet<number> = new Set();
-  const speaking = $derived(connection.playback?.speaking ?? NOBODY);
+  const capture = $derived(connection.capture);
+  // The server does not echo our own voice: add ourselves while sending.
+  const speaking = $derived.by(() => {
+    const others = connection.playback?.speaking ?? [];
+    return new Set(capture?.transmitting && me ? [...others, me.session] : others);
+  });
 
   $effect(() => connection.playback?.setDeaf(me?.selfDeaf ?? false));
+  $effect(() => capture?.setMuted(me?.selfMute ?? false));
 
   const join = (id: number) => {
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
@@ -41,7 +46,7 @@
   <div class="sidebar">
     <header>{serverName}</header>
     <ChannelSidebar {state} {speaking} currentChannel={channelId} onJoin={join} />
-    {#if me}<UserPanel {me} onSelfState={updateSelf} />{/if}
+    {#if me}<UserPanel {me} micError={capture?.micError ?? null} onSelfState={updateSelf} />{/if}
   </div>
   <ChatPane
     {channelName}

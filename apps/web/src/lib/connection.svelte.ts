@@ -1,8 +1,10 @@
 import {
   addOwnMessage,
   audioFormat,
-  decodeAudio,
   createMessageStream,
+  decodeAudio,
+  encodeAudio,
+  encodeVoicePacket,
   handshake,
   initialState,
   ping,
@@ -10,9 +12,11 @@ import {
   sendText,
   type Bytes,
   type MumbleMessage,
+  type OutgoingAudio,
   type ServerState,
 } from "@mumble-discord/protocol";
-import type { Playback } from "./voice/playback.svelte";
+import { createCapture } from "./voice/capture.svelte";
+import { createPlayback } from "./voice/playback.svelte";
 
 // The server drops clients after 30 s without a ping.
 const PING_INTERVAL_MS = 15_000;
@@ -21,14 +25,26 @@ export type Credentials = { username: string; password?: string };
 
 export type Connection = ReturnType<typeof connect>;
 
-// Thin effectful shell around the pure protocol code.
-export const connect = (url: string, credentials: Credentials, playback: Playback | null) => {
+// Thin effectful shell around the pure protocol code. Owns the audio
+// context (null: no voice support), so voice lives and dies with the socket.
+export const connect = (url: string, credentials: Credentials, audio: AudioContext | null) => {
   let state = $state.raw<ServerState>(initialState);
   let closed = $state(false);
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   let timer: ReturnType<typeof setInterval> | undefined;
+
+  const send = (bytes: Bytes) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
+  };
+  const sendAudio = (packet: OutgoingAudio) => {
+    if (state.status === "synced") send(encodeVoicePacket(encodeAudio(audioFormat(state), packet)));
+  };
+
+  const playback = audio && createPlayback(audio);
+  const capture = audio && createCapture(audio, sendAudio);
+  void capture?.start();
 
   // Voice and leaving users go to the playback side. State stays pure.
   const routeAudio = (msg: MumbleMessage) => {
@@ -58,12 +74,10 @@ export const connect = (url: string, credentials: Credentials, playback: Playbac
   };
   ws.onclose = () => {
     clearInterval(timer);
+    capture?.close();
     playback?.close();
+    void audio?.close();
     closed = true;
-  };
-
-  const send = (bytes: Bytes) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
   };
 
   return {
@@ -74,6 +88,7 @@ export const connect = (url: string, credentials: Credentials, playback: Playbac
       return closed;
     },
     playback,
+    capture,
     send,
     sendText: (channelId: number, text: string) => {
       send(sendText(channelId, text));
