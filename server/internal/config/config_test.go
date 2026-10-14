@@ -21,6 +21,8 @@ func TestDefaults(t *testing.T) {
 		AllowedOrigins:     []string{"*"},
 		RejectUnauthorized: true,
 		MaxConnections:     100,
+		DBPath:             "kallisti.db",
+		TextChannels:       []string{"general"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -35,6 +37,8 @@ func TestAllOptions(t *testing.T) {
 		"ALLOWED_ORIGINS":     "https://a.example, http://localhost:5173",
 		"MUMBLE_INSECURE_TLS": "1",
 		"MAX_CONNECTIONS":     "5",
+		"DB_PATH":             "/data/k.db",
+		"TEXT_CHANNELS":       " general, links ,,general, memes",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +50,8 @@ func TestAllOptions(t *testing.T) {
 		AllowedOrigins:     []string{"https://a.example", "http://localhost:5173"},
 		RejectUnauthorized: false,
 		MaxConnections:     5,
+		DBPath:             "/data/k.db",
+		TextChannels:       []string{"general", "links", "memes"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

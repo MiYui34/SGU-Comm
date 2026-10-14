@@ -2,6 +2,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"slices"
 	"strconv"
@@ -17,6 +18,22 @@ type Config struct {
 	// Most Mumble servers use self-signed certificates.
 	RejectUnauthorized bool
 	MaxConnections     int
+	// SQLite file for text channels and messages.
+	DBPath string
+	// Text channel names, in display order.
+	TextChannels []string
+}
+
+// list splits a comma-separated value, trims and drops empty and repeated
+// entries.
+func list(value string) []string {
+	var out []string
+	for _, v := range strings.Split(value, ",") {
+		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func parsePort(value string, fallback int) (int, bool) {
@@ -33,11 +50,7 @@ func Parse(getenv func(string) string) (Config, error) {
 	if c.MumbleHost == "" {
 		return Config{}, errors.New("MUMBLE_HOST is required")
 	}
-	for _, o := range strings.Split(getenv("ALLOWED_ORIGINS"), ",") {
-		if o = strings.TrimSpace(o); o != "" {
-			c.AllowedOrigins = append(c.AllowedOrigins, o)
-		}
-	}
+	c.AllowedOrigins = list(getenv("ALLOWED_ORIGINS"))
 	if len(c.AllowedOrigins) == 0 {
 		return Config{}, errors.New("ALLOWED_ORIGINS is required (use * to allow every origin)")
 	}
@@ -55,6 +68,10 @@ func Parse(getenv func(string) string) (Config, error) {
 			return Config{}, errors.New("MAX_CONNECTIONS must be a positive integer")
 		}
 		c.MaxConnections = n
+	}
+	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
+	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
+		c.TextChannels = []string{"general"}
 	}
 	return c, nil
 }
