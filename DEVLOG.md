@@ -180,3 +180,34 @@ folder keep the old name "mumble-discord".
   when no packet decrypted for 5 s, at most every 5 s.
 - Closing a `tls.Conn` waits for its writer (close_notify needs the write
   lock), so the server never closes a connection while it holds a lock.
+
+## Built-in Mumble server (2026-10-14)
+
+- `server/internal/mumbled` replaces Murmur: channels, accounts, Murmur's
+  ACL model, moderation, whispers and listeners, Mumble clients before 1.5,
+  comments and avatars, limits. The Kallisti server runs it by default; web
+  clients join in-process (net.Pipe from the WebSocket bridge, with the real
+  client IP), Kallisti accounts are Mumble registrations by their
+  certificate hash. One container, no Murmur.
+- Structure: `State` (channels, users, ACL evaluation, receivers) has no
+  IO; handlers check permissions and call it under one lock. A change
+  counter invalidates cached voice receivers, so no ACL evaluation runs per
+  voice packet.
+- The official client in podman (Xvfb, `packages/devtools/mumble-client`)
+  tests every step: Mumble 1.5 from Debian trixie, 1.3.4 from bookworm.
+  First-run dialogs: 1.5 reads a JSON settings file (`settings_version`
+  and categories), 1.3 an ini file; certificates as base64 PKCS#12.
+  xdotool drives menus (the ACL editor, "View Comment", "Listen To
+  Channel"); there is no window manager, so tooltips do not show.
+- Protocol details that cost time:
+  - proto2 defaults: `ACL.ChanACL.inherited` and `ChanGroup.inherited`
+    default to true, so a missing field means "inherited"; always send it,
+    and do not filter on it when reading.
+  - `BanList.BanEntry.address` and `mask` are required fields.
+  - Legacy UDP positions are floats in native (little-endian) order.
+  - A field in a UserState is a change for clients: send only set flags,
+    or the official client logs "unmuted by the server" for new users.
+  - Murmur switches a client to UDP voice only after UDP audio from it,
+    not after a ping, and back to TCP on a UDPTunnel over TCP.
+- Murmur's source (Messages.cpp, Server.cpp, ACL.cpp, Group.cpp) is the
+  reference for every rule; reviews compared against it each step.
