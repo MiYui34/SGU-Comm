@@ -9,7 +9,6 @@
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
 - [ ] [Voice: fall back to the default microphone](issues/voice-fall-back-to-the-default-microphone.md)
-- [ ] [Settings: handle localStorage failures and sync between tabs](issues/settings-handle-localstorage-failures-and-sync-between-tabs.md)
 - [ ] [Direct messages keyed by user, not session](issues/direct-messages-keyed-by-user-not-session.md)
 - [ ] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
 - [ ] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)

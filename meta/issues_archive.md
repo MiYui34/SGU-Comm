@@ -12,3 +12,4 @@
 - [x] [File and image uploads](issues/file-and-image-uploads.md)
 - [x] [Fetch long channel descriptions with RequestBlob](issues/fetch-long-channel-descriptions-with-requestblob.md)
 - [x] [Push-to-talk: Space presses a focused button](issues/push-to-talk-space-presses-a-focused-button.md)
+- [x] [Settings: handle localStorage failures and sync between tabs](issues/settings-handle-localstorage-failures-and-sync-between-tabs.md)
