@@ -71,7 +71,7 @@
   const updateSelf = (s: SelfState) => {
     if (me) connection.send(setSelfState(me.session, s));
   };
-  const send = (text: string) => connection.sendText(channelId, text);
+  const send = (text: string) => connection.sendText({ channelId }, text);
 </script>
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />

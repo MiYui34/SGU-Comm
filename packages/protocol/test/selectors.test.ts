@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { audioFormat, channelTree, messagesIn, usersIn, usersSorted } from "../src/selectors";
+import {
+  audioFormat,
+  channelTree,
+  messagesIn,
+  privateMessagesWith,
+  usersIn,
+  usersSorted,
+} from "../src/selectors";
 import {
   emptyChannel,
   emptyUser,
@@ -125,5 +132,32 @@ describe("audioFormat", () => {
   it("uses legacy audio before 1.5 and when the version is unknown", () => {
     expect(audioFormat(v(1, 4))).toBe("legacy");
     expect(audioFormat(initialState)).toBe("legacy");
+  });
+});
+
+describe("privateMessagesWith", () => {
+  const msg = (text: string, actor: number | null, sessions: number[], channelIds: number[] = []) => ({
+    actor,
+    actorName: null,
+    channelIds,
+    treeIds: [],
+    sessions,
+    text,
+    at: 0,
+  });
+
+  it("returns the private conversation between us and one user", () => {
+    const s: ServerState = {
+      ...initialState,
+      session: 1,
+      messages: [
+        msg("from 2", 2, [1]),
+        msg("to 2", 1, [2]),
+        msg("to 3", 1, [3]),
+        msg("from 3", 3, [1]),
+        msg("channel", 2, [], [0]),
+      ],
+    };
+    expect(privateMessagesWith(s, 2).map((m) => m.text)).toEqual(["from 2", "to 2"]);
   });
 });

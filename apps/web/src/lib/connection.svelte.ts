@@ -14,6 +14,7 @@ import {
   type MumbleMessage,
   type OutgoingAudio,
   type ServerState,
+  type TextTarget,
 } from "@mumble-discord/protocol";
 import { createCapture } from "./voice/capture.svelte";
 import { createPlayback } from "./voice/playback.svelte";
@@ -90,9 +91,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     playback,
     capture,
     send,
-    sendText: (channelId: number, text: string) => {
-      send(sendText(channelId, text));
-      state = addOwnMessage(state, channelId, text, Date.now());
+    sendText: (target: TextTarget, text: string) => {
+      send(sendText(target, text));
+      state = addOwnMessage(state, target, text, Date.now());
     },
     close: () => ws.close(),
   };

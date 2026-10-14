@@ -204,7 +204,7 @@ describe("addOwnMessage", () => {
         { type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 7 }) },
         userState({ session: 7, name: "me" }),
       ]),
-      3,
+      { channelId: 3 },
       "hi & bye",
       5000,
     );
@@ -217,5 +217,15 @@ describe("addOwnMessage", () => {
       text: "hi &amp; bye",
       at: 5000,
     });
+  });
+
+  it("adds a sent private message with the target session", () => {
+    const s = addOwnMessage(
+      run([{ type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 7 }) }]),
+      { session: 4 },
+      "psst",
+      1,
+    );
+    expect(s.messages.at(-1)).toMatchObject({ actor: 7, channelIds: [], sessions: [4] });
   });
 });

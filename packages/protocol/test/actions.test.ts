@@ -19,10 +19,18 @@ describe("escapeHtml", () => {
 
 describe("sendText", () => {
   it("sends escaped text to one channel", () => {
-    const msg = decodeOne(sendText(4, "a < b"));
+    const msg = decodeOne(sendText({ channelId: 4 }, "a < b"));
     if (msg.type !== "TextMessage") throw new Error();
     expect(msg.message.channelId).toEqual([4]);
+    expect(msg.message.session).toEqual([]);
     expect(msg.message.message).toBe("a &lt; b");
+  });
+
+  it("sends a private message to one user", () => {
+    const msg = decodeOne(sendText({ session: 9 }, "psst"));
+    if (msg.type !== "TextMessage") throw new Error();
+    expect(msg.message.session).toEqual([9]);
+    expect(msg.message.channelId).toEqual([]);
   });
 });
 

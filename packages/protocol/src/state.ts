@@ -1,5 +1,5 @@
 import { create, isFieldSet, type DescField, type Message } from "@bufbuild/protobuf";
-import { escapeHtml } from "./actions";
+import { textMessageInit, type TextTarget } from "./actions";
 import * as pb from "./gen/Mumble_pb";
 import type { MumbleMessage } from "./messages";
 
@@ -209,10 +209,10 @@ export const reduce = (
 };
 
 // The server does not echo our own text messages, so add them locally.
-// Takes plain text, like `sendText`.
+// Takes plain text and a target, like `sendText`.
 export const addOwnMessage = (
   state: ServerState,
-  channelId: number,
+  target: TextTarget,
   text: string,
   now: number,
 ): ServerState =>
@@ -220,8 +220,7 @@ export const addOwnMessage = (
     state,
     create(pb.TextMessageSchema, {
       ...(state.session === null ? {} : { actor: state.session }),
-      channelId: [channelId],
-      message: escapeHtml(text),
+      ...textMessageInit(target, text),
     }),
     now,
   );
