@@ -1,3 +1,4 @@
+import type { AudioFormat } from "./audio";
 import type { Channel, ChatMessage, ServerState, User } from "./state";
 
 export type ChannelNode = { channel: Channel; children: ChannelNode[] };
@@ -45,3 +46,6 @@ export const messagesIn = (state: ServerState, channelId: number): ChatMessage[]
     (m) => m.channelIds.includes(channelId) || m.treeIds.some((id) => trees.has(id)),
   );
 };
+
+export const audioFormat = ({ serverVersion: v }: ServerState): AudioFormat =>
+  v && (v.major > 1 || (v.major === 1 && v.minor >= 5)) ? "protobuf" : "legacy";

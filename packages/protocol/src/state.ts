@@ -37,7 +37,10 @@ export type ChatMessage = {
   at: number;
 };
 
+export type Version = { major: number; minor: number; patch: number };
+
 export type ServerState = {
+  serverVersion: Version | null;
   status: "connecting" | "synced" | "rejected" | "kicked";
   session: number | null;
   welcomeText: string;
@@ -49,6 +52,7 @@ export type ServerState = {
 };
 
 export const initialState: ServerState = {
+  serverVersion: null,
   status: "connecting",
   session: null,
   welcomeText: "",
@@ -91,6 +95,19 @@ export const emptyUser = (session: number): User => ({
   prioritySpeaker: false,
   recording: false,
 });
+
+const parseVersion = (msg: pb.Version): Version =>
+  isFieldSet(msg, pb.VersionSchema.field.versionV2)
+    ? {
+        major: Number(msg.versionV2 >> 48n),
+        minor: Number((msg.versionV2 >> 32n) & 0xffffn),
+        patch: Number((msg.versionV2 >> 16n) & 0xffffn),
+      }
+    : {
+        major: msg.versionV1 >>> 16,
+        minor: (msg.versionV1 >> 8) & 0xff,
+        patch: msg.versionV1 & 0xff,
+      };
 
 const without = <V>(record: Readonly<Record<number, V>>, key: number) => {
   const { [key]: _, ...rest } = record;
@@ -156,6 +173,8 @@ export const reduce = (
   now: number,
 ): ServerState => {
   switch (msg.type) {
+    case "Version":
+      return { ...state, serverVersion: parseVersion(msg.message) };
     case "ServerSync":
       return {
         ...state,

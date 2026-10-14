@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelTree, messagesIn, usersIn, usersSorted } from "../src/selectors";
+import { audioFormat, channelTree, messagesIn, usersIn, usersSorted } from "../src/selectors";
 import {
   emptyChannel,
   emptyUser,
@@ -111,5 +111,19 @@ describe("messagesIn", () => {
       "tree B",
     ]);
     expect(messagesIn(s, 1).map((m) => m.text)).toEqual(["to A", "tree A", "tree root"]);
+  });
+});
+
+describe("audioFormat", () => {
+  const v = (major: number, minor: number) => ({ ...initialState, serverVersion: { major, minor, patch: 0 } });
+
+  it("uses protobuf audio from 1.5 on", () => {
+    expect(audioFormat(v(1, 5))).toBe("protobuf");
+    expect(audioFormat(v(2, 0))).toBe("protobuf");
+  });
+
+  it("uses legacy audio before 1.5 and when the version is unknown", () => {
+    expect(audioFormat(v(1, 4))).toBe("legacy");
+    expect(audioFormat(initialState)).toBe("legacy");
   });
 });

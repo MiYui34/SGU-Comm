@@ -37,6 +37,24 @@ describe("reduce", () => {
     expect(s).toMatchObject({ status: "synced", session: 3, welcomeText: "hi" });
   });
 
+  it("stores the server version from the new format", () => {
+    const s = run([
+      {
+        type: "Version",
+        message: create(pb.VersionSchema, {
+          versionV1: 0x010400,
+          versionV2: (1n << 48n) | (5n << 32n) | (915n << 16n),
+        }),
+      },
+    ]);
+    expect(s.serverVersion).toEqual({ major: 1, minor: 5, patch: 915 });
+  });
+
+  it("falls back to the legacy version format", () => {
+    const s = run([{ type: "Version", message: create(pb.VersionSchema, { versionV1: 0x010403 }) }]);
+    expect(s.serverVersion).toEqual({ major: 1, minor: 4, patch: 3 });
+  });
+
   it("stores the reason on Reject", () => {
     const s = run([
       {
