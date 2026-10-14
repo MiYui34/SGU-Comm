@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -147,4 +148,73 @@ func TestStreamErrorTellsTheClient(t *testing.T) {
 	if m := readJSON(t, c); m["type"] != "error" {
 		t.Fatalf("got %v, want an error event", m)
 	}
+}
+
+func hello(name string) []byte {
+	return append(
+		mumbleFrame(mumble.TypeVersion, &pb.Version{Release: proto.String("Kallisti")}),
+		mumbleFrame(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name)})...,
+	)
+}
+
+// readReject returns the Reject message if the next binary frame is one.
+func readReject(t *testing.T, c *websocket.Conn) *pb.Reject {
+	t.Helper()
+	typ, data, err := c.Read(testCtx(t))
+	if err != nil || typ != websocket.MessageBinary || len(data) < 6 || data[1] != mumble.TypeReject {
+		return nil
+	}
+	var m pb.Reject
+	if proto.Unmarshal(data[6:], &m) != nil {
+		return nil
+	}
+	return &m
+}
+
+func TestDuplicateGuestNamesAreRefused(t *testing.T) {
+	echo := startEcho(t)
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true})
+	first, _, err := connect(t, url, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Write(testCtx(t), websocket.MessageBinary, hello("alice"))
+	eventually(t, func() bool { return echo.open.Load() == 1 })
+	second, _, err := connect(t, url, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.Write(testCtx(t), websocket.MessageBinary, hello("Alice")) // names are case-insensitive
+	if m := readReject(t, second); m == nil || m.GetType() != pb.Reject_UsernameInUse {
+		t.Fatalf("got %v, want a UsernameInUse reject", m)
+	}
+	if echo.open.Load() != 1 {
+		t.Fatal("the refused guest reached the upstream")
+	}
+	// The first guest is still connected.
+	first.Write(testCtx(t), websocket.MessageBinary, []byte{9})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for {
+		_, data, err := first.Read(ctx)
+		if err != nil {
+			t.Fatalf("first guest lost: %v", err)
+		}
+		if bytes.HasSuffix(data, []byte{9}) {
+			break
+		}
+	}
+}
+
+func TestNameIsFreeAgainAfterLeaving(t *testing.T) {
+	echo := startEcho(t)
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true})
+	first, _, _ := connect(t, url, "")
+	first.Write(testCtx(t), websocket.MessageBinary, hello("bob"))
+	eventually(t, func() bool { return echo.open.Load() == 1 })
+	first.Close(websocket.StatusNormalClosure, "")
+	eventually(t, func() bool { return echo.open.Load() == 0 })
+	second, _, _ := connect(t, url, "")
+	second.Write(testCtx(t), websocket.MessageBinary, hello("bob"))
+	eventually(t, func() bool { return echo.open.Load() == 1 })
 }

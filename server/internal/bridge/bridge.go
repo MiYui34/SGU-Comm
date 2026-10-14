@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/mumble/pb"
 	"kallisti.chat/server/internal/sidecar"
 )
 
@@ -36,6 +38,10 @@ type Options struct {
 	// Sidecar serves text channels over text frames. Nil: text frames close
 	// the connection with 1003.
 	Sidecar *sidecar.Hub
+	// Refuse a guest whose name another web guest already uses. All web
+	// users share our IP, and Murmur kicks the older session of a name
+	// from the same IP.
+	UniqueGuestNames bool
 }
 
 type Bridge struct {
@@ -43,6 +49,7 @@ type Bridge struct {
 	mu     sync.Mutex
 	active int
 	perIP  map[string]int
+	names  map[string]bool // lower-case names of connected guests
 	closed bool
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -51,7 +58,7 @@ type Bridge struct {
 
 func New(opts Options) *Bridge {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}}
+	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}, names: map[string]bool{}}
 }
 
 // Close refuses new connections, ends the open ones (close code 1001) and
@@ -131,6 +138,23 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(MaxPayload)
 
+	// Guests: read up to Authenticate first, and refuse a name in use.
+	var hello []byte
+	if b.opts.UniqueGuestNames {
+		name, early, ok := b.readHello(ws)
+		if !ok {
+			return
+		}
+		if !b.reserveName(name) {
+			ws.Write(b.ctx, websocket.MessageBinary,
+				mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is already in use."))
+			ws.Close(websocket.StatusNormalClosure, "name in use")
+			return
+		}
+		defer b.releaseName(name)
+		hello = early
+	}
+
 	upstream, err := b.opts.Dial(b.ctx)
 	if err != nil {
 		slog.Warn("upstream connect failed", "err", err)
@@ -138,6 +162,10 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upstream.Close()
+	if _, err := upstream.Write(hello); err != nil {
+		ws.Close(websocket.StatusInternalError, "upstream write failed")
+		return
+	}
 
 	// Not derived from b.ctx: cancelling a read drops the connection without
 	// a close frame. Shutdown goes through the AfterFunc below instead.
@@ -262,4 +290,52 @@ func (c *conn) writeSidecar() {
 			return
 		}
 	}
+}
+
+// helloTimeout: a client that does not authenticate in time is dropped.
+const helloTimeout = 10 * time.Second
+
+// readHello reads the client's first binary frames up to Authenticate. It
+// returns the requested name and all bytes read (to forward unchanged).
+func (b *Bridge) readHello(ws *websocket.Conn) (string, []byte, bool) {
+	ctx, cancel := context.WithTimeout(b.ctx, helloTimeout)
+	defer cancel()
+	var auth mumble.AuthReader
+	var early []byte
+	for {
+		typ, data, err := ws.Read(ctx)
+		if err != nil {
+			ws.Close(websocket.StatusPolicyViolation, "no authentication")
+			return "", nil, false
+		}
+		if typ != websocket.MessageBinary {
+			continue // sidecar requests before the login: nothing to answer yet
+		}
+		early = append(early, data...)
+		name, done, err := auth.Feed(data)
+		if err != nil {
+			ws.Close(websocket.StatusProtocolError, "invalid Mumble stream")
+			return "", nil, false
+		}
+		if done {
+			return name, early, true
+		}
+	}
+}
+
+func (b *Bridge) reserveName(name string) bool {
+	key := strings.ToLower(name)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.names[key] {
+		return false
+	}
+	b.names[key] = true
+	return true
+}
+
+func (b *Bridge) releaseName(name string) {
+	b.mu.Lock()
+	delete(b.names, strings.ToLower(name))
+	b.mu.Unlock()
 }

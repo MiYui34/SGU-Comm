@@ -63,6 +63,7 @@ func run() error {
 	}
 	b := bridge.New(bridge.Options{
 		Sidecar:           hub,
+		UniqueGuestNames:  true,
 		AllowedOrigins:    cfg.AllowedOrigins,
 		MaxConnections:    cfg.MaxConnections,
 		MaxPerIP:          cfg.MaxPerIP,

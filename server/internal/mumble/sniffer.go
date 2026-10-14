@@ -2,9 +2,6 @@
 package mumble
 
 import (
-	"encoding/binary"
-	"fmt"
-
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/mumble/pb"
@@ -12,9 +9,12 @@ import (
 
 // TCP message types (the order of messages in Mumble.proto).
 const (
-	TypeUDPTunnel  = 1
-	TypeServerSync = 5
-	TypeUserState  = 9
+	TypeVersion      = 0
+	TypeUDPTunnel    = 1
+	TypeAuthenticate = 2
+	TypeReject       = 4
+	TypeServerSync   = 5
+	TypeUserState    = 9
 )
 
 const (
@@ -36,12 +36,7 @@ type Identity struct {
 // finds out whose connection it is. It never changes the stream. Frames it
 // does not need (voice is most of the traffic) are skipped, not copied.
 type Sniffer struct {
-	header []byte
-	typ    uint16
-	body   []byte
-	need   int // body bytes still to read (or skip) for the current frame
-	keep   bool
-
+	frames frameReader
 	synced bool
 	self   Identity
 	// Users seen before ServerSync: Murmur sends all UserStates first.
@@ -52,52 +47,19 @@ type Sniffer struct {
 // with this chunk (first known after ServerSync, or renamed later).
 func (s *Sniffer) Feed(chunk []byte) (Identity, bool, error) {
 	changed := false
-	for len(chunk) > 0 {
-		// need == 0: between frames (empty bodies are handled at once).
-		if s.need == 0 {
-			n := min(headerSize-len(s.header), len(chunk))
-			s.header = append(s.header, chunk[:n]...)
-			chunk = chunk[n:]
-			if len(s.header) < headerSize {
-				break
-			}
-			s.typ = binary.BigEndian.Uint16(s.header)
-			length := binary.BigEndian.Uint32(s.header[2:])
-			s.header = s.header[:0]
-			if length > MaxPayload {
-				return s.self, changed, fmt.Errorf("frame too large: %d bytes", length)
-			}
-			s.need = int(length)
-			s.keep = s.typ == TypeServerSync || s.typ == TypeUserState
-			s.body = s.body[:0]
-			if s.need == 0 {
-				changed = s.handle() || changed
-			}
-			continue
-		}
-		n := min(s.need, len(chunk))
-		if s.keep {
-			s.body = append(s.body, chunk[:n]...)
-		}
-		s.need -= n
-		chunk = chunk[n:]
-		if s.need == 0 {
-			changed = s.handle() || changed
-		}
-	}
-	return s.self, changed, nil
+	err := s.frames.feed(chunk,
+		func(typ uint16) bool { return typ == TypeServerSync || typ == TypeUserState },
+		func(typ uint16, body []byte) { changed = s.handle(typ, body) || changed })
+	return s.self, changed, err
 }
 
 // handle processes one complete frame. Broken messages are skipped: the
 // stream itself is still in sync, only this message is unreadable.
-func (s *Sniffer) handle() bool {
-	if !s.keep {
-		return false
-	}
-	switch s.typ {
+func (s *Sniffer) handle(typ uint16, body []byte) bool {
+	switch typ {
 	case TypeUserState:
 		var m pb.UserState
-		if proto.Unmarshal(s.body, &m) != nil || m.Session == nil {
+		if proto.Unmarshal(body, &m) != nil || m.Session == nil {
 			return false
 		}
 		// UserStates are partial: apply only the fields that are set.
@@ -126,7 +88,7 @@ func (s *Sniffer) handle() bool {
 		return changed
 	case TypeServerSync:
 		var m pb.ServerSync
-		if s.synced || proto.Unmarshal(s.body, &m) != nil {
+		if s.synced || proto.Unmarshal(body, &m) != nil {
 			return false
 		}
 		s.synced = true
