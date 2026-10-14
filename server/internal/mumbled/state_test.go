@@ -167,3 +167,67 @@ func TestVoiceGoesToTheChannelAndLinkedChannels(t *testing.T) {
 		*s.Users[1] = u
 	}
 }
+
+func TestTemporaryChannelsHaveNoSubchannels(t *testing.T) {
+	s := newTestState(t)
+	tmp := mustAdd(t, s, 0, "Tmp", true)
+	if _, err := s.AddChannel(tmp.ID, "Inside", false); denyType(err) != pb.PermissionDenied_TemporaryChannel {
+		t.Fatalf("made a channel in a temporary channel: %v", err)
+	}
+	a := mustAdd(t, s, 0, "A", false)
+	if err := s.EditChannel(a.ID, ChannelEdit{Parent: &tmp.ID}); denyType(err) != pb.PermissionDenied_TemporaryChannel {
+		t.Fatalf("moved a channel into a temporary channel: %v", err)
+	}
+}
+
+func TestOrphansAreMovedBelowRoot(t *testing.T) {
+	s := NewState("Root", []Channel{{ID: 5, Parent: 4, Name: "Orphan"}, {ID: 6, Parent: 5, Name: "Child"}})
+	if s.Channels[5].Parent != 0 || s.Channels[6].Parent != 5 {
+		t.Fatalf("orphan at %d", s.Channels[5].Parent)
+	}
+	if len(s.Tree()) != 3 {
+		t.Fatal("orphan not in the tree")
+	}
+}
+
+func TestChannelNamesMayUseAnyLetters(t *testing.T) {
+	s := newTestState(t)
+	for _, name := range []string{"Küche", "Канал", "部屋 2"} {
+		if _, err := s.AddChannel(0, name, false); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestRootCannotBeRenamed(t *testing.T) {
+	s := newTestState(t)
+	name := "Other"
+	if err := s.EditChannel(0, ChannelEdit{Name: &name}); err == nil {
+		t.Fatal("renamed root")
+	}
+	desc := "about the server"
+	if err := s.EditChannel(0, ChannelEdit{Description: &desc}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSavedRootKeepsTheConfiguredName(t *testing.T) {
+	s := NewState("Kallisti", []Channel{{ID: 0, Name: "Old", Description: "hello"}})
+	if s.Channels[0].Name != "Kallisti" || s.Channels[0].Description != "hello" {
+		t.Fatalf("root %+v", s.Channels[0])
+	}
+}
+
+func TestPlainText(t *testing.T) {
+	for in, want := range map[string]string{
+		"<b>hi</b> all": "hi all",
+		"a < b > c":     "a < b > c",
+		"x <img src=a":  "x",
+		"<!-- c -->ok":  "ok",
+		"  spaced  ":    "spaced",
+	} {
+		if got := plainText(in); got != want {
+			t.Errorf("plainText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

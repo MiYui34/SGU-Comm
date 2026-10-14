@@ -1,6 +1,7 @@
-// Package mumbled is a minimal Mumble server (spike): one root channel,
-// users, text, and voice over the TCP tunnel and UDP. Only clients from
-// 1.5 on (the protobuf UDP format) are accepted for now.
+// Package mumbled is the built-in Mumble server. The state (channels,
+// users) is in State, without IO; this file has the connections, voice and
+// UDP, messages.go the control messages. Only clients from 1.5 on (the
+// protobuf UDP format) are accepted for now.
 package mumbled
 
 import (
@@ -8,9 +9,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/netip"
-	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +28,9 @@ import (
 )
 
 type Config struct {
-	Welcome string
+	Welcome  string
+	RootName string // default "Root"
+	DB       *DB    // nil: nothing is saved
 }
 
 const (
@@ -61,8 +65,11 @@ var (
 
 type Server struct {
 	cfg Config
+	// Taken before mu by changes that are saved, so saves keep their order.
+	saveMu sync.Mutex
 
 	mu      sync.Mutex
+	state   *State
 	clients map[uint32]*client
 	byAddr  map[netip.AddrPort]*client
 	next    uint32
@@ -79,9 +86,8 @@ type client struct {
 	limiter   *rate.Limiter
 
 	// Guarded by Server.mu.
-	selfMute, selfDeaf bool
-	udpAddr            netip.AddrPort
-	udpVoice           bool // send voice over UDP (it sent voice over UDP)
+	udpAddr  netip.AddrPort
+	udpVoice bool // send voice over UDP (it sent voice over UDP)
 
 	cryptMu     sync.Mutex
 	crypt       *cryptstate.CryptState
@@ -89,8 +95,29 @@ type client struct {
 	lastRequest time.Time
 }
 
-func New(cfg Config) *Server {
-	return &Server{cfg: cfg, clients: map[uint32]*client{}, byAddr: map[netip.AddrPort]*client{}}
+func New(cfg Config) (*Server, error) {
+	if cfg.RootName == "" {
+		cfg.RootName = "Root"
+	}
+	var saved []Channel
+	var lastID uint32
+	if cfg.DB != nil {
+		var err error
+		if saved, err = cfg.DB.Channels(); err != nil {
+			return nil, err
+		}
+		if lastID, err = cfg.DB.NextChannel(); err != nil {
+			return nil, err
+		}
+	}
+	state := NewState(cfg.RootName, saved)
+	state.SetLastChannelID(lastID)
+	return &Server{
+		cfg:     cfg,
+		state:   state,
+		clients: map[uint32]*client{},
+		byAddr:  map[netip.AddrPort]*client{},
+	}, nil
 }
 
 // Serve accepts TLS connections until the listener closes.
@@ -265,8 +292,8 @@ func (s *Server) join(c *client, setup *pb.CryptSetup) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := names.Key(c.name)
-	for _, o := range s.clients {
-		if names.Key(o.name) == key {
+	for _, u := range s.state.Users {
+		if names.Key(u.Name) == key {
 			return false
 		}
 	}
@@ -279,15 +306,23 @@ func (s *Server) join(c *client, setup *pb.CryptSetup) bool {
 	c.sendMsg(mumble.TypeCodecVersion, &pb.CodecVersion{
 		Alpha: proto.Int32(celt070), Beta: proto.Int32(0), PreferAlpha: proto.Bool(true), Opus: proto.Bool(true),
 	})
-	c.sendMsg(mumble.TypeChannelState, &pb.ChannelState{ChannelId: proto.Uint32(0), Name: proto.String("Root")})
-	for _, o := range s.clients {
-		c.send(userState(o), false)
+	tree := s.state.Tree()
+	for _, ch := range tree {
+		c.sendMsg(mumble.TypeChannelState, channelState(ch))
 	}
+	// Links once all channels exist, as Murmur does.
+	for _, ch := range tree {
+		if len(ch.Links) > 0 {
+			c.sendMsg(mumble.TypeChannelState, &pb.ChannelState{ChannelId: proto.Uint32(ch.ID), Links: slices.Sorted(maps.Keys(ch.Links))})
+		}
+	}
+	for _, u := range s.state.Users {
+		c.send(userState(u), false)
+	}
+	u := &User{Session: c.session, Name: c.name}
+	s.state.AddUser(u)
 	s.clients[c.session] = c
-	state := userState(c)
-	for _, o := range s.clients {
-		o.send(state, false)
-	}
+	s.broadcastLocked(userState(u), nil)
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),
 		WelcomeText: proto.String(s.cfg.Welcome), Permissions: proto.Uint64(permissions),
@@ -305,14 +340,29 @@ func (s *Server) leave(c *client) {
 	if s.byAddr[c.udpAddr] == c {
 		delete(s.byAddr, c.udpAddr)
 	}
+	removed := s.state.RemoveUser(c.session)
 	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(c.session)}), nil)
+	s.broadcastRemovedLocked(removed)
 }
 
-// userState is the full UserState of a client. Needs Server.mu.
-func userState(c *client) []byte {
+// channelState is the full ChannelState of a channel, without links.
+func channelState(ch *Channel) *pb.ChannelState {
+	m := &pb.ChannelState{
+		ChannelId: proto.Uint32(ch.ID), Name: proto.String(ch.Name), Description: proto.String(ch.Description),
+		Position: proto.Int32(ch.Position), Temporary: proto.Bool(ch.Temporary),
+	}
+	if ch.ID != 0 {
+		m.Parent = proto.Uint32(ch.Parent)
+	}
+	return m
+}
+
+// userState is the full UserState of a user.
+func userState(u *User) []byte {
 	return mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-		Session: proto.Uint32(c.session), Name: proto.String(c.name), ChannelId: proto.Uint32(0),
-		SelfMute: proto.Bool(c.selfMute), SelfDeaf: proto.Bool(c.selfDeaf),
+		Session: proto.Uint32(u.Session), Name: proto.String(u.Name), ChannelId: proto.Uint32(u.Channel),
+		SelfMute: proto.Bool(u.SelfMute), SelfDeaf: proto.Bool(u.SelfDeaf),
+		Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf), Suppress: proto.Bool(u.Suppress),
 	})
 }
 
@@ -325,102 +375,10 @@ func (s *Server) broadcastLocked(frame []byte, skip *client) {
 	}
 }
 
-// selfState applies a client's own mute and deafen change, with Mumble's
-// rules: deafened means muted, and unmuting undeafens.
-func selfState(mute, deaf bool, m *pb.UserState) (bool, bool) {
-	if m.SelfMute != nil {
-		mute = m.GetSelfMute()
-		if !mute {
-			deaf = false
-		}
-	}
-	if m.SelfDeaf != nil {
-		deaf = m.GetSelfDeaf()
-		if deaf {
-			mute = true
-		}
-	}
-	return mute, deaf
-}
-
-var htmlTag = regexp.MustCompile(`<[^>]*>`)
-
-// plainText removes HTML tags: the server does not allow HTML (as Murmur
-// with allowhtml off), and Mumble clients would render it.
-func plainText(s string) string {
-	return strings.TrimSpace(htmlTag.ReplaceAllString(s, ""))
-}
-
-func (s *Server) message(c *client, typ uint16, body []byte) {
-	switch typ {
-	case mumble.TypePing:
-		var ping pb.Ping
-		proto.Unmarshal(body, &ping)
-		stats := c.stats()
-		c.sendMsg(mumble.TypePing, &pb.Ping{Timestamp: ping.Timestamp, Good: stats.Good, Late: stats.Late, Lost: stats.Lost})
-	case mumble.TypeUDPTunnel:
-		s.mu.Lock()
-		c.udpVoice = false
-		s.mu.Unlock()
-		s.voice(c, body)
-	case mumble.TypeUserState:
-		var m pb.UserState
-		if proto.Unmarshal(body, &m) != nil || (m.Session != nil && m.GetSession() != c.session) || !c.limiter.Allow() {
-			return // moderation is not part of the spike
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		c.selfMute, c.selfDeaf = selfState(c.selfMute, c.selfDeaf, &m)
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(c.session), Actor: proto.Uint32(c.session),
-			SelfMute: proto.Bool(c.selfMute), SelfDeaf: proto.Bool(c.selfDeaf),
-		}), nil)
-	case mumble.TypeTextMessage:
-		var m pb.TextMessage
-		if proto.Unmarshal(body, &m) != nil || len(m.GetMessage()) > maxTextLength || !c.limiter.Allow() {
-			return
-		}
-		// Only messages to the channel: private messages and trees are not
-		// part of the spike.
-		if len(m.Session) > 0 || len(m.TreeId) > 0 || len(m.ChannelId) != 1 || m.ChannelId[0] != 0 {
-			return
-		}
-		text := plainText(m.GetMessage())
-		if text == "" {
-			return
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeTextMessage, &pb.TextMessage{
-			Actor: proto.Uint32(c.session), ChannelId: []uint32{0}, Message: proto.String(text),
-		}), c)
-	case mumble.TypeCryptSetup:
-		var m pb.CryptSetup
-		proto.Unmarshal(body, &m)
-		c.cryptMu.Lock()
-		if len(m.ClientNonce) == 16 {
-			c.crypt.DecryptIV = [16]byte(m.ClientNonce)
-		}
-		iv := c.crypt.EncryptIV
-		c.cryptMu.Unlock()
-		if len(m.ClientNonce) != 16 {
-			c.sendMsg(mumble.TypeCryptSetup, &pb.CryptSetup{ServerNonce: iv[:]})
-		}
-	case mumble.TypePermissionQuery:
-		c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
-			ChannelId: proto.Uint32(0), Permissions: proto.Uint32(permissions),
-		})
-	case mumble.TypeUserStats:
-		var m pb.UserStats
-		proto.Unmarshal(body, &m)
-		s.mu.Lock()
-		target := s.clients[m.GetSession()]
-		s.mu.Unlock()
-		if target != nil {
-			c.sendMsg(mumble.TypeUserStats, &pb.UserStats{
-				Session: proto.Uint32(target.session), StatsOnly: proto.Bool(true), FromClient: target.stats(),
-			})
-		}
+// broadcastRemovedLocked tells everyone about removed channels.
+func (s *Server) broadcastRemovedLocked(removed []uint32) {
+	for _, id := range removed {
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(id)}), nil)
 	}
 }
 
@@ -471,15 +429,9 @@ func (s *Server) voice(c *client, packet []byte) {
 		addr netip.AddrPort
 	}
 	s.mu.Lock()
-	if c.selfMute {
-		s.mu.Unlock()
-		return
-	}
 	var targets []target
-	for _, o := range s.clients {
-		if o == c || o.selfDeaf {
-			continue
-		}
+	for _, session := range s.state.Listeners(c.session) {
+		o := s.clients[session]
 		t := target{c: o}
 		if o.udpVoice && s.udp != nil {
 			t.addr = o.udpAddr

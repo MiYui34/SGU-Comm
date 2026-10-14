@@ -25,6 +25,11 @@ func start(t *testing.T) string {
 
 func startOn(t *testing.T, host string) string {
 	t.Helper()
+	return startWith(t, host, Config{Welcome: "Welcome!"})
+}
+
+func startWith(t *testing.T, host string, cfg Config) string {
+	t.Helper()
 	certPEM, keyPEM, err := certs.GenerateServer("test")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +43,10 @@ func startOn(t *testing.T, host string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(Config{Welcome: "Welcome!"})
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	go s.Serve(ln)
 	go s.ServeUDP(udp)
 	t.Cleanup(func() {
@@ -410,13 +418,10 @@ func TestCryptResync(t *testing.T) {
 	}
 }
 
-func TestPrivateMessagesAreNotBroadcast(t *testing.T) {
+func TestHTMLIsRemovedFromText(t *testing.T) {
 	addr := start(t)
 	alice := dial(t, addr, "alice")
 	bob := dial(t, addr, "bob")
-	// Private messages are not part of the spike: dropped, not sent to all.
-	alice.send(mumble.TypeTextMessage, &pb.TextMessage{Session: []uint32{bob.session}, Message: proto.String("psst")})
-	bob.expectNone(mumble.TypeTextMessage)
 	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{0}, Message: proto.String("<b>hi</b> all")})
 	var m pb.TextMessage
 	proto.Unmarshal(bob.expect(mumble.TypeTextMessage), &m)

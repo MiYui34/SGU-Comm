@@ -16,8 +16,9 @@ import (
 )
 
 // officialClient runs the official Mumble client in podman (see
-// packages/devtools/mumble-client) for the given time.
-func officialClient(t *testing.T, addr, name string, seconds int) {
+// packages/devtools/mumble-client) for the given time. The returned
+// function saves a screenshot to out/<name>-<label>.png.
+func officialClient(t *testing.T, addr, name string, seconds int) (screenshot func(label string)) {
 	t.Helper()
 	if os.Getenv("KALLISTI_OFFICIAL_CLIENT") == "" {
 		t.Skip("set KALLISTI_OFFICIAL_CLIENT=1 to test with the official client in podman")
@@ -40,6 +41,10 @@ func officialClient(t *testing.T, addr, name string, seconds int) {
 		exec.Command("podman", "rm", "-f", container).Run()
 		cmd.Wait()
 	})
+	return func(label string) {
+		exec.Command("podman", "exec", "-e", "DISPLAY=:1", container,
+			"import", "-window", "root", fmt.Sprintf("/out/%s-%s.png", name, label)).Run()
+	}
 }
 
 // waitForUser reads UserStates until the named user appears.
@@ -60,7 +65,9 @@ func (c *testClient) waitForUser(name string, d time.Duration) uint32 {
 func TestOfficialClientJoinsAndTalks(t *testing.T) {
 	addr := startOn(t, "0.0.0.0")
 	watcher := dial(t, addr, "watcher")
-	officialClient(t, addr, "official", 20)
+	games := watcher.createChannel(0, "Games", false)
+	watcher.createChannel(games, "Lobby", false)
+	screenshot := officialClient(t, addr, "official", 30)
 	session := watcher.waitForUser("official", 40*time.Second)
 	// It transmits continuously from a silent microphone.
 	deadline := time.Now().Add(10 * time.Second)
@@ -78,4 +85,13 @@ func TestOfficialClientJoinsAndTalks(t *testing.T) {
 	if stats.GetFromClient().GetGood() == 0 {
 		t.Fatalf("no UDP packets from the official client decrypted: %v", &stats)
 	}
+	// In another channel it is not heard any more.
+	watcher.move(session, games)
+	watcher.waitForMove(session, games)
+	time.Sleep(500 * time.Millisecond)
+	for len(watcher.frames) > 0 {
+		<-watcher.frames
+	}
+	watcher.expectNone(mumble.TypeUDPTunnel)
+	screenshot("moved")
 }

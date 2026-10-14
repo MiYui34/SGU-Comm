@@ -50,38 +50,61 @@ func deny(t pb.PermissionDenied_DenyType, format string, args ...any) error {
 	return &DenyError{Type: t, Reason: fmt.Sprintf(format, args...)}
 }
 
-// Murmur's default channel name rule, with a length limit.
-var channelName = regexp.MustCompile(`^[ \-=\w#\[\]{}()@|]+$`)
+// Murmur's default channel name rule (Qt's \w includes all letters), with
+// a length limit.
+var channelName = regexp.MustCompile(`^[ \-=\p{L}\p{N}\p{M}_#\[\]{}()@|]+$`)
 
 const maxChannelName = 100
 
 // NewState makes the state with the root channel and saved channels
-// (parents may come after children).
+// (parents may come after children). Root keeps the configured name;
+// channels whose parent is missing move below root.
 func NewState(rootName string, saved []Channel) *State {
 	s := &State{Channels: map[uint32]*Channel{}, Users: map[uint32]*User{}}
 	s.Channels[0] = &Channel{ID: 0, Name: rootName, Links: map[uint32]bool{}}
 	for _, c := range saved {
+		if c.ID == 0 {
+			s.Channels[0].Description, s.Channels[0].Position = c.Description, c.Position
+			continue
+		}
 		c := c
 		c.Links = map[uint32]bool{}
 		s.Channels[c.ID] = &c
 		s.nextChannel = max(s.nextChannel, c.ID)
 	}
+	for _, c := range s.Channels {
+		if c.ID != 0 && !s.reachesRoot(c.ID) {
+			c.Parent = 0
+		}
+	}
 	for _, c := range saved {
-		for l := range savedLinks(saved, c.ID) {
+		for l := range c.Links {
 			s.Link(c.ID, l)
 		}
 	}
 	return s
 }
 
-func savedLinks(saved []Channel, id uint32) map[uint32]bool {
-	for _, c := range saved {
-		if c.ID == id {
-			return c.Links
+// reachesRoot is false for channels whose parent chain is broken.
+func (s *State) reachesRoot(id uint32) bool {
+	for range len(s.Channels) {
+		c := s.Channels[id]
+		if c == nil {
+			return false
 		}
+		if id == 0 {
+			return true
+		}
+		id = c.Parent
 	}
-	return nil
+	return false // a loop
 }
+
+// SetLastChannelID makes new channels get higher ids (ids are not reused).
+func (s *State) SetLastChannelID(id uint32) { s.nextChannel = max(s.nextChannel, id) }
+
+// LastChannelID is the highest id given out.
+func (s *State) LastChannelID() uint32 { return s.nextChannel }
 
 func (s *State) checkName(parent uint32, name string, self uint32) error {
 	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > maxChannelName || !channelName.MatchString(name) {
@@ -96,8 +119,12 @@ func (s *State) checkName(parent uint32, name string, self uint32) error {
 }
 
 func (s *State) AddChannel(parent uint32, name string, temporary bool) (*Channel, error) {
-	if s.Channels[parent] == nil {
+	p := s.Channels[parent]
+	if p == nil {
 		return nil, deny(pb.PermissionDenied_Text, "no such channel")
+	}
+	if p.Temporary {
+		return nil, deny(pb.PermissionDenied_TemporaryChannel, "temporary channels have no subchannels")
 	}
 	name = strings.TrimSpace(name)
 	if err := s.checkName(parent, name, 0); err != nil {
@@ -134,14 +161,24 @@ func (s *State) EditChannel(id uint32, e ChannelEdit) error {
 	}
 	parent := c.Parent
 	if e.Parent != nil {
-		if id == 0 || s.Channels[*e.Parent] == nil || s.isBelow(*e.Parent, id) {
+		p := s.Channels[*e.Parent]
+		if id == 0 || p == nil || s.isBelow(*e.Parent, id) {
 			return deny(pb.PermissionDenied_Text, "cannot move the channel there")
+		}
+		if p.Temporary {
+			return deny(pb.PermissionDenied_TemporaryChannel, "temporary channels have no subchannels")
 		}
 		parent = *e.Parent
 	}
 	name := c.Name
 	if e.Name != nil {
+		if id == 0 {
+			return deny(pb.PermissionDenied_ChannelName, "the root channel has the server's name")
+		}
 		name = strings.TrimSpace(*e.Name)
+	}
+	if e.Description != nil && len(*e.Description) > maxTextLength {
+		return deny(pb.PermissionDenied_TextTooLong, "the description is too long")
 	}
 	if id != 0 && (e.Name != nil || e.Parent != nil) {
 		if err := s.checkName(parent, name, id); err != nil {
