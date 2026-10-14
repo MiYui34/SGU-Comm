@@ -32,3 +32,7 @@ export const setSelfState = (
 
 export const requestDescriptions = (channelIds: number[]) =>
   encodeMessage("RequestBlob", { channelDescription: channelIds });
+
+// Registers the own user on the server (needs a client certificate; the
+// Kallisti server provides one for accounts).
+export const registerSelf = (session: number) => encodeMessage("UserState", { session, userId: 0 });

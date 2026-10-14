@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decodeFrames } from "../src/framing";
 import { decodeMessage } from "../src/messages";
-import { escapeHtml, joinChannel, requestDescriptions, sendText, setSelfState } from "../src/actions";
+import { escapeHtml, joinChannel, registerSelf, requestDescriptions, sendText, setSelfState } from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
   const { frames } = decodeFrames(bytes);
@@ -55,5 +55,13 @@ describe("requestDescriptions", () => {
     const msg = decodeOne(requestDescriptions([0, 4]));
     if (msg.type !== "RequestBlob") throw new Error();
     expect(msg.message.channelDescription).toEqual([0, 4]);
+  });
+});
+
+describe("registerSelf", () => {
+  it("asks Murmur to register the own session", () => {
+    const msg = decodeOne(registerSelf(12));
+    if (msg.type !== "UserState") throw new Error();
+    expect(msg.message).toMatchObject({ session: 12, userId: 0 });
   });
 });
