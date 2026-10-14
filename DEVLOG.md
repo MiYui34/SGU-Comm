@@ -89,3 +89,10 @@ Server language: Rust or Go are preferred. Decide when sidecar work starts.
   This reopened the microphone on every slider step. Fix: derive the
   primitive (`$derived(prefs.inputDeviceId)`), which only notifies when the
   value changes.
+
+## Server language: Go (2026-10-14)
+
+The server (bridge now, sidecar later) moves to Go, in `server/`. Reasons:
+fast to write network servers in, natural backpressure with blocking I/O,
+and `pion` is a strong option if a WebRTC voice bridge is needed later.
+WebSocket library: `github.com/coder/websocket`.
