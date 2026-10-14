@@ -123,3 +123,28 @@ func TestTextFramesWithoutSidecarStillClose1003(t *testing.T) {
 		t.Errorf("close status %v, want 1003", got)
 	}
 }
+
+func TestStreamErrorTellsTheClient(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		header := make([]byte, 6)
+		binary.BigEndian.PutUint32(header[2:], 9<<20) // larger than any Mumble frame
+		c.Write(header)
+		io.Copy(io.Discard, c)
+	}()
+	c, _, err := connect(t, startBridge(t, Options{Dial: dialer(ln.Addr().String()), Sidecar: newSidecar(t)}), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := readJSON(t, c); m["type"] != "error" {
+		t.Fatalf("got %v, want an error event", m)
+	}
+}

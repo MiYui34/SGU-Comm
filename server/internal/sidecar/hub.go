@@ -73,7 +73,10 @@ type Conn struct {
 	limit    *rate.Limiter
 	mu       sync.Mutex
 	identity *mumble.Identity
+	ready    bool
 	closed   bool
+	// Messages were dropped (full outbox): the client must reload.
+	lagged bool
 }
 
 func (h *Hub) Connect() *Conn {
@@ -99,20 +102,24 @@ func (c *Conn) Close() {
 // first call makes the connection ready.
 func (c *Conn) SetIdentity(id mumble.Identity) {
 	// Same lock order as Close (hub, then conn): a connection that closed
-	// meanwhile is never registered.
+	// meanwhile is never registered. No name yet: not ready.
 	c.hub.mu.Lock()
 	c.mu.Lock()
-	first := c.identity == nil && !c.closed
+	becomesReady := !c.ready && !c.closed && id.Name != ""
 	c.identity = &id
-	if first {
+	if becomesReady {
+		c.ready = true
 		c.hub.conns[c] = struct{}{}
 	}
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
-	if first {
+	if becomesReady {
 		c.send(map[string]any{"type": "ready", "channels": c.hub.channels})
 	}
 }
+
+// Fail tells the client that text channels do not work on this connection.
+func (c *Conn) Fail(reason string) { c.sendError(reason) }
 
 type wireChannel struct {
 	ID   int64  `json:"id"`
@@ -120,12 +127,13 @@ type wireChannel struct {
 }
 
 type wireMessage struct {
-	ID      int64       `json:"id"`
-	Channel int64       `json:"channel"`
-	Author  string      `json:"author"`
-	Text    string      `json:"text"`
-	At      int64       `json:"at"` // Unix milliseconds
-	Upload  *wireUpload `json:"upload,omitempty"`
+	ID       int64       `json:"id"`
+	Channel  int64       `json:"channel"`
+	Author   string      `json:"author"`
+	Text     string      `json:"text"`
+	At       int64       `json:"at"` // Unix milliseconds
+	Verified bool        `json:"verified"`
+	Upload   *wireUpload `json:"upload,omitempty"`
 }
 
 type wireUpload struct {
@@ -141,7 +149,7 @@ func FileURL(u store.Upload) string {
 }
 
 func toWire(m store.Message) wireMessage {
-	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli()}
+	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli(), Verified: m.Verified}
 	if u := m.Upload; u != nil {
 		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
 	}
@@ -164,9 +172,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	c.mu.Lock()
-	id := c.identity
+	id, ready := c.identity, c.ready
 	c.mu.Unlock()
-	if id == nil {
+	if !ready {
 		c.sendError("not ready")
 		return
 	}
@@ -228,18 +236,16 @@ func (c *Conn) post(id mumble.Identity, req request) {
 		c.sendError("message must be 1 to 2000 characters")
 		return
 	}
-	var m store.Message
-	var err error
-	if req.Upload == "" {
-		m, err = c.hub.store.AddMessage(req.Channel, id.Name, text, c.hub.now())
-	} else {
-		u, uerr := c.hub.store.UploadByKey(req.Upload)
-		if uerr != nil || u.Author != id.Name {
+	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, Text: text, At: c.hub.now()}
+	if req.Upload != "" {
+		u, err := c.hub.store.UploadByKey(req.Upload)
+		if err != nil || u.Author != id.Name {
 			c.sendError("unknown upload")
 			return
 		}
-		m, err = c.hub.store.AddMessageWithUpload(req.Channel, id.Name, text, c.hub.now(), u.ID)
+		n.UploadID = u.ID
 	}
+	m, err := c.hub.store.AddMessage(n)
 	if err != nil {
 		c.sendError("cannot store message")
 		return
@@ -263,8 +269,11 @@ func (c *Conn) sendError(msg string) {
 	c.send(map[string]any{"type": "error", "message": msg})
 }
 
+var resync = []byte(`{"type":"resync"}`)
+
 // send never blocks: a client that does not read its outbox loses messages
-// (it can reload the history) instead of holding up everyone else.
+// instead of holding up everyone else. It gets a "resync" (reload what you
+// show) as soon as there is room again.
 func (c *Conn) send(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -276,10 +285,18 @@ func (c *Conn) send(v any) {
 	if c.closed {
 		return
 	}
+	if c.lagged {
+		if len(c.out) > cap(c.out)-2 { // room for the resync and this message
+			return
+		}
+		c.out <- resync
+		c.lagged = false
+	}
 	select {
 	case c.out <- b:
 	default:
-		slog.Warn("sidecar outbox full, message dropped")
+		c.lagged = true
+		slog.Warn("sidecar outbox full, client will resync")
 	}
 }
 

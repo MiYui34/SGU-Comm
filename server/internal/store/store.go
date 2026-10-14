@@ -23,7 +23,19 @@ type Message struct {
 	Author    string
 	Text      string
 	CreatedAt time.Time
-	Upload    *Upload // optional attachment
+	// The author was registered on the Mumble server (a verified name).
+	Verified bool
+	Upload   *Upload // optional attachment
+}
+
+// NewMessage is a message to store. UploadID 0: no attachment.
+type NewMessage struct {
+	ChannelID int64
+	Author    string
+	Verified  bool
+	Text      string
+	At        time.Time
+	UploadID  int64
 }
 
 // Upload is a stored file. Key is the random, unguessable part of its URL.
@@ -64,7 +76,8 @@ CREATE TABLE IF NOT EXISTS messages (
 	author     TEXT NOT NULL,
 	text       TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
-	upload_id  INTEGER REFERENCES uploads(id)
+	upload_id  INTEGER REFERENCES uploads(id),
+	verified   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
 `
@@ -94,15 +107,25 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// migrate brings databases from older versions up to the current schema.
+// migrate brings databases from older versions up to the current schema:
+// columns added later are added if missing.
 func migrate(db *sql.DB) error {
-	var n int
-	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name = 'upload_id'`).Scan(&n)
-	if err != nil || n > 0 {
-		return err
+	for _, col := range []struct{ name, def string }{
+		{"upload_id", "INTEGER REFERENCES uploads(id)"},
+		{"verified", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		var n int
+		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name = ?`, col.name).Scan(&n)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE messages ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+				return err
+			}
+		}
 	}
-	_, err = db.Exec(`ALTER TABLE messages ADD COLUMN upload_id INTEGER REFERENCES uploads(id)`)
-	return err
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -147,33 +170,27 @@ func (s *Store) Channels() ([]Channel, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) AddMessage(channelID int64, author, text string, at time.Time) (Message, error) {
-	res, err := s.db.Exec(`INSERT INTO messages (channel_id, author, text, created_at) VALUES (?, ?, ?, ?)`,
-		channelID, author, text, at.UnixMilli())
-	if err != nil {
-		return Message{}, err
-	}
-	id, err := res.LastInsertId()
-	return Message{ID: id, ChannelID: channelID, Author: author, Text: text, CreatedAt: at}, err
-}
-
-// AddMessageWithUpload stores a message with an attachment. The upload is
-// marked as used in the same transaction; a used upload is refused.
-func (s *Store) AddMessageWithUpload(channelID int64, author, text string, at time.Time, uploadID int64) (Message, error) {
+// AddMessage stores a message. With an upload, the upload is marked as used
+// in the same transaction; a used upload is refused.
+func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Message{}, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`UPDATE uploads SET used = 1 WHERE id = ? AND used = 0`, uploadID)
-	if err != nil {
-		return Message{}, err
+	var upload sql.NullInt64
+	if n.UploadID != 0 {
+		res, err := tx.Exec(`UPDATE uploads SET used = 1 WHERE id = ? AND used = 0`, n.UploadID)
+		if err != nil {
+			return Message{}, err
+		}
+		if rows, _ := res.RowsAffected(); rows != 1 {
+			return Message{}, errors.New("upload is missing or already attached")
+		}
+		upload = sql.NullInt64{Int64: n.UploadID, Valid: true}
 	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return Message{}, errors.New("upload is missing or already attached")
-	}
-	res, err = tx.Exec(`INSERT INTO messages (channel_id, author, text, created_at, upload_id) VALUES (?, ?, ?, ?, ?)`,
-		channelID, author, text, at.UnixMilli(), uploadID)
+	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, text, created_at, upload_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		n.ChannelID, n.Author, n.Verified, n.Text, n.At.UnixMilli(), upload)
 	if err != nil {
 		return Message{}, err
 	}
@@ -181,14 +198,15 @@ func (s *Store) AddMessageWithUpload(channelID int64, author, text string, at ti
 	if err != nil {
 		return Message{}, err
 	}
-	u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, uploadID))
-	if err != nil {
-		return Message{}, err
+	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, Text: n.Text, CreatedAt: n.At}
+	if upload.Valid {
+		u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, n.UploadID))
+		if err != nil {
+			return Message{}, err
+		}
+		m.Upload = &u
 	}
-	if err := tx.Commit(); err != nil {
-		return Message{}, err
-	}
-	return Message{ID: id, ChannelID: channelID, Author: author, Text: text, CreatedAt: at, Upload: &u}, nil
+	return m, tx.Commit()
 }
 
 func (s *Store) AddUpload(u Upload, at time.Time) (Upload, error) {
@@ -219,7 +237,7 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 // History returns up to limit messages before beforeID (0: the newest),
 // oldest first, with their attachments.
 func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT m.id, m.channel_id, m.author, m.text, m.created_at,
+	rows, err := s.db.Query(`SELECT m.id, m.channel_id, m.author, m.verified, m.text, m.created_at,
 			u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used
 		FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id
 		WHERE m.channel_id = ? AND (? = 0 OR m.id < ?) ORDER BY m.id DESC LIMIT ?`,
@@ -237,7 +255,7 @@ func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error)
 			key, name, typ, who sql.NullString
 			used                sql.NullBool
 		}
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Text, &at,
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &m.Text, &at,
 			&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used); err != nil {
 			return nil, err
 		}

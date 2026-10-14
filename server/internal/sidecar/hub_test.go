@@ -115,7 +115,7 @@ func TestHistoryPages(t *testing.T) {
 	h := newHub(t, "general")
 	c := ready(t, h, "alice")
 	for i := 0; i < pageSize+5; i++ {
-		if _, err := h.store.AddMessage(1, "alice", "x", clock); err != nil {
+		if _, err := h.store.AddMessage(store.NewMessage{ChannelID: 1, Author: "alice", Text: "x", At: clock}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -266,5 +266,59 @@ func TestSendWithUpload(t *testing.T) {
 	alice.Handle([]byte(`{"type":"send","channel":1,"text":"","upload":"missing"}`))
 	if m := next(t, alice); m["type"] != "error" {
 		t.Fatalf("missing upload: %v", m)
+	}
+}
+
+func TestNoReadyWithoutAName(t *testing.T) {
+	h := newHub(t, "general")
+	c := h.Connect()
+	defer c.Close()
+	c.SetIdentity(mumble.Identity{Session: 3})
+	empty(t, c)
+	c.SetIdentity(mumble.Identity{Session: 3, Name: "late"})
+	if m := next(t, c); m["type"] != "ready" {
+		t.Fatalf("got %v", m)
+	}
+}
+
+func TestVerifiedAuthor(t *testing.T) {
+	h := newHub(t, "general")
+	c := h.Connect()
+	defer c.Close()
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	next(t, c)
+	c.Handle([]byte(`{"type":"send","channel":1,"text":"hi"}`))
+	msg := next(t, c)["message"].(map[string]any)
+	if msg["verified"] != true {
+		t.Fatalf("got %v", msg)
+	}
+}
+
+func TestResyncAfterOverflow(t *testing.T) {
+	h := newHub(t, "general")
+	slow := ready(t, h, "slow")
+	for i := 0; i < outboxSize+5; i++ {
+		h.broadcast(map[string]any{"type": "message"})
+	}
+	// Drain the full outbox; the next message must be a resync.
+	for i := 0; i < outboxSize; i++ {
+		next(t, slow)
+	}
+	h.broadcast(map[string]any{"type": "message"})
+	if m := next(t, slow); m["type"] != "resync" {
+		t.Fatalf("got %v, want resync", m)
+	}
+	if m := next(t, slow); m["type"] != "message" {
+		t.Fatalf("got %v after resync", m)
+	}
+}
+
+func TestFail(t *testing.T) {
+	h := newHub(t, "general")
+	c := h.Connect()
+	defer c.Close()
+	c.Fail("text channels are not available")
+	if m := next(t, c); m["type"] != "error" {
+		t.Fatalf("got %v", m)
 	}
 }

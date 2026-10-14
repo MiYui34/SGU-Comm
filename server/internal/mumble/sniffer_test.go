@@ -105,3 +105,27 @@ func TestIgnoresBrokenProtobuf(t *testing.T) {
 		t.Fatal("sniffer stopped after a broken message")
 	}
 }
+
+func TestRegisteredUsers(t *testing.T) {
+	var s Sniffer
+	b := frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), Name: proto.String("alice"), UserId: proto.Uint32(12)})
+	b = append(b, frame(t, TypeServerSync, &pb.ServerSync{Session: proto.Uint32(7)})...)
+	id, _, _ := s.Feed(b)
+	if !id.Registered {
+		t.Fatalf("got %+v, want registered", id)
+	}
+	var u Sniffer
+	id, _, _ = u.Feed(handshake(t))
+	if id.Registered {
+		t.Fatalf("got %+v, want unregistered", id)
+	}
+}
+
+func TestRegistrationLater(t *testing.T) {
+	var s Sniffer
+	s.Feed(handshake(t))
+	id, changed, _ := s.Feed(frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), UserId: proto.Uint32(3)}))
+	if !changed || !id.Registered || id.Name != "alice" {
+		t.Fatalf("got %+v %v", id, changed)
+	}
+}

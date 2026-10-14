@@ -219,6 +219,7 @@ func (c *conn) sniff(chunk []byte) {
 	if err != nil {
 		slog.Warn("cannot follow the Mumble stream, text channels disabled for this connection", "err", err)
 		c.sniffErr = true
+		c.side.Fail("text channels are not available on this connection")
 		return
 	}
 	if changed {

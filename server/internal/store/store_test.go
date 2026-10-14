@@ -54,13 +54,13 @@ func TestMessagesAndHistory(t *testing.T) {
 	base := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	var ids []int64
 	for i := 0; i < 5; i++ {
-		m, err := s.AddMessage(general, "alice", string(rune('a'+i)), base.Add(time.Duration(i)*time.Minute))
+		m, err := s.AddMessage(NewMessage{ChannelID: general, Author: "alice", Text: string(rune('a' + i)), At: base.Add(time.Duration(i) * time.Minute)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, m.ID)
 	}
-	s.AddMessage(links, "bob", "elsewhere", base)
+	s.AddMessage(NewMessage{ChannelID: links, Author: "bob", Text: "elsewhere", At: base})
 
 	newest, err := s.History(general, 0, 2)
 	if err != nil {
@@ -80,7 +80,7 @@ func TestMessagesAndHistory(t *testing.T) {
 
 func TestAddMessageToUnknownChannelFails(t *testing.T) {
 	s := open(t)
-	if _, err := s.AddMessage(999, "alice", "x", time.Now()); err == nil {
+	if _, err := s.AddMessage(NewMessage{ChannelID: 999, Author: "alice", Text: "x", At: time.Now()}); err == nil {
 		t.Fatal("expected an error")
 	}
 }
@@ -97,7 +97,7 @@ func TestUploadsAndAttachments(t *testing.T) {
 	if err != nil || got.ID != u.ID || got.Name != "cat.png" || got.Author != "alice" || got.Used {
 		t.Fatalf("got %+v %v", got, err)
 	}
-	m, err := s.AddMessageWithUpload(1, "alice", "look", at, u.ID)
+	m, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "look", At: at, UploadID: u.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestUploadsAndAttachments(t *testing.T) {
 		t.Fatal("upload not marked as used")
 	}
 	// An upload can be attached only once.
-	if _, err := s.AddMessageWithUpload(1, "alice", "again", at, u.ID); err == nil {
+	if _, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "again", At: at, UploadID: u.ID}); err == nil {
 		t.Fatal("expected an error for a used upload")
 	}
 	hist, _ := s.History(1, 0, 10)
@@ -138,7 +138,7 @@ func TestMigratesAnOldDatabase(t *testing.T) {
 	}
 	defer s.Close()
 	s.EnsureChannels([]string{"general"})
-	if _, err := s.AddMessage(1, "alice", "hi", time.Now()); err != nil {
+	if _, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "hi", At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -149,7 +149,7 @@ func TestDeleteUnusedUploads(t *testing.T) {
 	old := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	stale, _ := s.AddUpload(Upload{Key: "stale", Name: "a", Type: "x", Size: 1, Author: "a"}, old)
 	attached, _ := s.AddUpload(Upload{Key: "attached", Name: "b", Type: "x", Size: 1, Author: "a"}, old)
-	s.AddMessageWithUpload(1, "a", "", old, attached.ID)
+	s.AddMessage(NewMessage{ChannelID: 1, Author: "a", Text: "", At: old, UploadID: attached.ID})
 	s.AddUpload(Upload{Key: "fresh", Name: "c", Type: "x", Size: 1, Author: "a"}, old.Add(time.Hour))
 	keys, err := s.DeleteUnusedUploads(old.Add(time.Minute))
 	if err != nil {
@@ -166,5 +166,16 @@ func TestDeleteUnusedUploads(t *testing.T) {
 		if _, err := s.UploadByKey(k); err != nil {
 			t.Fatalf("%s was deleted", k)
 		}
+	}
+}
+
+func TestVerifiedAuthors(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Verified: true, Text: "a", At: time.Now()})
+	s.AddMessage(NewMessage{ChannelID: 1, Author: "bob", Text: "b", At: time.Now()})
+	hist, _ := s.History(1, 0, 10)
+	if !hist[0].Verified || hist[1].Verified {
+		t.Fatalf("got %+v", hist)
 	}
 }

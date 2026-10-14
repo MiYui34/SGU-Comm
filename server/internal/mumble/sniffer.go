@@ -27,6 +27,9 @@ const (
 type Identity struct {
 	Session uint32
 	Name    string
+	// Registered on the Mumble server: the name belongs to this user. An
+	// unregistered name is only unique while its owner is online.
+	Registered bool
 }
 
 // Sniffer reads the server-to-client byte stream of one connection and
@@ -41,8 +44,8 @@ type Sniffer struct {
 
 	synced bool
 	self   Identity
-	// Names seen before ServerSync: Murmur sends all UserStates first.
-	names map[uint32]string
+	// Users seen before ServerSync: Murmur sends all UserStates first.
+	users map[uint32]Identity
 }
 
 // Feed takes the next chunk. It returns the identity and whether it changed
@@ -94,28 +97,42 @@ func (s *Sniffer) handle() bool {
 	switch s.typ {
 	case TypeUserState:
 		var m pb.UserState
-		if proto.Unmarshal(s.body, &m) != nil || m.Session == nil || m.Name == nil {
+		if proto.Unmarshal(s.body, &m) != nil || m.Session == nil {
 			return false
+		}
+		// UserStates are partial: apply only the fields that are set.
+		apply := func(id Identity) Identity {
+			if m.Name != nil {
+				id.Name = m.GetName()
+			}
+			if m.UserId != nil {
+				id.Registered = true
+			}
+			return id
 		}
 		if !s.synced {
-			if s.names == nil {
-				s.names = map[uint32]string{}
+			if s.users == nil {
+				s.users = map[uint32]Identity{}
 			}
-			s.names[m.GetSession()] = m.GetName()
+			s.users[m.GetSession()] = apply(s.users[m.GetSession()])
 			return false
 		}
-		if m.GetSession() == s.self.Session && m.GetName() != s.self.Name {
-			s.self.Name = m.GetName()
-			return true
+		if m.GetSession() != s.self.Session {
+			return false
 		}
+		next := apply(s.self)
+		changed := next != s.self
+		s.self = next
+		return changed
 	case TypeServerSync:
 		var m pb.ServerSync
 		if s.synced || proto.Unmarshal(s.body, &m) != nil {
 			return false
 		}
 		s.synced = true
-		s.self = Identity{Session: m.GetSession(), Name: s.names[m.GetSession()]}
-		s.names = nil
+		s.self = s.users[m.GetSession()]
+		s.self.Session = m.GetSession()
+		s.users = nil
 		return true
 	}
 	return false
