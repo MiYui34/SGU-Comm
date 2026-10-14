@@ -1,4 +1,5 @@
 import type { OutgoingAudio } from "@kallisti/protocol";
+import { createEncoderRotation } from "./encoderRotation";
 import { shouldFallBack } from "./fallback";
 import { levelDb, shouldTransmit, vadStep, type TransmitMode, type VadState } from "./vad";
 
@@ -34,28 +35,40 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // dropped or merged frame cannot shift the flag to another packet.
   const terminators = new Set<number>();
 
-  const encoder = new AudioEncoder({
-    output: (chunk) => {
-      const opus = new Uint8Array(chunk.byteLength);
-      chunk.copyTo(opus);
-      const terminator = terminators.delete(chunk.timestamp);
-      const frameNumber = Math.round(chunk.timestamp / MUMBLE_FRAME_US);
-      send({ target: 0, frameNumber, opus, terminator });
-    },
-    error: (err) => {
-      console.warn("encoder error", err);
-      micError = `Voice encoder failed: ${err.message}`;
-    },
-  });
-  encoder.configure({
-    codec: "opus",
-    sampleRate: SAMPLE_RATE,
-    numberOfChannels: 1,
-    bitrate: 40_000,
-    opus: { frameDuration: FRAME_MS * 1000 },
-  });
+  // A fresh encoder for every talk spurt (see encoderRotation).
+  const makeEncoder = (): AudioEncoder => {
+    const encoder: AudioEncoder = new AudioEncoder({
+      output: (chunk) => {
+        const opus = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(opus);
+        const terminator = terminators.delete(chunk.timestamp);
+        const frameNumber = Math.round(chunk.timestamp / MUMBLE_FRAME_US);
+        send({ target: 0, frameNumber, opus, terminator });
+        encoders.output(encoder);
+      },
+      error: (err) => {
+        console.warn("encoder error", err);
+        micError = `Voice encoder failed: ${err.message}`;
+      },
+    });
+    encoder.configure({
+      codec: "opus",
+      sampleRate: SAMPLE_RATE,
+      numberOfChannels: 1,
+      bitrate: 40_000,
+      opus: { frameDuration: FRAME_MS * 1000 },
+    });
+    // close() throws on an encoder that already failed and closed itself.
+    const close = encoder.close.bind(encoder);
+    encoder.close = () => {
+      if (encoder.state !== "closed") close();
+    };
+    return encoder;
+  };
+  const encoders = createEncoderRotation(makeEncoder);
 
   const encode = (samples: Float32Array<ArrayBuffer>, terminator: boolean) => {
+    const encoder = encoders.current();
     if (encoder.state !== "configured") return;
     if (terminator) terminators.add(timestamp);
     const data = new AudioData({
@@ -67,6 +80,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       data: samples,
     });
     timestamp += FRAME_MS * 1000;
+    encoders.encoded(encoder);
     encoder.encode(data);
     data.close();
     // No flush() after the last frame: it emits an extra packet for the
@@ -78,6 +92,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     level = levelDb(samples);
     vad = vadStep(vad, level, FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
     const next = shouldTransmit({ mode, vadTalking: vad.talking, pttDown, muted });
+    if (next && !transmitting) encoders.startSpurt();
     // The first quiet frame after talking ends the transmission.
     if (next || transmitting) encode(samples, !next);
     transmitting = next;
@@ -181,7 +196,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       stopStream();
       // The node can still be on its way: disconnect it when it arrives.
       void nodePromise?.then((n) => n.disconnect()).catch(() => {});
-      if (encoder.state !== "closed") encoder.close();
+      encoders.closeAll();
     },
   };
 };
