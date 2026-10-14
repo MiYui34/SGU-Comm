@@ -8,6 +8,9 @@ import {
   sendRequest,
   toChatMessage,
   unreadTextIds,
+  uploadTokenRequest,
+  httpBase,
+  formatSize,
   type TextMessage,
 } from "../src/lib/textChannels";
 
@@ -126,5 +129,53 @@ describe("unreadTextIds", () => {
     s = reduceText(s, { type: "message", message: msg(5, 1) });
     s = reduceText(s, { type: "message", message: msg(6, 2) });
     expect(unreadTextIds(s, { 1: 5 })).toEqual(new Set([2]));
+  });
+});
+
+describe("uploads", () => {
+  it("parses messages with an attachment", () => {
+    const ev = parseServerEvent(
+      JSON.stringify({
+        type: "message",
+        message: { ...msg(1), upload: { url: "/files/k/cat.png", name: "cat.png", type: "image/png", size: 3 } },
+      }),
+    );
+    expect(ev?.type === "message" && ev.message.upload?.name).toBe("cat.png");
+  });
+
+  it("drops a broken attachment", () => {
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), upload: { url: 1 } } }))).toBeNull();
+  });
+
+  it("parses the upload token event", () => {
+    expect(parseServerEvent('{"type":"upload-token","token":"abc"}')).toEqual({ type: "upload-token", token: "abc" });
+  });
+
+  it("sends an upload key with a message", () => {
+    expect(JSON.parse(sendRequest(1, "", "key1"))).toEqual({ type: "send", channel: 1, text: "", upload: "key1" });
+    expect(JSON.parse(uploadTokenRequest())).toEqual({ type: "upload-token" });
+  });
+
+  it("puts the attachment with an absolute URL on the chat message", () => {
+    const m = toChatMessage(
+      { ...msg(9), upload: { url: "/files/k/cat.png", name: "cat.png", type: "image/png", size: 3 } },
+      "http://srv:8080",
+    );
+    expect(m.upload).toEqual({ url: "http://srv:8080/files/k/cat.png", name: "cat.png", type: "image/png", size: 3 });
+  });
+});
+
+describe("httpBase", () => {
+  it("turns the WebSocket URL into the server's HTTP origin", () => {
+    expect(httpBase("ws://localhost:18081")).toBe("http://localhost:18081");
+    expect(httpBase("wss://chat.example/ws")).toBe("https://chat.example");
+  });
+});
+
+describe("formatSize", () => {
+  it("writes readable sizes", () => {
+    expect(formatSize(512)).toBe("512 B");
+    expect(formatSize(1536)).toBe("1.5 KB");
+    expect(formatSize(1258291)).toBe("1.2 MB");
   });
 });
