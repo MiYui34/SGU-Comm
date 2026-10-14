@@ -12,3 +12,4 @@ Chrome and Firefox process an AudioWorkletNode with `numberOfOutputs: 0`. Safari
 ## Acceptance Criteria
 
 - Voice capture works in current Safari.
+- 2026-10-14: the worklet now has one silent output routed to the destination (commit "route the capture worklet..."). Still needs a test in Safari: no Safari or WebKit can start in the development sandbox.

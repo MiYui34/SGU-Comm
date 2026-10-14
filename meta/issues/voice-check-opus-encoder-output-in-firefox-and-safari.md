@@ -11,3 +11,4 @@ The terminator logic expects one encoder output per 20 ms input, as in Chrome. `
 ## Acceptance Criteria
 
 - The listener check (frame numbers and terminators on the wire) passes in Firefox and Safari.
+- 2026-10-14: Playwright Firefox and WebKit cannot start in the development sandbox. Needs a manual test, or a CI job with real browsers.
