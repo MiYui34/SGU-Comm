@@ -2,7 +2,14 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 import * as pb from "../src/gen/Mumble_pb";
 import type { MumbleMessage } from "../src/messages";
-import { emptyChannel, emptyUser, initialState, reduce, type ServerState } from "../src/state";
+import {
+  addOwnMessage,
+  emptyChannel,
+  emptyUser,
+  initialState,
+  reduce,
+  type ServerState,
+} from "../src/state";
 
 const userState = (init: MessageInitShape<typeof pb.UserStateSchema>): MumbleMessage => ({
   type: "UserState",
@@ -169,5 +176,28 @@ describe("reduce", () => {
   it("ignores messages it does not handle", () => {
     const s = reduce(initialState, { type: "UDPTunnel", packet: new Uint8Array() }, 0);
     expect(s).toBe(initialState);
+  });
+});
+
+describe("addOwnMessage", () => {
+  it("adds a sent message, because the server does not echo it", () => {
+    const s = addOwnMessage(
+      run([
+        { type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 7 }) },
+        userState({ session: 7, name: "me" }),
+      ]),
+      3,
+      "hi & bye",
+      5000,
+    );
+    expect(s.messages.at(-1)).toEqual({
+      actor: 7,
+      actorName: "me",
+      channelIds: [3],
+      treeIds: [],
+      sessions: [],
+      text: "hi &amp; bye",
+      at: 5000,
+    });
   });
 });
