@@ -14,3 +14,4 @@
 - [x] [Push-to-talk: Space presses a focused button](issues/push-to-talk-space-presses-a-focused-button.md)
 - [x] [Settings: handle localStorage failures and sync between tabs](issues/settings-handle-localstorage-failures-and-sync-between-tabs.md)
 - [x] [Voice: fall back to the default microphone](issues/voice-fall-back-to-the-default-microphone.md)
+- [x] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
