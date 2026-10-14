@@ -195,3 +195,27 @@ describe("attachment URL check", () => {
     expect(withUrl("/api/upload").upload).toBeUndefined();
   });
 });
+
+describe("robustness", () => {
+  const ready = reduceText(initialTextState, { type: "ready", channels: [{ id: 1, name: "general" }] });
+
+  it("parses resync and verified authors", () => {
+    expect(parseServerEvent('{"type":"resync"}')).toEqual({ type: "resync" });
+    const ev = parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), verified: true } }));
+    expect(ev?.type === "message" && ev.message.verified).toBe(true);
+  });
+
+  it("forgets loaded history on resync and counts the resyncs", () => {
+    let s = reduceText(ready, { type: "history", channel: 1, messages: [msg(1)], more: false });
+    s = reduceText(s, { type: "resync" });
+    expect(s.messages).toEqual({});
+    expect(s.loaded).toEqual({});
+    expect(s.resyncs).toBe(1);
+    expect(s.channels).toEqual(ready.channels);
+  });
+
+  it("marks verified authors on chat messages", () => {
+    expect(toChatMessage({ ...msg(77), verified: true }).verified).toBe(true);
+    expect(toChatMessage(msg(78)).verified).toBe(false);
+  });
+});

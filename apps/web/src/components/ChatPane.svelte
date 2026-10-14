@@ -210,6 +210,9 @@
                 <div class="body">
                   <div class="meta">
                     <span class="author">{group.actorName ?? "Server"}</span>
+                    {#if "verified" in m && m.verified}
+                      <span class="verified" title="Registered on the server">✓<span class="sr-only">registered</span></span>
+                    {/if}
                     <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
                   </div>
                   {#if m.text}<div class="text">{@html safe(m.text)}</div>{/if}
@@ -463,6 +466,11 @@
     font-size: 16px;
     font-weight: 600;
     color: var(--text);
+  }
+  .verified {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
   }
   .meta time {
     font-size: 12px;

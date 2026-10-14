@@ -11,17 +11,22 @@ export type TextMessage = {
   author: string;
   text: string;
   at: number;
+  // The author was registered on the Mumble server (a verified name).
+  verified?: boolean;
   upload?: Attachment;
 };
-// A chat line for display: a text channel message can carry an attachment.
-export type DisplayMessage = ChatMessage & { upload?: Attachment };
+// A chat line for display: a text channel message can carry an attachment
+// and a verified mark.
+export type DisplayMessage = ChatMessage & { upload?: Attachment; verified?: boolean };
 
 export type ServerEvent =
   | { type: "ready"; channels: TextChannel[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "error"; message: string }
-  | { type: "upload-token"; token: string };
+  | { type: "upload-token"; token: string }
+  // The server dropped messages for us: reload what is shown.
+  | { type: "resync" };
 
 export type TextState = {
   available: boolean;
@@ -30,6 +35,8 @@ export type TextState = {
   loaded: Readonly<Record<number, boolean>>;
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
+  // Counts resync events, so views can reload.
+  resyncs: number;
 };
 
 export const initialTextState: TextState = {
@@ -39,6 +46,7 @@ export const initialTextState: TextState = {
   loaded: {},
   more: {},
   lastError: null,
+  resyncs: 0,
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -55,6 +63,7 @@ const isMessage = (v: unknown): v is TextMessage =>
   isStr(v.author) &&
   isStr(v.text) &&
   isNum(v.at) &&
+  (v.verified === undefined || typeof v.verified === "boolean") &&
   (v.upload === undefined || isAttachment(v.upload));
 
 // Network input: anything unexpected is dropped.
@@ -81,6 +90,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStr(v.message) ? { type: "error", message: v.message } : null;
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
+    case "resync":
+      return { type: "resync" };
     default:
       return null;
   }
@@ -109,6 +120,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, lastError: event.message };
     case "upload-token": // answered by the connection, not state
       return state;
+    case "resync":
+      return { ...state, messages: {}, loaded: {}, more: {}, resyncs: state.resyncs + 1 };
   }
 };
 
@@ -169,6 +182,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       text: linkify(escapeHtml(m.text)),
       at: m.at,
       peer: null,
+      verified: m.verified === true,
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);

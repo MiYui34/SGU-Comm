@@ -11,7 +11,14 @@ export const createTextView = (connection: () => Connection, currentId: () => nu
   let seen = $state<Record<number, number>>({});
   let loadingOlder = $state(false);
 
+  // In one effect with the load, so the order is fixed: after a resync the
+  // history is gone and the open channel loads again.
+  let seenResyncs = 0;
   $effect(() => {
+    if (text.resyncs !== seenResyncs) {
+      seenResyncs = text.resyncs;
+      requested.clear();
+    }
     const id = currentId();
     if (id !== null && !text.loaded[id] && !requested.has(id)) {
       requested.add(id);
