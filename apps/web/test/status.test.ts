@@ -27,11 +27,9 @@ describe("connectionError", () => {
 });
 
 describe("proxyUrl", () => {
-  it("uses wss on https pages", () => {
-    expect(proxyUrl({ protocol: "https:", hostname: "chat.example" })).toBe(
-      "wss://chat.example:8080",
-    );
-    expect(proxyUrl({ protocol: "http:", hostname: "localhost" })).toBe("ws://localhost:8080");
+  it("uses the same host, under /ws, with wss on https pages", () => {
+    expect(proxyUrl({ protocol: "https:", host: "chat.example" })).toBe("wss://chat.example/ws");
+    expect(proxyUrl({ protocol: "http:", host: "localhost:8080" })).toBe("ws://localhost:8080/ws");
   });
 });
 

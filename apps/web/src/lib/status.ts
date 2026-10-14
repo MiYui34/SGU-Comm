@@ -7,6 +7,7 @@ export const connectionError = (state: ServerState, closed: boolean): string | n
   return closed ? "Lost the connection to the server." : null;
 };
 
-// Pages served over https must use wss, or the browser blocks the socket.
-export const proxyUrl = ({ protocol, hostname }: { protocol: string; hostname: string }) =>
-  `${protocol === "https:" ? "wss" : "ws"}://${hostname}:8080`;
+// The Kallisti server serves the web app and the bridge (at /ws) from one
+// origin. Pages served over https must use wss, or the browser blocks it.
+export const proxyUrl = ({ protocol, host }: { protocol: string; host: string }) =>
+  `${protocol === "https:" ? "wss" : "ws"}://${host}/ws`;
