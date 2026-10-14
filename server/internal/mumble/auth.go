@@ -1,7 +1,6 @@
 package mumble
 
 import (
-
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/mumble/pb"
