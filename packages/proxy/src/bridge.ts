@@ -54,7 +54,14 @@ export const startBridge = async (opts: BridgeOptions): Promise<Bridge> => {
       done(true);
     },
   });
-  wss.on("connection", (ws) => pipe(ws, opts.connectUpstream()));
+  wss.on("connection", (ws) => {
+    try {
+      pipe(ws, opts.connectUpstream());
+    } catch (err) {
+      console.error("upstream connect failed:", err);
+      ws.close(CLOSE_UPSTREAM_ERROR);
+    }
+  });
   await new Promise<void>((resolve) => http.listen(opts.port, resolve));
   return {
     port: (http.address() as AddressInfo).port,

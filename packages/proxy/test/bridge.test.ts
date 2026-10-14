@@ -83,6 +83,21 @@ describe("bridge", () => {
     expect(code).toBe(1011);
   });
 
+  it("survives an upstream connector that throws", async () => {
+    const bridge = await startBridge({
+      port: 0,
+      allowedOrigins: ["*"],
+      maxConnections: 10,
+      connectUpstream: () => {
+        throw new Error("bad options");
+      },
+    });
+    cleanup.push(() => bridge.close());
+    const ws = await connect(bridge.port);
+    const [code] = await once(ws, "close");
+    expect(code).toBe(1011);
+  });
+
   it("rejects origins that are not allowed", async () => {
     const echo = await echoServer();
     const bridge = await bridgeTo(echo.port, { allowedOrigins: ["https://good.example"] });

@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import tls from "node:tls";
 import { startBridge } from "./bridge.ts";
 import { parseConfig } from "./config.ts";
@@ -22,7 +23,8 @@ const bridge = await startBridge({
       .connect({
         host: config.mumbleHost,
         port: config.mumblePort,
-        servername: config.mumbleHost,
+        // SNI does not allow IP addresses.
+        servername: isIP(config.mumbleHost) ? undefined : config.mumbleHost,
         rejectUnauthorized: config.rejectUnauthorized,
       })
       .setNoDelay(true),
