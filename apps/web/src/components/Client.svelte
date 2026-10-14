@@ -3,6 +3,7 @@
     joinChannel,
     messagesIn,
     privateMessagesWith,
+    registerSelf,
     setSelfState,
     usersSorted,
   } from "@kallisti/protocol";
@@ -25,7 +26,7 @@
   import UserMenu from "./UserMenu.svelte";
   import UserPanel from "./UserPanel.svelte";
 
-  let { connection }: { connection: Connection } = $props();
+  let { connection, onLogout }: { connection: Connection; onLogout?: () => void } = $props();
 
   const server = $derived(connection.state);
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
@@ -172,6 +173,16 @@
     } satisfies Partial<ComponentProps<typeof ChatPane>>;
   });
 
+  // An account that is not registered on Murmur yet registers itself once:
+  // then the name is protected and shows as verified.
+  let registerSent = false;
+  $effect(() => {
+    if (connection.account && me && me.userId === null && !registerSent) {
+      registerSent = true;
+      connection.send(registerSelf(me.session));
+    }
+  });
+
   const updateSelf = (s: SelfState) => {
     if (me) connection.send(setSelfState(me.session, s));
   };
@@ -305,6 +316,7 @@
     deviceLabel={capture?.deviceLabel ?? ""}
     fellBack={capture?.fellBack ?? false}
     onChange={settings.update}
+    {onLogout}
     onClose={() => (showSettings = false)}
   />
 {/if}

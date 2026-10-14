@@ -34,7 +34,9 @@ import { createPlayback } from "./voice/playback.svelte";
 // The server drops clients after 30 s without a ping.
 const PING_INTERVAL_MS = 15_000;
 
-export type Credentials = { username: string; password?: string };
+// account: logged in to a Kallisti account (the server connects with the
+// account's certificate, and the client registers it on Murmur).
+export type Credentials = { username: string; password?: string; account?: boolean };
 
 export type Connection = ReturnType<typeof connect>;
 
@@ -124,6 +126,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     get closed() {
       return closed;
     },
+    account: credentials.account === true,
     get text() {
       return text;
     },

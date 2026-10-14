@@ -9,6 +9,7 @@
     fellBack = false,
     onChange,
     onClose,
+    onLogout,
   }: {
     settings: Settings;
     level: number;
@@ -17,6 +18,8 @@
     fellBack?: boolean;
     onChange: (patch: Partial<Settings>) => void;
     onClose: () => void;
+    // Logged in to an account: offer to log out.
+    onLogout?: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
@@ -156,6 +159,11 @@
       </p>
     </div>
   {/if}
+  {#if onLogout}
+    <div class="account">
+      <button class="logout" onclick={onLogout}>Log out</button>
+    </div>
+  {/if}
 </dialog>
 
 <style>
@@ -255,6 +263,21 @@
   }
   .hint.warn {
     color: var(--danger);
+  }
+  .account {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .logout {
+    padding: 8px 14px;
+    border-radius: 6px;
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .logout:hover {
+    background: var(--bg-hover);
   }
   .hint {
     margin: 0;
