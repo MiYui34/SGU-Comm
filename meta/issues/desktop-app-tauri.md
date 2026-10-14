@@ -17,3 +17,9 @@ A desktop shell for the same UI, with a native Mumble connection.
 ## Notes
 
 - The protocol package runs in the browser already; only the transport changes.
+
+## Sub-issues
+
+- [Desktop: Tauri shell with a local bridge](desktop-shell-with-local-bridge.md)
+- [Desktop: global push-to-talk](desktop-global-push-to-talk.md)
+- [Desktop: native UDP voice](desktop-native-udp-voice.md)
