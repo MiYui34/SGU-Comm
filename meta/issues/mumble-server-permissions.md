@@ -24,3 +24,14 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 
 - A simpler role view (like Discord) for the Kallisti UI can come later, on
   top of the same model.
+
+## Result
+
+- Done: Murmur's ACL evaluation and groups, default ACL, checks in all
+  handlers, ACL editor message, suppress without Speak (also per linked
+  channel), can_enter, permission flushes, registering others, UserList.
+- Official client tests: kept out of a channel without Enter; SuperUser
+  edits an ACL in the client's editor and the server applies it.
+- Small differences to Murmur, open: a UserState with user_id and other
+  fields is not checked as a whole before acting; access tokens compare
+  case-sensitively and cannot change after login.
