@@ -600,3 +600,19 @@ func TestSelfMuteAndDeafRules(t *testing.T) {
 		}
 	}
 }
+
+func TestNewUsersCarryOnlyTheirSetFlags(t *testing.T) {
+	// As Murmur: a field that is there is a change for clients ("unmuted by
+	// the server", "priority speaker").
+	addr := startOpen(t)
+	alice := dial(t, addr, "alice")
+	dial(t, addr, "bob")
+	var m pb.UserState
+	for m.GetName() != "bob" {
+		proto.Unmarshal(alice.expect(mumble.TypeUserState), &m)
+	}
+	if m.Mute != nil || m.Deaf != nil || m.Suppress != nil || m.SelfMute != nil || m.SelfDeaf != nil ||
+		m.PrioritySpeaker != nil || m.Recording != nil {
+		t.Fatalf("flags in %v", &m)
+	}
+}

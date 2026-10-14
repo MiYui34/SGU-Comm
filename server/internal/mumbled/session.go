@@ -443,12 +443,17 @@ func channelState(ch *Channel) *pb.ChannelState {
 
 // userState is the full UserState of a user.
 func userState(u *User) []byte {
-	m := &pb.UserState{
-		Session: proto.Uint32(u.Session), Name: proto.String(u.Name), ChannelId: proto.Uint32(u.Channel),
-		SelfMute: proto.Bool(u.SelfMute), SelfDeaf: proto.Bool(u.SelfDeaf),
-		Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf), Suppress: proto.Bool(u.Suppress),
-		PrioritySpeaker: proto.Bool(u.PrioritySpeaker), Recording: proto.Bool(u.Recording),
+	m := &pb.UserState{Session: proto.Uint32(u.Session), Name: proto.String(u.Name), ChannelId: proto.Uint32(u.Channel)}
+	// Only flags that are set: clients read every field as a change.
+	flag := func(on bool) *bool {
+		if on {
+			return proto.Bool(true)
+		}
+		return nil
 	}
+	m.Mute, m.Deaf, m.Suppress = flag(u.Mute), flag(u.Deaf), flag(u.Suppress)
+	m.SelfMute, m.SelfDeaf = flag(u.SelfMute), flag(u.SelfDeaf)
+	m.PrioritySpeaker, m.Recording = flag(u.PrioritySpeaker), flag(u.Recording)
 	if u.Registered {
 		m.UserId = proto.Uint32(u.UserID)
 	}
