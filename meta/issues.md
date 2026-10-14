@@ -1,6 +1,5 @@
 # Open issues
 
-- [ ] [Refine the UI towards Discord](issues/refine-the-ui-towards-discord.md)
 - [ ] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
   - [ ] [Rewrite the server in Rust or Go](issues/rewrite-the-server-in-rust-or-go.md)
   - [ ] [Text channels with persistent history](issues/text-channels-with-persistent-history.md)
@@ -22,3 +21,4 @@
 - [ ] [Push-to-talk: Space presses a focused button](issues/push-to-talk-space-presses-a-focused-button.md)
 - [ ] [Direct messages keyed by user, not session](issues/direct-messages-keyed-by-user-not-session.md)
 - [ ] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
+- [ ] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)
