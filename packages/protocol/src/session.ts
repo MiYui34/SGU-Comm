@@ -1,7 +1,7 @@
-import { decodeFrames } from "./framing";
+import { decodeFrames, type Bytes } from "./framing";
 import { decodeMessage, encodeMessage, type MumbleMessage } from "./messages";
 
-const concat = (...parts: Uint8Array[]) => {
+const concat = (...parts: Uint8Array[]): Bytes => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   parts.reduce((offset, p) => (out.set(p, offset), offset + p.length), 0);
   return out;
@@ -18,7 +18,7 @@ export const handshake = ({
 }: {
   username: string;
   password?: string;
-}): Uint8Array =>
+}): Bytes =>
   concat(
     encodeMessage("Version", {
       ...versionNumbers(1, 5, 0),
@@ -28,7 +28,7 @@ export const handshake = ({
     encodeMessage("Authenticate", { username, password, opus: true }),
   );
 
-export const ping = (now: number): Uint8Array =>
+export const ping = (now: number): Bytes =>
   encodeMessage("Ping", { timestamp: BigInt(now) });
 
 // Turns a stream of byte chunks into messages. Keeps partial frames between calls.

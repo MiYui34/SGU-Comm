@@ -6,7 +6,11 @@ export const MAX_PAYLOAD = 8 * 1024 * 1024 - 1;
 
 export type Frame = { type: number; payload: Uint8Array };
 
-export const encodeFrame = (type: number, payload: Uint8Array): Uint8Array => {
+// Encoders always allocate a fresh ArrayBuffer. DOM APIs such as
+// WebSocket.send need that guarantee in the type.
+export type Bytes = Uint8Array<ArrayBuffer>;
+
+export const encodeFrame = (type: number, payload: Uint8Array): Bytes => {
   const out = new Uint8Array(HEADER_SIZE + payload.length);
   const view = new DataView(out.buffer);
   view.setUint16(0, type);

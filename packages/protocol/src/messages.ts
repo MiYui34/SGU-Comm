@@ -5,7 +5,7 @@ import {
   type MessageInitShape,
   type MessageShape,
 } from "@bufbuild/protobuf";
-import { encodeFrame, type Frame } from "./framing";
+import { encodeFrame, type Bytes, type Frame } from "./framing";
 import * as pb from "./gen/Mumble_pb";
 
 // Index in this list is the TCP message type ID.
@@ -61,14 +61,14 @@ const ID_BY_NAME = new Map(SCHEMAS.map((s, id) => [nameOf(s), id]));
 export const encodeMessage = <K extends ControlType>(
   type: K,
   init: MessageInitShape<SchemaByName[K]>,
-): Uint8Array => {
+): Bytes => {
   const id = ID_BY_NAME.get(type)!;
   // The mapped types are correct per key, but TS cannot correlate them here.
   const schema = SCHEMAS[id] as typeof pb.VersionSchema;
   return encodeFrame(id, toBinary(schema, create(schema, init as never)));
 };
 
-export const encodeVoicePacket = (packet: Uint8Array): Uint8Array =>
+export const encodeVoicePacket = (packet: Uint8Array): Bytes =>
   encodeFrame(UDP_TUNNEL, packet);
 
 export const decodeMessage = ({ type: id, payload }: Frame): MumbleMessage => {
