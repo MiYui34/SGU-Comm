@@ -46,3 +46,13 @@ Architecture for the web version:
   (`optimizeDeps.exclude`), or protocol edits do not reach the dev server.
 - svelte-check needs the TypeScript 6 API. The web package has
   `typescript@6` next to the native `typescript@7`.
+
+## Architecture direction (2026-10-14)
+
+A deployment will be Murmur + our server + the web app. The proxy grows into
+that server: it keeps the dumb byte bridge, and adds a separate API for text
+channels, history, uploads and identity (TLS ends there, so it can hold
+per-user certificates). Desktop Mumble users keep voice and in-room chat
+only. The protocol and voice code must not depend on the sidecar.
+
+Server language: Rust or Go are preferred. Decide when sidecar work starts.
