@@ -17,3 +17,4 @@
 - [x] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
 - [x] [Direct messages keyed by user, not session](issues/direct-messages-keyed-by-user-not-session.md)
 - [x] [Text channels: robustness follow-ups](issues/text-channels-robustness.md)
+- [x] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)
