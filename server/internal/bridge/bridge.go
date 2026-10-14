@@ -15,16 +15,24 @@ import (
 	"github.com/coder/websocket"
 
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/sidecar"
 )
 
 // MaxPayload is the Mumble frame limit. Larger messages close with 1009.
 const MaxPayload = 8 * 1024 * 1024
+
+// maxTextFrame limits sidecar requests (a 2000-character message fits).
+const maxTextFrame = 16 * 1024
 
 type Options struct {
 	AllowedOrigins []string
 	MaxConnections int
 	// Dial opens the upstream connection (TLS to Mumble in production).
 	Dial func(ctx context.Context) (net.Conn, error)
+	// Sidecar serves text channels over text frames. Nil: text frames close
+	// the connection with 1003.
+	Sidecar *sidecar.Hub
 }
 
 type Bridge struct {
@@ -95,11 +103,6 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(MaxPayload)
 
-	// Not derived from b.ctx: cancelling a read drops the connection without
-	// a close frame. Shutdown goes through the AfterFunc below instead.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	upstream, err := b.opts.Dial(b.ctx)
 	if err != nil {
 		slog.Warn("upstream connect failed", "err", err)
@@ -108,6 +111,12 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upstream.Close()
 
+	// Not derived from b.ctx: cancelling a read drops the connection without
+	// a close frame. Shutdown goes through the AfterFunc below instead.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &conn{bridge: b, ws: ws, upstream: upstream, ctx: ctx, cancel: cancel}
+
 	// Shutdown: close the WebSocket with 1001 and stop the upstream reader.
 	stop := context.AfterFunc(b.ctx, func() {
 		ws.Close(websocket.StatusGoingAway, "server shutting down")
@@ -115,60 +124,112 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	defer stop()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		b.upstreamToClient(ctx, cancel, upstream, ws)
-	}()
-	b.clientToUpstream(ctx, upstream, ws)
-	// Stop the other direction and wait for it, so no goroutine outlives
-	// the connection count.
+	var wg sync.WaitGroup
+	if b.opts.Sidecar != nil {
+		c.side = b.opts.Sidecar.Connect()
+		wg.Go(c.writeSidecar)
+	}
+	wg.Go(c.upstreamToClient)
+	c.clientToUpstream()
+	// Stop everything else and wait for it, so no goroutine outlives the
+	// connection count.
 	cancel()
 	upstream.Close()
-	<-done
+	if c.side != nil {
+		c.side.Close()
+	}
+	wg.Wait()
+}
+
+// conn is one browser connection with its upstream.
+type conn struct {
+	bridge   *Bridge
+	ws       *websocket.Conn
+	upstream net.Conn
+	ctx      context.Context
+	cancel   context.CancelFunc
+	side     *sidecar.Conn // nil without sidecar
+	sniffer  mumble.Sniffer
+	sniffErr bool
 }
 
 // Blocking writes give natural backpressure: a slow side stops the reader
 // of the other side.
-func (b *Bridge) upstreamToClient(ctx context.Context, cancel context.CancelFunc, upstream net.Conn, ws *websocket.Conn) {
-	defer cancel()
+func (c *conn) upstreamToClient() {
+	defer c.cancel()
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := upstream.Read(buf)
+		n, err := c.upstream.Read(buf)
 		if n > 0 {
-			if werr := ws.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+			if werr := c.ws.Write(c.ctx, websocket.MessageBinary, buf[:n]); werr != nil {
 				return
 			}
+			c.sniff(buf[:n])
 		}
 		if err != nil {
 			// Ended by us (client gone, shutdown): nothing to tell.
-			if ctx.Err() != nil || b.ctx.Err() != nil {
+			if c.ctx.Err() != nil || c.bridge.ctx.Err() != nil {
 				return
 			}
 			if errors.Is(err, io.EOF) {
-				ws.Close(websocket.StatusNormalClosure, "")
+				c.ws.Close(websocket.StatusNormalClosure, "")
 			} else {
-				ws.Close(websocket.StatusInternalError, "upstream error")
+				c.ws.Close(websocket.StatusInternalError, "upstream error")
 			}
 			return
 		}
 	}
 }
 
-func (b *Bridge) clientToUpstream(ctx context.Context, upstream net.Conn, ws *websocket.Conn) {
+// sniff follows the stream (after forwarding it, so voice is not delayed)
+// to learn the Mumble identity for the sidecar.
+func (c *conn) sniff(chunk []byte) {
+	if c.side == nil || c.sniffErr {
+		return
+	}
+	id, changed, err := c.sniffer.Feed(chunk)
+	if err != nil {
+		slog.Warn("cannot follow the Mumble stream, text channels disabled for this connection", "err", err)
+		c.sniffErr = true
+		return
+	}
+	if changed {
+		c.side.SetIdentity(id)
+	}
+}
+
+func (c *conn) clientToUpstream() {
 	for {
-		typ, data, err := ws.Read(ctx)
+		typ, data, err := c.ws.Read(c.ctx)
 		if err != nil {
 			return
 		}
-		if typ != websocket.MessageBinary {
-			ws.Close(websocket.StatusUnsupportedData, "binary frames only")
+		if typ == websocket.MessageText {
+			if c.side == nil {
+				c.ws.Close(websocket.StatusUnsupportedData, "binary frames only")
+				return
+			}
+			if len(data) > maxTextFrame {
+				c.ws.Close(websocket.StatusMessageTooBig, "request too large")
+				return
+			}
+			c.side.Handle(data)
+			continue
+		}
+		if _, err := c.upstream.Write(data); err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				c.ws.Close(websocket.StatusInternalError, "upstream write failed")
+			}
 			return
 		}
-		if _, err := upstream.Write(data); err != nil {
-			if !errors.Is(err, net.ErrClosed) {
-				ws.Close(websocket.StatusInternalError, "upstream write failed")
-			}
+	}
+}
+
+// writeSidecar sends the sidecar's messages as text frames. It ends when
+// the sidecar connection closes its outbox.
+func (c *conn) writeSidecar() {
+	for msg := range c.side.Outbox() {
+		if c.ws.Write(c.ctx, websocket.MessageText, msg) != nil {
 			return
 		}
 	}

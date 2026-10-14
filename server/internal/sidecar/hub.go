@@ -11,25 +11,47 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/time/rate"
+
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/store"
 )
 
 const (
 	MaxTextLength = 2000 // characters, like Discord
-	pageSize      = 50
-	outboxSize    = 64
+	// Small pages: a page goes out as one frame on the voice connection.
+	pageSize   = 30
+	outboxSize = 64
+	// Requests per connection: a steady rate with a short burst.
+	perSecond = 5
+	burst     = 10
 )
 
 type Hub struct {
 	store *store.Store
 	now   func() time.Time
-	mu    sync.Mutex
-	conns map[*Conn]struct{}
+	// Channels are fixed at startup.
+	channels []wireChannel
+	mu       sync.Mutex
+	conns    map[*Conn]struct{}
 }
 
-func NewHub(s *store.Store, now func() time.Time) *Hub {
-	return &Hub{store: s, now: now, conns: map[*Conn]struct{}{}}
+func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
+	channels, err := s.Channels()
+	if err != nil {
+		return nil, err
+	}
+	wire := make([]wireChannel, len(channels))
+	for i, ch := range channels {
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
+	}
+	return &Hub{store: s, now: now, channels: wire, conns: map[*Conn]struct{}{}}, nil
+}
+
+func (h *Hub) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.conns)
 }
 
 // Conn is the sidecar side of one bridge connection. Outgoing messages go
@@ -37,13 +59,14 @@ func NewHub(s *store.Store, now func() time.Time) *Hub {
 type Conn struct {
 	hub      *Hub
 	out      chan []byte
+	limit    *rate.Limiter
 	mu       sync.Mutex
 	identity *mumble.Identity
 	closed   bool
 }
 
 func (h *Hub) Connect() *Conn {
-	return &Conn{hub: h, out: make(chan []byte, outboxSize)}
+	return &Conn{hub: h, out: make(chan []byte, outboxSize), limit: rate.NewLimiter(perSecond, burst)}
 }
 
 // Outbox is closed when the connection closes.
@@ -64,27 +87,20 @@ func (c *Conn) Close() {
 // SetIdentity is called when the Mumble identity is known or changes. The
 // first call makes the connection ready.
 func (c *Conn) SetIdentity(id mumble.Identity) {
-	c.mu.Lock()
-	first := c.identity == nil
-	c.identity = &id
-	c.mu.Unlock()
-	if !first {
-		return
-	}
-	channels, err := c.hub.store.Channels()
-	if err != nil {
-		slog.Error("load channels", "err", err)
-		c.sendError("text channels are not available")
-		return
-	}
-	wire := make([]wireChannel, len(channels))
-	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
-	}
-	c.send(map[string]any{"type": "ready", "channels": wire})
+	// Same lock order as Close (hub, then conn): a connection that closed
+	// meanwhile is never registered.
 	c.hub.mu.Lock()
-	c.hub.conns[c] = struct{}{}
+	c.mu.Lock()
+	first := c.identity == nil && !c.closed
+	c.identity = &id
+	if first {
+		c.hub.conns[c] = struct{}{}
+	}
+	c.mu.Unlock()
 	c.hub.mu.Unlock()
+	if first {
+		c.send(map[string]any{"type": "ready", "channels": c.hub.channels})
+	}
 }
 
 type wireChannel struct {
@@ -125,6 +141,10 @@ func (c *Conn) Handle(raw []byte) {
 		c.sendError("not ready")
 		return
 	}
+	if !c.limit.Allow() {
+		c.sendError("too many requests, slow down")
+		return
+	}
 	if req.Type != "send" && req.Type != "history" {
 		c.sendError("unknown request type")
 		return
@@ -142,11 +162,7 @@ func (c *Conn) Handle(raw []byte) {
 }
 
 func (h *Hub) channelExists(id int64) bool {
-	channels, err := h.store.Channels()
-	if err != nil {
-		return false
-	}
-	for _, ch := range channels {
+	for _, ch := range h.channels {
 		if ch.ID == id {
 			return true
 		}

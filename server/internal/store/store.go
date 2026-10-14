@@ -45,7 +45,11 @@ CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
 
 // Open opens (and creates) the database. ":memory:" is for tests.
 func Open(path string) (*Store, error) {
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	// synchronous=NORMAL: with WAL still safe against corruption, and an
+	// insert does not wait for a full disk sync (the sender's voice waits
+	// behind it on the same connection).
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

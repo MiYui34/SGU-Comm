@@ -109,3 +109,16 @@ The product is called Kallisti (kallisti.chat). Packages use the `@kallisti/*`
 scope, the Go module is `kallisti.chat/server`, and the client announces
 itself as "Kallisti" to Mumble servers. The Gitea repository and the local
 folder keep the old name "mumble-discord".
+
+## Text channels (sidecar)
+
+- The server now reads the Murmur-to-browser stream passively (it never
+  changes it) to learn each connection's session and name from ServerSync
+  and UserState. This replaces the rule "the server never parses the
+  stream". The browser cannot fake this identity, but an unregistered name
+  is only unique while its owner is online. Accounts will fix that.
+- The JSON API uses WebSocket text frames on the same connection. Requests
+  are rate limited (5/s, burst 10) and capped at 16 KB.
+- SQLite runs with WAL and `synchronous=NORMAL`: a message insert happens in
+  the sender's read loop, and a full sync on every insert would delay their
+  voice.

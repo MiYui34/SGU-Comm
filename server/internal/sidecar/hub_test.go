@@ -22,7 +22,11 @@ func newHub(t *testing.T, channels ...string) *Hub {
 	if err := s.EnsureChannels(channels); err != nil {
 		t.Fatal(err)
 	}
-	return NewHub(s, func() time.Time { return clock })
+	h, err := NewHub(s, func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 // next returns the next outgoing message of a connection, decoded.
@@ -111,8 +115,9 @@ func TestHistoryPages(t *testing.T) {
 	h := newHub(t, "general")
 	c := ready(t, h, "alice")
 	for i := 0; i < pageSize+5; i++ {
-		c.Handle([]byte(`{"type":"send","channel":1,"text":"x"}`))
-		next(t, c)
+		if _, err := h.store.AddMessage(1, "alice", "x", clock); err != nil {
+			t.Fatal(err)
+		}
 	}
 	c.Handle([]byte(`{"type":"history","channel":1}`))
 	first := next(t, c)
@@ -168,7 +173,7 @@ func TestSlowClientsDoNotBlockOthers(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < outboxSize*3; i++ {
-			alice.Handle([]byte(`{"type":"send","channel":1,"text":"x"}`))
+			h.broadcast(map[string]any{"type": "message"})
 			<-alice.Outbox()
 		}
 		close(done)
@@ -177,5 +182,30 @@ func TestSlowClientsDoNotBlockOthers(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("a slow client blocked the hub")
+	}
+}
+
+func TestIdentityAfterCloseDoesNotRegister(t *testing.T) {
+	h := newHub(t, "general")
+	c := h.Connect()
+	c.Close()
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "late"})
+	if n := h.count(); n != 0 {
+		t.Fatalf("%d connections registered after close", n)
+	}
+}
+
+func TestRateLimit(t *testing.T) {
+	h := newHub(t, "general")
+	c := ready(t, h, "alice")
+	errors := 0
+	for i := 0; i < burst+5; i++ {
+		c.Handle([]byte(`{"type":"history","channel":1}`))
+		if m := next(t, c); m["type"] == "error" {
+			errors++
+		}
+	}
+	if errors == 0 {
+		t.Fatal("no request was limited")
 	}
 }

@@ -18,6 +18,8 @@ import (
 
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/sidecar"
+	"kallisti.chat/server/internal/store"
 )
 
 func main() {
@@ -44,7 +46,21 @@ func run() error {
 	}
 	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: tlsConfig}
 
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("open database %s: %w", cfg.DBPath, err)
+	}
+	defer db.Close()
+	if err := db.EnsureChannels(cfg.TextChannels); err != nil {
+		return fmt.Errorf("set up text channels: %w", err)
+	}
+
+	hub, err := sidecar.NewHub(db, time.Now)
+	if err != nil {
+		return fmt.Errorf("load text channels: %w", err)
+	}
 	b := bridge.New(bridge.Options{
+		Sidecar:        hub,
 		AllowedOrigins: cfg.AllowedOrigins,
 		MaxConnections: cfg.MaxConnections,
 		Dial: func(ctx context.Context) (net.Conn, error) {
@@ -57,7 +73,8 @@ func run() error {
 		return fmt.Errorf("cannot listen on port %d: %w", cfg.ListenPort, err)
 	}
 	srv := &http.Server{Handler: b, ReadHeaderTimeout: 10 * time.Second}
-	slog.Info("bridge running", "listen", ln.Addr().String(), "mumble", upstream)
+	slog.Info("server running", "listen", ln.Addr().String(), "mumble", upstream,
+		"db", cfg.DBPath, "text_channels", cfg.TextChannels)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
