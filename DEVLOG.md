@@ -144,9 +144,27 @@ folder keep the old name "mumble-discord".
 
 - Tauri v2. A local bridge in Rust (127.0.0.1, random port and secret, Origin
   check) lets the unchanged web client talk TLS to any Mumble server.
-- The bridge accepts any server certificate (signatures still checked), like
-  a first Mumble connection. Trust on first use with pinning is open.
+- Server certificates: trust on first use. The bridge only lets the page pin
+  a fingerprint that it saw itself on a real connection.
 - Tested: Rust integration tests (TLS echo, real Murmur) and the web client's
   desktop mode in a browser with a stubbed `__TAURI_INTERNALS__` (agent-browser
   `--init-script`). The app window itself could not be opened in the
   development sandbox; `tauri build` produces Kallisti.app.
+
+### Native UDP voice
+
+- OCB2-AES128 and CryptState are ports of Mumble's code. OCB2 has a
+  deliberate countermeasure (XEX*) that changes an all-zero block, so test
+  data must not be all zeros.
+- The bridge reads Version and CryptSetup from the server's stream, pings
+  over UDP, and sends voice over UDP while a good UDP packet came in the last
+  12 s. Only whole frames go to the browser, so UDP voice never lands inside
+  a TCP frame.
+- Murmur sends voice to a client over UDP only after that client sent voice
+  (not a ping) over UDP, and goes back to TCP when a UDPTunnel arrives over
+  TCP. So when UDP stops, the bridge sends a ping in a UDPTunnel frame; a
+  silent user would otherwise hear nothing.
+- UserStats `udp_packets` is what the client reports about itself. Murmur's
+  own count of decrypted UDP packets is `from_client.good`.
+- Murmur's autoban blocks an IP after 10 connects in 120 s. The dev
+  container runs with `MUMBLE_CONFIG_AUTOBANATTEMPTS=0` for the tests.

@@ -29,3 +29,4 @@
 - [x] [Account UX follow-ups](issues/account-ux-follow-ups.md)
 - [x] [Desktop: Tauri shell with a local bridge](issues/desktop-shell-with-local-bridge.md)
 - [x] [Desktop: trust on first use for server certificates](issues/desktop-certificate-pinning.md)
+- [x] [Desktop: native UDP voice](issues/desktop-native-udp-voice.md)
