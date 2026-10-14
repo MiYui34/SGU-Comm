@@ -11,7 +11,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
+	"io/fs"
 	"math/big"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -58,4 +62,33 @@ func generate(name string, usage x509.ExtKeyUsage) (certPEM, keyPEM []byte, err 
 
 func Load(certPEM, keyPEM []byte) (tls.Certificate, error) {
 	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+// LoadOrCreateServer keeps one server certificate in dir (cert.pem and
+// key.pem), made on the first start, so clients can pin it.
+func LoadOrCreateServer(dir string) (tls.Certificate, error) {
+	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	certPEM, err := os.ReadFile(certPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		var keyPEM []byte
+		if certPEM, keyPEM, err = GenerateServer("Kallisti"); err != nil {
+			return tls.Certificate{}, err
+		}
+		if err = os.MkdirAll(dir, 0o700); err != nil {
+			return tls.Certificate{}, err
+		}
+		if err = os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+			return tls.Certificate{}, err
+		}
+		if err = os.WriteFile(certPath, certPEM, 0o644); err != nil {
+			return tls.Certificate{}, err
+		}
+	} else if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return Load(certPEM, keyPEM)
 }

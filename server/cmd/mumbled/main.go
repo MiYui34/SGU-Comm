@@ -4,9 +4,7 @@ package main
 import (
 	"crypto/tls"
 	"database/sql"
-	"errors"
 	"flag"
-	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -28,7 +26,7 @@ func main() {
 	maxPerIP := flag.Int("max-per-ip", 0, "connections per IP (IPv6: per /64), 0: no limit")
 	flag.Parse()
 
-	cert, err := loadOrCreateCert(*data)
+	cert, err := certs.LoadOrCreateServer(*data)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,32 +68,4 @@ func main() {
 	go func() { log.Fatal(s.ServeUDP(udp)) }()
 	log.Printf("listening on %s (TCP and UDP)", ln.Addr())
 	log.Fatal(s.Serve(ln))
-}
-
-// loadOrCreateCert keeps one certificate, so clients can pin it.
-func loadOrCreateCert(dir string) (tls.Certificate, error) {
-	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
-	certPEM, err := os.ReadFile(certPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		var keyPEM []byte
-		if certPEM, keyPEM, err = certs.GenerateServer("Kallisti"); err != nil {
-			return tls.Certificate{}, err
-		}
-		if err = os.MkdirAll(dir, 0o700); err != nil {
-			return tls.Certificate{}, err
-		}
-		if err = os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
-			return tls.Certificate{}, err
-		}
-		if err = os.WriteFile(certPath, certPEM, 0o644); err != nil {
-			return tls.Certificate{}, err
-		}
-	} else if err != nil {
-		return tls.Certificate{}, err
-	}
-	keyPEM, err := os.ReadFile(keyPath)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	return certs.Load(certPEM, keyPEM)
 }
