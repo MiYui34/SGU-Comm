@@ -29,3 +29,20 @@ Architecture for the web version:
 - TLS ends at the proxy, so a browser cannot present its own Mumble client
   certificate. Users are unregistered for now. Registration needs per-user
   certificates stored at the proxy, or a different identity scheme.
+
+## Web client notes
+
+- The Mumble server does not echo your own text messages. The client adds
+  them locally (`addOwnMessage`).
+- Murmur kicks an older unregistered session with the same name from the
+  same IP ("You connected to the server from another device"). Behind the
+  proxy, all users share one IP, so this needs a look once there are
+  real users.
+- Stale users after a page reload were an artifact of agent-browser's CDP
+  reload, which keeps the old socket open. A real in-page navigation closes
+  the socket at once. In the worst case (dead peer), Murmur drops the user
+  after 30 s without pings, and the proxy then closes both sides.
+- Vite must not pre-bundle the workspace protocol package
+  (`optimizeDeps.exclude`), or protocol edits do not reach the dev server.
+- svelte-check needs the TypeScript 6 API. The web package has
+  `typescript@6` next to the native `typescript@7`.
