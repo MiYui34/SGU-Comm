@@ -22,3 +22,4 @@
 - [x] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
 - [x] [Mobile layout](issues/mobile-layout.md)
 - [x] [Production deployment with docker-compose](issues/production-deployment-with-docker-compose.md)
+- [x] [Guests: refuse a name another web user has](issues/guests-refuse-duplicate-names.md)
