@@ -38,3 +38,4 @@
 - [x] [Mumble server: moderation](issues/mumble-server-moderation.md)
 - [x] [Mumble server: whispers and shouts](issues/mumble-server-voice-targets.md)
 - [x] [Mumble server: Mumble 1.4 clients](issues/mumble-server-legacy-clients.md)
+- [x] [Mumble server: avatars, comments, descriptions](issues/mumble-server-blobs.md)
