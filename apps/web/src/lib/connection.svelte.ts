@@ -18,10 +18,12 @@ import {
 } from "@kallisti/protocol";
 import {
   historyRequest,
+  httpBase,
   initialTextState,
   parseServerEvent,
   reduceText,
   sendRequest,
+  uploadTokenRequest,
   type TextState,
 } from "./textChannels";
 import { createCapture } from "./voice/capture.svelte";
@@ -41,6 +43,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   let closed = $state(false);
   // Text channels from the Kallisti server (unavailable on plain Mumble).
   let text = $state.raw<TextState>(initialTextState);
+  // One upload token request at a time (the UI uploads one file at a time).
+  let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void } | null = null;
+  const base = httpBase(url);
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
@@ -76,7 +81,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     // Text frames: the Kallisti server's JSON API. Binary: the Mumble stream.
     if (typeof event.data === "string") {
       const ev = parseServerEvent(event.data);
-      if (ev) text = reduceText(text, ev);
+      if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
+      else if (ev) text = reduceText(text, ev);
       return;
     }
     try {
@@ -91,6 +97,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   };
   ws.onclose = () => {
     clearInterval(timer);
+    tokenWaiter?.reject(new Error("connection closed"));
     capture?.close();
     playback?.close();
     void audio?.close();
@@ -110,8 +117,38 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
     },
-    sendToTextChannel: (channel: number, message: string) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message));
+    sendToTextChannel: (channel: number, message: string, upload?: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message, upload));
+    },
+    // The server's HTTP origin (uploads and files).
+    httpBase: base,
+    // Uploads a file and returns its key, to attach with sendToTextChannel.
+    uploadFile: async (file: File): Promise<string> => {
+      if (ws.readyState !== WebSocket.OPEN) throw new Error("not connected");
+      if (tokenWaiter) throw new Error("an upload is already starting");
+      const token = await new Promise<string>((resolve, reject) => {
+        // The server may answer with an error instead (rate limit): give up
+        // after a while, so the next upload can try again.
+        const timeout = setTimeout(() => done(() => reject(new Error("no upload token from the server"))), 10_000);
+        const done = (settle: () => void) => {
+          clearTimeout(timeout);
+          tokenWaiter = null;
+          settle();
+        };
+        tokenWaiter = {
+          resolve: (t) => done(() => resolve(t)),
+          reject: (err) => done(() => reject(err)),
+        };
+        ws.send(uploadTokenRequest());
+      });
+      const res = await fetch(`${base}/api/upload?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+        body: file,
+      });
+      const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };
+      if (!res.ok || !body.key) throw new Error(body.error ?? `upload failed (${res.status})`);
+      return body.key;
     },
     playback,
     capture,

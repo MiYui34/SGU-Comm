@@ -179,3 +179,19 @@ describe("formatSize", () => {
     expect(formatSize(1258291)).toBe("1.2 MB");
   });
 });
+
+describe("attachment URL check", () => {
+  const withUrl = (url: string) => toChatMessage({ ...msg(Math.random() * 1e9), upload: { url, name: "x", type: "image/png", size: 1 } }, "https://srv.example");
+
+  it("keeps files on our server", () => {
+    expect(withUrl("/files/k/x.png").upload?.url).toBe("https://srv.example/files/k/x.png");
+  });
+
+  it("drops URLs that leave the server or the files path", () => {
+    expect(withUrl("@evil.example/x").upload).toBeUndefined();
+    expect(withUrl(".evil.example/x").upload).toBeUndefined();
+    expect(withUrl("//evil.example/files/x").upload).toBeUndefined();
+    expect(withUrl("javascript:alert(1)").upload).toBeUndefined();
+    expect(withUrl("/api/upload").upload).toBeUndefined();
+  });
+});

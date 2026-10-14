@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChatMessage } from "@kallisti/protocol";
+  import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
   import { untrack } from "svelte";
@@ -18,6 +19,8 @@
     loadingOlder = false,
     onLoadOlder,
     error = null,
+    onUpload,
+    uploading = false,
     onSend,
     onClose,
   }: {
@@ -25,7 +28,7 @@
     // channel: a Mumble voice channel's chat (not stored), text: a stored
     // Kallisti text channel, dm: a private conversation.
     kind: "channel" | "text" | "dm";
-    messages: readonly ChatMessage[];
+    messages: readonly (ChatMessage | DisplayMessage)[];
     welcomeText: string;
     membersOpen: boolean;
     onToggleMembers: () => void;
@@ -35,6 +38,9 @@
     onLoadOlder?: () => void;
     // The server refused something (for example a message that is too long).
     error?: string | null;
+    // Text channels: attach a file (button, paste or drop).
+    onUpload?: (file: File) => void;
+    uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     onSend?: (text: string) => void;
     onClose?: () => void;
@@ -78,6 +84,26 @@
     });
   });
 
+  let filePicker: HTMLInputElement | undefined = $state();
+  // Counted: dragging over child elements fires enter/leave pairs.
+  let dragDepth = $state(0);
+  const dragging = $derived(dragDepth > 0);
+  const sendFiles = (files: FileList | null | undefined) => {
+    const file = files?.[0];
+    if (file && onUpload) onUpload(file);
+  };
+  const onPaste = (event: ClipboardEvent) => {
+    if (onUpload && event.clipboardData?.files.length) {
+      event.preventDefault();
+      sendFiles(event.clipboardData.files);
+    }
+  };
+  const onDrop = (event: DragEvent) => {
+    event.preventDefault();
+    dragDepth = 0;
+    sendFiles(event.dataTransfer?.files);
+  };
+
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
@@ -87,7 +113,20 @@
   };
 </script>
 
-<main class="chat">
+<main
+  class="chat"
+  class:dragging
+  ondragenter={(e) => {
+    if (onUpload && e.dataTransfer?.types.includes("Files")) dragDepth++;
+  }}
+  ondragover={(e) => {
+    if (onUpload && e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  }}
+  ondragleave={() => {
+    if (dragDepth > 0) dragDepth--;
+  }}
+  ondrop={onUpload ? onDrop : undefined}
+>
   <header>
     {#if kind === "dm"}
       <span class="at" aria-hidden="true">@</span>
@@ -166,14 +205,16 @@
                     <span class="author">{group.actorName ?? "Server"}</span>
                     <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
                   </div>
-                  <div class="text">{@html safe(m.text)}</div>
+                  {#if m.text}<div class="text">{@html safe(m.text)}</div>{/if}
+                  {@render attachment(m)}
                 </div>
               {:else}
                 <div class="gutter">
                   <time class="hover-time" datetime={new Date(m.at).toISOString()}>{formatTime(m.at)}</time>
                 </div>
                 <div class="body">
-                  <div class="text">{@html safe(m.text)}</div>
+                  {#if m.text}<div class="text">{@html safe(m.text)}</div>{/if}
+                  {@render attachment(m)}
                 </div>
               {/if}
             </li>
@@ -188,10 +229,29 @@
       <p class="error" role="alert">{error}</p>
     {/if}
     <div class="composer" class:disabled={!onSend}>
-      <button type="button" class="attach" title="Uploads come later" disabled>
+      <button
+        type="button"
+        class="attach"
+        title={onUpload ? "Upload a file" : "Uploads work in text channels"}
+        aria-label="Upload a file"
+        disabled={!onUpload || uploading}
+        onclick={() => filePicker?.click()}
+      >
         <Icon name="plus" size={18} />
       </button>
       <input
+        type="file"
+        class="sr-only"
+        tabindex="-1"
+        bind:this={filePicker}
+        onchange={(e) => {
+          sendFiles(e.currentTarget.files);
+          e.currentTarget.value = "";
+        }}
+      />
+      {#if uploading}<span class="uploading">Uploading…</span>{/if}
+      <input
+        onpaste={onPaste}
         bind:value={draft}
         placeholder={onSend ? `Message ${target}` : `${title} left the server`}
         disabled={!onSend}
@@ -200,6 +260,21 @@
     </div>
   </form>
 </main>
+
+{#snippet attachment(m: ChatMessage | DisplayMessage)}
+  {#if "upload" in m && m.upload}
+    {#if m.upload.type.startsWith("image/")}
+      <a class="image" href={m.upload.url} target="_blank" rel="noopener noreferrer">
+        <img src={m.upload.url} alt={m.upload.name} loading="lazy" />
+      </a>
+    {:else}
+      <a class="file" href={m.upload.url} rel="noopener noreferrer">
+        <span class="file-name">{m.upload.name}</span>
+        <span class="file-size">{formatSize(m.upload.size)}</span>
+      </a>
+    {/if}
+  {/if}
+{/snippet}
 
 <style>
   .chat {
@@ -400,6 +475,41 @@
     padding: 0 12px 0 4px;
     border-radius: 8px;
     background: var(--bg-input);
+  }
+  .chat.dragging .scroller {
+    outline: 2px dashed var(--accent);
+    outline-offset: -8px;
+  }
+  .image {
+    display: inline-block;
+    margin-top: 4px;
+  }
+  .image img {
+    display: block;
+    max-width: min(400px, 100%);
+    max-height: 300px;
+    border-radius: 8px;
+  }
+  .file {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-sidebar);
+    color: var(--link);
+    text-decoration: none;
+  }
+  .file-size {
+    color: var(--text-faint);
+    font-size: 12px;
+  }
+  .uploading {
+    color: var(--text-muted);
+    font-size: 14px;
+    white-space: nowrap;
   }
   .composer:focus-within {
     outline: 2px solid var(--accent);

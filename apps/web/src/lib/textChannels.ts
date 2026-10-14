@@ -140,6 +140,18 @@ export const linkify = (escaped: string) =>
 
 // Cached per message object: the reducer keeps message objects, so the chat
 // list gets stable objects and does not re-render every line.
+// An attachment URL from the server must stay on the server, under /files/.
+// Anything else is dropped: an image would load by itself (and leak the
+// reader's IP to another host).
+const fileUrl = (url: string, base: string): string | null => {
+  try {
+    const u = new URL(url, base);
+    return u.origin === new URL(base).origin && u.pathname.startsWith("/files/") ? u.href : null;
+  } catch {
+    return null;
+  }
+};
+
 const chatCache = new WeakMap<TextMessage, DisplayMessage>();
 
 // Text channel messages are plain text: escape, then link URLs. Attachment
@@ -147,6 +159,7 @@ const chatCache = new WeakMap<TextMessage, DisplayMessage>();
 export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
   let chat = chatCache.get(m);
   if (!chat) {
+    const url = m.upload && fileUrl(m.upload.url, base);
     chat = {
       actor: null,
       actorName: m.author,
@@ -155,7 +168,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       sessions: [],
       text: linkify(escapeHtml(m.text)),
       at: m.at,
-      ...(m.upload && { upload: { ...m.upload, url: base + m.upload.url } }),
+      ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);
   }

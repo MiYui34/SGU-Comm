@@ -110,7 +110,25 @@
     if (view.kind === "text" && text.available && !textChannel) view = { kind: "voice" };
   });
   const textView = createTextView(() => connection, () => textId);
-  const textChat = $derived(textId === null ? [] : (text.messages[textId] ?? []).map(toChatMessage));
+  const textChat = $derived(
+    textId === null ? [] : (text.messages[textId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
+  );
+  // One upload at a time. Errors show where server errors show.
+  let uploading = $state(false);
+  let uploadError = $state<string | null>(null);
+  const upload = async (file: File) => {
+    if (view.kind !== "text" || uploading) return;
+    const channel = view.id;
+    uploading = true;
+    uploadError = null;
+    try {
+      connection.sendToTextChannel(channel, "", await connection.uploadFile(file));
+    } catch (err) {
+      uploadError = err instanceof Error ? err.message : String(err);
+    } finally {
+      uploading = false;
+    }
+  };
 
   // Open user menu.
   let menu = $state<{ session: number; x: number; y: number } | null>(null);
@@ -147,7 +165,13 @@
     const user = dm && server.users[dm.session];
     return user && user.name === dm?.name ? user : undefined;
   });
+  // A new message or another view clears an old upload error.
+  $effect(() => {
+    void view;
+    uploadError = null;
+  });
   const send = (message: string) => {
+    uploadError = null;
     if (view.kind === "text") connection.sendToTextChannel(view.id, message);
     else connection.sendText(dm === null ? { channelId } : { session: dm.session }, message);
   };
@@ -217,7 +241,9 @@
       more={text.more[view.id] ?? false}
       loadingOlder={textView.loadingOlder}
       onLoadOlder={textView.loadOlder}
-      error={text.lastError}
+      error={uploadError ?? text.lastError}
+      onUpload={upload}
+      {uploading}
       {membersOpen}
       onToggleMembers={() => (membersOpen = !membersOpen)}
       onSend={send}
