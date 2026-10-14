@@ -13,12 +13,13 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/password"
 )
 
 // officialClient runs the official Mumble client in podman (see
 // packages/devtools/mumble-client) for the given time. The returned
 // function saves a screenshot to out/<name>-<label>.png.
-func officialClient(t *testing.T, addr, name string, seconds int) (screenshot func(label string)) {
+func officialClient(t *testing.T, addr, name, password string, seconds int) (screenshot func(label string)) {
 	t.Helper()
 	if os.Getenv("KALLISTI_OFFICIAL_CLIENT") == "" {
 		t.Skip("set KALLISTI_OFFICIAL_CLIENT=1 to test with the official client in podman")
@@ -30,7 +31,7 @@ func officialClient(t *testing.T, addr, name string, seconds int) (screenshot fu
 	os.MkdirAll(filepath.Join(dir, "out"), 0o755)
 	_, port, _ := net.SplitHostPort(addr)
 	container := fmt.Sprintf("kallisti-test-%s-%d", name, os.Getpid())
-	cmd := exec.Command("podman", "run", "--rm", "--name", container,
+	cmd := exec.Command("podman", "run", "--rm", "--name", container, "-e", "MUMBLE_PASSWORD="+password,
 		"-v", filepath.Join(dir, "out")+":/out",
 		"-v", filepath.Join(dir, "run-client.sh")+":/usr/local/bin/run-client.sh:ro",
 		"kallisti-mumble-client", "run-client.sh", "host.containers.internal", port, name, fmt.Sprint(seconds))
@@ -50,16 +51,21 @@ func officialClient(t *testing.T, addr, name string, seconds int) (screenshot fu
 // waitForUser reads UserStates until the named user appears.
 func (c *testClient) waitForUser(name string, d time.Duration) uint32 {
 	c.t.Helper()
+	return c.waitForUserState(name, d).GetSession()
+}
+
+func (c *testClient) waitForUserState(name string, d time.Duration) *pb.UserState {
+	c.t.Helper()
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		var u pb.UserState
 		proto.Unmarshal(c.expectWithin(mumble.TypeUserState, time.Until(deadline)), &u)
 		if u.GetName() == name {
-			return u.GetSession()
+			return &u
 		}
 	}
 	c.t.Fatalf("%s did not join", name)
-	return 0
+	return nil
 }
 
 func TestOfficialClientJoinsAndTalks(t *testing.T) {
@@ -67,7 +73,7 @@ func TestOfficialClientJoinsAndTalks(t *testing.T) {
 	watcher := dial(t, addr, "watcher")
 	games := watcher.createChannel(0, "Games", false)
 	watcher.createChannel(games, "Lobby", false)
-	screenshot := officialClient(t, addr, "official", 30)
+	screenshot := officialClient(t, addr, "official", "", 30)
 	session := watcher.waitForUser("official", 40*time.Second)
 	// It transmits continuously from a silent microphone.
 	deadline := time.Now().Add(10 * time.Second)
@@ -94,4 +100,18 @@ func TestOfficialClientJoinsAndTalks(t *testing.T) {
 	}
 	watcher.expectNone(mumble.TypeUDPTunnel)
 	screenshot("moved")
+}
+
+func TestOfficialClientLogsInAsSuperUser(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("adminpw")
+	db.SetPassword(0, hash)
+	addr := startWith(t, "0.0.0.0", Config{DB: db})
+	watcher := dial(t, addr, "watcher")
+	screenshot := officialClient(t, addr, "SuperUser", "adminpw", 30)
+	u := watcher.waitForUserState("SuperUser", 40*time.Second)
+	if u.GetUserId() != 0 || u.UserId == nil || u.GetHash() == "" {
+		t.Fatalf("SuperUser state %v", u)
+	}
+	screenshot("superuser")
 }

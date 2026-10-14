@@ -35,7 +35,7 @@ func startWith(t *testing.T, host string, cfg Config) string {
 		t.Fatal(err)
 	}
 	cert, _ := certs.Load(certPEM, keyPEM)
-	ln, err := tls.Listen("tcp", net.JoinHostPort(host, "0"), &tls.Config{Certificates: []tls.Certificate{cert}})
+	ln, err := tls.Listen("tcp", net.JoinHostPort(host, "0"), TLSConfig(cert))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,11 +85,53 @@ func dial(t *testing.T, addr, name string) *testClient {
 }
 
 func tryDial(t *testing.T, addr, name string) (*testClient, error) {
-	return tryDialVersion(t, addr, name, 1, 5)
+	return tryDialWith(t, addr, dialOpts{name: name})
 }
 
 func tryDialVersion(t *testing.T, addr, name string, major, minor uint64) (*testClient, error) {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true})
+	return tryDialWith(t, addr, dialOpts{name: name, major: major, minor: minor})
+}
+
+type dialOpts struct {
+	name, password string
+	cert           *tls.Certificate
+	major, minor   uint64 // default 1.5
+}
+
+// clientCert makes a client certificate, as Mumble clients have.
+func clientCert(t *testing.T) *tls.Certificate {
+	t.Helper()
+	certPEM, keyPEM, err := certs.Generate("client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, _ := certs.Load(certPEM, keyPEM)
+	return &cert
+}
+
+// dialAs connects and waits for ServerSync.
+func dialAs(t *testing.T, addr string, o dialOpts) *testClient {
+	t.Helper()
+	c, err := tryDialWith(t, addr, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m pb.ServerSync
+	proto.Unmarshal(c.expect(mumble.TypeServerSync), &m)
+	c.session = m.GetSession()
+	return c
+}
+
+func tryDialWith(t *testing.T, addr string, o dialOpts) (*testClient, error) {
+	if o.major == 0 {
+		o.major, o.minor = 1, 5
+	}
+	major, minor, name := o.major, o.minor, o.name
+	cfg := &tls.Config{InsecureSkipVerify: true}
+	if o.cert != nil {
+		cfg.Certificates = []tls.Certificate{*o.cert}
+	}
+	conn, err := tls.Dial("tcp", addr, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +161,7 @@ func tryDialVersion(t *testing.T, addr, name string, major, minor uint64) (*test
 	}()
 	v1, v2 := uint32(major<<16|minor<<8), major<<48|minor<<32
 	c.send(mumble.TypeVersion, &pb.Version{VersionV1: &v1, VersionV2: &v2, Release: proto.String("test")})
-	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Opus: proto.Bool(true)})
+	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Password: proto.String(o.password), Opus: proto.Bool(true)})
 	return c, nil
 }
 
@@ -270,19 +312,33 @@ func TestNewUsersGetTheUserList(t *testing.T) {
 	_ = alice
 }
 
-func TestNamesAreUnique(t *testing.T) {
+func TestInvalidNamesAreRefused(t *testing.T) {
 	addr := start(t)
-	dial(t, addr, "alice")
-	c, _ := tryDial(t, addr, "Alice")
+	c, _ := tryDial(t, addr, "  ")
 	var r pb.Reject
 	proto.Unmarshal(c.expect(mumble.TypeReject), &r)
-	if r.GetType() != pb.Reject_UsernameInUse {
-		t.Fatalf("reject %v", &r)
-	}
-	c2, _ := tryDial(t, addr, "  ")
-	proto.Unmarshal(c2.expect(mumble.TypeReject), &r)
 	if r.GetType() != pb.Reject_InvalidUsername {
 		t.Fatalf("reject %v", &r)
+	}
+}
+
+func TestAGuestFromTheSameIPReplacesItsOldSession(t *testing.T) {
+	// As Murmur: a reconnect after a network drop must not wait for the
+	// old session to time out.
+	addr := start(t)
+	old := dial(t, addr, "alice")
+	watcher := dial(t, addr, "watcher")
+	dial(t, addr, "Alice")
+	var m pb.UserRemove
+	proto.Unmarshal(old.expect(mumble.TypeUserRemove), &m)
+	if m.GetSession() != old.session {
+		t.Fatalf("old session got %v", &m)
+	}
+	for {
+		proto.Unmarshal(watcher.expect(mumble.TypeUserRemove), &m)
+		if m.GetSession() == old.session {
+			break
+		}
 	}
 }
 

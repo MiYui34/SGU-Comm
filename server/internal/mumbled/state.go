@@ -32,6 +32,11 @@ type User struct {
 	Session uint32
 	Name    string
 	Channel uint32
+	// The zero value is a guest; UserID counts only if Registered
+	// (SuperUser is registered with id 0).
+	Registered bool
+	UserID     uint32
+	Hash       string // client certificate, or ""
 
 	SelfMute, SelfDeaf bool
 	// Set by moderators or the server.

@@ -24,6 +24,7 @@ import (
 type Config struct {
 	Welcome  string
 	RootName string // default "Root"
+	Password string // for guests; registered users need none
 	DB       *DB    // nil: nothing is saved
 }
 
@@ -61,6 +62,8 @@ type Server struct {
 	cfg Config
 	// Taken before mu by changes that are saved, so saves keep their order.
 	saveMu sync.Mutex
+
+	logins logins
 
 	mu      sync.Mutex
 	state   *State
@@ -170,6 +173,15 @@ func (c *client) send(frame []byte, voice bool) {
 	}
 }
 
+// closeAfterFlush closes the connection once the queued frames are sent.
+func (c *client) closeAfterFlush() {
+	select {
+	case c.out <- nil:
+	default:
+		c.close()
+	}
+}
+
 func (c *client) sendMsg(typ uint16, m proto.Message) {
 	c.send(mumble.MessageFrame(typ, m), false)
 }
@@ -178,6 +190,10 @@ func (c *client) writer(done <-chan struct{}) {
 	for {
 		select {
 		case b := <-c.out:
+			if b == nil { // closeAfterFlush
+				c.close()
+				return
+			}
 			c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if _, err := c.conn.Write(b); err != nil {
 				c.close()

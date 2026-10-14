@@ -58,6 +58,13 @@ func (c *client) deny(err error) {
 }
 
 func (s *Server) message(c *client, typ uint16, body []byte) {
+	// A replaced or kicked session may still have messages on the way.
+	s.mu.Lock()
+	current := s.clients[c.session] == c
+	s.mu.Unlock()
+	if !current {
+		return
+	}
 	switch typ {
 	case mumble.TypePing:
 		var ping pb.Ping
@@ -72,7 +79,15 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 	case mumble.TypeUserState:
 		var m pb.UserState
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			if m.UserId != nil {
+				s.registerMsg(c, &m)
+			}
 			s.userStateMsg(c, &m)
+		}
+	case mumble.TypeQueryUsers:
+		var m pb.QueryUsers
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.queryUsersMsg(c, &m)
 		}
 	case mumble.TypeChannelState:
 		var m pb.ChannelState
@@ -334,4 +349,70 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 			o.send(frame, false)
 		}
 	}
+}
+
+// registerMsg registers a user with its certificate (self-registration).
+func (s *Server) registerMsg(c *client, m *pb.UserState) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	u := s.state.Users[c.session]
+	if u == nil {
+		s.mu.Unlock()
+		return
+	}
+	var err error
+	switch {
+	case m.Session != nil && m.GetSession() != c.session:
+		err = deny(pb.PermissionDenied_Permission, "registering others needs the Register permission")
+	case u.Registered:
+		err = deny(pb.PermissionDenied_Permission, "you are registered already")
+	case u.Hash == "":
+		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")
+	case s.cfg.DB == nil:
+		err = deny(pb.PermissionDenied_Text, "this server does not register users")
+	}
+	name, hash := u.Name, u.Hash
+	s.mu.Unlock()
+	if err != nil {
+		c.deny(err)
+		return
+	}
+	id, err := s.cfg.DB.RegisterUser(name, hash)
+	if err != nil {
+		slog.Warn("registering a user", "err", err) // for example a name taken just now
+		c.deny(deny(pb.PermissionDenied_Text, "registration failed"))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u := s.state.Users[c.session]; u != nil {
+		u.Registered, u.UserID = true, id
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
+			Session: proto.Uint32(c.session), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id),
+		}), nil)
+	}
+}
+
+// queryUsersMsg maps registered user ids to names and back.
+func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
+	db := s.cfg.DB
+	if db == nil || len(m.Ids)+len(m.Names) > 100 {
+		return
+	}
+	out := &pb.QueryUsers{}
+	byID, err := db.UserNames(m.Ids)
+	if err != nil {
+		slog.Error("query users", "err", err)
+		return
+	}
+	for _, id := range slices.Sorted(maps.Keys(byID)) {
+		out.Ids, out.Names = append(out.Ids, id), append(out.Names, byID[id])
+	}
+	for _, name := range m.Names {
+		if r, err := db.UserByName(name); err == nil && r != nil {
+			out.Ids, out.Names = append(out.Ids, r.ID), append(out.Names, r.Name)
+		}
+	}
+	c.sendMsg(mumble.TypeQueryUsers, out)
 }
