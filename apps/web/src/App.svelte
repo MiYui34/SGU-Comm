@@ -1,7 +1,7 @@
 <script lang="ts">
   import Client from "./components/Client.svelte";
   import Login from "./components/Login.svelte";
-  import { createAccountsApi } from "./lib/accounts";
+  import { createAccountsApi, type AccountActions } from "./lib/accounts";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
   import { httpBase } from "./lib/textChannels";
   import { connectionError, proxyUrl } from "./lib/status";
@@ -30,7 +30,29 @@
     if (error) connection?.close();
   });
 
+  // Shown on the login screen after leaving (for example a failed logout).
+  let loginNote = $state<string | null>(null);
+  const leave = (note: string | null) => {
+    loginNote = note;
+    connection?.close();
+    connection = null;
+  };
+  const accountActions: AccountActions = {
+    logout: async () => {
+      const ok = await api.logout();
+      if (ok) account = null;
+      leave(ok ? null : "Logging out did not finish: you may still be logged in.");
+    },
+    logoutAll: async () => {
+      await api.logoutAll();
+      account = null;
+      leave("Logged out on all devices.");
+    },
+    changePassword: api.changePassword,
+  };
+
   const start = (credentials: Credentials) => {
+    loginNote = null;
     connection?.close();
     // Created here: browsers allow audio only after a user gesture.
     const audio = voiceSupported()
@@ -41,19 +63,9 @@
 </script>
 
 {#if !connection || error}
-  <Login {error} {api} {account} onAccountChange={(name) => (account = name)} onConnect={start} />
+  <Login error={error ?? loginNote} {api} {account} onAccountChange={(name) => (account = name)} onConnect={start} />
 {:else if connection.state.status === "synced"}
-  <Client
-    {connection}
-    onLogout={account
-      ? async () => {
-          await api.logout();
-          account = null;
-          connection?.close();
-          connection = null;
-        }
-      : undefined}
-  />
+  <Client {connection} account={account ? accountActions : undefined} />
 {:else}
   <div class="connecting">Connecting…</div>
 {/if}

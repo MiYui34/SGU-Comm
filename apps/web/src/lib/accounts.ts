@@ -18,8 +18,17 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
     login: async (name: string, password: string) => (await call("/api/login", { name, password })).name ?? name,
     create: async (name: string, password: string) =>
       (await call("/api/accounts", { name, password })).name ?? name,
-    logout: async () => {
-      await call("/api/logout", {}).catch(() => {});
+    // false: the server did not confirm (the session cookie may remain).
+    logout: async () =>
+      call("/api/logout", {}).then(
+        () => true,
+        () => false,
+      ),
+    logoutAll: async () => {
+      await call("/api/logout-all", {});
+    },
+    changePassword: async (old: string, next: string) => {
+      await call("/api/password", { old, new: next });
     },
     // The logged-in account, or null (also for servers without accounts).
     me: async () => {
@@ -33,3 +42,14 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
 };
 
 export type AccountsApi = ReturnType<typeof createAccountsApi>;
+
+// The login screen opens on "Log in" when a guest tried an account's name.
+export const modeForError = (error: string | null): "guest" | "login" =>
+  error?.includes("belongs to an account") ? "login" : "guest";
+
+// What a logged-in user can do from the settings.
+export type AccountActions = {
+  logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
+  changePassword: (old: string, next: string) => Promise<void>;
+};

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
   import { outputDeviceSupported } from "../lib/voice/support";
 
@@ -9,7 +10,7 @@
     fellBack = false,
     onChange,
     onClose,
-    onLogout,
+    account,
   }: {
     settings: Settings;
     level: number;
@@ -18,8 +19,8 @@
     fellBack?: boolean;
     onChange: (patch: Partial<Settings>) => void;
     onClose: () => void;
-    // Logged in to an account: offer to log out.
-    onLogout?: () => void;
+    // Logged in to an account: log out, password.
+    account?: AccountActions;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
@@ -42,6 +43,20 @@
     navigator.mediaDevices.addEventListener("devicechange", loadDevices);
     return () => navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
   });
+
+  let oldPassword = $state("");
+  let newPassword = $state("");
+  let passwordNote = $state<string | null>(null);
+  const changePassword = async (event: SubmitEvent) => {
+    event.preventDefault();
+    try {
+      await account?.changePassword(oldPassword, newPassword);
+      passwordNote = "Password changed. Other devices are logged out.";
+      oldPassword = newPassword = "";
+    } catch (err) {
+      passwordNote = err instanceof Error ? err.message : String(err);
+    }
+  };
 
   const recordKey = (event: KeyboardEvent) => {
     if (!recordingKey) return;
@@ -159,10 +174,19 @@
       </p>
     </div>
   {/if}
-  {#if onLogout}
-    <div class="account">
-      <button class="logout" onclick={onLogout}>Log out</button>
-    </div>
+  {#if account}
+    <form class="account" onsubmit={changePassword}>
+      <span class="label">Change password</span>
+      <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
+      <input type="password" bind:value={newPassword} placeholder="New password (8 or more characters)" autocomplete="new-password" minlength="8" required />
+      {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
+      <div class="buttons">
+        <button type="submit" class="secondary">Change password</button>
+        <span class="spacer"></span>
+        <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
+        <button type="button" class="logout" onclick={account.logout}>Log out</button>
+      </div>
+    </form>
   {/if}
 </dialog>
 
@@ -266,9 +290,30 @@
   }
   .account {
     display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
+    gap: 8px;
     padding-top: 12px;
     border-top: 1px solid var(--border-subtle);
+  }
+  .account input {
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+  }
+  .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .secondary {
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: var(--bg-input);
+    font-weight: 600;
   }
   .logout {
     padding: 8px 14px;

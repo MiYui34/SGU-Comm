@@ -8,6 +8,7 @@
     usersSorted,
   } from "@kallisti/protocol";
   import { tick, untrack, type ComponentProps } from "svelte";
+  import type { AccountActions } from "../lib/accounts";
   import type { Connection } from "../lib/connection.svelte";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
@@ -23,10 +24,11 @@
   import MemberList from "./MemberList.svelte";
   import ServerRail from "./ServerRail.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
+  import Toast from "./Toast.svelte";
   import UserMenu from "./UserMenu.svelte";
   import UserPanel from "./UserPanel.svelte";
 
-  let { connection, onLogout }: { connection: Connection; onLogout?: () => void } = $props();
+  let { connection, account }: { connection: Connection; account?: AccountActions } = $props();
 
   const server = $derived(connection.state);
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
@@ -292,6 +294,10 @@
   };
 </script>
 
+{#if server.notice}
+  {#key server.notice.at}<Toast text={server.notice.text} />{/key}
+{/if}
+
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
 <svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
 
@@ -316,7 +322,7 @@
     deviceLabel={capture?.deviceLabel ?? ""}
     fellBack={capture?.fellBack ?? false}
     onChange={settings.update}
-    {onLogout}
+    {account}
     onClose={() => (showSettings = false)}
   />
 {/if}

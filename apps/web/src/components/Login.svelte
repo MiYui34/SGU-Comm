@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { AccountsApi } from "../lib/accounts";
+  import { untrack } from "svelte";
+  import { modeForError, type AccountsApi } from "../lib/accounts";
   import type { Credentials } from "../lib/connection.svelte";
   import { safeGet, safeSet } from "../lib/storage";
 
@@ -24,7 +25,8 @@
     ["login", "Log in"],
     ["create", "Create account"],
   ];
-  let mode = $state<Mode>("guest");
+  // A guest who tried an account's name gets the Log in tab right away.
+  let mode = $state<Mode>(untrack(() => modeForError(error)));
   let username = $state(safeGet(localStorage, "username") ?? "");
   let password = $state("");
   let serverPassword = $state("");
@@ -56,8 +58,8 @@
   };
 
   const logout = async () => {
-    await api.logout();
-    onAccountChange(null);
+    if (await api.logout()) onAccountChange(null);
+    else apiError = "Logging out did not finish: you may still be logged in. Try again.";
   };
 </script>
 
@@ -66,7 +68,7 @@
     <div class="card">
       <h1>Welcome back</h1>
       <p class="sub">Logged in as <strong>{account}</strong></p>
-      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
       <button class="primary" onclick={() => connectAs(account, true)}>Continue as {account}</button>
       <button class="link" onclick={logout}>Log out</button>
     </div>
