@@ -11,3 +11,4 @@
 - [x] [Cap chat history in memory](issues/cap-chat-history-in-memory.md)
 - [x] [File and image uploads](issues/file-and-image-uploads.md)
 - [x] [Fetch long channel descriptions with RequestBlob](issues/fetch-long-channel-descriptions-with-requestblob.md)
+- [x] [Push-to-talk: Space presses a focused button](issues/push-to-talk-space-presses-a-focused-button.md)
