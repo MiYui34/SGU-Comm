@@ -57,6 +57,11 @@ export const pttAction = (
   return ev.repeat || ev.editable ? null : "down";
 };
 
+// The PTT key must not also do its normal job, for example Space pressing a
+// focused button (which happens on keyup). Text fields keep the key.
+export const pttBlocksDefault = (ev: { code: string; repeat: boolean; editable: boolean }, pttKey: string) =>
+  ev.code === pttKey && !ev.editable;
+
 const KEY_NAMES: Record<string, string> = {
   Backquote: "`",
   Space: "Space",

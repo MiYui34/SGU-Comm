@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction } from "../src/lib/settings";
+import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction, pttBlocksDefault } from "../src/lib/settings";
 
 describe("parseSettings", () => {
   it("uses defaults for missing or broken input", () => {
@@ -72,5 +72,19 @@ describe("meterPercent", () => {
     expect(meterPercent(0)).toBe(100);
     expect(meterPercent(-100)).toBe(0);
     expect(meterPercent(6)).toBe(100);
+  });
+});
+
+describe("pttBlocksDefault", () => {
+  const ev = (code: string, editable = false) => ({ code, repeat: false, editable });
+
+  it("blocks the PTT key outside text fields, also on keyup and repeat", () => {
+    expect(pttBlocksDefault(ev("Space"), "Space")).toBe(true);
+    expect(pttBlocksDefault({ ...ev("Space"), repeat: true }, "Space")).toBe(true);
+  });
+
+  it("never blocks typing or other keys", () => {
+    expect(pttBlocksDefault(ev("Space", true), "Space")).toBe(false);
+    expect(pttBlocksDefault(ev("Enter"), "Space")).toBe(false);
   });
 });

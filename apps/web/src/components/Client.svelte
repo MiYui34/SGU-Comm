@@ -8,7 +8,7 @@
   } from "@kallisti/protocol";
   import { untrack } from "svelte";
   import type { Connection } from "../lib/connection.svelte";
-  import { pttAction } from "../lib/settings";
+  import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { privateCountsFrom, unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
   import { toChatMessage } from "../lib/textChannels";
@@ -69,6 +69,7 @@
   const onKey = (e: KeyboardEvent) => {
     if (prefs.mode !== "ptt") return;
     const ev = { code: e.code, repeat: e.repeat, editable: isEditable(e.target) };
+    if (pttBlocksDefault(ev, prefs.pttKey)) e.preventDefault();
     const action = pttAction(e.type as "keydown" | "keyup", ev, prefs.pttKey);
     if (action) capture?.setPttDown(action === "down");
   };
