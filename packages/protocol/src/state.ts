@@ -57,6 +57,8 @@ export type ServerState = {
   messages: readonly ChatMessage[];
   // Private messages received per sender name. Not capped like `messages`.
   privateCounts: Readonly<Record<string, number>>;
+  // The last thing the server refused (PermissionDenied), for a short notice.
+  notice: { text: string; at: number } | null;
 };
 
 export const MAX_MESSAGES = 1000;
@@ -72,6 +74,7 @@ export const initialState: ServerState = {
   users: {},
   messages: [],
   privateCounts: {},
+  notice: null,
 };
 
 // Mumble sends partial updates: only fields that are set on the wire apply.
@@ -233,6 +236,8 @@ export const reduce = (
     }
     case "TextMessage":
       return applyTextMessage(state, msg.message, now);
+    case "PermissionDenied":
+      return { ...state, notice: { text: msg.message.reason || "The server did not allow this.", at: now } };
     default:
       return state;
   }

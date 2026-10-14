@@ -298,3 +298,22 @@ describe("private conversations by name", () => {
     expect(s.messages[0]?.peer).toBeNull();
   });
 });
+
+describe("permission denied", () => {
+  it("keeps the last refusal as a notice", () => {
+    const s = run([
+      {
+        type: "PermissionDenied",
+        message: create(pb.PermissionDeniedSchema, { type: pb.PermissionDenied_DenyType.Permission, reason: "" }),
+      },
+    ]);
+    expect(s.notice).toMatchObject({ text: "The server did not allow this.", at: 1000 });
+  });
+
+  it("uses the server's reason when there is one", () => {
+    const s = run([
+      { type: "PermissionDenied", message: create(pb.PermissionDeniedSchema, { reason: "No self-registration here" }) },
+    ]);
+    expect(s.notice?.text).toBe("No self-registration here");
+  });
+});
