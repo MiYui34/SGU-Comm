@@ -6,16 +6,23 @@
   import Icon from "./Icon.svelte";
 
   let {
-    channelName,
+    title,
+    kind,
     messages,
     welcomeText,
     onSend,
+    onClose,
   }: {
-    channelName: string;
+    title: string;
+    kind: "channel" | "dm";
     messages: readonly ChatMessage[];
     welcomeText: string;
-    onSend: (text: string) => void;
+    // Missing: the conversation is read-only (the other user left).
+    onSend?: (text: string) => void;
+    onClose?: () => void;
   } = $props();
+
+  const target = $derived(kind === "dm" ? `@${title}` : title);
 
   let draft = $state("");
   let list: HTMLElement | undefined = $state();
@@ -30,7 +37,7 @@
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text || !onSend) return;
     onSend(text);
     draft = "";
   };
@@ -38,8 +45,15 @@
 
 <main class="chat">
   <header>
-    <Icon name="speaker" size={20} />
-    <h1>{channelName}</h1>
+    {#if kind === "dm"}
+      <span class="at" aria-hidden="true">@</span>
+    {:else}
+      <Icon name="speaker" size={20} />
+    {/if}
+    <h1>{title}</h1>
+    {#if onClose}
+      <button class="close" onclick={onClose} aria-label="Close conversation">×</button>
+    {/if}
   </header>
 
   <ol class="messages" bind:this={list}>
@@ -67,7 +81,12 @@
   </ol>
 
   <form onsubmit={submit}>
-    <input bind:value={draft} placeholder="Message {channelName}" aria-label="Message" />
+    <input
+      bind:value={draft}
+      placeholder={onSend ? `Message ${target}` : `${title} left the server`}
+      disabled={!onSend}
+      aria-label="Message"
+    />
   </form>
 </main>
 
@@ -86,6 +105,18 @@
     padding: 0 16px;
     border-bottom: 1px solid var(--border);
     color: var(--text-muted);
+  }
+  .at {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .close {
+    margin-left: auto;
+    font-size: 22px;
+    color: var(--text-muted);
+  }
+  .close:hover {
+    color: var(--text);
   }
   h1 {
     margin: 0;

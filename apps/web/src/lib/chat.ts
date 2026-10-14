@@ -35,3 +35,13 @@ export const privateCountsFrom = (
   }
   return counts;
 };
+
+export const unreadCounts = (
+  counts: Record<number, number>,
+  read: Record<number, number>,
+): Record<number, number> =>
+  Object.fromEntries(
+    Object.entries(counts)
+      .map(([session, n]) => [session, n - (read[Number(session)] ?? 0)] as const)
+      .filter(([, n]) => n > 0),
+  );

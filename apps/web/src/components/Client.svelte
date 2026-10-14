@@ -2,19 +2,23 @@
   import {
     joinChannel,
     messagesIn,
+    privateMessagesWith,
     setSelfState,
     usersSorted,
   } from "@mumble-discord/protocol";
   import { untrack } from "svelte";
   import type { Connection } from "../lib/connection.svelte";
   import { pttAction } from "../lib/settings";
-  import { settings } from "../lib/settings.svelte";
+  import { privateCountsFrom, unreadCounts } from "../lib/chat";
+  import { settings, userAudio } from "../lib/settings.svelte";
+  import { gainOf, userAudioFor } from "../lib/userAudio";
   import type { SelfState } from "../lib/voice";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
   import MemberList from "./MemberList.svelte";
   import ServerRail from "./ServerRail.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
+  import UserMenu from "./UserMenu.svelte";
   import UserPanel from "./UserPanel.svelte";
 
   let { connection }: { connection: Connection } = $props();
@@ -65,16 +69,76 @@
     if (action) capture?.setPttDown(action === "down");
   };
 
-  const join = (id: number) => {
-    if (me && id !== channelId) connection.send(joinChannel(me.session, id));
-  };
   const updateSelf = (s: SelfState) => {
     if (me) connection.send(setSelfState(me.session, s));
   };
-  const send = (text: string) => connection.sendText({ channelId }, text);
+  // Per-user volume and local mute, by user name.
+  const audioOf = (name: string) => userAudioFor(userAudio.value, name);
+  $effect(() => {
+    for (const u of users) connection.playback?.setUserGain(u.session, gainOf(audioOf(u.name)));
+  });
+  const localMuted = $derived(new Set(users.filter((u) => audioOf(u.name).muted).map((u) => u.session)));
+
+  // Open user menu, and open direct-message conversation (by session).
+  let menu = $state<{ session: number; x: number; y: number } | null>(null);
+  // The name is kept, so it still shows after the partner left.
+  let dm = $state<{ session: number; name: string } | null>(null);
+  const menuUser = $derived(menu && server.users[menu.session]);
+  const openMenu = (session: number, event: MouseEvent) => {
+    event.preventDefault();
+    if (event.detail !== 0) {
+      menu = { session, x: event.clientX, y: event.clientY };
+      return;
+    }
+    // Opened with the keyboard: no pointer position, place it at the element.
+    const r = (event.target as Element).getBoundingClientRect();
+    menu = { session, x: r.left + 24, y: r.bottom };
+  };
+  // The user left: close their menu (Murmur reuses session numbers).
+  $effect(() => {
+    if (menu && !menuUser) menu = null;
+  });
+
+  // Unread direct messages: counted per sender, marked read while open.
+  let readCounts = $state<Record<number, number>>({});
+  const dmCounts = $derived(privateCountsFrom(server.messages, server.session));
+  const unread = $derived(unreadCounts(dmCounts, readCounts));
+  $effect(() => {
+    if (dm === null) return;
+    const [session, count] = [dm.session, dmCounts[dm.session] ?? 0];
+    untrack(() => {
+      if (readCounts[session] !== count) readCounts = { ...readCounts, [session]: count };
+    });
+  });
+
+  // Same name too: Murmur reuses the session numbers of users who left.
+  const dmPartner = $derived.by(() => {
+    const user = dm && server.users[dm.session];
+    return user && user.name === dm?.name ? user : undefined;
+  });
+  const send = (text: string) =>
+    connection.sendText(dm === null ? { channelId } : { session: dm.session }, text);
+  const join = (id: number) => {
+    dm = null;
+    if (me && id !== channelId) connection.send(joinChannel(me.session, id));
+  };
 </script>
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
+
+{#if menu && menuUser}
+  <UserMenu
+    user={menuUser}
+    isMe={menuUser.session === server.session}
+    audio={audioOf(menuUser.name)}
+    x={menu.x}
+    y={menu.y}
+    onAudio={(patch) => userAudio.update(menuUser.name, patch)}
+    onMessage={() => (dm = { session: menuUser.session, name: menuUser.name })}
+    onSettings={() => (showSettings = true)}
+    onClose={() => (menu = null)}
+  />
+{/if}
 
 {#if showSettings}
   <SettingsDialog
@@ -89,7 +153,15 @@
   <ServerRail {serverName} />
   <div class="sidebar">
     <header>{serverName}</header>
-    <ChannelSidebar state={server} {speaking} currentChannel={channelId} onJoin={join} />
+    <ChannelSidebar
+      state={server}
+      {speaking}
+      {localMuted}
+      {unread}
+      currentChannel={dm === null ? channelId : null}
+      onJoin={join}
+      onUserMenu={openMenu}
+    />
     {#if me}
       <UserPanel
         {me}
@@ -99,14 +171,28 @@
       />
     {/if}
   </div>
-  <ChatPane
-    {channelName}
-    messages={messagesIn(server, channelId)}
-    welcomeText={channelId === 0 ? server.welcomeText : ""}
-    onSend={send}
-  />
+  {#if dm === null}
+    <ChatPane
+      title={channelName}
+      kind="channel"
+      messages={messagesIn(server, channelId)}
+      welcomeText={channelId === 0 ? server.welcomeText : ""}
+      onSend={send}
+    />
+  {:else}
+    <ChatPane
+      title={dm.name}
+      kind="dm"
+      messages={privateMessagesWith(server, dm.session)}
+      welcomeText=""
+      onSend={dmPartner ? send : undefined}
+      onClose={() => (dm = null)}
+    />
+  {/if}
   <MemberList
     {channelName}
+    {unread}
+    onUserMenu={openMenu}
     here={users.filter((u) => u.channelId === channelId)}
     elsewhere={users.filter((u) => u.channelId !== channelId)}
   />

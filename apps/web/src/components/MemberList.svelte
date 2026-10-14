@@ -1,12 +1,21 @@
 <script lang="ts">
   import type { User } from "@mumble-discord/protocol";
   import Avatar from "./Avatar.svelte";
+  import Badge from "./Badge.svelte";
 
   let {
     here,
     elsewhere,
     channelName,
-  }: { here: User[]; elsewhere: User[]; channelName: string } = $props();
+    unread,
+    onUserMenu,
+  }: {
+    here: User[];
+    elsewhere: User[];
+    channelName: string;
+    unread: Record<number, number>;
+    onUserMenu: (session: number, event: MouseEvent) => void;
+  } = $props();
 </script>
 
 {#snippet section(title: string, users: User[])}
@@ -15,8 +24,14 @@
     <ul>
       {#each users as user (user.session)}
         <li>
-          <Avatar name={user.name} size={32} />
-          <span>{user.name}</span>
+          <button
+            onclick={(e) => onUserMenu(user.session, e)}
+            oncontextmenu={(e) => onUserMenu(user.session, e)}
+          >
+            <Avatar name={user.name} size={32} />
+            <span class="name">{user.name}</span>
+            <span class="unread"><Badge count={unread[user.session]} /></span>
+          </button>
         </li>
       {/each}
     </ul>
@@ -49,19 +64,24 @@
     margin: 0;
     padding: 0;
   }
-  li {
+  button {
     display: flex;
+    width: 100%;
+    text-align: left;
     align-items: center;
     gap: 12px;
     padding: 6px 8px;
     border-radius: 4px;
     color: var(--text-muted);
   }
-  li:hover {
+  button:hover {
     background: var(--bg-hover);
     color: var(--text);
   }
-  span {
+  .unread {
+    margin-left: auto;
+  }
+  .name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -11,6 +11,7 @@ const PLAYOUT: PlayoutConfig = { startDelay: 2880, maxLatency: 14_400 };
 
 type Speaker = {
   decoder: AudioDecoder;
+  gain: GainNode;
   end: number | null;
   timer?: ReturnType<typeof setTimeout>;
 };
@@ -19,6 +20,9 @@ export type Playback = ReturnType<typeof createPlayback>;
 
 export const createPlayback = (ctx: AudioContext) => {
   const speakers = new Map<number, Speaker>();
+  // Per-user volume (0 = locally muted). Kept apart from `speakers`, which
+  // come and go with each talk spurt's decoder.
+  const gains = new Map<number, number>();
   const speaking = new SvelteSet<number>();
   const output = ctx.createGain();
   output.connect(ctx.destination);
@@ -31,7 +35,7 @@ export const createPlayback = (ctx: AudioContext) => {
     data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(output);
+    source.connect(speaker.gain);
     source.start(start / SAMPLE_RATE);
     speaker.end = start + data.numberOfFrames;
     data.close();
@@ -42,6 +46,7 @@ export const createPlayback = (ctx: AudioContext) => {
     if (!speaker) return;
     clearTimeout(speaker.timer);
     if (speaker.decoder.state !== "closed") speaker.decoder.close();
+    speaker.gain.disconnect();
     speakers.delete(session);
     speaking.delete(session);
   };
@@ -49,7 +54,11 @@ export const createPlayback = (ctx: AudioContext) => {
   const speakerFor = (session: number): Speaker => {
     const existing = speakers.get(session);
     if (existing) return existing;
+    const gain = ctx.createGain();
+    gain.gain.value = gains.get(session) ?? 1;
+    gain.connect(output);
     const speaker: Speaker = {
+      gain,
       end: null,
       decoder: new AudioDecoder({
         output: (data) => play(speaker, data),
@@ -77,7 +86,8 @@ export const createPlayback = (ctx: AudioContext) => {
       try {
         const speaker = speakerFor(packet.session);
         markSpeaking(packet.session, speaker, packet.terminator);
-        if (packet.opus.length === 0) return;
+        // Locally muted: keep the speaking ring, skip the decoding work.
+        if (packet.opus.length === 0 || gains.get(packet.session) === 0) return;
         speaker.decoder.decode(
           new EncodedAudioChunk({
             type: "key",
@@ -93,6 +103,17 @@ export const createPlayback = (ctx: AudioContext) => {
       }
     },
     remove,
+    // The user left: also drop their volume.
+    forget: (session: number) => {
+      remove(session);
+      gains.delete(session);
+    },
+    setUserGain: (session: number, value: number) => {
+      gains.set(session, value);
+      const speaker = speakers.get(session);
+      // A short ramp: a jump in gain can click.
+      speaker?.gain.gain.setTargetAtTime(value, ctx.currentTime, 0.02);
+    },
     // Does nothing where outputDeviceSupported() is false.
     setOutputDevice: (deviceId: string | null) => {
       const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };

@@ -1,6 +1,6 @@
 import type { ChatMessage } from "@mumble-discord/protocol";
 import { describe, expect, it } from "vitest";
-import { privateCountsFrom } from "../src/lib/chat";
+import { privateCountsFrom, unreadCounts } from "../src/lib/chat";
 import {
   DEFAULT_USER_AUDIO,
   gainOf,
@@ -74,5 +74,11 @@ describe("privateCountsFrom", () => {
       1,
     );
     expect(counts).toEqual({ 2: 2, 3: 1 });
+  });
+});
+
+describe("unreadCounts", () => {
+  it("subtracts what was read and drops users with nothing unread", () => {
+    expect(unreadCounts({ 2: 3, 3: 1, 4: 2 }, { 2: 1, 3: 1 })).toEqual({ 2: 2, 4: 2 });
   });
 });

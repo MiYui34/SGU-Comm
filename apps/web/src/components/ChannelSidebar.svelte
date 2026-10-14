@@ -1,18 +1,25 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@mumble-discord/protocol";
   import Avatar from "./Avatar.svelte";
+  import Badge from "./Badge.svelte";
   import Icon from "./Icon.svelte";
 
   let {
     state,
     currentChannel,
     speaking,
+    localMuted,
+    unread,
     onJoin,
+    onUserMenu,
   }: {
     state: ServerState;
     currentChannel: number | null;
     speaking: ReadonlySet<number>;
+    localMuted: ReadonlySet<number>;
+    unread: Record<number, number>;
     onJoin: (id: number) => void;
+    onUserMenu: (session: number, event: MouseEvent) => void;
   } = $props();
 
   const tree = $derived(channelTree(state));
@@ -32,7 +39,11 @@
     </button>
     <ul class="users" style:padding-left="{30 + depth * 14}px">
       {#each usersIn(state, node.channel.id) as user (user.session)}
-        <li class="user" class:me={user.session === state.session}>
+        <li
+          class="user"
+          class:me={user.session === state.session}
+          oncontextmenu={(e) => onUserMenu(user.session, e)}
+        >
           <Avatar name={user.name} size={22} speaking={speaking.has(user.session)} />
           <span class="name">{user.name}</span>
           {#if user.selfMute || user.mute || user.suppress}
@@ -41,6 +52,10 @@
           {#if user.selfDeaf || user.deaf}
             <span class="flag"><Icon name="headphones" off size={14} /></span>
           {/if}
+          {#if localMuted.has(user.session)}
+            <span class="flag" title="Muted for you"><Icon name="speaker" off size={14} /></span>
+          {/if}
+          <Badge count={unread[user.session]} />
         </li>
       {/each}
     </ul>

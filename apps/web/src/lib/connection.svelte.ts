@@ -54,7 +54,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const packet = decodeAudio(audioFormat(state), msg.packet);
       if (packet) playback.handle(packet);
     } else if (msg.type === "UserRemove") {
-      playback.remove(msg.message.session);
+      playback.forget(msg.message.session);
     }
   };
 

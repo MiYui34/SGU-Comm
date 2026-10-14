@@ -11,6 +11,8 @@
   --accent: #3ba99c;
   --danger: #e2585b;
   --border: #111215;
+  --border-subtle: #2c2f36;
+  --bg-menu: #15161a;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
   color: var(--text);
