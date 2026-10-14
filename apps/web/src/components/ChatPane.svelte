@@ -69,6 +69,15 @@
   // Both effects track exactly the same values, and the snapshot is used
   // once: a stale snapshot would move the reader back.
   let before: { scrollHeight: number; scrollTop: number; clientHeight: number } | null = null;
+  // Images load after the scroll and make the content taller. A reader at
+  // the bottom stays there.
+  let atBottom = true;
+  const trackBottom = () => {
+    if (list) atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 80;
+  };
+  const keepBottom = () => {
+    if (list && atBottom) list.scrollTop = list.scrollHeight;
+  };
   let shown = { target: "", firstAt: 0 };
   $effect.pre(() => {
     void [messages.length, target];
@@ -84,6 +93,7 @@
       list.scrollTop = before ? nextScrollTop(before, list.scrollHeight, switched, prepended) : list.scrollHeight;
       shown = { target, firstAt };
       before = null;
+      trackBottom();
     });
   });
 
@@ -162,7 +172,7 @@
     </div>
   </header>
 
-  <div class="scroller" bind:this={list}>
+  <div class="scroller" bind:this={list} onscroll={trackBottom}>
     {#if more}
       <div class="older">
         <button onclick={onLoadOlder} disabled={loadingOlder}>
@@ -275,7 +285,7 @@
   {#if "upload" in m && m.upload}
     {#if m.upload.type.startsWith("image/")}
       <a class="image" href={m.upload.url} target="_blank" rel="noopener noreferrer">
-        <img src={m.upload.url} alt={m.upload.name} loading="lazy" />
+        <img src={m.upload.url} alt={m.upload.name} loading="lazy" onload={keepBottom} />
       </a>
     {:else}
       <a class="file" href={m.upload.url} rel="noopener noreferrer">
