@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net"
@@ -150,6 +151,8 @@ func checkPassword(encoded, pw string) bool {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	pending := true // counted by Serve until it authenticates
+	defer func() { s.conns.remove(remoteHost(conn), pending) }()
 	conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	h, reject, err := handshake(conn)
 	if err != nil {
@@ -181,6 +184,8 @@ func (s *Server) handle(conn net.Conn) {
 		conn.Write(reject)
 		return
 	}
+	s.conns.authenticated()
+	pending = false
 	if h.noOpus { // as Murmur: such clients can neither talk nor hear
 		c.sendMsg(mumble.TypeTextMessage, &pb.TextMessage{Message: proto.String(
 			"Your client does not support the Opus codec: you will not be able to talk or hear. Please update Mumble.")})
@@ -226,6 +231,9 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	if inUse {
 		return mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is in use.")
 	}
+	if len(s.state.Users) >= s.maxUsers() && ghost == 0 && !(id.registered && id.userID == 0) {
+		return mumble.RejectFrame(pb.Reject_ServerFull, fmt.Sprintf("The server is full (at most %d users).", s.maxUsers()))
+	}
 	if g := s.state.Users[ghost]; g != nil {
 		if g.Registered && id.registered && g.UserID == id.userID {
 			id.lastChannel = g.Channel // the same user on another device stays where it was
@@ -266,6 +274,10 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	}
 	s.state.AddUser(u)
 	s.clients[c.session] = c
+	if s.byHost[c.host] == nil {
+		s.byHost[c.host] = map[*client]bool{}
+	}
+	s.byHost[c.host][c] = true
 	s.broadcastLocked(userState(u), nil)
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),
@@ -273,6 +285,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	})
 	c.sendMsg(mumble.TypeServerConfig, &pb.ServerConfig{
 		AllowHtml: proto.Bool(false), MessageLength: proto.Uint32(maxTextLength),
+		ImageMessageLength: proto.Uint32(maxTextLength), MaxUsers: proto.Uint32(uint32(s.maxUsers())),
 	})
 	return nil
 }
@@ -302,6 +315,9 @@ func (s *Server) saveLastChannel(u User) {
 func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 	u := *s.state.Users[c.session]
 	delete(s.clients, c.session)
+	if delete(s.byHost[c.host], c); len(s.byHost[c.host]) == 0 {
+		delete(s.byHost, c.host)
+	}
 	if s.byAddr[c.udpAddr] == c {
 		delete(s.byAddr, c.udpAddr)
 	}

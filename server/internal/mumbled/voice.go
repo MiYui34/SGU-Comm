@@ -2,8 +2,10 @@ package mumbled
 
 import (
 	"bytes"
+	"maps"
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 
 	"kallisti.chat/server/internal/mumble"
@@ -101,16 +103,18 @@ func (s *Server) udpPacket(conn *net.UDPConn, addr netip.AddrPort, packet []byte
 	addr = netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port())
 	// A known address, or else: try the clients from the same IP, as
 	// Murmur does.
+	// Server-list pings come unencrypted, also from known addresses (as
+	// Murmur); voice never looks like one in practice.
+	if s.serverPing(conn, addr, packet) {
+		return
+	}
 	s.mu.Lock()
 	known := s.byAddr[addr]
 	candidates := []*client{known}
 	if known == nil {
-		candidates = candidates[:0]
-		for _, c := range s.clients {
-			if c.host == addr.Addr() {
-				candidates = append(candidates, c)
-			}
-		}
+		// Clients stay in byHost after their address is known, so a new
+		// address after a NAT rebinding still finds them.
+		candidates = slices.Collect(maps.Keys(s.byHost[addr.Addr()]))
 	}
 	s.mu.Unlock()
 	now := time.Now()

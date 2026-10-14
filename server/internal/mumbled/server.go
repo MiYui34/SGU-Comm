@@ -26,6 +26,8 @@ type Config struct {
 	Welcome  string
 	RootName string // default "Root"
 	Password string // for guests; registered users need none
+	MaxUsers int    // default 100
+	MaxPerIP int    // connections per IP (IPv6: per /64); 0: no limit
 	DB       *DB    // nil: nothing is saved
 }
 
@@ -64,6 +66,8 @@ type Server struct {
 	saveMu sync.Mutex
 
 	logins logins
+	conns  conns
+	pings  *rate.Limiter
 
 	// Read at every accept: not under mu, which the voice path uses.
 	bans atomic.Pointer[[]BanEntry]
@@ -71,6 +75,7 @@ type Server struct {
 	mu      sync.Mutex
 	state   *State
 	clients map[uint32]*client
+	byHost  map[netip.Addr]map[*client]bool // for UDP from new addresses
 	byAddr  map[netip.AddrPort]*client
 	next    uint32
 	udp     *net.UDPConn
@@ -129,8 +134,10 @@ func New(cfg Config) (*Server, error) {
 		state:   state,
 		clients: map[uint32]*client{},
 		byAddr:  map[netip.AddrPort]*client{},
+		byHost:  map[netip.Addr]map[*client]bool{},
 	}
 	srv.bans.Store(&bans)
+	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
 	return srv, nil
 }
 
@@ -142,7 +149,8 @@ func (s *Server) Serve(ln net.Listener) error {
 			return err
 		}
 		// Banned addresses are dropped before TLS, as in Murmur.
-		if s.banned(remoteHost(conn), "") != nil {
+		host := remoteHost(conn)
+		if s.banned(host, "") != nil || !s.conns.add(host, s.cfg.MaxPerIP) {
 			conn.Close()
 			continue
 		}

@@ -24,6 +24,8 @@ func main() {
 	data := flag.String("data", "mumbled-data", "folder for the server certificate and database")
 	welcome := flag.String("welcome", "Welcome to Kallisti.", "welcome text")
 	serverPassword := flag.String("password", "", "server password for guests")
+	maxUsers := flag.Int("max-users", 100, "users at most")
+	maxPerIP := flag.Int("max-per-ip", 0, "connections per IP (IPv6: per /64), 0: no limit")
 	flag.Parse()
 
 	cert, err := loadOrCreateCert(*data)
@@ -61,7 +63,7 @@ func main() {
 		}
 		os.Unsetenv("MUMBLED_SUPERUSER_PASSWORD")
 	}
-	s, err := mumbled.New(mumbled.Config{Welcome: *welcome, Password: *serverPassword, DB: db})
+	s, err := mumbled.New(mumbled.Config{Welcome: *welcome, Password: *serverPassword, DB: db, MaxUsers: *maxUsers, MaxPerIP: *maxPerIP})
 	if err != nil {
 		log.Fatal(err)
 	}
