@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"kallisti.chat/server/internal/password"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -122,8 +123,8 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
 		return
 	}
-	release := limitHashing()
-	hash, err := hashPassword(c.Password)
+	release := password.Limit()
+	hash, err := password.Hash(c.Password)
 	release()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
@@ -163,10 +164,10 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 	acc, err := a.Store.AccountByName(c.Name)
 	hash := acc.PasswordHash
 	if err != nil {
-		hash = dummyHash // same work for unknown names
+		hash = password.Dummy // same work for unknown names
 	}
-	release := limitHashing()
-	ok := checkPassword(hash, c.Password)
+	release := password.Limit()
+	ok := password.Check(hash, c.Password)
 	release()
 	if !ok || err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
@@ -224,12 +225,12 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
 		return
 	}
-	release := limitHashing()
-	ok = checkPassword(acc.PasswordHash, c.Old)
+	release := password.Limit()
+	ok = password.Check(acc.PasswordHash, c.Old)
 	var hash string
 	var err error
 	if ok {
-		hash, err = hashPassword(c.New)
+		hash, err = password.Hash(c.New)
 	}
 	release()
 	if !ok {
@@ -318,14 +319,6 @@ func limiterKey(ip string) string {
 	}
 	prefix, _ := addr.Prefix(64)
 	return prefix.String()
-}
-
-// Each argon2 hash takes 19 MiB: limit how many run at once.
-var hashing = make(chan struct{}, 4)
-
-func limitHashing() func() {
-	hashing <- struct{}{}
-	return func() { <-hashing }
 }
 
 func isLocalhost(origin string) bool {

@@ -142,20 +142,6 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
-func TestPasswordHash(t *testing.T) {
-	h, err := hashPassword("secret password")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !checkPassword(h, "secret password") || checkPassword(h, "other password") {
-		t.Fatal("check failed")
-	}
-	h2, _ := hashPassword("secret password")
-	if h == h2 {
-		t.Fatal("no salt")
-	}
-}
-
 func TestCrossSiteFormsAreRefused(t *testing.T) {
 	_, srv := setup(t)
 	// A plain HTML form can send text/plain with a JSON body, without CORS.

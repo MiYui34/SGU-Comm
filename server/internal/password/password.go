@@ -1,4 +1,5 @@
-package auth
+// Package password hashes passwords with argon2id.
+package password
 
 import (
 	"crypto/rand"
@@ -20,7 +21,8 @@ const (
 
 var b64 = base64.RawStdEncoding
 
-func hashPassword(password string) (string, error) {
+// Hash returns an encoded argon2id hash with a random salt.
+func Hash(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
@@ -30,9 +32,9 @@ func hashPassword(password string) (string, error) {
 		argon2.Version, argonMemory, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
 }
 
-// checkPassword compares in constant time. The parameters come from the
+// Check compares in constant time. The parameters come from the
 // stored hash, so they can be raised later without breaking old accounts.
-func checkPassword(encoded, password string) bool {
+func Check(encoded, password string) bool {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
 		return false
@@ -52,5 +54,15 @@ func checkPassword(encoded, password string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
-// dummyHash makes logins for unknown names take as long as real ones.
-var dummyHash, _ = hashPassword("kallisti dummy password")
+// Dummy is a hash to check against for unknown names, so logins for them
+// take as long as real ones.
+var Dummy, _ = Hash("kallisti dummy password")
+
+// Each hash takes 19 MiB: Limit allows a few at once. Call the returned
+// function when done.
+func Limit() func() {
+	hashing <- struct{}{}
+	return func() { <-hashing }
+}
+
+var hashing = make(chan struct{}, 4)
