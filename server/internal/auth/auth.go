@@ -9,18 +9,21 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
 	"golang.org/x/time/rate"
 
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/clientip"
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -52,6 +55,19 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+	if r.Method == http.MethodPost {
+		// Against cross-site forms (CSRF): a form cannot send JSON without a
+		// CORS preflight, and browsers mark cross-site requests.
+		ctype, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if ctype != "application/json" {
+			writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "send JSON"})
+			return
+		}
+		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-site requests are not allowed"})
+			return
+		}
 	}
 	switch {
 	case r.URL.Path == "/api/accounts" && r.Method == http.MethodPost:
@@ -91,16 +107,18 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	name := strings.TrimSpace(c.Name)
-	if msg := checkName(name); msg != "" {
+	name := norm.NFC.String(strings.TrimSpace(c.Name))
+	if msg := names.Check(name); msg != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return
 	}
 	if n := utf8.RuneCountInString(c.Password); n < 8 || n > 256 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs at least 8 characters"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
 		return
 	}
+	release := limitHashing()
 	hash, err := hashPassword(c.Password)
+	release()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
 		return
@@ -136,12 +154,15 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	acc, err := a.Store.AccountByName(strings.TrimSpace(c.Name))
+	acc, err := a.Store.AccountByName(c.Name)
 	hash := acc.PasswordHash
 	if err != nil {
 		hash = dummyHash // same work for unknown names
 	}
-	if !checkPassword(hash, c.Password) || err != nil {
+	release := limitHashing()
+	ok := checkPassword(hash, c.Password)
+	release()
+	if !ok || err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
 		return
 	}
@@ -198,35 +219,44 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Service) allow(r *http.Request) bool {
-	ip := clientip.Of(r, a.TrustForwardedFor)
+	key := limiterKey(clientip.Of(r, a.TrustForwardedFor))
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.limits == nil {
 		a.limits = map[string]*rate.Limiter{}
 	}
-	l, ok := a.limits[ip]
+	l, ok := a.limits[key]
 	if !ok {
-		if len(a.limits) > 10_000 { // keep memory bounded
-			a.limits = map[string]*rate.Limiter{}
+		if len(a.limits) > 10_000 {
+			// Keep memory bounded: drop idle limiters (full again), not all.
+			for k, v := range a.limits {
+				if v.Tokens() >= burst {
+					delete(a.limits, k)
+				}
+			}
 		}
 		l = rate.NewLimiter(rate.Limit(perMinute)/60, burst)
-		a.limits[ip] = l
+		a.limits[key] = l
 	}
 	return l.Allow()
 }
 
-// checkName returns why a name cannot be used, or "".
-func checkName(name string) string {
-	n := utf8.RuneCountInString(name)
-	switch {
-	case n < 2 || n > 32:
-		return "the name needs 2 to 32 characters"
-	case strings.IndexFunc(name, unicode.IsControl) >= 0:
-		return "the name contains invalid characters"
-	case strings.EqualFold(name, "SuperUser"):
-		return "this name is reserved"
+// limiterKey: one IPv6 user usually has a whole /64.
+func limiterKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || addr.Is4() || addr.Is4In6() {
+		return ip
 	}
-	return ""
+	prefix, _ := addr.Prefix(64)
+	return prefix.String()
+}
+
+// Each argon2 hash takes 19 MiB: limit how many run at once.
+var hashing = make(chan struct{}, 4)
+
+func limitHashing() func() {
+	hashing <- struct{}{}
+	return func() { <-hashing }
 }
 
 func tokenHash(token string) string {

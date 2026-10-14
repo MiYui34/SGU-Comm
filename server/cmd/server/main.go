@@ -97,9 +97,10 @@ func run() error {
 			}
 			return acc.Name, &cert, true
 		},
+		// On a database error, refuse the guest rather than risk a taken name.
 		IsAccountName: func(name string) bool {
 			_, err := db.AccountByName(name)
-			return err == nil
+			return !errors.Is(err, store.ErrNotFound)
 		},
 	})
 
@@ -118,6 +119,9 @@ func run() error {
 	go func() {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()
+			if _, err := db.DeleteExpiredSessions(time.Now()); err != nil {
+				slog.Error("delete expired sessions", "err", err)
+			}
 		}
 	}()
 	mux := http.NewServeMux()

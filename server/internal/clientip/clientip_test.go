@@ -12,7 +12,8 @@ func TestOf(t *testing.T) {
 	if got := Of(r, false); got != "10.0.0.5" {
 		t.Errorf("untrusted: got %q", got)
 	}
-	if got := Of(r, true); got != "203.0.113.7" {
+	// The last entry is the one our proxy added: earlier ones can be faked.
+	if got := Of(r, true); got != "10.0.0.1" {
 		t.Errorf("trusted: got %q", got)
 	}
 	r.Header.Del("X-Forwarded-For")

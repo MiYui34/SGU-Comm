@@ -282,3 +282,34 @@ func TestGuestsCannotUseAnAccountName(t *testing.T) {
 		t.Fatal("the guest reached the upstream")
 	}
 }
+
+func TestNamesAreComparedAsMurmurSeesThem(t *testing.T) {
+	echo := startEcho(t)
+	lookup, isAccount := accounts("carol")
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
+	// Murmur trims names: "carol " is carol.
+	c, _, _ := connect(t, url, "")
+	c.Write(testCtx(t), websocket.MessageBinary, hello("carol "))
+	if m := readReject(t, c); m == nil {
+		t.Fatal("a guest took an account name with a trailing space")
+	}
+	first, _, _ := connect(t, url, "")
+	first.Write(testCtx(t), websocket.MessageBinary, hello("xavier"))
+	eventually(t, func() bool { return echo.open.Load() == 1 })
+	second, _, _ := connect(t, url, "")
+	second.Write(testCtx(t), websocket.MessageBinary, hello(" Xavier "))
+	if m := readReject(t, second); m == nil {
+		t.Fatal("the same guest name with spaces was accepted")
+	}
+}
+
+func TestAccountNameCheckWithoutGuestNameRule(t *testing.T) {
+	echo := startEcho(t)
+	lookup, isAccount := accounts("carol")
+	url := startBridge(t, Options{Dial: dialer(echo.addr), Account: lookup, IsAccountName: isAccount})
+	c, _, _ := connect(t, url+"?user=carol", "")
+	c.Write(testCtx(t), websocket.MessageBinary, hello("mallory"))
+	if m := readReject(t, c); m == nil {
+		t.Fatal("an account used a foreign name")
+	}
+}

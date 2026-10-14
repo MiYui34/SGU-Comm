@@ -10,6 +10,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"kallisti.chat/server/internal/names"
 )
 
 type Channel struct {
@@ -83,7 +85,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
 CREATE TABLE IF NOT EXISTS accounts (
 	id            INTEGER PRIMARY KEY,
-	name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	name          TEXT NOT NULL,
+	name_key      TEXT NOT NULL UNIQUE, -- see names.Key
 	password_hash TEXT NOT NULL,
 	cert_pem      BLOB NOT NULL,
 	key_pem       BLOB NOT NULL,
@@ -317,7 +320,7 @@ var (
 	ErrNameTaken = errors.New("name taken")
 )
 
-// Account is a web user. Names compare without case, like Murmur's.
+// Account is a web user. Names compare by names.Key (case, NFC, spaces).
 type Account struct {
 	ID           int64
 	Name         string
@@ -328,8 +331,8 @@ type Account struct {
 }
 
 func (s *Store) CreateAccount(a Account, at time.Time) (Account, error) {
-	res, err := s.db.Exec(`INSERT INTO accounts (name, password_hash, cert_pem, key_pem, created_at) VALUES (?, ?, ?, ?, ?)`,
-		a.Name, a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli())
+	res, err := s.db.Exec(`INSERT INTO accounts (name, name_key, password_hash, cert_pem, key_pem, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		a.Name, names.Key(a.Name), a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return Account{}, ErrNameTaken
@@ -355,7 +358,7 @@ func scanAccount(row *sql.Row) (Account, error) {
 }
 
 func (s *Store) AccountByName(name string) (Account, error) {
-	return scanAccount(s.db.QueryRow(`SELECT `+accountColumns+` FROM accounts a WHERE a.name = ?`, name))
+	return scanAccount(s.db.QueryRow(`SELECT `+accountColumns+` FROM accounts a WHERE a.name_key = ?`, names.Key(name)))
 }
 
 // Sessions are stored by the hash of their token: a leaked database does
@@ -374,4 +377,12 @@ func (s *Store) AccountBySession(tokenHash string, now time.Time) (Account, erro
 func (s *Store) DeleteSession(tokenHash string) error {
 	_, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
 	return err
+}
+
+func (s *Store) DeleteExpiredSessions(now time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, now.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

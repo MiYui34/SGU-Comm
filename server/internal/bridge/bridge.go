@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/sidecar"
 )
 
@@ -57,7 +57,7 @@ type Bridge struct {
 	mu     sync.Mutex
 	active int
 	perIP  map[string]int
-	names  map[string]bool // lower-case names of connected guests
+	guests map[string]bool // names.Key of connected guests
 	closed bool
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -66,7 +66,7 @@ type Bridge struct {
 
 func New(opts Options) *Bridge {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}, names: map[string]bool{}}
+	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}, guests: map[string]bool{}}
 }
 
 // Close refuses new connections, ends the open ones (close code 1001) and
@@ -141,23 +141,25 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// certificate registers it on Murmur). Guests may not use an account's
 	// name, nor a name another web guest has.
 	var hello []byte
-	if b.opts.UniqueGuestNames {
-		name, early, ok := b.readHello(ws)
+	if b.opts.UniqueGuestNames || isAccount {
+		raw, early, ok := b.readHello(ws)
 		if !ok {
 			return
 		}
+		// Compared the way Murmur sees names: trimmed, NFC, without case.
+		name := names.Key(raw)
 		reject := func(typ pb.Reject_RejectType, reason string) {
 			ws.Write(b.ctx, websocket.MessageBinary, mumble.RejectFrame(typ, reason))
 			ws.Close(websocket.StatusNormalClosure, "rejected")
 		}
 		switch {
-		case isAccount && !strings.EqualFold(name, accountName):
+		case isAccount && name != names.Key(accountName):
 			reject(pb.Reject_InvalidUsername, "Use your account name, "+accountName+".")
 			return
 		case !isAccount && b.opts.IsAccountName != nil && b.opts.IsAccountName(name):
 			reject(pb.Reject_UsernameInUse, "This name belongs to an account. Log in to use it.")
 			return
-		case !isAccount:
+		case !isAccount && b.opts.UniqueGuestNames:
 			if !b.reserveName(name) {
 				reject(pb.Reject_UsernameInUse, "This name is already in use.")
 				return
@@ -335,19 +337,19 @@ func (b *Bridge) readHello(ws *websocket.Conn) (string, []byte, bool) {
 	}
 }
 
-func (b *Bridge) reserveName(name string) bool {
-	key := strings.ToLower(name)
+// reserveName and releaseName take names.Key forms.
+func (b *Bridge) reserveName(key string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.names[key] {
+	if b.guests[key] {
 		return false
 	}
-	b.names[key] = true
+	b.guests[key] = true
 	return true
 }
 
-func (b *Bridge) releaseName(name string) {
+func (b *Bridge) releaseName(key string) {
 	b.mu.Lock()
-	delete(b.names, strings.ToLower(name))
+	delete(b.guests, key)
 	b.mu.Unlock()
 }

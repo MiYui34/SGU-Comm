@@ -7,12 +7,14 @@ import (
 	"strings"
 )
 
-// Of returns the remote address, or the first X-Forwarded-For entry when
-// that header is trusted (set by our own reverse proxy).
+// Of returns the remote address, or the last X-Forwarded-For entry when
+// that header is trusted. The last entry is the one our own reverse proxy
+// added (Caddy replaces the header, nginx appends to it); earlier entries
+// come from the client and can be faked. Supports one proxy in front.
 func Of(r *http.Request, trustForwarded bool) string {
 	if trustForwarded {
-		first, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
-		if ip := strings.TrimSpace(first); ip != "" {
+		entries := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		if ip := strings.TrimSpace(entries[len(entries)-1]); ip != "" {
 			return ip
 		}
 	}

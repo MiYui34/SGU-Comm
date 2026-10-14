@@ -155,3 +155,35 @@ func TestPasswordHash(t *testing.T) {
 		t.Fatal("no salt")
 	}
 }
+
+func TestCrossSiteFormsAreRefused(t *testing.T) {
+	_, srv := setup(t)
+	// A plain HTML form can send text/plain with a JSON body, without CORS.
+	req, _ := http.NewRequest("POST", srv.URL+"/api/login", strings.NewReader(`{"name":"x","password":"yyyyyyyy"}`))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Errorf("text/plain: %d, want 415", resp.StatusCode)
+	}
+	req, _ = http.NewRequest("POST", srv.URL+"/api/logout", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, _ = http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-site: %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestLimiterKeys(t *testing.T) {
+	if limiterKey("2001:db8:1:2:3:4:5:6") != limiterKey("2001:db8:1:2:ffff::1") {
+		t.Error("IPv6 addresses of one /64 must share a limit")
+	}
+	if limiterKey("192.0.2.1") == limiterKey("192.0.2.2") {
+		t.Error("IPv4 addresses must not share a limit")
+	}
+}

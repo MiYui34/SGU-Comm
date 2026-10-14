@@ -15,7 +15,7 @@ func open(t *testing.T) *Store {
 	return s
 }
 
-func names(cs []Channel) []string {
+func channelNames(cs []Channel) []string {
 	out := []string{}
 	for _, c := range cs {
 		out = append(out, c.Name)
@@ -36,12 +36,12 @@ func TestEnsureChannelsIsIdempotentAndOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The latest configuration decides the order. Removed names stay hidden.
-	if got := names(cs); len(got) != 3 || got[0] != "links" || got[1] != "general" || got[2] != "memes" {
+	if got := channelNames(cs); len(got) != 3 || got[0] != "links" || got[1] != "general" || got[2] != "memes" {
 		t.Fatalf("got %v", got)
 	}
 	s.EnsureChannels([]string{"general"})
 	cs, _ = s.Channels()
-	if got := names(cs); len(got) != 1 || got[0] != "general" {
+	if got := channelNames(cs); len(got) != 1 || got[0] != "general" {
 		t.Fatalf("after removal: got %v", got)
 	}
 }
@@ -234,5 +234,34 @@ func TestSessions(t *testing.T) {
 	}
 	if _, err := s.AccountBySession("hash1", now); err != ErrNotFound {
 		t.Fatalf("deleted session: got %v", err)
+	}
+}
+
+func TestAccountNamesCompareByKey(t *testing.T) {
+	s := open(t)
+	now := time.Now()
+	if _, err := s.CreateAccount(Account{Name: "Émile", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now); err != nil {
+		t.Fatal(err)
+	}
+	// Lower case and decomposed: the same name.
+	if _, err := s.CreateAccount(Account{Name: "émile", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now); err != ErrNameTaken {
+		t.Fatalf("got %v, want ErrNameTaken", err)
+	}
+	if a, err := s.AccountByName(" ÉMILE "); err != nil || a.Name != "Émile" {
+		t.Fatalf("by name: %+v %v", a, err)
+	}
+}
+
+func TestDeleteExpiredSessions(t *testing.T) {
+	s := open(t)
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	a, _ := s.CreateAccount(Account{Name: "alice", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now)
+	s.CreateSession("old", a.ID, now.Add(-time.Minute))
+	s.CreateSession("new", a.ID, now.Add(time.Hour))
+	if n, err := s.DeleteExpiredSessions(now); err != nil || n != 1 {
+		t.Fatalf("deleted %d %v", n, err)
+	}
+	if _, err := s.AccountBySession("new", now); err != nil {
+		t.Fatal("valid session deleted")
 	}
 }
