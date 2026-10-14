@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelTree, usersIn } from "../src/selectors";
+import { channelTree, messagesIn, usersIn } from "../src/selectors";
 import {
   emptyChannel,
   emptyUser,
@@ -72,5 +72,37 @@ describe("usersIn", () => {
       user(4, "carl", 0),
     ]);
     expect(usersIn(s, 0).map((u) => u.name)).toEqual(["Amy", "carl", "zed"]);
+  });
+});
+
+describe("messagesIn", () => {
+  const msg = (text: string, channelIds: number[], treeIds: number[] = []) => ({
+    actor: null,
+    actorName: null,
+    channelIds,
+    treeIds,
+    sessions: [],
+    text,
+    at: 0,
+  });
+
+  it("returns messages sent to the channel or to a tree that contains it", () => {
+    const s: ServerState = {
+      ...withData([ch(0, null, "Root"), ch(1, 0, "A"), ch(2, 1, "B")]),
+      messages: [
+        msg("to B", [2]),
+        msg("to A", [1]),
+        msg("tree A", [], [1]),
+        msg("tree root", [], [0]),
+        msg("tree B", [], [2]),
+      ],
+    };
+    expect(messagesIn(s, 2).map((m) => m.text)).toEqual([
+      "to B",
+      "tree A",
+      "tree root",
+      "tree B",
+    ]);
+    expect(messagesIn(s, 1).map((m) => m.text)).toEqual(["to A", "tree A", "tree root"]);
   });
 });

@@ -1,4 +1,4 @@
-import type { Channel, ServerState, User } from "./state";
+import type { Channel, ChatMessage, ServerState, User } from "./state";
 
 export type ChannelNode = { channel: Channel; children: ChannelNode[] };
 
@@ -27,3 +27,20 @@ export const usersIn = (state: ServerState, channelId: number): User[] =>
   Object.values(state.users)
     .filter((u) => u.channelId === channelId)
     .sort((a, b) => byName(a.name, b.name));
+
+const ancestorsOf = (state: ServerState, channelId: number): Set<number> => {
+  const ids = new Set<number>();
+  for (let id: number | null = channelId; id !== null && !ids.has(id); ) {
+    ids.add(id);
+    id = state.channels[id]?.parent ?? null;
+  }
+  return ids;
+};
+
+// Messages sent to the channel itself, or to a channel tree that contains it.
+export const messagesIn = (state: ServerState, channelId: number): ChatMessage[] => {
+  const trees = ancestorsOf(state, channelId);
+  return state.messages.filter(
+    (m) => m.channelIds.includes(channelId) || m.treeIds.some((id) => trees.has(id)),
+  );
+};
