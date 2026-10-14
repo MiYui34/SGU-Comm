@@ -34,3 +34,13 @@ extended features (accounts, text channels, history) as real server data.
 ## Sub-issues
 
 - [Mumble server: spike with a minimal Go server](mumble-server-spike.md)
+- [Mumble server: test harness with the official client](mumble-server-official-client-harness.md)
+- [Mumble server: channels](mumble-server-channels.md)
+- [Mumble server: accounts and registration](mumble-server-accounts.md)
+- [Mumble server: permissions](mumble-server-permissions.md)
+- [Mumble server: moderation](mumble-server-moderation.md)
+- [Mumble server: whispers and shouts](mumble-server-voice-targets.md)
+- [Mumble server: Mumble 1.4 clients](mumble-server-legacy-clients.md)
+- [Mumble server: avatars, comments, descriptions](mumble-server-blobs.md)
+- [Mumble server: limits and server list ping](mumble-server-limits.md)
+- [Mumble server: integration into the Kallisti server](mumble-server-integration.md)
