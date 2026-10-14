@@ -12,6 +12,8 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 - Every action checks permissions (enter, speak, text, make channel, move,
   mute, kick, ban, register, write ACL).
 - A superuser/admin role.
+- Registering other users (Register permission) and UserList (list,
+  rename, unregister registered users).
 
 ## Acceptance Criteria
 

@@ -33,3 +33,4 @@
 - [x] [Mumble server: spike with a minimal Go server](issues/mumble-server-spike.md)
 - [x] [Mumble server: test harness with the official client](issues/mumble-server-official-client-harness.md)
 - [x] [Mumble server: channels](issues/mumble-server-channels.md)
+- [x] [Mumble server: accounts and registration](issues/mumble-server-accounts.md)

@@ -16,3 +16,12 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 
 - A registered user gets the same user id after a reconnect; others cannot
   use the name; a reconnect after a network drop works at once.
+
+## Result
+
+- Done: certificate and password login as Murmur, reserved names,
+  self-registration, ghost replacement, last channel, server password,
+  QueryUsers, login failure limit per IP. Tested with the official client
+  (SuperUser login).
+- Registering others (Register permission) and UserList moved to the
+  permissions issue.
