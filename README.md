@@ -30,7 +30,10 @@ pnpm --filter @kallisti/web dev
 
 Server settings: `MUMBLE_HOST` (required), `MUMBLE_PORT` (64738),
 `LISTEN_PORT` (8080), `ALLOWED_ORIGINS` (required, comma-separated or `*`),
-`MUMBLE_INSECURE_TLS=1`, `MAX_CONNECTIONS` (100).
+`MUMBLE_INSECURE_TLS=1`, `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP` (10),
+`TRUST_FORWARDED_FOR=1` (only behind a reverse proxy that sets
+`X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS` (`general`,
+comma-separated).
 The web client reads `VITE_PROXY_URL` to point at another bridge.
 
 Dev scripts (with a running bridge):

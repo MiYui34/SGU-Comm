@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -26,8 +27,10 @@ const MaxPayload = 8 * 1024 * 1024
 const maxTextFrame = 16 * 1024
 
 type Options struct {
-	AllowedOrigins []string
-	MaxConnections int
+	AllowedOrigins    []string
+	MaxConnections    int
+	MaxPerIP          int
+	TrustForwardedFor bool
 	// Dial opens the upstream connection (TLS to Mumble in production).
 	Dial func(ctx context.Context) (net.Conn, error)
 	// Sidecar serves text channels over text frames. Nil: text frames close
@@ -39,6 +42,7 @@ type Bridge struct {
 	opts   Options
 	mu     sync.Mutex
 	active int
+	perIP  map[string]int
 	closed bool
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -47,7 +51,7 @@ type Bridge struct {
 
 func New(opts Options) *Bridge {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Bridge{opts: opts, ctx: ctx, cancel: cancel}
+	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}}
 }
 
 // Close refuses new connections, ends the open ones (close code 1001) and
@@ -60,24 +64,47 @@ func (b *Bridge) Close() {
 	b.wg.Wait()
 }
 
-// admit counts a new connection. Under the lock, so wg.Add never runs
-// concurrently with Close's wg.Wait.
-func (b *Bridge) admit() bool {
+// admit counts a new connection, or returns the HTTP status that refuses
+// it. Under the lock, so wg.Add never runs concurrently with Close's wg.Wait.
+func (b *Bridge) admit(ip string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.closed || b.active >= b.opts.MaxConnections {
-		return false
+	switch {
+	case b.closed || b.active >= b.opts.MaxConnections:
+		return http.StatusServiceUnavailable
+	case b.perIP[ip] >= b.opts.MaxPerIP:
+		return http.StatusTooManyRequests
 	}
 	b.active++
+	b.perIP[ip]++
 	b.wg.Add(1)
-	return true
+	return 0
 }
 
-func (b *Bridge) release() {
+func (b *Bridge) release(ip string) {
 	b.mu.Lock()
 	b.active--
+	if b.perIP[ip]--; b.perIP[ip] <= 0 {
+		delete(b.perIP, ip)
+	}
 	b.mu.Unlock()
 	b.wg.Done()
+}
+
+// clientIP is the remote address, or the first X-Forwarded-For entry when
+// that header is trusted (set by our own reverse proxy).
+func clientIP(r *http.Request, trustForwarded bool) string {
+	if trustForwarded {
+		first, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -85,11 +112,12 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return
 	}
-	if !b.admit() {
-		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+	ip := clientIP(r, b.opts.TrustForwardedFor)
+	if status := b.admit(ip); status != 0 {
+		http.Error(w, "too many connections", status)
 		return
 	}
-	defer b.release()
+	defer b.release(ip)
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// The origin is checked above, against our own list.

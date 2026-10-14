@@ -69,6 +69,9 @@ func startBridgeWith(t *testing.T, opts Options) (*Bridge, string) {
 	if opts.MaxConnections == 0 {
 		opts.MaxConnections = 10
 	}
+	if opts.MaxPerIP == 0 {
+		opts.MaxPerIP = 10
+	}
 	b := New(opts)
 	srv := httptest.NewServer(b)
 	t.Cleanup(func() {
@@ -256,5 +259,35 @@ func TestCloseEndsAllConnections(t *testing.T) {
 	eventually(t, func() bool { return echo.open.Load() == 0 })
 	if _, resp, err := connect(t, url, ""); err == nil || resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("after Close: got %v %v, want 503", resp, err)
+	}
+}
+
+func TestRejectsConnectionsAboveThePerIPLimit(t *testing.T) {
+	echo := startEcho(t)
+	url := startBridge(t, Options{Dial: dialer(echo.addr), MaxPerIP: 2})
+	for i := 0; i < 2; i++ {
+		if _, _, err := connect(t, url, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, resp, err := connect(t, url, "")
+	if err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("got %v %v, want 429", resp, err)
+	}
+}
+
+func TestClientIP(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.5:4321"
+	r.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
+	if got := clientIP(r, false); got != "10.0.0.5" {
+		t.Errorf("untrusted: got %q", got)
+	}
+	if got := clientIP(r, true); got != "203.0.113.7" {
+		t.Errorf("trusted: got %q", got)
+	}
+	r.Header.Del("X-Forwarded-For")
+	if got := clientIP(r, true); got != "10.0.0.5" {
+		t.Errorf("trusted without header: got %q", got)
 	}
 }

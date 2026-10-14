@@ -60,9 +60,11 @@ func run() error {
 		return fmt.Errorf("load text channels: %w", err)
 	}
 	b := bridge.New(bridge.Options{
-		Sidecar:        hub,
-		AllowedOrigins: cfg.AllowedOrigins,
-		MaxConnections: cfg.MaxConnections,
+		Sidecar:           hub,
+		AllowedOrigins:    cfg.AllowedOrigins,
+		MaxConnections:    cfg.MaxConnections,
+		MaxPerIP:          cfg.MaxPerIP,
+		TrustForwardedFor: cfg.TrustForwardedFor,
 		Dial: func(ctx context.Context) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp", upstream)
 		},

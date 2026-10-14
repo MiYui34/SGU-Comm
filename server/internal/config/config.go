@@ -22,6 +22,12 @@ type Config struct {
 	DBPath string
 	// Text channel names, in display order.
 	TextChannels []string
+	// Connections from one IP. All web users reach Murmur from our IP, so
+	// one client must not use them all (Murmur's autoban would hit everyone).
+	MaxPerIP int
+	// Use the first X-Forwarded-For address as the client IP. Only behind a
+	// reverse proxy that sets it: clients can fake the header.
+	TrustForwardedFor bool
 }
 
 // list splits a comma-separated value, trims and drops empty and repeated
@@ -34,6 +40,14 @@ func list(value string) []string {
 		}
 	}
 	return out
+}
+
+func positive(value string, fallback int) (int, bool) {
+	if value == "" {
+		return fallback, true
+	}
+	n, err := strconv.Atoi(value)
+	return n, err == nil && n > 0
 }
 
 func parsePort(value string, fallback int) (int, bool) {
@@ -61,14 +75,13 @@ func Parse(getenv func(string) string) (Config, error) {
 	if c.ListenPort, ok = parsePort(getenv("LISTEN_PORT"), 8080); !ok {
 		return Config{}, errors.New("LISTEN_PORT must be a port number")
 	}
-	c.MaxConnections = 100
-	if v := getenv("MAX_CONNECTIONS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return Config{}, errors.New("MAX_CONNECTIONS must be a positive integer")
-		}
-		c.MaxConnections = n
+	if c.MaxConnections, ok = positive(getenv("MAX_CONNECTIONS"), 100); !ok {
+		return Config{}, errors.New("MAX_CONNECTIONS must be a positive integer")
 	}
+	if c.MaxPerIP, ok = positive(getenv("MAX_CONNECTIONS_PER_IP"), 10); !ok {
+		return Config{}, errors.New("MAX_CONNECTIONS_PER_IP must be a positive integer")
+	}
+	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}

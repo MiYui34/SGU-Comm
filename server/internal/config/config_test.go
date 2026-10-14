@@ -23,6 +23,7 @@ func TestDefaults(t *testing.T) {
 		MaxConnections:     100,
 		DBPath:             "kallisti.db",
 		TextChannels:       []string{"general"},
+		MaxPerIP:           10,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -31,14 +32,16 @@ func TestDefaults(t *testing.T) {
 
 func TestAllOptions(t *testing.T) {
 	got, err := Parse(env(map[string]string{
-		"MUMBLE_HOST":         "localhost",
-		"MUMBLE_PORT":         "1234",
-		"LISTEN_PORT":         "9000",
-		"ALLOWED_ORIGINS":     "https://a.example, http://localhost:5173",
-		"MUMBLE_INSECURE_TLS": "1",
-		"MAX_CONNECTIONS":     "5",
-		"DB_PATH":             "/data/k.db",
-		"TEXT_CHANNELS":       " general, links ,,general, memes",
+		"MUMBLE_HOST":            "localhost",
+		"MUMBLE_PORT":            "1234",
+		"LISTEN_PORT":            "9000",
+		"ALLOWED_ORIGINS":        "https://a.example, http://localhost:5173",
+		"MUMBLE_INSECURE_TLS":    "1",
+		"MAX_CONNECTIONS":        "5",
+		"DB_PATH":                "/data/k.db",
+		"TEXT_CHANNELS":          " general, links ,,general, memes",
+		"MAX_CONNECTIONS_PER_IP": "3",
+		"TRUST_FORWARDED_FOR":    "1",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +55,8 @@ func TestAllOptions(t *testing.T) {
 		MaxConnections:     5,
 		DBPath:             "/data/k.db",
 		TextChannels:       []string{"general", "links", "memes"},
+		MaxPerIP:           3,
+		TrustForwardedFor:  true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -68,6 +73,7 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MUMBLE_PORT": "abc"}, "MUMBLE_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "LISTEN_PORT": "70000"}, "LISTEN_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS": "0"}, "MAX_CONNECTIONS must be a positive integer"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS_PER_IP": "-1"}, "MAX_CONNECTIONS_PER_IP must be a positive integer"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))
