@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@kallisti/protocol": "workspace:*",
+    "@tauri-apps/api": "^2.12.3",
     "dompurify": "^3.4.17"
   }
 }

@@ -23,6 +23,18 @@ host on port 64738. Murmur's autoban is off: all web users reach Murmur from
 the Kallisti container, and the Kallisti server limits connections per client
 IP instead.
 
+## Desktop app
+
+`apps/desktop` is a Tauri app around the same web client. A small bridge in
+the app (Rust) connects it straight to any Mumble server, without the
+Kallisti server; text channels, uploads and accounts need the Kallisti server
+and are not shown there. Needs Rust.
+
+```sh
+pnpm --filter @kallisti/desktop dev                  # window with the Vite dev server
+pnpm --filter @kallisti/desktop build --bundles app  # Kallisti.app
+```
+
 ## Development
 
 Needs Node with pnpm, Go and bun.

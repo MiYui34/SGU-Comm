@@ -146,3 +146,18 @@ async fn syncs_with_a_real_murmur() {
     .await;
     assert_eq!(found, Ok(true), "no ServerSync from Murmur");
 }
+
+#[tokio::test]
+async fn tells_the_client_when_the_server_cannot_be_reached() {
+    // A port where nothing listens.
+    let closed = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
+    let b = bridge::start(vec![ORIGIN.into()]).await.unwrap();
+    let mut ws = connect(&b, &b.secret, closed, ORIGIN).await.unwrap();
+    match ws.next().await {
+        Some(Ok(Message::Close(Some(frame)))) => {
+            assert_eq!(u16::from(frame.code), 1011);
+            assert!(!frame.reason.is_empty());
+        }
+        other => panic!("got {other:?}, want a close frame with code 1011"),
+    }
+}

@@ -15,6 +15,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse, Request, Response},
     http::StatusCode,
+    protocol::{frame::coding::CloseCode, CloseFrame},
     Message,
 };
 
@@ -39,7 +40,7 @@ pub fn parse_target(query: &str, secret: &str) -> Result<(String, u16), &'static
             _ => {}
         }
     }
-    if given_secret.as_deref() != Some(secret) {
+    if !given_secret.is_some_and(|g| constant_time_eq(g.as_bytes(), secret.as_bytes())) {
         return Err("wrong secret");
     }
     let host = host.filter(|h| !h.is_empty()).ok_or("no host")?;
@@ -48,6 +49,10 @@ pub fn parse_target(query: &str, secret: &str) -> Result<(String, u16), &'static
         Some(p) => p.parse::<u16>().ok().filter(|p| *p > 0).ok_or("bad port")?,
     };
     Ok((host, port))
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Starts the bridge on 127.0.0.1 with a random port and secret.
@@ -60,11 +65,20 @@ pub async fn start(allowed_origins: Vec<String>) -> std::io::Result<Bridge> {
     let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config()));
     let shared = Arc::new((secret.clone(), allowed_origins));
     tokio::spawn(async move {
-        while let Ok((tcp, _)) = listener.accept().await {
-            let (shared, tls) = (shared.clone(), tls.clone());
-            tokio::spawn(async move {
-                let _ = serve(tcp, &shared.0, &shared.1, tls).await;
-            });
+        loop {
+            match listener.accept().await {
+                Ok((tcp, _)) => {
+                    let (shared, tls) = (shared.clone(), tls.clone());
+                    tokio::spawn(async move {
+                        let _ = serve(tcp, &shared.0, &shared.1, tls).await;
+                    });
+                }
+                // For example too many open files: keep the bridge alive.
+                Err(err) => {
+                    eprintln!("bridge: accept failed: {err}");
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            }
         }
     });
     Ok(Bridge { port, secret })
@@ -95,13 +109,19 @@ async fn serve(
             Err(_) => Err(refuse(StatusCode::FORBIDDEN)),
         }
     };
-    let ws = tokio_tungstenite::accept_hdr_async(tcp, check).await?;
+    // Idle local sockets must not pile up.
+    let mut ws = tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::accept_hdr_async(tcp, check)).await??;
     let (host, port) = target.ok_or("no target")?;
 
-    let upstream = TcpStream::connect((host.as_str(), port)).await?;
-    upstream.set_nodelay(true)?;
-    let name = rustls::pki_types::ServerName::try_from(host.clone())?;
-    let upstream = tls.connect(name, upstream).await?;
+    let upstream = match connect_upstream(&tls, &host, port).await {
+        Ok(u) => u,
+        Err(err) => {
+            // Tell the client why, instead of just dropping the socket.
+            let frame = CloseFrame { code: CloseCode::Error, reason: format!("cannot reach {host}:{port}: {err}").into() };
+            let _ = ws.close(Some(frame)).await;
+            return Err(err);
+        }
+    };
     let (mut up_read, mut up_write) = tokio::io::split(upstream);
     let (mut ws_write, mut ws_read) = ws.split();
 
@@ -137,6 +157,19 @@ async fn serve(
         r = to_browser => r?,
     }
     Ok(())
+}
+
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+async fn connect_upstream(
+    tls: &tokio_rustls::TlsConnector,
+    host: &str,
+    port: u16,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, Box<dyn std::error::Error + Send + Sync>> {
+    let tcp = tokio::time::timeout(HANDSHAKE_TIMEOUT, TcpStream::connect((host, port))).await??;
+    tcp.set_nodelay(true)?;
+    let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
+    Ok(tls.connect(name, tcp).await?)
 }
 
 /// Mumble servers usually have self-signed certificates. Like the desktop

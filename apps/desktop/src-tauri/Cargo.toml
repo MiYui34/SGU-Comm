@@ -8,7 +8,12 @@ description = "Kallisti desktop app"
 name = "kallisti_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
 tokio-tungstenite = "0.27"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }

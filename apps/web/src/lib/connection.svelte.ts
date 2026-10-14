@@ -36,7 +36,8 @@ const PING_INTERVAL_MS = 15_000;
 
 // account: logged in to a Kallisti account (the server connects with the
 // account's certificate, and the client registers it on Murmur).
-export type Credentials = { username: string; password?: string; account?: boolean };
+// server: the desktop app's server address ("host" or "host:port").
+export type Credentials = { username: string; password?: string; account?: boolean; server?: string };
 
 export type Connection = ReturnType<typeof connect>;
 

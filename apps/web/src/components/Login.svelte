@@ -10,7 +10,11 @@
     account,
     onAccountChange,
     onConnect,
+    desktop = false,
   }: {
+    // The desktop app: a server address field, no accounts (they need the
+    // Kallisti server).
+    desktop?: boolean;
     error: string | null;
     api: AccountsApi;
     // The logged-in account (null: none, or a server without accounts).
@@ -30,12 +34,14 @@
   let username = $state(safeGet(localStorage, "username") ?? "");
   let password = $state("");
   let serverPassword = $state("");
+  let server = $state(safeGet(localStorage, "server") ?? "");
   let busy = $state(false);
   let apiError = $state<string | null>(null);
 
   const connectAs = (name: string, isAccount: boolean) => {
     safeSet(localStorage, "username", name);
-    onConnect({ username: name, password: serverPassword, account: isAccount });
+    if (desktop) safeSet(localStorage, "server", server.trim());
+    onConnect({ username: name, password: serverPassword, account: isAccount, server: server.trim() });
   };
 
   const submit = async (event: SubmitEvent) => {
@@ -75,6 +81,12 @@
   {:else}
     <form class="card" onsubmit={submit}>
       <h1>Welcome to Kallisti</h1>
+      {#if desktop}
+        <label>
+          Server address
+          <input bind:value={server} required placeholder="voice.example.org" autocomplete="url" />
+        </label>
+      {:else}
       <div class="tabs" role="group" aria-label="How to join">
         {#each MODES as [value, label] (value)}
           <button
@@ -88,6 +100,7 @@
           >
         {/each}
       </div>
+      {/if}
       <label>
         Name
         <input bind:value={username} required maxlength="32" autocomplete="username" />
@@ -113,7 +126,7 @@
         <p class="hint">An account keeps your name: nobody else can use it.</p>
       {/if}
       <button class="primary" type="submit" disabled={busy}>
-        {mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
+        {desktop ? "Connect" : mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
       </button>
     </form>
   {/if}

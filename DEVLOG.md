@@ -139,3 +139,14 @@ folder keep the old name "mumble-discord".
   text channel list through Caddy. Not yet tested with a public domain.
 - Bun's WebSocket ignores `rejectUnauthorized` (close code 1015 with a local
   CA). Use Node's `ws` for TLS checks against self-signed certificates.
+
+## Desktop app (2026-10-14)
+
+- Tauri v2. A local bridge in Rust (127.0.0.1, random port and secret, Origin
+  check) lets the unchanged web client talk TLS to any Mumble server.
+- The bridge accepts any server certificate (signatures still checked), like
+  a first Mumble connection. Trust on first use with pinning is open.
+- Tested: Rust integration tests (TLS echo, real Murmur) and the web client's
+  desktop mode in a browser with a stubbed `__TAURI_INTERNALS__` (agent-browser
+  `--init-script`). The app window itself could not be opened in the
+  development sandbox; `tauri build` produces Kallisti.app.

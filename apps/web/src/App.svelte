@@ -3,6 +3,7 @@
   import Login from "./components/Login.svelte";
   import { createAccountsApi, type AccountActions } from "./lib/accounts";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
+  import { bridgeUrl, getBridge, isDesktop, parseAddress } from "./lib/desktop";
   import { httpBase } from "./lib/textChannels";
   import { connectionError, proxyUrl } from "./lib/status";
   import { voiceSupported } from "./lib/voice/support";
@@ -14,9 +15,11 @@
   const api = createAccountsApi(httpBase(PROXY_URL));
   let account = $state<string | null>(null);
   // Only if the user has not acted yet: a late answer must not undo a login.
-  void api.me().then((name) => {
-    if (!connection && account === null) account = name;
-  });
+  // The desktop app has no Kallisti server, so no accounts.
+  if (!isDesktop())
+    void api.me().then((name) => {
+      if (!connection && account === null) account = name;
+    });
   // An account connection failed (for example an expired session): ask the
   // server again, so the login form comes back instead of a dead end.
   $effect(() => {
@@ -51,19 +54,46 @@
     changePassword: api.changePassword,
   };
 
-  const start = (credentials: Credentials) => {
+  // The desktop app connects through its local bridge to the server the
+  // user typed; the web app through the Kallisti server.
+  const desktop = isDesktop();
+  const urlFor = async (credentials: Credentials) => {
+    if (!desktop) return PROXY_URL;
+    const server = parseAddress(credentials.server ?? "");
+    if (!server) throw new Error("Enter a server address, for example voice.example.org or voice.example.org:64738");
+    return bridgeUrl(await getBridge(), server);
+  };
+
+  // Each start gets a number: a slower earlier start must not win.
+  let starts = 0;
+  const start = async (credentials: Credentials) => {
+    const mine = ++starts;
     loginNote = null;
     connection?.close();
     // Created here: browsers allow audio only after a user gesture.
     const audio = voiceSupported()
       ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" })
       : null;
-    connection = connect(PROXY_URL, credentials, audio);
+    try {
+      const url = await urlFor(credentials);
+      if (mine !== starts) return void audio?.close();
+      connection = connect(url, credentials, audio);
+    } catch (err) {
+      void audio?.close();
+      loginNote = err instanceof Error ? err.message : String(err);
+    }
   };
 </script>
 
 {#if !connection || error}
-  <Login error={error ?? loginNote} {api} {account} onAccountChange={(name) => (account = name)} onConnect={start} />
+  <Login
+    error={error ?? loginNote}
+    {api}
+    {account}
+    {desktop}
+    onAccountChange={(name) => (account = name)}
+    onConnect={start}
+  />
 {:else if connection.state.status === "synced"}
   <Client {connection} account={account ? accountActions : undefined} />
 {:else}
