@@ -8,3 +8,4 @@ dist/
 target/
 apps/desktop/src-tauri/gen/
 packages/devtools/mumble-client/out/
+server/*.pem

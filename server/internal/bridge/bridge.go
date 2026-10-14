@@ -1,6 +1,6 @@
-// Package bridge moves raw bytes between browser WebSockets and the TLS
-// control port of one Mumble server. Mumble framing is done by the browser,
-// so chunk boundaries do not matter here.
+// Package bridge moves raw bytes between browser WebSockets and a Mumble
+// server: a session of the built-in one, or the TLS port of Murmur. Mumble
+// framing is done by the browser, so chunk boundaries do not matter here.
 package bridge
 
 import (
@@ -46,9 +46,9 @@ type Options struct {
 	// Sidecar serves text channels over text frames. Nil: text frames close
 	// the connection with 1003.
 	Sidecar *sidecar.Hub
-	// Refuse a guest whose name another web guest already uses. All web
-	// users share our IP, and Murmur kicks the older session of a name
-	// from the same IP.
+	// Refuse a guest whose name another web guest already uses. For Murmur:
+	// all web users share our IP there, and it kicks the older session of a
+	// name from the same IP.
 	UniqueGuestNames bool
 }
 
@@ -145,7 +145,7 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read up to Authenticate first. Accounts must use their own name (their
-	// certificate registers it on Murmur). Guests may not use an account's
+	// certificate is their registration). Guests may not use an account's
 	// name, nor a name another web guest has.
 	var hello []byte
 	if b.opts.UniqueGuestNames || isAccount {

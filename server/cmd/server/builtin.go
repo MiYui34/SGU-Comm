@@ -30,6 +30,14 @@ type builtin struct {
 	udp *net.UDPConn
 }
 
+// accountExists: on a database error the name counts as taken.
+func accountExists(db *store.Store) func(name string) bool {
+	return func(name string) bool {
+		_, err := db.AccountByName(name)
+		return !errors.Is(err, store.ErrNotFound)
+	}
+}
+
 func startBuiltin(cfg *config.Builtin, db *store.Store) (*builtin, error) {
 	mdb, err := mumbled.OpenDB(db.DB())
 	if err != nil {
@@ -53,12 +61,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store) (*builtin, error) {
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
 		MaxUsers: cfg.MaxUsers, MaxPerIP: cfg.MaxPerIP,
-		// Names of web accounts are theirs only. On a database error the
-		// name counts as taken.
-		ReservedName: func(key string) bool {
-			_, err := db.AccountByName(key)
-			return !errors.Is(err, store.ErrNotFound)
-		},
+		ReservedName: accountExists(db), // names of web accounts are theirs only
 	})
 	if err != nil {
 		return nil, err

@@ -74,8 +74,10 @@ func run() error {
 		accounts.NameTaken = mumble.nameTaken
 	}
 	b := bridge.New(bridge.Options{
-		Sidecar:           hub,
-		UniqueGuestNames:  true,
+		Sidecar: hub,
+		// Murmur sees all web users at our IP and kicks the older session of
+		// a name from the same IP; the built-in server gets the real IPs.
+		UniqueGuestNames:  cfg.Builtin == nil,
 		AllowedOrigins:    cfg.AllowedOrigins,
 		MaxConnections:    cfg.MaxConnections,
 		MaxPerIP:          cfg.MaxPerIP,
@@ -93,11 +95,7 @@ func run() error {
 			}
 			return acc.Name, &cert, true
 		},
-		// On a database error, refuse the guest rather than risk a taken name.
-		IsAccountName: func(name string) bool {
-			_, err := db.AccountByName(name)
-			return !errors.Is(err, store.ErrNotFound)
-		},
+		IsAccountName: accountExists(db),
 	})
 
 	if err := os.MkdirAll(cfg.UploadDir, 0o700); err != nil {

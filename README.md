@@ -15,14 +15,22 @@ https://kallisti.chat
 uploads) and Caddy for HTTPS with an automatic certificate:
 
 ```sh
-printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=change-me\n' > deploy/.env
-docker compose -f deploy/compose.yml up -d
+printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/.env
+docker compose -f deploy/compose.yml up -d --remove-orphans
 ```
 
 Open `https://chat.example.org`. Mumble clients and the desktop app connect to
 the same host on port 64738 (TCP and UDP). Kallisti accounts are Mumble
 registrations; `SuperUser` (with `SUPERUSER_PASSWORD`) is the admin, for
 example to edit permissions with a Mumble client.
+
+Upgrading from a setup with Murmur: `--remove-orphans` stops the old Murmur
+container (it would keep port 64738). Murmur's registrations, channels and
+ACLs are not taken over.
+
+Bans and limits use the client's IP. Rootless podman rewrites the source
+address of native clients (all of them then share one IP); Docker, or
+podman with a root network, keeps it.
 
 ## Desktop app
 
