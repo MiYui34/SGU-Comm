@@ -22,6 +22,10 @@
     error = null,
     onUpload,
     uploading = false,
+    onMenu,
+    menuOpen = false,
+    onHoldTalk,
+    talking = false,
     onSend,
     onClose,
   }: {
@@ -41,6 +45,12 @@
     onLoadOlder?: () => void;
     // The server refused something (for example a message that is too long).
     error?: string | null;
+    // Phones: open the channel list, and push-to-talk as a hold button.
+    onMenu?: () => void;
+    menuOpen?: boolean;
+    onHoldTalk?: (down: boolean) => void;
+    // Really sending (also false after a window blur released the key).
+    talking?: boolean;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -131,6 +141,29 @@
     sendFiles(event.dataTransfer?.files);
   };
 
+  let held = false;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    onHoldTalk?.(false);
+  };
+  // The button can disappear while held (wider screen, mode change): the
+  // microphone must not stay on.
+  let lastHold: typeof onHoldTalk;
+  $effect(() => {
+    const hold = onHoldTalk;
+    lastHold = hold;
+    return () => {
+      if (held && !lastHold) {
+        held = false;
+        hold?.(false);
+      }
+    };
+  });
+  $effect(() => () => {
+    if (held) onHoldTalk?.(false);
+  });
+
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
@@ -161,6 +194,13 @@
   ondrop={onUpload ? onDrop : undefined}
 >
   <header>
+    {#if onMenu}
+      <button class="menu" onclick={onMenu} aria-label="Channels" aria-expanded={menuOpen}>
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+    {/if}
     {#if kind === "dm"}
       <span class="at" aria-hidden="true">@</span>
     {:else}
@@ -264,6 +304,24 @@
     </ol>
   </div>
 
+  {#if onHoldTalk}
+    <button
+      class="hold"
+      class:held={talking}
+      onpointerdown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        held = true;
+        onHoldTalk(true);
+      }}
+      onpointerup={release}
+      onpointercancel={release}
+      onlostpointercapture={release}
+      oncontextmenu={(e) => e.preventDefault()}
+    >
+      {talking ? "Talking…" : "Hold to talk"}
+    </button>
+  {/if}
   <form onsubmit={submit}>
     {#if error}
       <p class="error" role="alert">{error}</p>
@@ -366,6 +424,26 @@
   .topic {
     color: var(--text-muted);
     font-size: 14px;
+  }
+  .menu {
+    display: inline-flex;
+    margin-right: 4px;
+    padding: 10px;
+    color: var(--text-muted);
+  }
+  .hold {
+    margin: 0 16px 8px;
+    padding: 14px;
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text);
+    font-weight: 600;
+    touch-action: none;
+    user-select: none;
+  }
+  .hold.held {
+    background: var(--accent-strong);
+    color: white;
   }
   .tools {
     display: flex;
@@ -633,8 +711,14 @@
   input::placeholder {
     color: var(--text-faint);
   }
+  /* Phones: touch targets of at least 44 px. */
+  @media (max-width: 700px) {
+    .tools button {
+      padding: 11px;
+    }
+  }
   /* The member list is hidden on narrow screens: so is its toggle. */
-  @media (max-width: 900px) {
+  @media (max-width: 900px) and (min-width: 701px) {
     .tools .members-toggle {
       display: none;
     }

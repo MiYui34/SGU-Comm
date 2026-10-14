@@ -10,6 +10,7 @@
     unread,
     speaking,
     onUserMenu,
+    inert = false,
   }: {
     here: User[];
     elsewhere: User[];
@@ -18,6 +19,7 @@
     unread: Record<string, number>;
     speaking: ReadonlySet<number>;
     onUserMenu: (session: number, event: MouseEvent) => void;
+    inert?: boolean;
   } = $props();
 </script>
 
@@ -42,7 +44,7 @@
   {/if}
 {/snippet}
 
-<aside aria-label="Members">
+<aside aria-label="Members" {inert}>
   {@render section(`In ${channelName}`, here)}
   {@render section("Online", elsewhere)}
 </aside>

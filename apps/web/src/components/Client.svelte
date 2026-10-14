@@ -6,8 +6,9 @@
     setSelfState,
     usersSorted,
   } from "@kallisti/protocol";
-  import { untrack } from "svelte";
+  import { tick, untrack, type ComponentProps } from "svelte";
   import type { Connection } from "../lib/connection.svelte";
+  import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
@@ -67,12 +68,109 @@
     t instanceof HTMLElement &&
     (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
   const onKey = (e: KeyboardEvent) => {
+    if (e.type === "keydown" && e.key === "Escape" && phone && panel !== "chat" && !menu && !showSettings) {
+      panel = "chat";
+      return;
+    }
     if (prefs.mode !== "ptt") return;
     const ev = { code: e.code, repeat: e.repeat, editable: isEditable(e.target) };
     if (pttBlocksDefault(ev, prefs.pttKey)) e.preventDefault();
     const action = pttAction(e.type as "keydown" | "keyup", ev, prefs.pttKey);
     if (action) capture?.setPttDown(action === "down");
   };
+
+  // Phones: one panel at a time (see lib/mobile), switched by buttons or
+  // swipes. Choosing a conversation goes back to the chat.
+  const phoneQuery = matchMedia("(max-width: 700px)");
+  let phone = $state(phoneQuery.matches);
+  $effect(() => {
+    const update = () => (phone = phoneQuery.matches);
+    phoneQuery.addEventListener("change", update);
+    return () => phoneQuery.removeEventListener("change", update);
+  });
+  let panel = $state<Panel>("chat");
+  // Swipes do not count in dialogs, text fields, the hold button, or with
+  // two fingers (pinch).
+  const NO_SWIPE = "dialog, input, textarea, .hold, [role=dialog]";
+  let touch: { x: number; y: number; t: number } | null = null;
+  const touchStart = (e: TouchEvent) => {
+    const t = e.touches[0];
+    const blocked = e.touches.length > 1 || (e.target instanceof Element && e.target.closest(NO_SWIPE));
+    touch = phone && t && !blocked ? { x: t.clientX, y: t.clientY, t: e.timeStamp } : null;
+  };
+  // An opened drawer gets the focus; closing it returns focus to the header
+  // button that belongs to it (not the active element: Safari does not
+  // focus buttons on click).
+  let leftEl: HTMLElement | undefined = $state();
+  let lastPanel: Panel = "chat";
+  $effect(() => {
+    if (!phone) return;
+    const p = panel;
+    untrack(async () => {
+      const closed = lastPanel;
+      lastPanel = p;
+      await tick();
+      if (p === "chat") {
+        const button = closed === "channels" ? "button[aria-label=Channels]" : ".members-toggle";
+        if (closed !== "chat") document.querySelector<HTMLElement>(button)?.focus();
+        return;
+      }
+      const drawer = p === "channels" ? leftEl : document.querySelector<HTMLElement>(".layout > aside");
+      drawer?.querySelector<HTMLElement>("button, [href], input")?.focus();
+    });
+  });
+  const touchEnd = (e: TouchEvent) => {
+    const t = e.changedTouches[0];
+    if (!touch || !t) return;
+    panel = nextPanel(panel, swipeDirection(touch, { x: t.clientX, y: t.clientY, t: e.timeStamp }));
+    touch = null;
+  };
+
+  const paneCommon = $derived({
+    menuOpen: panel === "channels",
+    talking: capture?.transmitting ?? false,
+    membersOpen: phone ? panel === "members" : membersOpen,
+    onToggleMembers: () => {
+      if (phone) panel = panel === "members" ? "chat" : "members";
+      else membersOpen = !membersOpen;
+    },
+    onMenu: phone ? () => (panel = "channels") : undefined,
+    // Phones have no PTT key: a hold button instead.
+    onHoldTalk: phone && prefs.mode === "ptt" ? (down: boolean) => capture?.setPttDown(down) : undefined,
+  });
+  const pane = $derived.by(() => {
+    if (view.kind === "text")
+      return {
+        title: textChannel?.name ?? "",
+        kind: "text" as const,
+        messages: textChat,
+        welcomeText: "",
+        more: text.more[view.id] ?? false,
+        loadingOlder: textView.loadingOlder,
+        onLoadOlder: textView.loadOlder,
+        error: uploadError ?? text.lastError,
+        onUpload: upload,
+        uploading,
+        onSend: send,
+      } satisfies Partial<ComponentProps<typeof ChatPane>>;
+    if (dm === null)
+      return {
+        title: channelName,
+        topic: htmlToText(server.channels[channelId]?.description ?? ""),
+        kind: "channel" as const,
+        messages: messagesIn(server, channelId),
+        welcomeText: channelId === 0 ? server.welcomeText : "",
+        onSend: send,
+      } satisfies Partial<ComponentProps<typeof ChatPane>>;
+    return {
+      title: dm.name,
+      kind: "dm" as const,
+      messages: privateMessagesWith(server, dm.name),
+      welcomeText: "",
+      onSend: dmPartner ? send : undefined,
+      onClose: () => show({ kind: "voice" }),
+    } satisfies Partial<ComponentProps<typeof ChatPane>>;
+  });
 
   const updateSelf = (s: SelfState) => {
     if (me) connection.send(setSelfState(me.session, s));
@@ -95,6 +193,7 @@
   const show = (next: View) => {
     navigated = true;
     view = next;
+    panel = "chat";
   };
   const dm = $derived(view.kind === "dm" ? view : null);
 
@@ -183,6 +282,7 @@
 </script>
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
+<svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
 
 {#if menu && menuUser}
   <UserMenu
@@ -209,7 +309,12 @@
   />
 {/if}
 
-<div class="layout" class:members={membersOpen}>
+<div
+  class="layout"
+  class:members={membersOpen}
+  data-panel={phone ? panel : undefined}
+>
+  <div class="left" bind:this={leftEl} inert={phone && panel !== "channels"}>
   <ServerRail {serverName} />
   <div class="sidebar">
     <header>{serverName}</header>
@@ -235,47 +340,16 @@
       />
     {/if}
   </div>
-  {#if view.kind === "text"}
-    <ChatPane
-      title={textChannel?.name ?? ""}
-      kind="text"
-      messages={textChat}
-      welcomeText=""
-      more={text.more[view.id] ?? false}
-      loadingOlder={textView.loadingOlder}
-      onLoadOlder={textView.loadOlder}
-      error={uploadError ?? text.lastError}
-      onUpload={upload}
-      {uploading}
-      {membersOpen}
-      onToggleMembers={() => (membersOpen = !membersOpen)}
-      onSend={send}
-    />
-  {:else if dm === null}
-    <ChatPane
-      title={channelName}
-      topic={htmlToText(server.channels[channelId]?.description ?? "")}
-      kind="channel"
-      messages={messagesIn(server, channelId)}
-      welcomeText={channelId === 0 ? server.welcomeText : ""}
-      {membersOpen}
-      onToggleMembers={() => (membersOpen = !membersOpen)}
-      onSend={send}
-    />
-  {:else}
-    <ChatPane
-      title={dm.name}
-      kind="dm"
-      messages={privateMessagesWith(server, dm.name)}
-      welcomeText=""
-      {membersOpen}
-      onToggleMembers={() => (membersOpen = !membersOpen)}
-      onSend={dmPartner ? send : undefined}
-      onClose={() => show({ kind: "voice" })}
-    />
+  </div>
+  {#if phone && panel !== "chat"}
+    <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
-  {#if membersOpen}
+  <div class="main" inert={phone && panel !== "chat"}>
+    <ChatPane {...paneCommon} {...pane} />
+  </div>
+  {#if membersOpen || phone}
     <MemberList
+      inert={phone && panel !== "members"}
       {channelName}
       {unread}
       {speaking}
@@ -295,6 +369,14 @@
   .layout.members {
     grid-template-columns: 72px 240px 1fr 240px;
   }
+  /* Desktop: the wrapper does not exist for the grid. Phone: left drawer. */
+  .left,
+  .main {
+    display: contents;
+  }
+  .backdrop {
+    display: none;
+  }
   .sidebar {
     display: flex;
     flex-direction: column;
@@ -311,13 +393,64 @@
     font-size: 16px;
     font-weight: 600;
   }
-  @media (max-width: 900px) {
+  @media (max-width: 900px) and (min-width: 701px) {
     .layout,
     .layout.members {
       grid-template-columns: 72px 240px 1fr;
     }
     .layout > :global(aside) {
       display: none;
+    }
+  }
+  /* Phones: the chat fills the screen, side panels slide over it. */
+  @media (max-width: 700px) {
+    .layout,
+    .layout.members {
+      position: relative;
+      display: block;
+      overflow: hidden;
+    }
+    .main {
+      display: block;
+      height: 100%;
+    }
+    .main > :global(main) {
+      height: 100%;
+    }
+    .left,
+    .layout > :global(aside) {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      z-index: 20;
+      display: flex;
+      transition: transform 0.2s ease;
+    }
+    .left {
+      left: 0;
+      width: min(312px, 88vw);
+      transform: translateX(-100%);
+    }
+    .left > .sidebar {
+      flex: 1;
+      min-width: 0;
+    }
+    .layout > :global(aside) {
+      right: 0;
+      flex-direction: column;
+      width: min(280px, 85vw);
+      transform: translateX(100%);
+    }
+    [data-panel="channels"] .left,
+    [data-panel="members"] > :global(aside) {
+      transform: none;
+    }
+    .backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      display: block;
+      background: rgb(0 0 0 / 0.5);
     }
   }
 </style>
