@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "gen": "protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=src/gen --es_opt=target=ts,import_extension=none -I proto proto/Mumble.proto",
+    "gen": "protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=src/gen --es_opt=target=ts,import_extension=none -I proto proto/Mumble.proto proto/MumbleUDP.proto",
     "test": "vitest run",
     "typecheck": "tsc -p ."
   },
