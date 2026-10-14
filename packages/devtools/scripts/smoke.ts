@@ -1,4 +1,4 @@
-// Connects through a running proxy and prints the synced server state.
+// Connects through a running server and prints the synced server state.
 // Usage: bun scripts/smoke.ts [ws://127.0.0.1:8080]
 import WebSocket from "ws";
 import {

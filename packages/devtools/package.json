@@ -1,13 +1,12 @@
 {
-  "name": "@mumble-discord/proxy",
+  "name": "@mumble-discord/devtools",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/main.ts",
-    "test": "vitest run",
     "typecheck": "tsc -p .",
-    "smoke": "bun scripts/smoke.ts"
+    "smoke": "bun scripts/smoke.ts",
+    "voicebot": "bun scripts/voicebot.ts"
   },
   "dependencies": {
     "ws": "^8.22.0"
@@ -15,7 +14,6 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.4"
+    "typescript": "^7.0.2"
   }
 }

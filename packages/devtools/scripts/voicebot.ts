@@ -1,4 +1,4 @@
-// Plays an Ogg Opus file into the root channel through a running proxy.
+// Plays an Ogg Opus file into the root channel through a running server.
 // Usage: bun scripts/voicebot.ts file.opus [ws://127.0.0.1:8080] [name]
 // Make a test file: ffmpeg -f lavfi -i "sine=f=440:d=5" -ac 1 -ar 48000 \
 //   -c:a libopus -frame_duration 20 tone.opus

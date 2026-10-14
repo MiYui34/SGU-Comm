@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "test": "pnpm -r test && cd server && go test ./...",
+    "typecheck": "pnpm -r typecheck && cd server && go vet ./..."
   }
 }
