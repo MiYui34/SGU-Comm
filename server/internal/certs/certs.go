@@ -1,5 +1,5 @@
 // Package certs makes the TLS client certificates that identify accounts
-// towards Murmur. Murmur ties a registration to the certificate's hash, so
+// towards Murmur, and the server certificate of the built-in server. Murmur ties a registration to the certificate's hash, so
 // a certificate lives as long as its account.
 package certs
 
@@ -17,6 +17,16 @@ import (
 
 // Generate makes a self-signed client certificate (ECDSA P-256, 30 years).
 func Generate(name string) (certPEM, keyPEM []byte, err error) {
+	return generate(name, x509.ExtKeyUsageClientAuth)
+}
+
+// GenerateServer makes a self-signed server certificate, as Murmur makes
+// one on its first start.
+func GenerateServer(name string) (certPEM, keyPEM []byte, err error) {
+	return generate(name, x509.ExtKeyUsageServerAuth)
+}
+
+func generate(name string, usage x509.ExtKeyUsage) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -32,7 +42,7 @@ func Generate(name string) (certPEM, keyPEM []byte, err error) {
 		NotBefore:    now.Add(-time.Hour),
 		NotAfter:     now.AddDate(30, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{usage},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {

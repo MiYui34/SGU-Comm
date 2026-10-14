@@ -3,7 +3,23 @@ package mumble
 import (
 	"encoding/binary"
 	"fmt"
+
+	"google.golang.org/protobuf/proto"
 )
+
+// EncodeFrame makes a Mumble TCP frame.
+func EncodeFrame(typ uint16, body []byte) []byte {
+	out := make([]byte, headerSize, headerSize+len(body))
+	binary.BigEndian.PutUint16(out, typ)
+	binary.BigEndian.PutUint32(out[2:], uint32(len(body)))
+	return append(out, body...)
+}
+
+// MessageFrame makes a Mumble TCP frame from a protobuf message.
+func MessageFrame(typ uint16, msg proto.Message) []byte {
+	body, _ := proto.Marshal(msg) // our own messages always marshal
+	return EncodeFrame(typ, body)
+}
 
 // frameReader splits a Mumble TCP byte stream into frames (u16 type, u32
 // length, body), across any chunk boundaries. Bodies of frames that are not

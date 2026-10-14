@@ -1,7 +1,6 @@
 package mumble
 
 import (
-	"encoding/binary"
 
 	"google.golang.org/protobuf/proto"
 
@@ -33,9 +32,5 @@ func (a *AuthReader) Feed(chunk []byte) (name string, done bool, err error) {
 
 // RejectFrame is a Mumble Reject message, as Murmur would send it.
 func RejectFrame(typ pb.Reject_RejectType, reason string) []byte {
-	body, _ := proto.Marshal(&pb.Reject{Type: typ.Enum(), Reason: proto.String(reason)})
-	out := make([]byte, headerSize, headerSize+len(body))
-	binary.BigEndian.PutUint16(out, TypeReject)
-	binary.BigEndian.PutUint32(out[2:], uint32(len(body)))
-	return append(out, body...)
+	return MessageFrame(TypeReject, &pb.Reject{Type: typ.Enum(), Reason: proto.String(reason)})
 }
