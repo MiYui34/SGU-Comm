@@ -5,23 +5,24 @@ https://kallisti.chat
 
 - `packages/protocol`: Mumble protocol (framing, protobuf codec, state, voice packets)
 - `apps/web`: Svelte web client (chat, voice, settings)
-- `server`: Go server that bridges browser WebSockets to the Mumble TLS port
+- `server`: Go server: web app, accounts, text channels and a built-in Mumble
+  server (Mumble clients and web clients in one place)
 - `packages/devtools`: dev scripts (smoke test, voice bot)
 
 ## Deployment
 
-`deploy/compose.yml` runs Murmur, the Kallisti server (web app, bridge, text
-channels, uploads) and Caddy for HTTPS with an automatic certificate:
+`deploy/compose.yml` runs the Kallisti server (web app, voice, text channels,
+uploads) and Caddy for HTTPS with an automatic certificate:
 
 ```sh
-echo "DOMAIN=chat.example.org" > deploy/.env
+printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=change-me\n' > deploy/.env
 docker compose -f deploy/compose.yml up -d
 ```
 
-Open `https://chat.example.org`. Desktop Mumble clients connect to the same
-host on port 64738. Murmur's autoban is off: all web users reach Murmur from
-the Kallisti container, and the Kallisti server limits connections per client
-IP instead.
+Open `https://chat.example.org`. Mumble clients and the desktop app connect to
+the same host on port 64738 (TCP and UDP). Kallisti accounts are Mumble
+registrations; `SuperUser` (with `SUPERUSER_PASSWORD`) is the admin, for
+example to edit permissions with a Mumble client.
 
 ## Desktop app
 
@@ -43,25 +44,33 @@ Needs Node with pnpm, Go and bun.
 pnpm install
 pnpm test        # TypeScript and Go tests
 
-# A local Mumble server
-podman run -d --name md-murmur -p 64738:64738 -p 64738:64738/udp \
-  docker.io/mumblevoip/mumble-server:latest
-
-# Bridge (most Mumble servers use self-signed certificates)
+# Server: web clients on port 8080, Mumble clients on 64738
 cd server
-MUMBLE_HOST=127.0.0.1 MUMBLE_INSECURE_TLS=1 ALLOWED_ORIGINS='*' go run ./cmd/server
+ALLOWED_ORIGINS='*' go run ./cmd/server
 
-# Web client on http://localhost:5173 (bridge defaults to port 8080)
+# Web client on http://localhost:5173 (server defaults to port 8080)
 pnpm --filter @kallisti/web dev
 ```
 
-Server settings: `MUMBLE_HOST` (required), `MUMBLE_PORT` (64738),
-`LISTEN_PORT` (8080), `ALLOWED_ORIGINS` (required, comma-separated or `*`),
-`MUMBLE_INSECURE_TLS=1`, `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP` (10),
-`TRUST_FORWARDED_FOR=1` (only behind a reverse proxy that sets
-`X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS` (`general`,
-comma-separated), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10 per file),
-`UPLOAD_QUOTA_MB` (100 per user per day).
+Server settings: `LISTEN_PORT` (8080), `ALLOWED_ORIGINS` (required,
+comma-separated or `*`), `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP`
+(10, web connections), `TRUST_FORWARDED_FOR=1` (only behind a reverse proxy
+that sets `X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS`
+(`general`, comma-separated), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10
+per file), `UPLOAD_QUOTA_MB` (100 per user per day).
+
+The built-in Mumble server: `MUMBLE_LISTEN` (`:64738`, TCP and UDP),
+`SERVER_NAME` (`Kallisti`), `MUMBLE_WELCOME`, `MUMBLE_PASSWORD` (for guests),
+`MUMBLE_MAX_USERS` (100), `MUMBLE_MAX_PER_IP` (no limit), `CERT_DIR` (the
+folder of `DB_PATH`; the server certificate is made on the first start),
+`MUMBLED_SUPERUSER_PASSWORD` (sets SuperUser's password).
+
+With `MUMBLE_HOST` set, the server uses that Murmur instead (`MUMBLE_PORT`,
+64738; `MUMBLE_INSECURE_TLS=1` for self-signed certificates).
+
+The official Mumble client in podman, for the server tests:
+`KALLISTI_OFFICIAL_CLIENT=1 go test ./internal/mumbled` (see
+`packages/devtools/mumble-client`).
 The web client reads `VITE_PROXY_URL` to point at another bridge.
 
 Dev scripts (with a running bridge):

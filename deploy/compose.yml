@@ -1,37 +1,25 @@
-# Kallisti: Murmur, the Kallisti server (web app, bridge, text channels) and
-# Caddy for HTTPS. Set DOMAIN (for example in deploy/.env), then:
+# Kallisti: the Kallisti server (web app, voice with its built-in Mumble
+# server, text channels) and Caddy for HTTPS. Set DOMAIN (for example in
+# deploy/.env), then:
 #   docker compose -f deploy/compose.yml up -d
 services:
-  murmur:
-    image: docker.io/mumblevoip/mumble-server:latest
-    restart: unless-stopped
-    ports:
-      - "64738:64738/tcp" # desktop Mumble clients
-      - "64738:64738/udp"
-    environment:
-      MUMBLE_CONFIG_WELCOMETEXT: "Welcome to Kallisti"
-      # All web users reach Murmur from the Kallisti container's IP. The
-      # autoban would lock all of them out at once; the Kallisti server
-      # limits connections per client IP instead.
-      MUMBLE_CONFIG_AUTOBANATTEMPTS: "0"
-    volumes:
-      - murmur-data:/data
-
   kallisti:
     build: ..
     restart: unless-stopped
+    ports:
+      - "64738:64738/tcp" # Mumble clients and the Kallisti desktop app
+      - "64738:64738/udp"
     environment:
-      MUMBLE_HOST: murmur
-      # Murmur's certificate is self-signed; the connection stays inside the
-      # compose network.
-      MUMBLE_INSECURE_TLS: "1"
       ALLOWED_ORIGINS: "https://${DOMAIN}"
       TRUST_FORWARDED_FOR: "1" # Caddy sets X-Forwarded-For
       TEXT_CHANNELS: "general"
+      SERVER_NAME: "${SERVER_NAME:-Kallisti}"
+      MUMBLE_WELCOME: "${MUMBLE_WELCOME:-}"
+      # The Mumble admin (log in as SuperUser with a Mumble client). Unset:
+      # keep the password from an earlier start.
+      MUMBLED_SUPERUSER_PASSWORD: "${SUPERUSER_PASSWORD:-}"
     volumes:
-      - kallisti-data:/data
-    depends_on:
-      - murmur
+      - kallisti-data:/data # database, uploads, server certificate
 
   caddy:
     image: docker.io/library/caddy:2
@@ -49,7 +37,6 @@ services:
       - kallisti
 
 volumes:
-  murmur-data:
   kallisti-data:
   caddy-data:
   caddy-config:

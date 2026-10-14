@@ -25,6 +25,7 @@ COPY --from=server /kallisti /app/kallisti
 COPY --from=web /src/apps/web/dist /app/web
 ENV WEB_DIR=/app/web DB_PATH=/data/kallisti.db UPLOAD_DIR=/data/uploads LISTEN_PORT=8080
 VOLUME /data
-EXPOSE 8080
+# 8080: web app and web clients; 64738: Mumble clients and the desktop app.
+EXPOSE 8080 64738/tcp 64738/udp
 USER kallisti
 ENTRYPOINT ["/app/kallisti"]
