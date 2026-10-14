@@ -5,9 +5,17 @@
 </script>
 
 <nav class="rail" aria-label="Servers">
-  <button class="server active" title={serverName}>{initials(serverName)}</button>
+  <div class="item">
+    <span class="pill active" aria-hidden="true"></span>
+    <button class="server active" title={serverName} aria-current="true">
+      {initials(serverName)}
+    </button>
+  </div>
   <hr />
-  <button class="server add" title="Add a server (not yet)" disabled>+</button>
+  <div class="item">
+    <span class="pill" aria-hidden="true"></span>
+    <button class="server add" title="Add a server (not yet)" disabled>+</button>
+  </div>
 </nav>
 
 <style>
@@ -19,32 +27,63 @@
     padding: 12px 0;
     background: var(--bg-rail);
   }
-  .server {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--bg-main);
-    font-size: 18px;
-    font-weight: 600;
-    transition: border-radius 0.15s;
+  .item {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    width: 100%;
   }
-  .server:hover:not(:disabled),
-  .server.active {
-    border-radius: 16px;
+  /* The white pill on the left edge marks the current server. */
+  .pill {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 4px;
+    height: 8px;
+    border-radius: 0 4px 4px 0;
+    background: var(--text);
+    opacity: 0;
+    transform: translateY(-50%);
+    transition:
+      height 0.15s,
+      opacity 0.15s;
+  }
+  .item:hover .pill {
+    height: 20px;
+    opacity: 1;
+  }
+  .pill.active {
+    height: 40px;
+    opacity: 1;
+  }
+  .server {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--bg-input);
+    font-size: 16px;
+    font-weight: 600;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .server.active,
+  .server:hover:not(:disabled) {
     background: var(--accent);
+    color: white;
   }
   .add {
-    color: var(--accent);
-    font-size: 24px;
+    color: var(--online);
+    font-size: 22px;
+    font-weight: 400;
   }
-  .add:disabled {
-    cursor: default;
-    opacity: 0.6;
+  .item:has(.add:disabled):hover .pill {
+    opacity: 0;
   }
   hr {
-    width: 32px;
-    border: none;
-    border-top: 2px solid var(--bg-main);
+    width: 24px;
     margin: 0;
+    border: none;
+    border-top: 2px solid var(--bg-active);
   }
 </style>
