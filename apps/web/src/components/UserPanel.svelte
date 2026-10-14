@@ -18,7 +18,7 @@
 </script>
 
 <section class="panel" aria-label="Your status">
-  <Avatar name={me.name} size={32} />
+  <Avatar name={me.name} size={32} online />
   <div class="who">
     <div class="name">{me.name}</div>
     {#if micError}
@@ -48,11 +48,14 @@
 
 <style>
   .panel {
+    --avatar-cutout: var(--bg-input);
     display: flex;
     align-items: center;
     gap: 8px;
+    margin: 8px;
     padding: 8px;
-    background: var(--bg-rail);
+    border-radius: 8px;
+    background: var(--bg-input);
   }
   .who {
     flex: 1;
@@ -78,11 +81,11 @@
   button {
     display: inline-flex;
     padding: 6px;
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--text-muted);
   }
   button:hover {
-    background: var(--bg-hover);
+    background: var(--bg-active);
     color: var(--text);
   }
 </style>

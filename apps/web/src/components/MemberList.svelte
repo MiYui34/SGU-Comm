@@ -8,12 +8,14 @@
     elsewhere,
     channelName,
     unread,
+    speaking,
     onUserMenu,
   }: {
     here: User[];
     elsewhere: User[];
     channelName: string;
     unread: Record<number, number>;
+    speaking: ReadonlySet<number>;
     onUserMenu: (session: number, event: MouseEvent) => void;
   } = $props();
 </script>
@@ -28,7 +30,7 @@
             onclick={(e) => onUserMenu(user.session, e)}
             oncontextmenu={(e) => onUserMenu(user.session, e)}
           >
-            <Avatar name={user.name} size={32} />
+            <Avatar name={user.name} size={32} online speaking={speaking.has(user.session)} />
             <span class="name">{user.name}</span>
             <span class="unread"><Badge count={unread[user.session]} /></span>
           </button>
@@ -45,19 +47,21 @@
 
 <style>
   aside {
+    --avatar-cutout: var(--bg-main);
     overflow-y: auto;
-    padding: 16px 8px;
-    background: var(--bg-sidebar);
+    padding: 12px 8px;
+    background: var(--bg-main);
   }
   h2 {
-    margin: 16px 8px 4px;
+    margin: 20px 8px 4px;
     font-size: 12px;
     font-weight: 600;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
     color: var(--text-muted);
   }
   h2:first-child {
-    margin-top: 0;
+    margin-top: 8px;
   }
   ul {
     list-style: none;
@@ -66,15 +70,20 @@
   }
   button {
     display: flex;
-    width: 100%;
-    text-align: left;
     align-items: center;
     gap: 12px;
-    padding: 6px 8px;
-    border-radius: 4px;
+    width: 100%;
+    height: 42px;
+    margin: 1px 0;
+    padding: 0 8px;
+    border-radius: 6px;
     color: var(--text-muted);
+    font-size: 15px;
+    font-weight: 500;
+    text-align: left;
   }
   button:hover {
+    --avatar-cutout: var(--bg-hover);
     background: var(--bg-hover);
     color: var(--text);
   }

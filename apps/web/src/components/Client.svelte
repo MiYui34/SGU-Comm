@@ -41,6 +41,7 @@
   $effect(() => capture?.setMuted(me?.selfMute ?? false));
 
   let showSettings = $state(false);
+  let membersOpen = $state(true);
   const prefs = $derived(settings.value);
   $effect(() => capture?.setMode(prefs.mode));
   // A rebound key never sends the keyup of the old one.
@@ -149,12 +150,12 @@
   />
 {/if}
 
-<div class="layout">
+<div class="layout" class:members={membersOpen}>
   <ServerRail {serverName} />
   <div class="sidebar">
     <header>{serverName}</header>
     <ChannelSidebar
-      state={server}
+      {server}
       {speaking}
       {localMuted}
       {unread}
@@ -177,6 +178,8 @@
       kind="channel"
       messages={messagesIn(server, channelId)}
       welcomeText={channelId === 0 ? server.welcomeText : ""}
+      {membersOpen}
+      onToggleMembers={() => (membersOpen = !membersOpen)}
       onSend={send}
     />
   {:else}
@@ -185,24 +188,32 @@
       kind="dm"
       messages={privateMessagesWith(server, dm.session)}
       welcomeText=""
+      {membersOpen}
+      onToggleMembers={() => (membersOpen = !membersOpen)}
       onSend={dmPartner ? send : undefined}
       onClose={() => (dm = null)}
     />
   {/if}
-  <MemberList
-    {channelName}
-    {unread}
-    onUserMenu={openMenu}
-    here={users.filter((u) => u.channelId === channelId)}
-    elsewhere={users.filter((u) => u.channelId !== channelId)}
-  />
+  {#if membersOpen}
+    <MemberList
+      {channelName}
+      {unread}
+      {speaking}
+      onUserMenu={openMenu}
+      here={users.filter((u) => u.channelId === channelId)}
+      elsewhere={users.filter((u) => u.channelId !== channelId)}
+    />
+  {/if}
 </div>
 
 <style>
   .layout {
     display: grid;
-    grid-template-columns: 72px 240px 1fr 240px;
+    grid-template-columns: 72px 240px 1fr;
     height: 100%;
+  }
+  .layout.members {
+    grid-template-columns: 72px 240px 1fr 240px;
   }
   .sidebar {
     display: flex;
@@ -212,14 +223,17 @@
   }
   header {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     height: 48px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border);
+    font-size: 16px;
     font-weight: 600;
   }
   @media (max-width: 900px) {
-    .layout {
+    .layout,
+    .layout.members {
       grid-template-columns: 72px 240px 1fr;
     }
     .layout > :global(aside) {
