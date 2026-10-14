@@ -26,3 +26,6 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 - Look-alike names (Cyrillic, fullwidth) can pass as registered names, as
   in Murmur. NFKC in names.Key would fold fullwidth forms; that needs a
   migration of stored name keys.
+- IP bans: a kick-ban adds the client's address. Behind a bridge all web
+  users share the bridge's address, so the bridge's address must never be
+  banned (in-process sessions with the real client IP solve this).
