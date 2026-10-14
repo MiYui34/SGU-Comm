@@ -13,3 +13,8 @@ Identity for web users. TLS ends at the proxy, so browsers cannot present their 
 ## Acceptance Criteria
 
 - A web user can log in, register on the Mumble server, and keep their registration across sessions.
+
+## Sub-issues
+
+- [Guests: refuse a name another web user has](guests-refuse-duplicate-names.md)
+- [Accounts and Murmur registration](accounts-and-murmur-registration.md)
