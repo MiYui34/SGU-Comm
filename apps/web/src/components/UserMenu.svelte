@@ -94,7 +94,7 @@
     cursor: pointer;
   }
   button:hover {
-    background: var(--accent);
+    background: var(--accent-strong);
     color: white;
   }
   .volume {
@@ -125,7 +125,7 @@
   }
   .box.on {
     border-color: var(--accent);
-    background: var(--accent)
+    background: var(--accent-strong)
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E")
       center / 14px no-repeat;
   }

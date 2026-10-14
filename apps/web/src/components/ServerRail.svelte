@@ -69,7 +69,7 @@
   }
   .server.active,
   .server:hover:not(:disabled) {
-    background: var(--accent);
+    background: var(--accent-strong);
     color: white;
   }
   .add {

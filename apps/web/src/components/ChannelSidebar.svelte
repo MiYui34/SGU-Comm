@@ -45,27 +45,27 @@
        flat list. Only deeper channels are indented. -->
   <li style:padding-left="{depth > 1 ? INDENT : 0}px">
     <button
-      class="channel"
+      class="channel hover-row"
       class:current={node.channel.id === currentChannel}
       aria-current={node.channel.id === currentChannel ? "page" : undefined}
       onclick={() => onJoin(node.channel.id)}
       title={htmlToText(node.channel.description) || undefined}
     >
       <Icon name="speaker" size={20} />
-      <span class="name">{node.channel.name}</span>
+      <span class="name ellipsis">{node.channel.name}</span>
     </button>
     {#if users.length}
       <ul class="users">
         {#each users as user (user.session)}
           <li>
             <button
-              class="user"
+              class="user hover-row"
               class:me={user.session === server.session}
               onclick={(e) => onUserMenu(user.session, e)}
               oncontextmenu={(e) => onUserMenu(user.session, e)}
             >
               <Avatar name={user.name} size={24} speaking={speaking.has(user.session)} />
-              <span class="name">{user.name}</span>
+              <span class="name ellipsis">{user.name}</span>
               <span class="flags">
                 {#if localMuted.has(user.session)}
                   <span title="Muted for you">
@@ -116,14 +116,14 @@
         {#each textChannels as ch (ch.id)}
           <li>
             <button
-              class="channel"
+              class="channel hover-row"
               class:current={ch.id === currentText}
               class:unread={unreadText.has(ch.id) && ch.id !== currentText}
               aria-current={ch.id === currentText ? "page" : undefined}
               onclick={() => onOpenText(ch.id)}
             >
               <Icon name="hash" size={20} />
-              <span class="name">{ch.name}</span>
+              <span class="name ellipsis">{ch.name}</span>
               {#if unreadText.has(ch.id) && ch.id !== currentText}
                 <span class="sr-only">unread</span>
               {/if}
@@ -183,10 +183,6 @@
     font-weight: 500;
     text-align: left;
   }
-  .channel:hover {
-    background: var(--bg-hover);
-    color: var(--text);
-  }
   .channel.current {
     background: var(--bg-active);
     color: white;
@@ -214,19 +210,11 @@
     font-size: 14px;
     text-align: left;
   }
-  .user:hover {
-    background: var(--bg-hover);
-    color: var(--text);
-  }
   .user.me {
     color: var(--text);
   }
   .name {
     flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .flags {
     display: flex;

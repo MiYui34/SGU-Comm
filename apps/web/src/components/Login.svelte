@@ -82,7 +82,7 @@
   button {
     padding: 12px;
     border-radius: 4px;
-    background: var(--accent);
+    background: var(--accent-strong);
     color: white;
     font-weight: 600;
   }

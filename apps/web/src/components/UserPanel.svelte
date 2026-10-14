@@ -20,11 +20,11 @@
 <section class="panel" aria-label="Your status">
   <Avatar name={me.name} size={32} online />
   <div class="who">
-    <div class="name">{me.name}</div>
+    <div class="name ellipsis">{me.name}</div>
     {#if micError}
-      <div class="status error" title={micError}>No microphone</div>
+      <div class="status error ellipsis" title={micError}>No microphone</div>
     {:else}
-      <div class="status">Voice connected</div>
+      <div class="status ellipsis">Voice connected</div>
     {/if}
   </div>
   <button
@@ -60,12 +60,6 @@
   .who {
     flex: 1;
     min-width: 0;
-  }
-  .name,
-  .status {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .name {
     font-weight: 600;

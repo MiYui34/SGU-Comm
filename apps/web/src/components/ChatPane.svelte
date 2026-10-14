@@ -139,7 +139,7 @@
     <h1>{title}</h1>
     {#if topic}
       <span class="divider-v" aria-hidden="true"></span>
-      <span class="topic" title={topic}>{topic}</span>
+      <span class="topic ellipsis" title={topic}>{topic}</span>
     {/if}
     <div class="tools">
       {#if kind !== "dm"}
@@ -321,12 +321,8 @@
     background: var(--border-subtle);
   }
   .topic {
-    min-width: 0;
-    overflow: hidden;
     color: var(--text-muted);
     font-size: 14px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .tools {
     display: flex;

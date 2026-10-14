@@ -247,7 +247,7 @@
     transition: width 0.05s linear;
   }
   .level.active {
-    background: var(--accent);
+    background: var(--accent-strong);
   }
   input[type="range"],
   input[type="radio"] {

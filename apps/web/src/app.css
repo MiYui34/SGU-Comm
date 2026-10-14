@@ -9,11 +9,13 @@
   --bg-menu: #1f1f23;
   --text: #dfe0e3;
   --text-muted: #a3a4ab;
-  --text-faint: #96979e;
+  --text-faint: #9e9fa5;
   --link: #4ea4e8;
-  --accent: #3ba99c;
+  --accent: #3eb1a3;
+  /* Backgrounds with white text (4.5:1, see test/contrast.test.ts). */
+  --accent-strong: #2d8177;
   --online: #3fa66b;
-  --danger: #e2585b;
+  --danger: #e98184;
   --border: #1d1d21;
   --border-subtle: #3a3a41;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -79,4 +81,18 @@ button:disabled {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* Long names in narrow columns. */
+.ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rows in the channel and member lists. */
+.hover-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }

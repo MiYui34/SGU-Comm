@@ -28,11 +28,12 @@
       {#each users as user (user.session)}
         <li>
           <button
+            class="hover-row"
             onclick={(e) => onUserMenu(user.session, e)}
             oncontextmenu={(e) => onUserMenu(user.session, e)}
           >
             <Avatar name={user.name} size={32} online speaking={speaking.has(user.session)} />
-            <span class="name">{user.name}</span>
+            <span class="ellipsis">{user.name}</span>
             <span class="unread"><Badge count={unread[user.name]} /></span>
           </button>
         </li>
@@ -85,15 +86,8 @@
   }
   button:hover {
     --avatar-cutout: var(--bg-hover);
-    background: var(--bg-hover);
-    color: var(--text);
   }
   .unread {
     margin-left: auto;
-  }
-  .name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>
