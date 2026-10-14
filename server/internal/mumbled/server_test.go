@@ -57,11 +57,18 @@ func startServerAndListen(t *testing.T, host string, cfg Config, setup func(*Ser
 		t.Fatal(err)
 	}
 	cert, _ := certs.Load(certPEM, keyPEM)
-	ln, err := tls.Listen("tcp", net.JoinHostPort(host, "0"), TLSConfig(cert))
-	if err != nil {
-		t.Fatal(err)
+	// TCP and UDP on one port; another process may have that UDP port.
+	var ln net.Listener
+	var udp *net.UDPConn
+	for range 10 {
+		if ln, err = tls.Listen("tcp", net.JoinHostPort(host, "0"), TLSConfig(cert)); err != nil {
+			t.Fatal(err)
+		}
+		if udp, err = net.ListenUDP("udp", net.UDPAddrFromAddrPort(ln.Addr().(*net.TCPAddr).AddrPort())); err == nil {
+			break
+		}
+		ln.Close()
 	}
-	udp, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(ln.Addr().(*net.TCPAddr).AddrPort()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +174,15 @@ func tryDialWith(t *testing.T, addr string, o dialOpts) (*testClient, error) {
 // startClient reads frames from a connection and sends Version and
 // Authenticate.
 func startClient(t *testing.T, conn net.Conn, major, minor uint64, name, password string) *testClient {
+	c := startClientReader(t, conn)
+	v1, v2 := uint32(major<<16|minor<<8), major<<48|minor<<32
+	c.send(mumble.TypeVersion, &pb.Version{VersionV1: &v1, VersionV2: &v2, Release: proto.String("test")})
+	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Password: proto.String(password), Opus: proto.Bool(true)})
+	return c
+}
+
+// startClientReader only reads frames from a connection.
+func startClientReader(t *testing.T, conn net.Conn) *testClient {
 	c := &testClient{t: t, conn: conn, frames: make(chan frame, 256)}
 	t.Cleanup(func() { conn.Close() })
 	go func() {
@@ -191,9 +207,6 @@ func startClient(t *testing.T, conn net.Conn, major, minor uint64, name, passwor
 			c.frames <- frame{typ, body}
 		}
 	}()
-	v1, v2 := uint32(major<<16|minor<<8), major<<48|minor<<32
-	c.send(mumble.TypeVersion, &pb.Version{VersionV1: &v1, VersionV2: &v2, Release: proto.String("test")})
-	c.send(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String(name), Password: proto.String(password), Opus: proto.Bool(true)})
 	return c
 }
 

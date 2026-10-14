@@ -12,6 +12,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/names"
 )
 
 // selfState applies a client's own mute and deafen change, with Mumble's
@@ -640,6 +641,9 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")
 	case s.cfg.DB == nil:
 		err = deny(pb.PermissionDenied_Text, "this server does not register users")
+	}
+	if err == nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(u.Name)) {
+		err = deny(pb.PermissionDenied_UserName, "this name belongs to a Kallisti account")
 	}
 	name, hash := u.Name, u.Hash
 	s.mu.Unlock()

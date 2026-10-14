@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"errors"
 	"log/slog"
 	"maps"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/names"
 )
 
 // denyPerm is a PermissionDenied for a missing permission in a channel.
@@ -394,7 +396,9 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 	for _, e := range m.Users {
 		id := e.GetUserId()
 		var err error
-		if e.Name != nil {
+		if e.Name != nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(e.GetName())) {
+			err = errors.New("the name belongs to a Kallisti account")
+		} else if e.Name != nil {
 			err = db.RenameUser(id, e.GetName())
 		} else {
 			err = db.UnregisterUser(id)

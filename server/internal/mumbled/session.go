@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net"
@@ -116,10 +117,11 @@ type WebAccount struct {
 // ServeConn serves one connection without TLS, for example one end of a
 // net.Pipe. Limits per IP are the caller's job.
 func (s *Server) ServeConn(conn net.Conn, o Origin) {
-	if s.banned(o.Host, "") != nil {
+	if s.banned(o.Host, "") != nil || !s.track() {
 		conn.Close()
 		return
 	}
+	defer s.sessions.Done()
 	s.handle(conn, o, false)
 }
 
@@ -198,13 +200,19 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 		if other, err := db.UserByName(a.Name); err != nil {
 			return fail(err)
 		} else if other != nil {
-			return fail(fmt.Errorf("name registered by Mumble user %d", other.ID))
+			slog.Warn("a web account's name is registered by a Mumble user", "account", a.Name, "user", other.ID)
+			return identity{}, mumble.RejectFrame(pb.Reject_UsernameInUse,
+				"A Mumble user has registered this name. Please ask an admin.")
 		}
 		id, err := db.RegisterUser(a.Name, a.CertHash)
 		if err != nil {
 			return fail(err)
 		}
 		r = &Registered{ID: id, Name: a.Name}
+	} else if names.Key(r.Name) != names.Key(a.Name) {
+		// An admin renamed the registration: the account keeps its name.
+		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername,
+			"Your Mumble registration is named "+r.Name+" now. Please ask an admin.")
 	}
 	comment, texture, err := db.UserContent(r.ID)
 	if err != nil {
@@ -218,6 +226,15 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 func checkPassword(encoded, pw string) bool {
 	defer password.Limit()()
 	return password.Check(encoded, pw)
+}
+
+// writeReject sends a Reject before the connection closes. The client may
+// still be writing (on a net.Pipe that would block both sides): its bytes
+// are read and dropped meanwhile.
+func writeReject(conn net.Conn, reject []byte) {
+	go io.Copy(io.Discard, conn)
+	conn.SetWriteDeadline(time.Now().Add(flushTimeout))
+	conn.Write(reject)
 }
 
 // handle serves a connection. counted: Serve counted it in conns.
@@ -242,7 +259,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		id, reject = s.identify(h, hash, host, o.Account)
 	}
 	if reject != nil {
-		conn.Write(reject)
+		writeReject(conn, reject)
 		return
 	}
 	key, clientNonce, serverNonce := random16(), random16(), random16()
@@ -259,7 +276,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	if reject := s.join(c, id, setup); reject != nil {
-		conn.Write(reject)
+		writeReject(conn, reject)
 		return
 	}
 	if pending {

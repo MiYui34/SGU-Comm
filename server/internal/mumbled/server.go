@@ -72,6 +72,9 @@ type Server struct {
 	conns  conns
 	pings  *rate.Limiter
 
+	sessions sync.WaitGroup // running connections, for Close
+	closing  atomic.Bool
+
 	// Read at every accept: not under mu, which the voice path uses.
 	bans atomic.Pointer[[]BanEntry]
 
@@ -157,13 +160,34 @@ func (s *Server) Serve(ln net.Listener) error {
 			conn.Close()
 			continue
 		}
-		go s.handle(conn, Origin{Host: host}, true)
+		if !s.track() {
+			s.conns.remove(host, true)
+			conn.Close()
+			continue
+		}
+		go func() {
+			defer s.sessions.Done()
+			s.handle(conn, Origin{Host: host}, true)
+		}()
 	}
 }
 
-// Close disconnects all clients.
+// track counts a new connection, unless the server is closing.
+func (s *Server) track() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing.Load() {
+		return false
+	}
+	s.sessions.Add(1)
+	return true
+}
+
+// Close disconnects all clients and waits (briefly) until their sessions
+// ended, so last channels are saved before the database closes.
 func (s *Server) Close() {
 	s.mu.Lock()
+	s.closing.Store(true)
 	clients := make([]*client, 0, len(s.clients))
 	for _, c := range s.clients {
 		clients = append(clients, c)
@@ -171,6 +195,15 @@ func (s *Server) Close() {
 	s.mu.Unlock()
 	for _, c := range clients {
 		c.close()
+	}
+	done := make(chan struct{})
+	go func() {
+		s.sessions.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
 	}
 }
 

@@ -4,11 +4,13 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/password"
 )
 
 // webClient joins through ServeConn, as the Kallisti server's web bridge
@@ -107,5 +109,66 @@ func TestReservedNamesCannotBeSelfRegistered(t *testing.T) {
 	proto.Unmarshal(c.expect(mumble.TypeReject), &r)
 	if r.GetType() != pb.Reject_UsernameInUse {
 		t.Fatalf("reject %v", &r)
+	}
+}
+
+func TestAccountNamesCannotBeRegisteredOrTaken(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	reserved := map[string]bool{"carol": true}
+	cfg := Config{DB: db, ReservedName: func(n string) bool { return reserved[n] }}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, nil)
+	// A guest "bob" whose name becomes an account while it is online.
+	bob := dial(t, addr, "bob")
+	reserved["bob"] = true
+	bob.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(bob.session), UserId: proto.Uint32(0)})
+	bob.expectDenied(pb.PermissionDenied_UserName)
+	// An admin cannot rename a registration to an account's name.
+	id, _ := db.RegisterUser("alice", "aaa")
+	su := superUser(t, addr)
+	su.send(mumble.TypeUserList, &pb.UserList{Users: []*pb.UserList_User{{UserId: proto.Uint32(id), Name: proto.String("Carol")}}})
+	su.expectDenied(pb.PermissionDenied_Text)
+	// An account whose registration has another name is refused clearly.
+	db.RenameUser(id, "dave")
+	c := webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "alice", CertHash: "aaa"}}, "alice")
+	var r pb.Reject
+	proto.Unmarshal(c.expect(mumble.TypeReject), &r)
+	if r.GetReason() == "" || r.GetType() == pb.Reject_AuthenticatorFail {
+		t.Fatalf("reject %v", &r)
+	}
+}
+
+func TestARejectArrivesDespiteExtraBytes(t *testing.T) {
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{}, nil)
+	a, b := net.Pipe()
+	defer a.Close()
+	go s.ServeConn(b, Origin{Host: netip.MustParseAddr("203.0.113.5")})
+	// One write with Version, Authenticate (an invalid name) and more.
+	v1 := uint32(1<<16 | 5<<8)
+	hello := append(mumble.MessageFrame(mumble.TypeVersion, &pb.Version{VersionV1: &v1}),
+		mumble.MessageFrame(mumble.TypeAuthenticate, &pb.Authenticate{Username: proto.String("x")})...)
+	hello = append(hello, mumble.MessageFrame(mumble.TypePing, &pb.Ping{})...)
+	go a.Write(hello)
+	c := startClientReader(t, a)
+	var r pb.Reject
+	proto.Unmarshal(c.expectWithin(mumble.TypeReject, 2*time.Second), &r)
+	if r.GetType() != pb.Reject_InvalidUsername {
+		t.Fatalf("reject %v", &r)
+	}
+}
+
+func TestShutdownSavesTheLastChannel(t *testing.T) {
+	db := testDB(t)
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, openACL)
+	account := &WebAccount{Name: "alice", CertHash: "aaa"}
+	alice := joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: account}, "alice"))
+	games := alice.createChannel(0, "Games", false)
+	alice.move(alice.session, games)
+	alice.waitForMove(alice.session, games)
+	s.Close()
+	r, _ := db.UserByHash("aaa")
+	if r == nil || r.LastChannel != games {
+		t.Fatalf("after shutdown: %+v", r)
 	}
 }
