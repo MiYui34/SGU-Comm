@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
+  import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
 
   let {
@@ -147,7 +148,11 @@
       >
         {recordingKey ? "Press a key… (Esc to cancel)" : keyLabel(settings.pttKey)}
       </button>
-      <p class="hint">Works only while this tab has focus.</p>
+      <p class="hint">
+        {isDesktop()
+          ? "Works in the background too. The key is reserved for Kallisti while the app runs."
+          : "Works only while this tab has focus."}
+      </p>
     </div>
   {:else}
     <div class="row">

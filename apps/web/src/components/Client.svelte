@@ -10,6 +10,7 @@
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
   import type { Connection } from "../lib/connection.svelte";
+  import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
@@ -65,6 +66,25 @@
   $effect(() => {
     const [target, deviceId] = [capture, inputDeviceId];
     untrack(() => void target?.start(deviceId));
+  });
+
+  // Desktop app: the push-to-talk key works in the background too.
+  // Own deriveds: `prefs` is a new object on every settings change, and
+  // only the mode or the key may re-register the shortcut.
+  const pttOn = $derived(prefs.mode === "ptt");
+  const pttKey = $derived(prefs.pttKey);
+  $effect(() => {
+    if (!isDesktop() || !pttOn || !capture) return;
+    const [key, target] = [pttKey, capture];
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    registerGlobalPtt(key, (down) => target.setPttDown(down))
+      .then((s) => (cancelled ? s() : (stop = s)))
+      .catch((err) => console.warn("global push-to-talk", err));
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
   });
 
   const isEditable = (t: EventTarget | null) =>

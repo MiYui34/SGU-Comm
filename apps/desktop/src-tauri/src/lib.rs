@@ -26,6 +26,8 @@ fn origins() -> Vec<String> {
 
 pub fn run() {
     tauri::Builder::default()
+        // Push-to-talk while the app is in the background.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let b = tauri::async_runtime::block_on(bridge::start(origins()))?;
             use tauri::Manager;

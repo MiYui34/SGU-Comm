@@ -34,3 +34,23 @@ export const getBridge = async (): Promise<BridgeInfo> => {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<BridgeInfo>("bridge_info");
 };
+
+type ShortcutApi = {
+  register: (key: string, handler: (e: { state: "Pressed" | "Released" }) => void) => Promise<void>;
+  unregister: (key: string) => Promise<void>;
+};
+
+// Push-to-talk while the app is in the background. The key is reserved
+// system-wide while registered. Returns a function that unregisters it.
+export const registerGlobalPtt = async (
+  key: string,
+  onChange: (down: boolean) => void,
+  api?: ShortcutApi,
+): Promise<() => void> => {
+  const shortcuts: ShortcutApi = api ?? (await import("@tauri-apps/plugin-global-shortcut"));
+  await shortcuts.register(key, (e) => onChange(e.state === "Pressed"));
+  return () => {
+    onChange(false);
+    void shortcuts.unregister(key);
+  };
+};
