@@ -1,6 +1,11 @@
 package mumbled
 
-import "database/sql"
+import (
+	"database/sql"
+	"errors"
+
+	"kallisti.chat/server/internal/names"
+)
 
 // DB stores the Mumble server's data in the Kallisti server's SQLite file.
 type DB struct{ db *sql.DB }
@@ -19,6 +24,15 @@ CREATE TABLE IF NOT EXISTS mumble_meta (
 );
 -- Root has a row too: its description, and links to it.
 INSERT OR IGNORE INTO mumble_channels (id, parent, name) VALUES (0, 0, 'Root');
+CREATE TABLE IF NOT EXISTS mumble_users (
+	id            INTEGER PRIMARY KEY,
+	name          TEXT NOT NULL,
+	name_key      TEXT NOT NULL UNIQUE,
+	cert_hash     TEXT UNIQUE,
+	password_hash TEXT NOT NULL DEFAULT '',
+	last_channel  INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO mumble_users (id, name, name_key) VALUES (0, 'SuperUser', 'superuser');
 CREATE TABLE IF NOT EXISTS mumble_channel_links (
 	a INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
 	b INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
@@ -134,4 +148,69 @@ func (d *DB) SaveNextChannel(n uint32) error {
 	_, err := d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('last_channel_id', ?)
 		ON CONFLICT (key) DO UPDATE SET value = max(value, excluded.value)`, n)
 	return err
+}
+
+const userColumns = `id, name, COALESCE(cert_hash, ''), password_hash, last_channel`
+
+func (d *DB) userWhere(where string, arg any) (*Registered, error) {
+	var r Registered
+	err := d.db.QueryRow(`SELECT `+userColumns+` FROM mumble_users WHERE `+where, arg).
+		Scan(&r.ID, &r.Name, &r.CertHash, &r.PasswordHash, &r.LastChannel)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// UserByName finds a registered user by name (compared as names.Key).
+func (d *DB) UserByName(name string) (*Registered, error) {
+	return d.userWhere(`name_key = ?`, names.Key(name))
+}
+
+func (d *DB) UserByHash(hash string) (*Registered, error) {
+	if hash == "" {
+		return nil, nil
+	}
+	return d.userWhere(`cert_hash = ?`, hash)
+}
+
+// RegisterUser adds a user with a certificate and returns its id.
+func (d *DB) RegisterUser(name, certHash string) (uint32, error) {
+	res, err := d.db.Exec(`INSERT INTO mumble_users (name, name_key, cert_hash) VALUES (?, ?, NULLIF(?, ''))`,
+		name, names.Key(name), certHash)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	return uint32(id), err
+}
+
+func (d *DB) SetPassword(id uint32, passwordHash string) error {
+	_, err := d.db.Exec(`UPDATE mumble_users SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	return err
+}
+
+func (d *DB) SetLastChannel(id, channel uint32) error {
+	_, err := d.db.Exec(`UPDATE mumble_users SET last_channel = ? WHERE id = ?`, channel, id)
+	return err
+}
+
+// UserNames returns the names of the registered users among ids.
+func (d *DB) UserNames(ids []uint32) (map[uint32]string, error) {
+	out := map[uint32]string{}
+	for _, id := range ids {
+		var name string
+		err := d.db.QueryRow(`SELECT name FROM mumble_users WHERE id = ?`, id).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, nil
 }

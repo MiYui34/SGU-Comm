@@ -91,3 +91,39 @@ func (d *DB) mustNext(t *testing.T) uint32 {
 	}
 	return n
 }
+
+func TestRegisteredUsers(t *testing.T) {
+	db := testDB(t)
+	id, err := db.RegisterUser("Alice", "aaa")
+	if err != nil || id == 0 {
+		t.Fatalf("id %d err %v", id, err)
+	}
+	if _, err := db.RegisterUser("alice", "bbb"); err == nil {
+		t.Fatal("registered a taken name")
+	}
+	byName, _ := db.UserByName("ALICE")
+	byHash, _ := db.UserByHash("aaa")
+	if byName == nil || byHash == nil || byName.ID != id || byHash.Name != "Alice" {
+		t.Fatalf("by name %+v by hash %+v", byName, byHash)
+	}
+	if u, _ := db.UserByHash(""); u != nil {
+		t.Fatal("found a user by an empty hash")
+	}
+	db.SetLastChannel(id, 7)
+	byName, _ = db.UserByName("alice")
+	if byName.LastChannel != 7 {
+		t.Fatalf("last channel %d", byName.LastChannel)
+	}
+	// SuperUser exists from the start, with a password set by the admin.
+	if err := db.SetPassword(0, "hash:pw"); err != nil {
+		t.Fatal(err)
+	}
+	super, _ := db.UserByName("superuser")
+	if super == nil || super.ID != 0 || super.PasswordHash != "hash:pw" {
+		t.Fatalf("superuser %+v", super)
+	}
+	got, _ := db.UserNames([]uint32{0, id, 99})
+	if got[id] != "Alice" || got[0] != "SuperUser" || len(got) != 2 {
+		t.Fatalf("names %v", got)
+	}
+}
