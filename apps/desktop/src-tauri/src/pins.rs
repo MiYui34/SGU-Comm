@@ -1,4 +1,4 @@
-//! Server certificate pins: trust on first use. Placeholder.
+//! Server certificate pins: trust on first use.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
