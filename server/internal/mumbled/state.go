@@ -1,0 +1,313 @@
+package mumbled
+
+import (
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode/utf8"
+
+	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/names"
+)
+
+// State is the server's channels and users, without IO. The server holds
+// its lock around every call.
+type State struct {
+	Channels    map[uint32]*Channel
+	Users       map[uint32]*User
+	nextChannel uint32
+}
+
+type Channel struct {
+	ID, Parent  uint32
+	Name        string
+	Description string
+	Position    int32
+	Temporary   bool
+	Links       map[uint32]bool
+}
+
+type User struct {
+	Session uint32
+	Name    string
+	Channel uint32
+
+	SelfMute, SelfDeaf bool
+	// Set by moderators or the server.
+	Mute, Deaf, Suppress bool
+}
+
+// DenyError is an action the server refuses, sent as PermissionDenied.
+type DenyError struct {
+	Type   pb.PermissionDenied_DenyType
+	Reason string
+}
+
+func (e *DenyError) Error() string { return e.Reason }
+
+func deny(t pb.PermissionDenied_DenyType, format string, args ...any) error {
+	return &DenyError{Type: t, Reason: fmt.Sprintf(format, args...)}
+}
+
+// Murmur's default channel name rule, with a length limit.
+var channelName = regexp.MustCompile(`^[ \-=\w#\[\]{}()@|]+$`)
+
+const maxChannelName = 100
+
+// NewState makes the state with the root channel and saved channels
+// (parents may come after children).
+func NewState(rootName string, saved []Channel) *State {
+	s := &State{Channels: map[uint32]*Channel{}, Users: map[uint32]*User{}}
+	s.Channels[0] = &Channel{ID: 0, Name: rootName, Links: map[uint32]bool{}}
+	for _, c := range saved {
+		c := c
+		c.Links = map[uint32]bool{}
+		s.Channels[c.ID] = &c
+		s.nextChannel = max(s.nextChannel, c.ID)
+	}
+	for _, c := range saved {
+		for l := range savedLinks(saved, c.ID) {
+			s.Link(c.ID, l)
+		}
+	}
+	return s
+}
+
+func savedLinks(saved []Channel, id uint32) map[uint32]bool {
+	for _, c := range saved {
+		if c.ID == id {
+			return c.Links
+		}
+	}
+	return nil
+}
+
+func (s *State) checkName(parent uint32, name string, self uint32) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > maxChannelName || !channelName.MatchString(name) {
+		return deny(pb.PermissionDenied_ChannelName, "invalid channel name")
+	}
+	for _, c := range s.Channels {
+		if c.Parent == parent && c.ID != self && c.ID != 0 && names.Key(c.Name) == names.Key(name) {
+			return deny(pb.PermissionDenied_ChannelName, "a channel with this name exists here")
+		}
+	}
+	return nil
+}
+
+func (s *State) AddChannel(parent uint32, name string, temporary bool) (*Channel, error) {
+	if s.Channels[parent] == nil {
+		return nil, deny(pb.PermissionDenied_Text, "no such channel")
+	}
+	name = strings.TrimSpace(name)
+	if err := s.checkName(parent, name, 0); err != nil {
+		return nil, err
+	}
+	s.nextChannel++
+	c := &Channel{ID: s.nextChannel, Parent: parent, Name: name, Temporary: temporary, Links: map[uint32]bool{}}
+	s.Channels[c.ID] = c
+	return c, nil
+}
+
+// ChannelEdit holds the fields to change; nil means unchanged.
+type ChannelEdit struct {
+	Name        *string
+	Description *string
+	Position    *int32
+	Parent      *uint32
+}
+
+func (s *State) isBelow(id, ancestor uint32) bool {
+	for id != 0 {
+		if id == ancestor {
+			return true
+		}
+		id = s.Channels[id].Parent
+	}
+	return ancestor == 0
+}
+
+func (s *State) EditChannel(id uint32, e ChannelEdit) error {
+	c := s.Channels[id]
+	if c == nil {
+		return deny(pb.PermissionDenied_Text, "no such channel")
+	}
+	parent := c.Parent
+	if e.Parent != nil {
+		if id == 0 || s.Channels[*e.Parent] == nil || s.isBelow(*e.Parent, id) {
+			return deny(pb.PermissionDenied_Text, "cannot move the channel there")
+		}
+		parent = *e.Parent
+	}
+	name := c.Name
+	if e.Name != nil {
+		name = strings.TrimSpace(*e.Name)
+	}
+	if id != 0 && (e.Name != nil || e.Parent != nil) {
+		if err := s.checkName(parent, name, id); err != nil {
+			return err
+		}
+	}
+	c.Parent, c.Name = parent, name
+	if e.Description != nil {
+		c.Description = *e.Description
+	}
+	if e.Position != nil {
+		c.Position = *e.Position
+	}
+	return nil
+}
+
+// Subtree is the channel and everything below it, children first.
+func (s *State) Subtree(id uint32) []uint32 {
+	var out []uint32
+	for _, c := range s.Channels {
+		if c.Parent == id && c.ID != 0 {
+			out = append(out, s.Subtree(c.ID)...)
+		}
+	}
+	slices.Sort(out) // stable order for tests and clients
+	return append(out, id)
+}
+
+// RemoveChannel removes a channel and its subchannels. Their users move to
+// the channel's parent. It returns the moves and the removed channels,
+// children first.
+func (s *State) RemoveChannel(id uint32) (moved map[uint32]uint32, removed []uint32, err error) {
+	c := s.Channels[id]
+	if c == nil || id == 0 {
+		return nil, nil, deny(pb.PermissionDenied_Text, "cannot remove this channel")
+	}
+	removed = s.Subtree(id)
+	gone := map[uint32]bool{}
+	for _, r := range removed {
+		gone[r] = true
+	}
+	moved = map[uint32]uint32{}
+	for _, u := range s.Users {
+		if gone[u.Channel] {
+			u.Channel = c.Parent
+			moved[u.Session] = c.Parent
+		}
+	}
+	for _, r := range removed {
+		for l := range s.Channels[r].Links {
+			s.Unlink(r, l)
+		}
+		delete(s.Channels, r)
+	}
+	return moved, removed, nil
+}
+
+func (s *State) Link(a, b uint32) {
+	if a == b || s.Channels[a] == nil || s.Channels[b] == nil {
+		return
+	}
+	s.Channels[a].Links[b] = true
+	s.Channels[b].Links[a] = true
+}
+
+func (s *State) Unlink(a, b uint32) {
+	if s.Channels[a] != nil {
+		delete(s.Channels[a].Links, b)
+	}
+	if s.Channels[b] != nil {
+		delete(s.Channels[b].Links, a)
+	}
+}
+
+// Tree lists the channels with parents before children.
+func (s *State) Tree() []*Channel {
+	var out []*Channel
+	var walk func(id uint32)
+	walk = func(id uint32) {
+		out = append(out, s.Channels[id])
+		var children []*Channel
+		for _, c := range s.Channels {
+			if c.Parent == id && c.ID != 0 {
+				children = append(children, c)
+			}
+		}
+		slices.SortFunc(children, func(a, b *Channel) int { return int(a.ID) - int(b.ID) })
+		for _, c := range children {
+			walk(c.ID)
+		}
+	}
+	walk(0)
+	return out
+}
+
+func (s *State) AddUser(u *User) { s.Users[u.Session] = u }
+
+// RemoveUser returns temporary channels that became empty and were removed.
+func (s *State) RemoveUser(session uint32) []uint32 {
+	u := s.Users[session]
+	if u == nil {
+		return nil
+	}
+	delete(s.Users, session)
+	return s.removeIfEmptyTemporary(u.Channel)
+}
+
+// MoveUser returns temporary channels that became empty and were removed.
+func (s *State) MoveUser(session, channel uint32) []uint32 {
+	u := s.Users[session]
+	if u == nil || s.Channels[channel] == nil || u.Channel == channel {
+		return nil
+	}
+	old := u.Channel
+	u.Channel = channel
+	return s.removeIfEmptyTemporary(old)
+}
+
+func (s *State) removeIfEmptyTemporary(id uint32) []uint32 {
+	c := s.Channels[id]
+	if c == nil || !c.Temporary {
+		return nil
+	}
+	for _, u := range s.Users {
+		if u.Channel == id {
+			return nil
+		}
+	}
+	for _, o := range s.Channels {
+		if o.Parent == id && o.ID != 0 {
+			return nil
+		}
+	}
+	_, removed, _ := s.RemoveChannel(id)
+	return removed
+}
+
+// linked is the channel and every channel reachable over links.
+func (s *State) linked(id uint32) map[uint32]bool {
+	seen := map[uint32]bool{id: true}
+	queue := []uint32{id}
+	for len(queue) > 0 {
+		c := s.Channels[queue[0]]
+		queue = queue[1:]
+		for l := range c.Links {
+			if !seen[l] {
+				seen[l] = true
+				queue = append(queue, l)
+			}
+		}
+	}
+	return seen
+}
+
+// Listeners are the users who hear the sender talk to its channel.
+func (s *State) Listeners(sender uint32) []uint32 {
+	u := s.Users[sender]
+	if u == nil || u.SelfMute || u.Mute || u.Suppress {
+		return nil
+	}
+	channels := s.linked(u.Channel)
+	var out []uint32
+	for _, o := range s.Users {
+		if o.Session != sender && channels[o.Channel] && !o.SelfDeaf && !o.Deaf {
+			out = append(out, o.Session)
+		}
+	}
+	return out
+}
