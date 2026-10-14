@@ -5,3 +5,4 @@
 - [x] [Rewrite the server in Rust or Go](issues/rewrite-the-server-in-rust-or-go.md)
 - [x] [Graceful proxy shutdown](issues/graceful-proxy-shutdown.md)
 - [x] [Rename to Kallisti](issues/rename-to-kallisti.md)
+- [x] [Per-IP connection limit in the proxy](issues/per-ip-connection-limit-in-the-proxy.md)
