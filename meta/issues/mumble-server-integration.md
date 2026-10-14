@@ -29,3 +29,17 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 - IP bans: a kick-ban adds the client's address. Behind a bridge all web
   users share the bridge's address, so the bridge's address must never be
   banned (in-process sessions with the real client IP solve this).
+
+## Result
+
+- Done: the Kallisti server runs the built-in Mumble server by default
+  (Murmur optional with MUMBLE_HOST). Web clients join in-process with the
+  real client IP; Kallisti accounts become registrations by their
+  certificate hash; account names and Mumble registrations are kept apart
+  both ways. Docker and compose without Murmur.
+- Tested end to end on one container: web guest, web account (registered,
+  kept after a reload, verified text messages), the official client, and
+  the desktop bridge tests with UDP.
+- Kept on purpose: the stream sniffer for the text channel identity and
+  the per-account certificates (they are the account's key), so Murmur
+  still works.

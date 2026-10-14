@@ -40,3 +40,5 @@
 - [x] [Mumble server: Mumble 1.4 clients](issues/mumble-server-legacy-clients.md)
 - [x] [Mumble server: avatars, comments, descriptions](issues/mumble-server-blobs.md)
 - [x] [Mumble server: limits and server list ping](issues/mumble-server-limits.md)
+- [x] [Mumble server: integration into the Kallisti server](issues/mumble-server-integration.md)
+- [x] [Built-in Mumble server (replace Murmur)](issues/built-in-mumble-server.md)

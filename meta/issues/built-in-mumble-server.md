@@ -44,3 +44,8 @@ extended features (accounts, text channels, history) as real server data.
 - [Mumble server: avatars, comments, descriptions](mumble-server-blobs.md)
 - [Mumble server: limits and server list ping](mumble-server-limits.md)
 - [Mumble server: integration into the Kallisti server](mumble-server-integration.md)
+
+## Result
+
+- Done: all sub-issues. The official Mumble client (1.5 and 1.3) tests
+  each part; see DEVLOG.md.
