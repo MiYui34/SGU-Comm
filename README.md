@@ -8,6 +8,21 @@ https://kallisti.chat
 - `server`: Go server that bridges browser WebSockets to the Mumble TLS port
 - `packages/devtools`: dev scripts (smoke test, voice bot)
 
+## Deployment
+
+`deploy/compose.yml` runs Murmur, the Kallisti server (web app, bridge, text
+channels, uploads) and Caddy for HTTPS with an automatic certificate:
+
+```sh
+echo "DOMAIN=chat.example.org" > deploy/.env
+docker compose -f deploy/compose.yml up -d
+```
+
+Open `https://chat.example.org`. Desktop Mumble clients connect to the same
+host on port 64738. Murmur's autoban is off: all web users reach Murmur from
+the Kallisti container, and the Kallisti server limits connections per client
+IP instead.
+
 ## Development
 
 Needs Node with pnpm, Go and bun.

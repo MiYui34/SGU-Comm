@@ -127,3 +127,15 @@ folder keep the old name "mumble-discord".
   louder. A fixed gain of 1/1.14 after it cancels that. Measured with an
   OfflineAudioContext: full-scale tone at 200 % peaks at 0.85, levels below
   the threshold pass unchanged.
+
+## Deployment (2026-10-14)
+
+- One origin: the Go server serves the built web app, the bridge (WebSocket
+  upgrades, the client uses `/ws`), uploads and files. The web app has a
+  strict CSP; the capture worklet is therefore emitted as a file, not inlined
+  as a data: URL.
+- Tested with `podman compose` and `DOMAIN=localhost` (Caddy's internal CA):
+  the app loads over HTTPS, and a wss client gets Murmur's handshake and the
+  text channel list through Caddy. Not yet tested with a public domain.
+- Bun's WebSocket ignores `rejectUnauthorized` (close code 1015 with a local
+  CA). Use Node's `ws` for TLS checks against self-signed certificates.
