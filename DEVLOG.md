@@ -17,3 +17,15 @@ Architecture for the web version:
   keeps the proxy simple. A WebRTC bridge is an option for later.
 - `Mumble.proto` comes from mumble-voip/mumble `master`. The message order in
   the file is the same as the TCP message type IDs (0..26).
+
+## Proxy notes
+
+- `ws` needs an `error` listener on every server-side socket. Without it, one
+  malformed frame (for example an unmasked client frame) crashes the process.
+- All proxy users reach Mumble from the proxy IP. Murmur's autoban (10 failed
+  attempts in 120 s by default) can ban the proxy and lock everyone out.
+  Mitigations: a connection cap now, per-IP limits and a server-side autoban
+  exception later.
+- TLS ends at the proxy, so a browser cannot present its own Mumble client
+  certificate. Users are unregistered for now. Registration needs per-user
+  certificates stored at the proxy, or a different identity scheme.
