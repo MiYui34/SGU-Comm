@@ -56,3 +56,28 @@ per-user certificates). Desktop Mumble users keep voice and in-room chat
 only. The protocol and voice code must not depend on the sidecar.
 
 Server language: Rust or Go are preferred. Decide when sidecar work starts.
+
+## Voice notes
+
+- Murmur 1.5 sends protobuf audio (`MumbleUDP.proto`, first byte 0 = Audio)
+  to clients that announce 1.5, also inside UDPTunnel frames. Older servers
+  use the legacy varint format. The client picks the format from the
+  server's `Version` message.
+- Voice over TCP is never lost or reordered, only late. Playback schedules
+  each decoded chunk right after the previous one (in whole samples), and
+  drops chunks when the queue is longer than 300 ms.
+- The server does not echo our own voice. The speaking ring for ourselves
+  comes from the capture side.
+- The last frame of a transmission is sent with the terminator flag. The
+  encoder keeps the order, so a FIFO of flags maps outputs to packets.
+- Vite inlines the small capture worklet as a `data:` URL. A strict CSP must
+  allow `data:` for worklets, or the build must emit it as a file.
+- Testing: `agent-browser --args` breaks the browser launch here, so Chrome's
+  fake media flags are not available. Instead, inject a fake microphone
+  before connecting: replace `navigator.mediaDevices.getUserMedia` with a
+  stream from an oscillator. `scripts/voicebot.ts` plays an Opus file into
+  the server for playback tests.
+- Do not call `encoder.flush()` after the terminator frame. In Chrome it
+  emits an extra packet for the Opus lookahead, after the terminator and with
+  a repeated frame number. Chrome's encoder gives one output per 20 ms input,
+  so no packet is held back. Firefox and Safari are not checked yet.
