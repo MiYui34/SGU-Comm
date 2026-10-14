@@ -15,3 +15,4 @@ Private messages, unread counts and read state are keyed by session number. Murm
 ## Notes
 
 - The open DM view already checks the name, so it does not send to the wrong person.
+- Since the chat cap (1000 messages), private message counts are computed over the capped list. After many messages, a new private message can be missed as unread. Count per conversation instead.

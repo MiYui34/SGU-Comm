@@ -8,3 +8,4 @@
 - [x] [Per-IP connection limit in the proxy](issues/per-ip-connection-limit-in-the-proxy.md)
 - [x] [Text channels with persistent history](issues/text-channels-with-persistent-history.md)
 - [x] [Chat autoscroll only when at the bottom](issues/chat-autoscroll-only-when-at-the-bottom.md)
+- [x] [Cap chat history in memory](issues/cap-chat-history-in-memory.md)
