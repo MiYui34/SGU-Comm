@@ -6,7 +6,9 @@
 //! secret in the URL, and checks the Origin (websites in a normal browser can
 //! also open WebSockets to localhost).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use crate::pins::{self, Check, PinStore};
 
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
@@ -56,21 +58,20 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Starts the bridge on 127.0.0.1 with a random port and secret.
-pub async fn start(allowed_origins: Vec<String>) -> std::io::Result<Bridge> {
+pub async fn start(allowed_origins: Vec<String>, pins: Arc<PinStore>) -> std::io::Result<Bridge> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let mut bytes = [0u8; 24];
     rand::rng().fill_bytes(&mut bytes);
     let secret = hex::encode(bytes);
-    let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config()));
     let shared = Arc::new((secret.clone(), allowed_origins));
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
                 Ok((tcp, _)) => {
-                    let (shared, tls) = (shared.clone(), tls.clone());
+                    let (shared, pins) = (shared.clone(), pins.clone());
                     tokio::spawn(async move {
-                        let _ = serve(tcp, &shared.0, &shared.1, tls).await;
+                        let _ = serve(tcp, &shared.0, &shared.1, &pins).await;
                     });
                 }
                 // For example too many open files: keep the bridge alive.
@@ -88,7 +89,7 @@ async fn serve(
     tcp: TcpStream,
     secret: &str,
     origins: &[String],
-    tls: tokio_rustls::TlsConnector,
+    pins: &PinStore,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut target = None;
     let check = |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
@@ -113,15 +114,25 @@ async fn serve(
     let mut ws = tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::accept_hdr_async(tcp, check)).await??;
     let (host, port) = target.ok_or("no target")?;
 
-    let upstream = match connect_upstream(&tls, &host, port).await {
+    let (upstream, fp) = match connect_upstream(&host, port).await {
         Ok(u) => u,
         Err(err) => {
             // Tell the client why, instead of just dropping the socket.
-            let frame = CloseFrame { code: CloseCode::Error, reason: format!("cannot reach {host}:{port}: {err}").into() };
-            let _ = ws.close(Some(frame)).await;
+            close_with(&mut ws, CloseCode::Error, format!("cannot reach {host}:{port}: {err}")).await;
             return Err(err);
         }
     };
+    // Trust on first use: nothing from the client reaches an unknown or
+    // changed server. The client asks the user and trusts via the app.
+    let refused = match pins.check(&format!("{host}:{port}"), &fp) {
+        Check::Trusted => None,
+        Check::Unknown => Some(format!("certificate-unknown {fp}")),
+        Check::Changed => Some(format!("certificate-changed {fp}")),
+    };
+    if let Some(reason) = refused {
+        close_with(&mut ws, CloseCode::Policy, reason).await;
+        return Ok(());
+    }
     let (mut up_read, mut up_write) = tokio::io::split(upstream);
     let (mut ws_write, mut ws_read) = ws.split();
 
@@ -161,42 +172,64 @@ async fn serve(
 
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Closes with a reason and waits (briefly) for the client's close reply.
+/// The client may already have sent data (the Mumble handshake): dropping
+/// the socket with unread data makes the OS send a TCP reset, and browsers
+/// then lose the close frame (code 1006 instead of our reason).
+async fn close_with(ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>, code: CloseCode, reason: String) {
+    if ws.close(Some(CloseFrame { code, reason: reason.into() })).await.is_err() {
+        return;
+    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(Ok(_)) = ws.next().await {}
+    })
+    .await;
+}
+
+/// Connects with TLS and returns the server certificate's fingerprint.
 async fn connect_upstream(
-    tls: &tokio_rustls::TlsConnector,
     host: &str,
     port: u16,
-) -> Result<tokio_rustls::client::TlsStream<TcpStream>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String), Box<dyn std::error::Error + Send + Sync>> {
     let tcp = tokio::time::timeout(HANDSHAKE_TIMEOUT, TcpStream::connect((host, port))).await??;
     tcp.set_nodelay(true)?;
     let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
-    Ok(tls.connect(name, tcp).await?)
+    let seen = Arc::new(Mutex::new(None));
+    let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(seen.clone())));
+    let stream = tls.connect(name, tcp).await?;
+    let fp = seen.lock().unwrap().take().ok_or("no server certificate")?;
+    Ok((stream, fp))
 }
 
-/// Mumble servers usually have self-signed certificates. Like the desktop
-/// Mumble client's first connection, accept them (trust on first use with
-/// pinning is a follow-up).
-fn tls_config() -> rustls::ClientConfig {
+/// Mumble servers usually have self-signed certificates, so the CA check is
+/// replaced by trust on first use: the verifier records the certificate's
+/// fingerprint, and the bridge checks it against the pins.
+fn tls_config(seen: Arc<Mutex<Option<String>>>) -> rustls::ClientConfig {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
         .expect("TLS versions")
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
+        .with_custom_certificate_verifier(Arc::new(Recording { provider, seen }))
         .with_no_client_auth()
 }
 
 #[derive(Debug)]
-struct AcceptAny(Arc<rustls::crypto::CryptoProvider>);
+struct Recording {
+    provider: Arc<rustls::crypto::CryptoProvider>,
+    seen: Arc<Mutex<Option<String>>>,
+}
 
-impl rustls::client::danger::ServerCertVerifier for AcceptAny {
+impl rustls::client::danger::ServerCertVerifier for Recording {
     fn verify_server_cert(
         &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
         _intermediates: &[rustls::pki_types::CertificateDer<'_>],
         _server_name: &rustls::pki_types::ServerName<'_>,
         _ocsp: &[u8],
         _now: rustls::pki_types::UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        *self.seen.lock().unwrap() = Some(pins::fingerprint(end_entity));
         Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
 
@@ -208,7 +241,7 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAny {
         cert: &rustls::pki_types::CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
     fn verify_tls13_signature(
@@ -217,11 +250,11 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAny {
         cert: &rustls::pki_types::CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.0.signature_verification_algorithms.supported_schemes()
+        self.provider.signature_verification_algorithms.supported_schemes()
     }
 }
 

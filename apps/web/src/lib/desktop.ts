@@ -54,3 +54,21 @@ export const registerGlobalPtt = async (
     void shortcuts.unregister(key);
   };
 };
+
+// The bridge refuses unknown or changed server certificates (trust on first
+// use) with these close reasons.
+export type CertificateProblem = { kind: "unknown" | "changed"; fingerprint: string };
+
+export const certificateProblem = (reason: string): CertificateProblem | null => {
+  const m = /^certificate-(unknown|changed) (\S+)$/.exec(reason);
+  return m ? { kind: m[1] as CertificateProblem["kind"], fingerprint: m[2]! } : null;
+};
+
+// "sha256:ab12cd" becomes "AB:12:CD", easier to compare with the server admin.
+export const formatFingerprint = (fp: string) =>
+  (fp.replace(/^sha256:/, "").toUpperCase().match(/../g) ?? []).join(":");
+
+export const trustServer = async (server: ServerAddress, fingerprint: string) => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("trust_server", { host: server.host, port: server.port, fingerprint });
+};

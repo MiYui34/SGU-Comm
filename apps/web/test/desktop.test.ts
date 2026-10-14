@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bridgeUrl, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
+import { bridgeUrl, certificateProblem, formatFingerprint, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
 
 describe("parseAddress", () => {
   it("reads host and optional port", () => {
@@ -53,5 +53,20 @@ describe("registerGlobalPtt", () => {
     // stop() also releases: a key held while unregistering must not stay on.
     expect(states).toEqual([true, false, false]);
     expect(calls).toEqual(["register Backquote", "unregister Backquote"]);
+  });
+});
+
+describe("certificateProblem", () => {
+  it("reads the bridge's close reasons", () => {
+    expect(certificateProblem("certificate-unknown sha256:ab12")).toEqual({ kind: "unknown", fingerprint: "sha256:ab12" });
+    expect(certificateProblem("certificate-changed sha256:cd34")).toEqual({ kind: "changed", fingerprint: "sha256:cd34" });
+    expect(certificateProblem("cannot reach x:1: refused")).toBeNull();
+    expect(certificateProblem("")).toBeNull();
+  });
+});
+
+describe("formatFingerprint", () => {
+  it("groups the hex digits for reading aloud", () => {
+    expect(formatFingerprint("sha256:ab12cd34ef56")).toBe("AB:12:CD:34:EF:56");
   });
 });

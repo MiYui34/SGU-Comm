@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { modeForError, type AccountsApi } from "../lib/accounts";
+  import { formatFingerprint, type CertificateProblem } from "../lib/desktop";
   import type { Credentials } from "../lib/connection.svelte";
   import { safeGet, safeSet } from "../lib/storage";
 
@@ -11,7 +12,12 @@
     onAccountChange,
     onConnect,
     desktop = false,
+    certificate = null,
+    onTrust,
   }: {
+    // Desktop: the server's certificate needs the user's decision.
+    certificate?: (CertificateProblem & { server: string }) | null;
+    onTrust?: () => void;
     // The desktop app: a server address field, no accounts (they need the
     // Kallisti server).
     desktop?: boolean;
@@ -70,7 +76,28 @@
 </script>
 
 <div class="screen">
-  {#if account}
+  {#if certificate}
+    <div class="card">
+      {#if certificate.kind === "unknown"}
+        <h1>New server</h1>
+        <p class="sub">
+          First connection to <strong>{certificate.server}</strong>. Its certificate fingerprint is:
+        </p>
+      {:else}
+        <h1>Certificate changed</h1>
+        <p class="error" role="alert">
+          The certificate of <strong>{certificate.server}</strong> is not the one you trusted before. This can mean
+          that someone is listening in. Continue only if the server admin told you about a new certificate.
+        </p>
+      {/if}
+      <code class="fingerprint">{formatFingerprint(certificate.fingerprint)}</code>
+      <p class="hint">If you can, compare it with the server admin.</p>
+      <button class="primary" onclick={onTrust}>
+        {certificate.kind === "unknown" ? "Trust and connect" : "Trust the new certificate"}
+      </button>
+      <button class="link" onclick={() => location.reload()}>Cancel</button>
+    </div>
+  {:else if account}
     <div class="card">
       <h1>Welcome back</h1>
       <p class="sub">Logged in as <strong>{account}</strong></p>
@@ -211,6 +238,14 @@
   .tabs button.active {
     background: var(--bg-active);
     color: var(--text);
+  }
+  .fingerprint {
+    padding: 10px;
+    border-radius: 6px;
+    background: var(--bg-rail);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
   .hint {
     margin: 0;

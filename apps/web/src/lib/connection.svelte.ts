@@ -46,6 +46,8 @@ export type Connection = ReturnType<typeof connect>;
 export const connect = (url: string, credentials: Credentials, audio: AudioContext | null) => {
   let state = $state.raw<ServerState>(initialState);
   let closed = $state(false);
+  // The close frame's reason (the desktop bridge explains refusals there).
+  let closeReason = $state("");
   // Text channels from the Kallisti server (unavailable on plain Mumble).
   let text = $state.raw<TextState>(initialTextState);
   // One upload token request at a time (the UI uploads one file at a time).
@@ -111,7 +113,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       ws.close();
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    closeReason = event.reason;
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
     capture?.close();
@@ -126,6 +129,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     get closed() {
       return closed;
+    },
+    get closeReason() {
+      return closeReason;
     },
     account: credentials.account === true,
     get text() {

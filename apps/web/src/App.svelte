@@ -3,7 +3,15 @@
   import Login from "./components/Login.svelte";
   import { createAccountsApi, type AccountActions } from "./lib/accounts";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
-  import { bridgeUrl, getBridge, isDesktop, parseAddress } from "./lib/desktop";
+  import {
+    bridgeUrl,
+    certificateProblem,
+    getBridge,
+    isDesktop,
+    parseAddress,
+    trustServer,
+    type CertificateProblem,
+  } from "./lib/desktop";
   import { httpBase } from "./lib/textChannels";
   import { connectionError, proxyUrl } from "./lib/status";
   import { voiceSupported } from "./lib/voice/support";
@@ -66,7 +74,21 @@
 
   // Each start gets a number: a slower earlier start must not win.
   let starts = 0;
+  // Desktop: the server's certificate is new or changed. The user decides.
+  let lastCredentials: Credentials | null = null;
+  const certificate = $derived.by((): (CertificateProblem & { server: string }) | null => {
+    const problem = connection?.closed ? certificateProblem(connection.closeReason) : null;
+    return problem && lastCredentials ? { ...problem, server: lastCredentials.server ?? "" } : null;
+  });
+  const trustAndConnect = async () => {
+    const server = parseAddress(certificate?.server ?? "");
+    if (!certificate || !server || !lastCredentials) return;
+    await trustServer(server, certificate.fingerprint);
+    await start(lastCredentials);
+  };
+
   const start = async (credentials: Credentials) => {
+    lastCredentials = credentials;
     const mine = ++starts;
     loginNote = null;
     connection?.close();
@@ -87,7 +109,9 @@
 
 {#if !connection || error}
   <Login
-    error={error ?? loginNote}
+    error={certificate ? null : (error ?? loginNote)}
+    {certificate}
+    onTrust={trustAndConnect}
     {api}
     {account}
     {desktop}
