@@ -44,6 +44,11 @@ impl CryptState {
         self.decrypt_iv = iv;
     }
 
+    /// The current client nonce, for a server that asks for a resync.
+    pub fn encrypt_iv(&self) -> [u8; 16] {
+        self.encrypt_iv
+    }
+
     pub fn encrypt(&mut self, plain: &[u8]) -> Vec<u8> {
         increment(&mut self.encrypt_iv, 0);
         let (crypted, tag) = ocb2::encrypt(&self.key, &self.encrypt_iv, plain);

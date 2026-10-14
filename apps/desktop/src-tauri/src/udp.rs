@@ -1,0 +1,244 @@
+//! UDP voice without IO: the crypt state from CryptSetup, pings, whether
+//! UDP works, and resync requests. The bridge does the sockets.
+
+
+use std::time::{Duration, Instant};
+
+use crate::crypt::CryptState;
+use crate::frames::{fields, make_frame, CryptSetup, Value, CRYPT_SETUP};
+
+pub const PING_INTERVAL: Duration = Duration::from_secs(5);
+// Two lost pings in a row are fine, three mean UDP is gone.
+const UDP_TIMEOUT: Duration = Duration::from_secs(12);
+// As the Mumble client: ask for a new nonce at most this often.
+const RESYNC_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Default)]
+pub struct UdpVoice {
+    crypt: Option<CryptState>,
+    legacy: bool,
+    last_good: Option<Instant>,
+    last_resync: Option<Instant>,
+    ping_count: u8,
+}
+
+pub enum Incoming {
+    /// A voice packet, the same bytes as in a UDPTunnel frame.
+    Audio(Vec<u8>),
+    Pong,
+    Dropped,
+    /// Packets do not decrypt: send this frame to ask for a new nonce.
+    Resync(Vec<u8>),
+}
+
+/// Servers before 1.5 use the legacy UDP format.
+pub fn is_legacy_server(version_body: &[u8]) -> bool {
+    let (mut v1, mut v2) = (None, None);
+    for (field, value) in fields(version_body).unwrap_or_default() {
+        match (field, value) {
+            (1, Value::Varint(v)) => v1 = Some(v),
+            (5, Value::Varint(v)) => v2 = Some(v),
+            _ => {}
+        }
+    }
+    let (major, minor) = match (v2, v1) {
+        (Some(v), _) => (v >> 48, (v >> 32) & 0xffff),
+        (None, Some(v)) => (v >> 16, (v >> 8) & 0xff),
+        (None, None) => return false,
+    };
+    (major, minor) < (1, 5)
+}
+
+impl UdpVoice {
+    pub fn set_legacy(&mut self, legacy: bool) {
+        self.legacy = legacy;
+    }
+
+    /// Returns a frame for the server if it asked for our nonce.
+    pub fn on_crypt_setup(&mut self, cs: &CryptSetup) -> Option<Vec<u8>> {
+        match (cs.key, cs.client_nonce, cs.server_nonce) {
+            (Some(key), Some(client), Some(server)) => {
+                self.crypt = Some(CryptState::new(key, client, server));
+                self.last_good = None;
+                None
+            }
+            (None, None, Some(server)) => {
+                self.crypt.as_mut()?.set_decrypt_iv(server);
+                None
+            }
+            (None, None, None) => {
+                let mut body = vec![0x12, 16];
+                body.extend_from_slice(&self.crypt.as_ref()?.encrypt_iv());
+                Some(make_frame(CRYPT_SETUP, &body))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn usable(&self, now: Instant) -> bool {
+        self.last_good.is_some_and(|t| now.saturating_duration_since(t) < UDP_TIMEOUT)
+    }
+
+    /// An encrypted ping, once the keys are known.
+    pub fn ping(&mut self) -> Option<Vec<u8>> {
+        let crypt = self.crypt.as_mut()?;
+        // The timestamp only has to come back; keep it to one byte.
+        self.ping_count = (self.ping_count + 1) & 0x7f;
+        let plain = if self.legacy { vec![0x20, self.ping_count] } else { vec![0x01, 0x08, self.ping_count] };
+        Some(crypt.encrypt(&plain))
+    }
+
+    /// The encrypted packet for a UDPTunnel body, or None to keep it on TCP.
+    pub fn outgoing(&mut self, now: Instant, plain: &[u8]) -> Option<Vec<u8>> {
+        if !self.usable(now) {
+            return None;
+        }
+        Some(self.crypt.as_mut()?.encrypt(plain))
+    }
+
+    pub fn incoming(&mut self, now: Instant, packet: &[u8]) -> Incoming {
+        let Some(crypt) = self.crypt.as_mut() else { return Incoming::Dropped };
+        let Some(plain) = crypt.decrypt(packet) else {
+            let stale = |t: Option<Instant>| t.is_none_or(|t| now.saturating_duration_since(t) >= RESYNC_INTERVAL);
+            if stale(self.last_good) && stale(self.last_resync) {
+                self.last_resync = Some(now);
+                return Incoming::Resync(make_frame(CRYPT_SETUP, &[]));
+            }
+            return Incoming::Dropped;
+        };
+        self.last_good = Some(now);
+        let is_ping = match plain.first() {
+            None => return Incoming::Dropped,
+            Some(b) if self.legacy => b >> 5 == 1,
+            Some(b) => *b == 1,
+        };
+        if is_ping { Incoming::Pong } else { Incoming::Audio(plain) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypt::CryptState;
+    use crate::frames::{make_frame, CryptSetup, CRYPT_SETUP};
+    use std::time::{Duration, Instant};
+
+    const KEY: [u8; 16] = [3; 16];
+    const CLIENT: [u8; 16] = [1; 16];
+    const SERVER: [u8; 16] = [2; 16];
+
+    fn setup() -> CryptSetup {
+        CryptSetup { key: Some(KEY), client_nonce: Some(CLIENT), server_nonce: Some(SERVER) }
+    }
+
+    // The server side of the crypt state, to make packets as Murmur does.
+    fn murmur() -> CryptState {
+        CryptState::new(KEY, SERVER, CLIENT)
+    }
+
+    #[test]
+    fn udp_is_used_only_after_a_pong() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        assert!(v.ping().is_none(), "no keys yet");
+        assert!(v.on_crypt_setup(&setup()).is_none());
+        assert!(!v.usable(now));
+        assert!(v.outgoing(now, &[0, 1, 2]).is_none(), "voice stays on TCP");
+
+        // Murmur reads our ping and echoes it.
+        let mut server = murmur();
+        let ping = server.decrypt(&v.ping().unwrap()).unwrap();
+        assert_eq!(ping[0], 1, "protobuf ping type");
+        assert!(matches!(v.incoming(now, &server.encrypt(&ping)), Incoming::Pong));
+        assert!(v.usable(now));
+        let voice = v.outgoing(now, &[0, 1, 2]).unwrap();
+        assert_eq!(server.decrypt(&voice).unwrap(), vec![0, 1, 2]);
+
+        // Without pongs for a while, voice goes back to TCP.
+        assert!(!v.usable(now + Duration::from_secs(13)));
+    }
+
+    #[test]
+    fn audio_from_the_server_is_decrypted() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        v.on_crypt_setup(&setup());
+        let mut server = murmur();
+        match v.incoming(now, &server.encrypt(&[0, 9, 9])) {
+            Incoming::Audio(plain) => assert_eq!(plain, vec![0, 9, 9]),
+            _ => panic!("expected audio"),
+        }
+        assert!(v.usable(now), "any good packet proves UDP works");
+    }
+
+    #[test]
+    fn legacy_servers_get_legacy_pings() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        v.set_legacy(true);
+        v.on_crypt_setup(&setup());
+        let mut server = murmur();
+        let ping = server.decrypt(&v.ping().unwrap()).unwrap();
+        assert_eq!(ping[0] >> 5, 1, "legacy ping type");
+        assert!(matches!(v.incoming(now, &server.encrypt(&ping)), Incoming::Pong));
+        // 0x01 is not a ping in the legacy format.
+        assert!(matches!(v.incoming(now, &server.encrypt(&[1, 5])), Incoming::Audio(_)));
+    }
+
+    #[test]
+    fn answers_a_resync_request_with_the_client_nonce() {
+        let mut v = UdpVoice::default();
+        v.on_crypt_setup(&setup());
+        v.ping(); // uses one IV
+        let reply = v.on_crypt_setup(&CryptSetup::default()).unwrap();
+        let mut expected = CLIENT;
+        expected[0] += 1;
+        let mut body = vec![0x12, 16];
+        body.extend(expected);
+        assert_eq!(reply, make_frame(CRYPT_SETUP, &body));
+    }
+
+    #[test]
+    fn a_new_server_nonce_resyncs_decryption() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        v.on_crypt_setup(&setup());
+        let mut server = CryptState::new(KEY, [7; 16], CLIENT);
+        assert!(matches!(v.incoming(now, &server.encrypt(&[0, 1])), Incoming::Dropped | Incoming::Resync(_)));
+        v.on_crypt_setup(&CryptSetup { server_nonce: Some([7; 16]), ..Default::default() });
+        assert!(matches!(v.incoming(now, &server.encrypt(&[0, 2])), Incoming::Audio(_)));
+    }
+
+    #[test]
+    fn asks_for_a_resync_when_packets_stop_decrypting() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        v.on_crypt_setup(&setup());
+        let mut wrong = CryptState::new(KEY, [7; 16], CLIENT);
+        let request = make_frame(CRYPT_SETUP, &[]);
+        match v.incoming(now, &wrong.encrypt(&[0, 1])) {
+            Incoming::Resync(frame) => assert_eq!(frame, request),
+            _ => panic!("expected a resync request"),
+        }
+        // Not again right away.
+        assert!(matches!(v.incoming(now, &wrong.encrypt(&[0, 1])), Incoming::Dropped));
+        let later = now + Duration::from_secs(6);
+        assert!(matches!(v.incoming(later, &wrong.encrypt(&[0, 1])), Incoming::Resync(_)));
+    }
+
+    #[test]
+    fn reads_the_server_version() {
+        // version_v1 = 1.4.0
+        assert!(is_legacy_server(&[0x08, 0x80, 0x88, 0x04]));
+        // version_v2 = 1.5.0, the v1 field says 1.4 for old clients.
+        let v2: u64 = (1 << 48) | (5 << 32);
+        let mut body = vec![0x08, 0x80, 0x88, 0x04, 0x28];
+        let mut n = v2;
+        while n >= 0x80 {
+            body.push((n as u8) | 0x80);
+            n >>= 7;
+        }
+        body.push(n as u8);
+        assert!(!is_legacy_server(&body));
+    }
+}

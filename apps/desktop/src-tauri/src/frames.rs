@@ -3,6 +3,7 @@
 
 pub const UDP_TUNNEL: u16 = 1;
 pub const CRYPT_SETUP: u16 = 15;
+pub const VERSION: u16 = 0;
 
 // Murmur's own limit for a TCP message is 8 MiB.
 const MAX_BODY: usize = 8 << 20;
@@ -76,36 +77,53 @@ fn varint(data: &[u8], at: &mut usize) -> Option<u64> {
     None
 }
 
+pub enum Value<'a> {
+    Varint(u64),
+    Bytes(&'a [u8]),
+    Fixed,
+}
+
+/// The fields of a protobuf message as (field number, value), or None if
+/// the message is broken.
+pub fn fields(body: &[u8]) -> Option<Vec<(u64, Value<'_>)>> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < body.len() {
+        let tag = varint(body, &mut at)?;
+        let value = match tag & 7 {
+            0 => Value::Varint(varint(body, &mut at)?),
+            1 | 5 => {
+                at += if tag & 7 == 1 { 8 } else { 4 };
+                Value::Fixed
+            }
+            2 => {
+                let len = varint(body, &mut at)? as usize;
+                let bytes = body.get(at..at.checked_add(len)?)?;
+                at += len;
+                Value::Bytes(bytes)
+            }
+            _ => return None,
+        };
+        out.push((tag >> 3, value));
+    }
+    (at == body.len()).then_some(out)
+}
+
 impl CryptSetup {
-    /// Reads fields 1-3 (bytes). Other fields are skipped; values that are
-    /// not 16 bytes long are ignored.
+    /// Reads fields 1-3. Values that are not 16 bytes long are ignored.
     pub fn parse(body: &[u8]) -> Option<CryptSetup> {
         let mut out = CryptSetup::default();
-        let mut at = 0;
-        while at < body.len() {
-            let tag = varint(body, &mut at)?;
-            match tag & 7 {
-                0 => {
-                    varint(body, &mut at)?;
-                }
-                1 => at += 8,
-                5 => at += 4,
-                2 => {
-                    let len = varint(body, &mut at)? as usize;
-                    let value = body.get(at..at.checked_add(len)?)?;
-                    at += len;
-                    let value: Option<[u8; 16]> = value.try_into().ok();
-                    match tag >> 3 {
-                        1 => out.key = value,
-                        2 => out.client_nonce = value,
-                        3 => out.server_nonce = value,
-                        _ => {}
-                    }
-                }
-                _ => return None,
+        for (field, value) in fields(body)? {
+            let Value::Bytes(bytes) = value else { continue };
+            let bytes: Option<[u8; 16]> = bytes.try_into().ok();
+            match field {
+                1 => out.key = bytes,
+                2 => out.client_nonce = bytes,
+                3 => out.server_nonce = bytes,
+                _ => {}
             }
         }
-        (at == body.len()).then_some(out)
+        Some(out)
     }
 }
 
