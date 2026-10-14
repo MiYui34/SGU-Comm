@@ -26,6 +26,10 @@ type Channel struct {
 	Position    int32
 	Temporary   bool
 	Links       map[uint32]bool
+
+	NoInheritACL bool // the zero value inherits, as new Mumble channels do
+	ACLs         []ACL
+	Groups       map[string]*Group
 }
 
 type User struct {
@@ -36,7 +40,8 @@ type User struct {
 	// (SuperUser is registered with id 0).
 	Registered bool
 	UserID     uint32
-	Hash       string // client certificate, or ""
+	Hash       string   // client certificate, or ""
+	Tokens     []string // access tokens (Authenticate.tokens)
 
 	SelfMute, SelfDeaf bool
 	// Set by moderators or the server.
