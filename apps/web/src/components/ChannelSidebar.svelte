@@ -6,9 +6,14 @@
   let {
     state,
     currentChannel,
+    speaking,
     onJoin,
-  }: { state: ServerState; currentChannel: number | null; onJoin: (id: number) => void } =
-    $props();
+  }: {
+    state: ServerState;
+    currentChannel: number | null;
+    speaking: ReadonlySet<number>;
+    onJoin: (id: number) => void;
+  } = $props();
 
   const tree = $derived(channelTree(state));
 </script>
@@ -28,7 +33,7 @@
     <ul class="users" style:padding-left="{30 + depth * 14}px">
       {#each usersIn(state, node.channel.id) as user (user.session)}
         <li class="user" class:me={user.session === state.session}>
-          <Avatar name={user.name} size={22} />
+          <Avatar name={user.name} size={22} speaking={speaking.has(user.session)} />
           <span class="name">{user.name}</span>
           {#if user.selfMute || user.mute || user.suppress}
             <span class="flag"><Icon name="mic" off size={14} /></span>

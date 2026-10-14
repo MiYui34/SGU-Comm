@@ -1,5 +1,7 @@
 import {
   addOwnMessage,
+  audioFormat,
+  decodeAudio,
   createMessageStream,
   handshake,
   initialState,
@@ -7,8 +9,10 @@ import {
   reduce,
   sendText,
   type Bytes,
+  type MumbleMessage,
   type ServerState,
 } from "@mumble-discord/protocol";
+import type { Playback } from "./voice/playback.svelte";
 
 // The server drops clients after 30 s without a ping.
 const PING_INTERVAL_MS = 15_000;
@@ -18,13 +22,24 @@ export type Credentials = { username: string; password?: string };
 export type Connection = ReturnType<typeof connect>;
 
 // Thin effectful shell around the pure protocol code.
-export const connect = (url: string, credentials: Credentials) => {
+export const connect = (url: string, credentials: Credentials, playback: Playback | null) => {
   let state = $state.raw<ServerState>(initialState);
   let closed = $state(false);
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   let timer: ReturnType<typeof setInterval> | undefined;
+
+  // Voice and leaving users go to the playback side. State stays pure.
+  const routeAudio = (msg: MumbleMessage) => {
+    if (!playback) return;
+    if (msg.type === "UDPTunnel") {
+      const packet = decodeAudio(audioFormat(state), msg.packet);
+      if (packet) playback.handle(packet);
+    } else if (msg.type === "UserRemove") {
+      playback.remove(msg.message.session);
+    }
+  };
 
   ws.onopen = () => {
     ws.send(handshake(credentials));
@@ -33,6 +48,7 @@ export const connect = (url: string, credentials: Credentials) => {
   ws.onmessage = (event) => {
     try {
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
+      messages.forEach(routeAudio);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
     } catch (err) {
       // A broken frame leaves the stream out of sync: give up on it.
@@ -42,6 +58,7 @@ export const connect = (url: string, credentials: Credentials) => {
   };
   ws.onclose = () => {
     clearInterval(timer);
+    playback?.close();
     closed = true;
   };
 
@@ -56,6 +73,7 @@ export const connect = (url: string, credentials: Credentials) => {
     get closed() {
       return closed;
     },
+    playback,
     send,
     sendText: (channelId: number, text: string) => {
       send(sendText(channelId, text));

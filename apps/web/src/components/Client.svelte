@@ -22,6 +22,11 @@
   const serverName = $derived(state.channels[0]?.name ?? "Mumble");
   const users = $derived(usersSorted(state));
 
+  const NOBODY: ReadonlySet<number> = new Set();
+  const speaking = $derived(connection.playback?.speaking ?? NOBODY);
+
+  $effect(() => connection.playback?.setDeaf(me?.selfDeaf ?? false));
+
   const join = (id: number) => {
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
@@ -35,7 +40,7 @@
   <ServerRail {serverName} />
   <div class="sidebar">
     <header>{serverName}</header>
-    <ChannelSidebar {state} currentChannel={channelId} onJoin={join} />
+    <ChannelSidebar {state} {speaking} currentChannel={channelId} onJoin={join} />
     {#if me}<UserPanel {me} onSelfState={updateSelf} />{/if}
   </div>
   <ChatPane

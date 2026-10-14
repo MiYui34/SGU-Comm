@@ -1,0 +1,109 @@
+import type { AudioPacket } from "@mumble-discord/protocol";
+import { SvelteSet } from "svelte/reactivity";
+import { nextStart, type PlayoutConfig } from "./schedule";
+
+const SAMPLE_RATE = 48_000;
+// Mumble counts frames in 10 ms steps.
+const FRAME_US = 10_000;
+const SPEAKING_TIMEOUT_MS = 250;
+// 60 ms start delay, 300 ms maximum queue, in samples.
+const PLAYOUT: PlayoutConfig = { startDelay: 2880, maxLatency: 14_400 };
+
+type Speaker = {
+  decoder: AudioDecoder;
+  end: number | null;
+  timer?: ReturnType<typeof setTimeout>;
+};
+
+export const voiceSupported = () => typeof AudioDecoder !== "undefined";
+
+export type Playback = ReturnType<typeof createPlayback>;
+
+export const createPlayback = (ctx: AudioContext) => {
+  const speakers = new Map<number, Speaker>();
+  const speaking = new SvelteSet<number>();
+  const output = ctx.createGain();
+  output.connect(ctx.destination);
+  let deaf = false;
+
+  const play = (speaker: Speaker, data: AudioData) => {
+    const start = nextStart(speaker.end, ctx.currentTime * SAMPLE_RATE, PLAYOUT);
+    if (start === null) return data.close();
+    const buffer = ctx.createBuffer(1, data.numberOfFrames, data.sampleRate);
+    data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(output);
+    source.start(start / SAMPLE_RATE);
+    speaker.end = start + data.numberOfFrames;
+    data.close();
+  };
+
+  const remove = (session: number) => {
+    const speaker = speakers.get(session);
+    if (!speaker) return;
+    clearTimeout(speaker.timer);
+    if (speaker.decoder.state !== "closed") speaker.decoder.close();
+    speakers.delete(session);
+    speaking.delete(session);
+  };
+
+  const speakerFor = (session: number): Speaker => {
+    const existing = speakers.get(session);
+    if (existing) return existing;
+    const speaker: Speaker = {
+      end: null,
+      decoder: new AudioDecoder({
+        output: (data) => play(speaker, data),
+        // A broken stream: drop the decoder, the next packet makes a new one.
+        error: (err) => (console.warn("decoder error", session, err), remove(session)),
+      }),
+    };
+    speaker.decoder.configure({ codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+    speakers.set(session, speaker);
+    return speaker;
+  };
+
+  const markSpeaking = (session: number, speaker: Speaker, terminator: boolean) => {
+    clearTimeout(speaker.timer);
+    if (terminator) return speaking.delete(session);
+    speaking.add(session);
+    speaker.timer = setTimeout(() => speaking.delete(session), SPEAKING_TIMEOUT_MS);
+  };
+
+  return {
+    speaking: speaking as ReadonlySet<number>,
+    // Must not throw: it runs inside the control connection's message handler.
+    handle: (packet: AudioPacket) => {
+      if (deaf) return;
+      try {
+        const speaker = speakerFor(packet.session);
+        markSpeaking(packet.session, speaker, packet.terminator);
+        if (packet.opus.length === 0) return;
+        speaker.decoder.decode(
+          new EncodedAudioChunk({
+            type: "key",
+            timestamp: packet.frameNumber * FRAME_US,
+            data: packet.opus,
+          }),
+        );
+      } catch (err) {
+        // For example a decoder that failed and is closed, before its error
+        // callback ran. Drop it, the next packet makes a new one.
+        console.warn("voice packet dropped", packet.session, err);
+        remove(packet.session);
+      }
+    },
+    remove,
+    setDeaf: (value: boolean) => {
+      deaf = value;
+      // Also silences chunks that are already scheduled.
+      output.gain.value = deaf ? 0 : 1;
+      if (deaf) [...speakers.keys()].forEach(remove);
+    },
+    close: () => {
+      [...speakers.keys()].forEach(remove);
+      void ctx.close();
+    },
+  };
+};
