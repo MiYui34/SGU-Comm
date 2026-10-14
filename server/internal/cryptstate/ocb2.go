@@ -72,8 +72,7 @@ func allZero(b []byte) bool {
 }
 
 // ocbEncrypt returns the ciphertext (same length) and the full tag.
-func ocbEncrypt(key, nonce [16]byte, plain []byte) ([]byte, [16]byte) {
-	c := newCipher(key)
+func ocbEncrypt(c cipher.Block, nonce [16]byte, plain []byte) ([]byte, [16]byte) {
 	delta := enc(c, load(nonce[:]))
 	var checksum block
 	out := make([]byte, 0, len(plain))
@@ -109,8 +108,7 @@ func ocbEncrypt(key, nonce [16]byte, plain []byte) ([]byte, [16]byte) {
 
 // ocbDecrypt returns the plaintext and the full tag (the caller compares
 // the tag). ok is false if the packet matches the XEX* attack pattern.
-func ocbDecrypt(key, nonce [16]byte, encrypted []byte) (plain []byte, tag [16]byte, ok bool) {
-	c := newCipher(key)
+func ocbDecrypt(c cipher.Block, nonce [16]byte, encrypted []byte) (plain []byte, tag [16]byte, ok bool) {
 	delta := enc(c, load(nonce[:]))
 	var checksum block
 	out := make([]byte, 0, len(encrypted))
