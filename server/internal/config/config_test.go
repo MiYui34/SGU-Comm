@@ -47,6 +47,7 @@ func TestAllOptions(t *testing.T) {
 		"TRUST_FORWARDED_FOR":    "1",
 		"UPLOAD_DIR":             "/data/files",
 		"UPLOAD_MAX_MB":          "25",
+		"WEB_DIR":                "/app/web",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +66,7 @@ func TestAllOptions(t *testing.T) {
 		UploadDir:          "/data/files",
 		UploadMaxBytes:     25 << 20,
 		UploadQuotaBytes:   100 << 20,
+		WebDir:             "/app/web",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

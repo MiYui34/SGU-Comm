@@ -20,6 +20,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/sidecar"
+	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -91,7 +92,9 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
 	mux.Handle("/files/", fileHandler)
-	mux.Handle("/", b) // WebSocket bridge
+	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
+	// else to the web app.
+	mux.Handle("/", site.New(b, cfg.WebDir))
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ListenPort))
 	if err != nil {
