@@ -24,8 +24,7 @@ extended features (accounts, text channels, history) as real server data.
 
 ## Notes
 
-- Grumble (github.com/mumble-voip/grumble, Go, BSD) is a possible base or
-  reference. Its state is not checked yet.
+- Our own server, not based on Grumble (see the spike notes).
 - Murmur stays the default until the built-in server passes the same tests.
 - Later gain: web clients can use datagrams (WebRTC or WebTransport) for
   voice, not the TCP tunnel.
@@ -34,4 +33,4 @@ extended features (accounts, text channels, history) as real server data.
 
 ## Sub-issues
 
-- [Mumble server: spike with Grumble and a minimal Go server](mumble-server-spike.md)
+- [Mumble server: spike with a minimal Go server](mumble-server-spike.md)
