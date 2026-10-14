@@ -7,6 +7,7 @@ import {
   emptyChannel,
   emptyUser,
   initialState,
+  MAX_MESSAGES,
   reduce,
   type ServerState,
 } from "../src/state";
@@ -227,5 +228,21 @@ describe("addOwnMessage", () => {
       1,
     );
     expect(s.messages.at(-1)).toMatchObject({ actor: 7, channelIds: [], sessions: [4] });
+  });
+});
+
+describe("message cap", () => {
+  it("keeps only the newest MAX_MESSAGES messages", () => {
+    const text = (i: number): MumbleMessage => ({
+      type: "TextMessage",
+      message: create(pb.TextMessageSchema, { channelId: [0], message: `m${i}` }),
+    });
+    const s = Array.from({ length: MAX_MESSAGES + 5 }, (_, i) => text(i)).reduce(
+      (acc, m, i) => reduce(acc, m, i),
+      initialState,
+    );
+    expect(s.messages).toHaveLength(MAX_MESSAGES);
+    expect(s.messages[0]?.text).toBe("m5");
+    expect(s.messages.at(-1)?.text).toBe(`m${MAX_MESSAGES + 4}`);
   });
 });

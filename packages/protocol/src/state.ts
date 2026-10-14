@@ -51,6 +51,8 @@ export type ServerState = {
   messages: readonly ChatMessage[];
 };
 
+export const MAX_MESSAGES = 1000;
+
 export const initialState: ServerState = {
   serverVersion: null,
   status: "connecting",
@@ -164,7 +166,9 @@ const applyTextMessage = (
     text: msg.message,
     at: now,
   };
-  return { ...state, messages: [...state.messages, chat] };
+  // Long sessions: keep only the newest messages in memory.
+  const messages = [...state.messages, chat];
+  return { ...state, messages: messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages };
 };
 
 export const reduce = (
