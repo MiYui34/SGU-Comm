@@ -83,7 +83,7 @@ func waitForUserID(t *testing.T, c *testClient, session uint32) uint32 {
 
 func TestSelfRegistration(t *testing.T) {
 	db := testDB(t)
-	addr := startWith(t, "127.0.0.1", Config{DB: db})
+	addr := startServer(t, "127.0.0.1", Config{DB: db}, openACL)
 	cert := clientCert(t)
 	alice := dialAs(t, addr, dialOpts{name: "alice", cert: cert})
 	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), UserId: proto.Uint32(0)})
@@ -120,7 +120,7 @@ func TestSelfRegistration(t *testing.T) {
 
 func TestRegistrationNeedsACertificate(t *testing.T) {
 	addr := startWith(t, "127.0.0.1", Config{DB: testDB(t)})
-	guest := dial(t, addr, "guest")
+	guest := dialAs(t, addr, dialOpts{name: "guest"}) // no certificate
 	guest.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(guest.session), UserId: proto.Uint32(0)})
 	var d pb.PermissionDenied
 	proto.Unmarshal(guest.expect(mumble.TypePermissionDenied), &d)
@@ -173,10 +173,12 @@ func TestServerPasswordForGuests(t *testing.T) {
 }
 
 func TestQueryUsers(t *testing.T) {
-	db := testDB(t)
+	addr, db := adminServer(t)
 	id, _ := db.RegisterUser("Alice", "aaa")
-	addr := startWith(t, "127.0.0.1", Config{DB: db})
-	c := dial(t, addr, "bob")
+	guest := dial(t, addr, "bob")
+	guest.send(mumble.TypeQueryUsers, &pb.QueryUsers{Ids: []uint32{id}})
+	guest.expectDenied(pb.PermissionDenied_Permission) // only for ACL editors
+	c := superUser(t, addr)
 	c.send(mumble.TypeQueryUsers, &pb.QueryUsers{Ids: []uint32{id}, Names: []string{"superuser", "nobody"}})
 	var m pb.QueryUsers
 	proto.Unmarshal(c.expect(mumble.TypeQueryUsers), &m)
@@ -221,7 +223,7 @@ func TestFailedLoginsAreLimitedPerIP(t *testing.T) {
 
 func TestAnotherDeviceKeepsTheChannel(t *testing.T) {
 	db := testDB(t)
-	addr := startWith(t, "127.0.0.1", Config{DB: db})
+	addr := startServer(t, "127.0.0.1", Config{DB: db}, openACL)
 	cert := clientCert(t)
 	first := dialAs(t, addr, dialOpts{name: "alice", cert: cert})
 	first.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(first.session), UserId: proto.Uint32(0)})

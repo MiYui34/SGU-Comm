@@ -192,3 +192,28 @@ func TestOldDatabasesGetTheNewColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRenameAndUnregister(t *testing.T) {
+	db := testDB(t)
+	a, _ := db.RegisterUser("Alice", "aaa")
+	b, _ := db.RegisterUser("Bob", "bbb")
+	if err := db.RenameUser(a, "bob"); err == nil {
+		t.Fatal("renamed to a taken name")
+	}
+	if err := db.RenameUser(a, "Alicia"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UnregisterUser(0); err == nil {
+		t.Fatal("unregistered SuperUser")
+	}
+	if err := db.UnregisterUser(b); err != nil {
+		t.Fatal(err)
+	}
+	users, _ := db.Users()
+	if len(users) != 1 || users[0].Name != "Alicia" {
+		t.Fatalf("users %+v", users)
+	}
+	if u, _ := db.UserByHash("bbb"); u != nil {
+		t.Fatal("unregistered user still found")
+	}
+}

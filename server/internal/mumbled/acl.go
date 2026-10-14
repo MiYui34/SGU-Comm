@@ -230,12 +230,41 @@ func (s *State) inSub(target, context *Channel, args string, u *User) bool {
 	return depth >= idx+minLevel && depth <= idx+maxLevel
 }
 
-// groupMember follows a named group from the context channel up through
-// inheriting groups, then applies adds and removes from the top down.
 func (s *State) groupMember(context *Channel, name string, u *User) bool {
 	if !u.Registered {
 		return false
 	}
+	member := false
+	for _, g := range slices.Backward(s.groupStack(context, name)) {
+		if g.Add[u.UserID] {
+			member = true
+		}
+		if g.Remove[u.UserID] {
+			member = false
+		}
+	}
+	return member
+}
+
+// members of a named group as seen from a channel: follow the group up
+// through inheriting groups, then apply adds and removes from the top down
+// (Group::members).
+func (s *State) members(context *Channel, name string) map[uint32]bool {
+	out := map[uint32]bool{}
+	for _, g := range slices.Backward(s.groupStack(context, name)) {
+		for id := range g.Add {
+			out[id] = true
+		}
+		for id := range g.Remove {
+			delete(out, id)
+		}
+	}
+	return out
+}
+
+// groupStack is the group of that name in the context channel and the
+// groups above it that it inherits from, nearest first.
+func (s *State) groupStack(context *Channel, name string) []*Group {
 	var stack []*Group
 	for _, ch := range slices.Backward(s.chain(context.ID)) {
 		g := ch.Groups[name]
@@ -250,14 +279,5 @@ func (s *State) groupMember(context *Channel, name string, u *User) bool {
 			break
 		}
 	}
-	member := false
-	for _, g := range slices.Backward(stack) {
-		if g.Add[u.UserID] {
-			member = true
-		}
-		if g.Remove[u.UserID] {
-			member = false
-		}
-	}
-	return member
+	return stack
 }

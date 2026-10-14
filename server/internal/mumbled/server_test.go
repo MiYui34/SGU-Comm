@@ -30,6 +30,22 @@ func startOn(t *testing.T, host string) string {
 
 func startWith(t *testing.T, host string, cfg Config) string {
 	t.Helper()
+	return startServer(t, host, cfg, nil)
+}
+
+// startOpen gives everyone Write in the root channel: for tests about
+// other things than permissions.
+func startOpen(t *testing.T) string {
+	t.Helper()
+	return startServer(t, "127.0.0.1", Config{Welcome: "Welcome!"}, openACL)
+}
+
+func openACL(s *Server) {
+	s.state.Channels[0].ACLs = append(s.state.Channels[0].ACLs, ACL{ApplyHere: true, ApplySubs: true, Group: "all", Allow: Write})
+}
+
+func startServer(t *testing.T, host string, cfg Config, setup func(*Server)) string {
+	t.Helper()
 	certPEM, keyPEM, err := certs.GenerateServer("test")
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +62,9 @@ func startWith(t *testing.T, host string, cfg Config) string {
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(s)
 	}
 	go s.Serve(ln)
 	go s.ServeUDP(udp)
@@ -84,8 +103,9 @@ func dial(t *testing.T, addr, name string) *testClient {
 	return c
 }
 
+// tryDial connects with a client certificate, as Mumble clients do.
 func tryDial(t *testing.T, addr, name string) (*testClient, error) {
-	return tryDialWith(t, addr, dialOpts{name: name})
+	return tryDialWith(t, addr, dialOpts{name: name, cert: clientCert(t)})
 }
 
 func tryDialVersion(t *testing.T, addr, name string, major, minor uint64) (*testClient, error) {

@@ -2,6 +2,7 @@
 # Runs the official Mumble client on a virtual display and connects it.
 # Usage (in the container): run-client.sh HOST PORT NAME [SECONDS]
 # MUMBLE_PASSWORD: log in with this password (simple characters only).
+# MUMBLE_CHANNEL: go to this channel after connecting (URL path).
 # Screenshots go to /out/NAME-*.png, the client log to /out/NAME.log.
 set -e
 host=$1 port=$2 name=$3 seconds=${4:-30}
@@ -31,7 +32,7 @@ JSON
 
 user=$name
 [ -n "$MUMBLE_PASSWORD" ] && user="$name:$MUMBLE_PASSWORD"
-mumble "mumble://$user@$host:$port/" >"/out/$name.log" 2>&1 &
+mumble "mumble://$user@$host:$port/$MUMBLE_CHANNEL" >"/out/$name.log" 2>&1 &
 sleep 4
 # Accept the server's self-signed certificate.
 xdotool key alt+y || true

@@ -39,7 +39,10 @@ func random16() (b [16]byte) {
 
 // handshake reads Version and Authenticate. It returns a Reject frame if
 // the client cannot join.
-type hello struct{ name, password string }
+type hello struct {
+	name, password string
+	tokens         []string
+}
 
 func handshake(conn net.Conn) (h hello, reject []byte, err error) {
 	var version pb.Version
@@ -57,7 +60,7 @@ func handshake(conn net.Conn) (h hello, reject []byte, err error) {
 			if clientVersion(&version) < versionV2 {
 				return h, mumble.RejectFrame(pb.Reject_WrongVersion, "This server needs Mumble 1.5 or newer."), nil
 			}
-			h = hello{name: strings.TrimSpace(auth.GetUsername()), password: auth.GetPassword()}
+			h = hello{name: strings.TrimSpace(auth.GetUsername()), password: auth.GetPassword(), tokens: auth.Tokens}
 			return h, nil, nil
 		}
 	}
@@ -89,6 +92,7 @@ type identity struct {
 	registered  bool // the zero value is a guest
 	userID      uint32
 	hash        string
+	tokens      []string
 	lastChannel uint32
 }
 
@@ -112,7 +116,7 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongUserPW, "Wrong certificate or password for existing user.")
 	}
 	if r != nil {
-		return identity{name: r.Name, registered: true, userID: r.ID, hash: hash, lastChannel: r.LastChannel}, nil
+		return identity{name: r.Name, registered: true, userID: r.ID, hash: hash, tokens: h.tokens, lastChannel: r.LastChannel}, nil
 	}
 	if why := names.Check(h.name); why != "" {
 		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername, why)
@@ -121,7 +125,7 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 		s.logins.failed(host)
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongServerPW, "Wrong server password.")
 	}
-	return identity{name: h.name, hash: hash}, nil
+	return identity{name: h.name, hash: hash, tokens: h.tokens}, nil
 }
 
 // checkPassword runs argon2 with the limit on parallel hashes.
@@ -160,14 +164,23 @@ func (s *Server) handle(conn net.Conn) {
 		host:     host,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
-	if !s.join(c, id, setup) {
-		conn.Write(mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is in use."))
+	if reject := s.join(c, id, setup); reject != nil {
+		conn.Write(reject)
 		return
 	}
-	defer s.leave(c)
-	done := make(chan struct{})
-	defer close(done)
-	go c.writer(done)
+	written := make(chan struct{})
+	go func() {
+		c.writer()
+		close(written)
+	}()
+	defer func() {
+		c.closeAfterFlush()
+		select {
+		case <-written:
+		case <-time.After(flushTimeout):
+		}
+	}()
+	defer s.leave(c) // runs first: others see the user go at once
 	conn.SetDeadline(time.Time{})
 	for {
 		conn.SetReadDeadline(time.Now().Add(idleTimeout))
@@ -181,7 +194,8 @@ func (s *Server) handle(conn net.Conn) {
 
 // join adds the client if its name is free. The whole initial state goes
 // into its queue under the lock, so no later change can overtake it.
-func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) bool {
+// join returns a Reject frame if the client cannot join.
+func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	online := make([]Presence, 0, len(s.state.Users))
@@ -193,7 +207,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) bool {
 	}
 	ghost, inUse := findGhost(online, Presence{Name: id.name, Registered: id.registered, UserID: id.userID, Host: c.host, Hash: id.hash})
 	if inUse {
-		return false
+		return mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is in use.")
 	}
 	if g := s.state.Users[ghost]; g != nil {
 		if g.Registered && id.registered && g.UserID == id.userID {
@@ -210,9 +224,18 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) bool {
 	c.sendMsg(mumble.TypeCodecVersion, &pb.CodecVersion{
 		Alpha: proto.Int32(celt070), Beta: proto.Int32(0), PreferAlpha: proto.Bool(true), Opus: proto.Bool(true),
 	})
+	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash, Tokens: id.tokens}
+	// The last channel if the user may enter it, else root (as Murmur).
+	if ch := s.state.Channels[id.lastChannel]; ch != nil && s.state.Has(u, ch.ID, Enter) {
+		u.Channel = ch.ID
+	}
+	if !s.state.Has(u, u.Channel, Enter) {
+		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
+	}
+	s.state.Refresh(u)
 	tree := s.state.Tree()
 	for _, ch := range tree {
-		c.sendMsg(mumble.TypeChannelState, channelState(ch))
+		c.sendMsg(mumble.TypeChannelState, s.state.channelStateFor(ch, u))
 	}
 	// Links once all channels exist, as Murmur does.
 	for _, ch := range tree {
@@ -223,21 +246,17 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) bool {
 	for _, u := range s.state.Users {
 		c.send(userState(u), false)
 	}
-	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash}
-	if ch := s.state.Channels[id.lastChannel]; ch != nil {
-		u.Channel = ch.ID
-	}
 	s.state.AddUser(u)
 	s.clients[c.session] = c
 	s.broadcastLocked(userState(u), nil)
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),
-		WelcomeText: proto.String(s.cfg.Welcome), Permissions: proto.Uint64(permissions),
+		WelcomeText: proto.String(s.cfg.Welcome), Permissions: proto.Uint64(s.state.rootPerms(u)),
 	})
 	c.sendMsg(mumble.TypeServerConfig, &pb.ServerConfig{
 		AllowHtml: proto.Bool(false), MessageLength: proto.Uint32(maxTextLength),
 	})
-	return true
+	return nil
 }
 
 func (s *Server) leave(c *client) {

@@ -231,3 +231,21 @@ func TestPlainText(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkedChannelsNeedSpeak(t *testing.T) {
+	s := newTestState(t)
+	lobby := mustAdd(t, s, 0, "Lobby", false)
+	news := mustAdd(t, s, 0, "News", false)
+	news.ACLs = []ACL{{ApplyHere: true, ApplySubs: true, Group: "all", Deny: Speak}}
+	s.Link(lobby.ID, news.ID)
+	speaker := &User{Session: 1, Name: "a", Channel: lobby.ID}
+	reader := &User{Session: 2, Name: "b", Channel: news.ID}
+	friend := &User{Session: 3, Name: "c", Channel: lobby.ID}
+	for _, u := range []*User{speaker, reader, friend} {
+		s.AddUser(u)
+		s.Refresh(u)
+	}
+	if got := s.Listeners(1); !slices.Equal(got, []uint32{3}) {
+		t.Fatalf("listeners %v: News must not hear Lobby", got)
+	}
+}

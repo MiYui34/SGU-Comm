@@ -84,6 +84,16 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 			}
 			s.userStateMsg(c, &m)
 		}
+	case mumble.TypeACL:
+		var m pb.ACL
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.aclMsg(c, &m)
+		}
+	case mumble.TypeUserList:
+		var m pb.UserList
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.userListMsg(c, &m)
+		}
 	case mumble.TypeQueryUsers:
 		var m pb.QueryUsers
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
@@ -119,8 +129,14 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 	case mumble.TypePermissionQuery:
 		var m pb.PermissionQuery
 		proto.Unmarshal(body, &m)
+		s.mu.Lock()
+		var perms Perm
+		if u := s.state.Users[c.session]; u != nil {
+			perms = s.state.Permissions(u, m.GetChannelId())
+		}
+		s.mu.Unlock()
 		c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
-			ChannelId: proto.Uint32(m.GetChannelId()), Permissions: proto.Uint32(permissions),
+			ChannelId: proto.Uint32(m.GetChannelId()), Permissions: proto.Uint32(uint32(perms)),
 		})
 	case mumble.TypeUserStats:
 		var m pb.UserStats
@@ -139,36 +155,62 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	actor := s.state.Users[c.session]
 	target := c.session
 	if m.Session != nil {
 		target = m.GetSession()
 	}
 	u := s.state.Users[target]
-	if u == nil {
+	if u == nil || actor == nil {
 		return
 	}
-	out := &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session)}
-	changed := false
-	if target == c.session && (m.SelfMute != nil || m.SelfDeaf != nil) {
+	// Checks first, as Murmur: nothing changes if one fails.
+	if isSuperUser(u) && u != actor {
+		c.deny(deny(pb.PermissionDenied_SuperUser, "SuperUser cannot be changed"))
+		return
+	}
+	if m.Name != nil {
+		c.deny(deny(pb.PermissionDenied_UserName, "names cannot be changed"))
+		return
+	}
+	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil) {
+		return // only users themselves set these
+	}
+	dest := s.state.Channels[m.GetChannelId()]
+	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel
+	if move {
+		if u != actor && !s.state.Has(actor, u.Channel, Move) {
+			c.denyPerm(Move, u.Channel)
+			return
+		}
+		if !s.state.Has(actor, dest.ID, Move) && !s.state.Has(u, dest.ID, Enter) {
+			c.denyPerm(Enter, dest.ID)
+			return
+		}
+	}
+	if m.SelfMute != nil || m.SelfDeaf != nil {
 		u.SelfMute, u.SelfDeaf = selfState(u.SelfMute, u.SelfDeaf, m)
-		out.SelfMute, out.SelfDeaf = proto.Bool(u.SelfMute), proto.Bool(u.SelfDeaf)
-		changed = true
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
+			Session: proto.Uint32(target), Actor: proto.Uint32(c.session),
+			SelfMute: proto.Bool(u.SelfMute), SelfDeaf: proto.Bool(u.SelfDeaf),
+		}), nil)
 	}
-	var removed []uint32
-	if m.ChannelId != nil && s.state.Channels[m.GetChannelId()] != nil && u.Channel != m.GetChannelId() {
-		removed = s.state.MoveUser(target, m.GetChannelId())
-		out.ChannelId = proto.Uint32(u.Channel)
-		changed = true
+	if move {
+		s.moveLocked(u, dest.ID, c.session)
 	}
-	if changed {
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
-	}
-	s.broadcastRemovedLocked(removed)
 }
 
+// cloneChannel copies a channel for saving outside the lock.
 func cloneChannel(ch *Channel) *Channel {
 	cp := *ch
 	cp.Links = maps.Clone(ch.Links)
+	cp.ACLs = slices.Clone(ch.ACLs)
+	cp.Groups = make(map[string]*Group, len(ch.Groups))
+	for name, g := range ch.Groups {
+		gc := *g
+		gc.Add, gc.Remove = maps.Clone(g.Add), maps.Clone(g.Remove)
+		cp.Groups[name] = &gc
+	}
 	return &cp
 }
 
@@ -211,6 +253,25 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 		return // Murmur needs both
 	}
 	s.mu.Lock()
+	actor := s.state.Users[c.session]
+	need := MakeChannel
+	if m.GetTemporary() {
+		need = MakeTempChannel
+	}
+	if actor == nil || s.state.Channels[m.GetParent()] == nil {
+		s.mu.Unlock()
+		return
+	}
+	if !s.state.Has(actor, m.GetParent(), need) {
+		s.mu.Unlock()
+		c.denyPerm(need, m.GetParent())
+		return
+	}
+	if !actor.Registered && actor.Hash == "" {
+		s.mu.Unlock()
+		c.deny(deny(pb.PermissionDenied_MissingCertificate, "making channels needs a client certificate"))
+		return
+	}
 	ch, err := s.state.AddChannel(m.GetParent(), m.GetName(), m.GetTemporary())
 	if err == nil {
 		err = s.state.EditChannel(ch.ID, ChannelEdit{Description: optionalPlainText(m.Description), Position: m.Position})
@@ -223,15 +284,16 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 		c.deny(err)
 		return
 	}
-	s.broadcastLocked(mumble.MessageFrame(mumble.TypeChannelState, channelState(ch)), nil)
+	s.state.grantCreator(ch, actor)
+	for _, u := range s.state.Users {
+		if o := s.clients[u.Session]; o != nil {
+			o.sendMsg(mumble.TypeChannelState, s.state.channelStateFor(ch, u))
+		}
+	}
 	var save []*Channel
 	if ch.Temporary {
 		// The creator goes into a temporary channel, as in Murmur.
-		removed := s.state.MoveUser(c.session, ch.ID)
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(c.session), Actor: proto.Uint32(c.session), ChannelId: proto.Uint32(ch.ID),
-		}), nil)
-		s.broadcastRemovedLocked(removed)
+		s.moveLocked(actor, ch.ID, c.session)
 	} else {
 		save = []*Channel{cloneChannel(ch)}
 	}
@@ -248,12 +310,22 @@ func (s *Server) editChannel(c *client, m *pb.ChannelState) {
 		s.mu.Unlock()
 		return
 	}
+	actor := s.state.Users[c.session]
+	if actor == nil {
+		s.mu.Unlock()
+		return
+	}
 	// As Murmur: unknown link targets refuse the whole message.
 	for _, l := range slices.Concat(m.LinksAdd, m.LinksRemove) {
 		if s.state.Channels[l] == nil {
 			s.mu.Unlock()
 			return
 		}
+	}
+	if missing, where := s.editPermission(actor, ch, m); missing != 0 {
+		s.mu.Unlock()
+		c.denyPerm(missing, where)
+		return
 	}
 	edit := ChannelEdit{Name: m.Name, Description: optionalPlainText(m.Description), Position: m.Position, Parent: m.Parent}
 	if err := s.state.EditChannel(id, edit); err != nil {
@@ -283,6 +355,9 @@ func (s *Server) editChannel(c *client, m *pb.ChannelState) {
 		}
 	}
 	s.broadcastLocked(mumble.MessageFrame(mumble.TypeChannelState, out), nil)
+	if m.Parent != nil {
+		s.permissionsChangedLocked(ch) // inherited ACLs changed
+	}
 	// Linked channels are saved too: a link is stored with both.
 	for _, other := range slices.Concat([]uint32{id}, out.LinksAdd, out.LinksRemove) {
 		if o := s.state.Channels[other]; o != nil && !o.Temporary {
@@ -297,6 +372,15 @@ func (s *Server) channelRemoveMsg(c *client, m *pb.ChannelRemove) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
+	actor := s.state.Users[c.session]
+	if ch := s.state.Channels[m.GetChannelId()]; ch == nil || actor == nil {
+		s.mu.Unlock()
+		return
+	} else if !s.state.Has(actor, ch.ID, Write) {
+		s.mu.Unlock()
+		c.denyPerm(Write, ch.ID)
+		return
+	}
 	moved, removed, err := s.state.RemoveChannel(m.GetChannelId())
 	if err != nil {
 		s.mu.Unlock()
@@ -304,8 +388,11 @@ func (s *Server) channelRemoveMsg(c *client, m *pb.ChannelRemove) {
 		return
 	}
 	for _, session := range slices.Sorted(maps.Keys(moved)) {
+		u := s.state.Users[session]
+		s.refreshLocked(u)
 		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
 			Session: proto.Uint32(session), Actor: proto.Uint32(c.session), ChannelId: proto.Uint32(moved[session]),
+			Suppress: proto.Bool(u.Suppress),
 		}), nil)
 	}
 	s.broadcastRemovedLocked(removed)
@@ -320,6 +407,28 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	actor := s.state.Users[c.session]
+	if actor == nil {
+		return
+	}
+	// TextMessage in every target channel, tree and user's channel, or
+	// nothing is sent (as Murmur). Inside a tree, channels without it are
+	// skipped.
+	check := map[uint32]bool{}
+	for _, id := range slices.Concat(m.ChannelId, m.TreeId) {
+		check[id] = true
+	}
+	for _, session := range m.Session {
+		if u := s.state.Users[session]; u != nil {
+			check[u.Channel] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(check)) {
+		if s.state.Channels[id] != nil && !s.state.Has(actor, id, TextMessage) {
+			c.denyPerm(TextMessage, id)
+			return
+		}
+	}
 	channels := map[uint32]bool{}
 	for _, id := range m.ChannelId {
 		channels[id] = true
@@ -327,7 +436,9 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	for _, id := range m.TreeId {
 		if s.state.Channels[id] != nil {
 			for _, sub := range s.state.Subtree(id) {
-				channels[sub] = true
+				if sub == id || s.state.Has(actor, sub, TextMessage) {
+					channels[sub] = true
+				}
 			}
 		}
 	}
@@ -351,22 +462,31 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	}
 }
 
-// registerMsg registers a user with its certificate (self-registration).
+// registerMsg registers a user with its certificate: itself (SelfRegister)
+// or another user (Register).
 func (s *Server) registerMsg(c *client, m *pb.UserState) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
-	u := s.state.Users[c.session]
-	if u == nil {
+	target := c.session
+	if m.Session != nil {
+		target = m.GetSession()
+	}
+	actor, u := s.state.Users[c.session], s.state.Users[target]
+	if actor == nil || u == nil {
 		s.mu.Unlock()
 		return
 	}
+	need := SelfRegister
+	if u != actor {
+		need = Register
+	}
 	var err error
 	switch {
-	case m.Session != nil && m.GetSession() != c.session:
-		err = deny(pb.PermissionDenied_Permission, "registering others needs the Register permission")
-	case u.Registered:
-		err = deny(pb.PermissionDenied_Permission, "you are registered already")
+	case u.Registered || !s.state.Has(actor, 0, need):
+		s.mu.Unlock()
+		c.denyPerm(need, 0)
+		return
 	case u.Hash == "":
 		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")
 	case s.cfg.DB == nil:
@@ -386,11 +506,12 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if u := s.state.Users[c.session]; u != nil {
+	if u := s.state.Users[target]; u != nil {
 		u.Registered, u.UserID = true, id
 		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(c.session), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id),
+			Session: proto.Uint32(target), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id),
 		}), nil)
+		s.permissionsChangedLocked(nil) // @auth and user entries apply now
 	}
 }
 
@@ -398,6 +519,17 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
 	db := s.cfg.DB
 	if db == nil || len(m.Ids)+len(m.Names) > 100 {
+		return
+	}
+	// As Murmur: for ACL editors, who have Write somewhere.
+	s.mu.Lock()
+	u := s.state.Users[c.session]
+	editor := u != nil && slices.ContainsFunc(slices.Collect(maps.Keys(s.state.Channels)), func(id uint32) bool {
+		return s.state.Has(u, id, Write)
+	})
+	s.mu.Unlock()
+	if !editor {
+		c.denyPerm(Write, 0)
 		return
 	}
 	out := &pb.QueryUsers{}
@@ -415,4 +547,25 @@ func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
 		}
 	}
 	c.sendMsg(mumble.TypeQueryUsers, out)
+}
+
+// editPermission checks a channel edit as Murmur does: Write for name,
+// description and position; Write and MakeChannel in the new parent for a
+// move; LinkChannel in both channels for links. It returns the missing
+// permission and where, or 0.
+func (s *Server) editPermission(u *User, ch *Channel, m *pb.ChannelState) (Perm, uint32) {
+	if (m.Name != nil || m.Description != nil || m.Position != nil || m.Parent != nil) && !s.state.Has(u, ch.ID, Write) {
+		return Write, ch.ID
+	}
+	if m.Parent != nil && !s.state.Has(u, m.GetParent(), MakeChannel) {
+		return MakeChannel, m.GetParent()
+	}
+	for _, l := range slices.Concat(m.LinksAdd, m.LinksRemove) {
+		for _, id := range []uint32{ch.ID, l} {
+			if !s.state.Has(u, id, LinkChannel) {
+				return LinkChannel, id
+			}
+		}
+	}
+	return 0, 0
 }

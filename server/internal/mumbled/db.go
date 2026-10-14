@@ -396,3 +396,51 @@ func saveACLs(tx *sql.Tx, c *Channel) error {
 	}
 	return nil
 }
+
+// Users lists the registered users without SuperUser.
+func (d *DB) Users() ([]Registered, error) {
+	rows, err := d.db.Query(`SELECT ` + userColumns + ` FROM mumble_users WHERE id != 0 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Registered
+	for rows.Next() {
+		var r Registered
+		if err := rows.Scan(&r.ID, &r.Name, &r.CertHash, &r.PasswordHash, &r.LastChannel); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) RenameUser(id uint32, name string) error {
+	if why := names.Check(name); why != "" || id == 0 {
+		return errors.New("invalid name")
+	}
+	_, err := d.db.Exec(`UPDATE mumble_users SET name = ?, name_key = ? WHERE id = ?`, name, names.Key(name), id)
+	return err
+}
+
+// UnregisterUser removes a user and its ACL entries and group memberships.
+func (d *DB) UnregisterUser(id uint32) error {
+	if id == 0 {
+		return errors.New("SuperUser cannot be removed")
+	}
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM mumble_users WHERE id = ?`,
+		`DELETE FROM mumble_acl WHERE user_id = ?`,
+		`DELETE FROM mumble_group_members WHERE user_id = ?`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

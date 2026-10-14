@@ -1,6 +1,12 @@
 package mumbled
 
-import "testing"
+import (
+	"testing"
+
+	"google.golang.org/protobuf/proto"
+
+	"kallisti.chat/server/internal/mumble/pb"
+)
 
 // aclState: root > A > B, and C below root. Root has Murmur's default ACL.
 func aclState(t *testing.T) (*State, *Channel, *Channel, *Channel) {
@@ -154,5 +160,28 @@ func TestSubGroup(t *testing.T) {
 	a.ACLs = []ACL{{ApplyHere: true, ApplySubs: false, Group: "sub", Allow: MakeChannel}}
 	if !has(s.Permissions(guest(b.ID), a.ID), MakeChannel) || has(s.Permissions(guest(a.ID), a.ID), MakeChannel) {
 		t.Fatal("@sub")
+	}
+}
+
+func TestACLsFromAnEditor(t *testing.T) {
+	// Fields as an editor sends them: "inherited" unset (it defaults to
+	// true in Mumble.proto), a user who is not registered.
+	m := &pb.ACL{
+		Acls: []*pb.ACL_ChanACL{
+			{Group: proto.String("all"), Deny: proto.Uint32(uint32(Enter))},
+			{UserId: proto.Uint32(9), Grant: proto.Uint32(uint32(Enter))},
+			{UserId: proto.Uint32(5), Grant: proto.Uint32(0xffffffff)},
+		},
+		Groups: []*pb.ACL_ChanGroup{{Name: proto.String("mods"), Add: []uint32{5, 9}}},
+	}
+	acls, groups := aclsFromProto(m, map[uint32]bool{5: true})
+	if len(acls) != 2 || acls[0].Deny != Enter || !acls[0].ApplyHere || !acls[0].ApplySubs {
+		t.Fatalf("acls %+v", acls)
+	}
+	if acls[1].UserID != 5 || acls[1].Allow != AllPerms {
+		t.Fatalf("user entry %+v", acls[1])
+	}
+	if g := groups["mods"]; g == nil || !g.Add[5] || g.Add[9] || !g.Inherit {
+		t.Fatalf("groups %+v", groups)
 	}
 }

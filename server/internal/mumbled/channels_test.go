@@ -40,7 +40,7 @@ func (c *testClient) waitForMove(session, channel uint32) {
 }
 
 func TestChannelsSeparateVoice(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	games := alice.createChannel(0, "Games", false)
@@ -55,7 +55,7 @@ func TestChannelsSeparateVoice(t *testing.T) {
 }
 
 func TestNewUsersSeeTheChannelTree(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	a := alice.createChannel(0, "A", false)
 	b := alice.createChannel(a, "B", false)
@@ -92,7 +92,7 @@ func TestNewUsersSeeTheChannelTree(t *testing.T) {
 }
 
 func TestRemovingAChannelMovesUsersAndTellsEveryone(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	a := alice.createChannel(0, "A", false)
@@ -108,7 +108,7 @@ func TestRemovingAChannelMovesUsersAndTellsEveryone(t *testing.T) {
 }
 
 func TestTemporaryChannelsMoveTheCreatorAndVanish(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	tmp := alice.createChannel(0, "Tmp", true)
@@ -122,7 +122,7 @@ func TestTemporaryChannelsMoveTheCreatorAndVanish(t *testing.T) {
 }
 
 func TestBadChannelNamesAreDenied(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	alice.send(mumble.TypeChannelState, &pb.ChannelState{Parent: proto.Uint32(0), Name: proto.String("<script>")})
 	var d pb.PermissionDenied
@@ -133,7 +133,7 @@ func TestBadChannelNamesAreDenied(t *testing.T) {
 }
 
 func TestTextGoesToChannelsTreesAndUsers(t *testing.T) {
-	addr := start(t)
+	addr := startOpen(t)
 	alice := dial(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	carol := dial(t, addr, "carol")
@@ -161,11 +161,11 @@ func TestTextGoesToChannelsTreesAndUsers(t *testing.T) {
 
 func TestChannelsSurviveARestart(t *testing.T) {
 	db := testDB(t)
-	addr := startWith(t, "127.0.0.1", Config{DB: db})
+	addr := startServer(t, "127.0.0.1", Config{DB: db}, openACL)
 	alice := dial(t, addr, "alice")
 	games := alice.createChannel(0, "Games", false)
 	alice.createChannel(0, "Tmp", true) // not saved
-	addr2 := startWith(t, "127.0.0.1", Config{DB: db})
+	addr2 := startServer(t, "127.0.0.1", Config{DB: db}, openACL)
 	c, _ := tryDial(t, addr2, "bob")
 	found := map[string]uint32{}
 	for {
@@ -182,4 +182,19 @@ func TestChannelsSurviveARestart(t *testing.T) {
 	if found["Games"] != games || found["Tmp"] != 0 {
 		t.Fatalf("channels after restart: %v", found)
 	}
+}
+
+func TestTreeTextSkipsChannelsWithoutPermission(t *testing.T) {
+	addr, _ := adminServer(t)
+	su := superUser(t, addr)
+	a := su.createChannel(0, "A", false)
+	closed := su.createChannel(a, "Closed", false)
+	su.setACL(closed, true, []*pb.ACL_ChanACL{chanACL("all", true, true, 0, TextMessage)}, nil)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	bob.move(bob.session, a)
+	alice.waitForMove(bob.session, a)
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{TreeId: []uint32{0}, Message: proto.String("all")})
+	bob.expect(mumble.TypeTextMessage)
+	alice.expectNone(mumble.TypePermissionDenied)
 }

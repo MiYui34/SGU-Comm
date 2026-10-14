@@ -33,6 +33,8 @@ const (
 	// Mumble clients ping every 5 s; Murmur drops them after 30 s.
 	idleTimeout  = 30 * time.Second
 	writeTimeout = 10 * time.Second
+	// When a connection ends, queued frames (a kick reason) still go out.
+	flushTimeout = 2 * time.Second
 	// Before Authenticate frames stay small; after it, nothing in the
 	// spike needs more (no avatars yet).
 	maxHandshakeFrame = 64 << 10
@@ -40,8 +42,6 @@ const (
 	queueSize         = 512
 	maxBandwidth      = 558000
 	maxTextLength     = 5000
-	// Traverse, Enter, Speak, TextMessage.
-	permissions = 0x2 | 0x4 | 0x8 | 0x200
 	// The CELT version Murmur announces (0.7.0) next to Opus.
 	celt070 = -2147483637
 	// Murmur's default messagelimit and messageburst: text messages and
@@ -109,6 +109,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	state := NewState(cfg.RootName, saved)
 	state.SetLastChannelID(lastID)
+	if cfg.DB == nil {
+		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
+	}
 	return &Server{
 		cfg:     cfg,
 		state:   state,
@@ -186,20 +189,16 @@ func (c *client) sendMsg(typ uint16, m proto.Message) {
 	c.send(mumble.MessageFrame(typ, m), false)
 }
 
-func (c *client) writer(done <-chan struct{}) {
-	for {
-		select {
-		case b := <-c.out:
-			if b == nil { // closeAfterFlush
-				c.close()
-				return
-			}
-			c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if _, err := c.conn.Write(b); err != nil {
-				c.close()
-				return
-			}
-		case <-done:
+// writer sends the queue until closeAfterFlush or a write error.
+func (c *client) writer() {
+	for b := range c.out {
+		if b == nil { // closeAfterFlush
+			c.close()
+			return
+		}
+		c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		if _, err := c.conn.Write(b); err != nil {
+			c.close()
 			return
 		}
 	}

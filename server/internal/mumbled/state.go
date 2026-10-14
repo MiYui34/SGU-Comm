@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -42,6 +43,10 @@ type User struct {
 	UserID     uint32
 	Hash       string   // client certificate, or ""
 	Tokens     []string // access tokens (Authenticate.tokens)
+
+	// Channels this user's voice reaches: its own and linked ones where it
+	// may speak. nil: to compute (after moves, links, ACL changes).
+	speakIn map[uint32]bool
 
 	SelfMute, SelfDeaf bool
 	// Set by moderators or the server.
@@ -84,9 +89,15 @@ func NewState(rootName string, saved []Channel) *State {
 		s.Channels[c.ID] = &c
 		s.nextChannel = max(s.nextChannel, c.ID)
 	}
+	// Missing parents first, then loops, in a fixed order.
 	for _, c := range s.Channels {
-		if c.ID != 0 && !s.reachesRoot(c.ID) {
+		if s.Channels[c.Parent] == nil {
 			c.Parent = 0
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(s.Channels)) {
+		if !s.reachesRoot(id) {
+			s.Channels[id].Parent = 0
 		}
 	}
 	for _, c := range saved {
@@ -197,6 +208,9 @@ func (s *State) EditChannel(id uint32, e ChannelEdit) error {
 			return err
 		}
 	}
+	if parent != c.Parent {
+		s.forgetSpeak() // inherited ACLs change
+	}
 	c.Parent, c.Name = parent, name
 	if e.Description != nil {
 		c.Description = *e.Description
@@ -248,15 +262,43 @@ func (s *State) RemoveChannel(id uint32) (moved map[uint32]uint32, removed []uin
 	return moved, removed, nil
 }
 
+// forgetSpeak drops every user's speakIn, for changes of links or the tree.
+func (s *State) forgetSpeak() {
+	for _, u := range s.Users {
+		u.speakIn = nil
+	}
+}
+
+// Refresh recomputes what a user may say where: suppressed without Speak
+// in its channel (as Murmur), and the channels its voice reaches.
+func (s *State) Refresh(u *User) {
+	u.Suppress = !s.Has(u, u.Channel, Speak)
+	u.speakIn = nil
+}
+
+// speakChannels: as Murmur, voice goes to linked channels only where the
+// speaker may speak.
+func (s *State) speakChannels(u *User) map[uint32]bool {
+	out := map[uint32]bool{}
+	for ch := range s.linked(u.Channel) {
+		if ch == u.Channel || s.Has(u, ch, Speak) {
+			out[ch] = true
+		}
+	}
+	return out
+}
+
 func (s *State) Link(a, b uint32) {
 	if a == b || s.Channels[a] == nil || s.Channels[b] == nil {
 		return
 	}
+	s.forgetSpeak()
 	s.Channels[a].Links[b] = true
 	s.Channels[b].Links[a] = true
 }
 
 func (s *State) Unlink(a, b uint32) {
+	s.forgetSpeak()
 	if s.Channels[a] != nil {
 		delete(s.Channels[a].Links, b)
 	}
@@ -306,6 +348,7 @@ func (s *State) MoveUser(session, channel uint32) []uint32 {
 	}
 	old := u.Channel
 	u.Channel = channel
+	u.speakIn = nil
 	return s.removeIfEmptyTemporary(old)
 }
 
@@ -351,10 +394,12 @@ func (s *State) Listeners(sender uint32) []uint32 {
 	if u == nil || u.SelfMute || u.Mute || u.Suppress {
 		return nil
 	}
-	channels := s.linked(u.Channel)
+	if u.speakIn == nil {
+		u.speakIn = s.speakChannels(u)
+	}
 	var out []uint32
 	for _, o := range s.Users {
-		if o.Session != sender && channels[o.Channel] && !o.SelfDeaf && !o.Deaf {
+		if o.Session != sender && u.speakIn[o.Channel] && !o.SelfDeaf && !o.Deaf {
 			out = append(out, o.Session)
 		}
 	}
