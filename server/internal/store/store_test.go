@@ -84,3 +84,61 @@ func TestAddMessageToUnknownChannelFails(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+func TestUploadsAndAttachments(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	at := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	u, err := s.AddUpload(Upload{Key: "k1", Name: "cat.png", Type: "image/png", Size: 1234, Author: "alice"}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.UploadByKey("k1")
+	if err != nil || got.ID != u.ID || got.Name != "cat.png" || got.Author != "alice" || got.Used {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	m, err := s.AddMessageWithUpload(1, "alice", "look", at, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Upload == nil || m.Upload.Name != "cat.png" {
+		t.Fatalf("message upload: %+v", m.Upload)
+	}
+	got, _ = s.UploadByKey("k1")
+	if !got.Used {
+		t.Fatal("upload not marked as used")
+	}
+	// An upload can be attached only once.
+	if _, err := s.AddMessageWithUpload(1, "alice", "again", at, u.ID); err == nil {
+		t.Fatal("expected an error for a used upload")
+	}
+	hist, _ := s.History(1, 0, 10)
+	if len(hist) != 1 || hist[0].Upload == nil || hist[0].Upload.Key != "k1" || hist[0].Upload.Size != 1234 {
+		t.Fatalf("history: %+v", hist)
+	}
+	if _, err := s.UploadByKey("nope"); err == nil {
+		t.Fatal("expected an error for a missing upload")
+	}
+}
+
+func TestMigratesAnOldDatabase(t *testing.T) {
+	path := t.TempDir() + "/old.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the first schema: no upload column.
+	if _, err := s.db.Exec(`ALTER TABLE messages DROP COLUMN upload_id`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	s.EnsureChannels([]string{"general"})
+	if _, err := s.AddMessage(1, "alice", "hi", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
