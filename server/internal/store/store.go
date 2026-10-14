@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -80,6 +81,19 @@ CREATE TABLE IF NOT EXISTS messages (
 	verified   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
+CREATE TABLE IF NOT EXISTS accounts (
+	id            INTEGER PRIMARY KEY,
+	name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	password_hash TEXT NOT NULL,
+	cert_pem      BLOB NOT NULL,
+	key_pem       BLOB NOT NULL,
+	created_at    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+	token_hash TEXT PRIMARY KEY,
+	account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+	expires_at INTEGER NOT NULL
+);
 `
 
 // Open opens (and creates) the database. ":memory:" is for tests.
@@ -296,4 +310,68 @@ func (s *Store) UploadedBytesSince(author string, since time.Time) (int64, error
 	err := s.db.QueryRow(`SELECT coalesce(sum(size), 0) FROM uploads WHERE author = ? AND created_at >= ?`,
 		author, since.UnixMilli()).Scan(&n)
 	return n, err
+}
+
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrNameTaken = errors.New("name taken")
+)
+
+// Account is a web user. Names compare without case, like Murmur's.
+type Account struct {
+	ID           int64
+	Name         string
+	PasswordHash string
+	CertPEM      []byte
+	KeyPEM       []byte
+	CreatedAt    time.Time
+}
+
+func (s *Store) CreateAccount(a Account, at time.Time) (Account, error) {
+	res, err := s.db.Exec(`INSERT INTO accounts (name, password_hash, cert_pem, key_pem, created_at) VALUES (?, ?, ?, ?, ?)`,
+		a.Name, a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli())
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return Account{}, ErrNameTaken
+		}
+		return Account{}, err
+	}
+	a.ID, err = res.LastInsertId()
+	a.CreatedAt = at
+	return a, err
+}
+
+const accountColumns = `a.id, a.name, a.password_hash, a.cert_pem, a.key_pem, a.created_at`
+
+func scanAccount(row *sql.Row) (Account, error) {
+	var a Account
+	var at int64
+	err := row.Scan(&a.ID, &a.Name, &a.PasswordHash, &a.CertPEM, &a.KeyPEM, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Account{}, ErrNotFound
+	}
+	a.CreatedAt = time.UnixMilli(at).UTC()
+	return a, err
+}
+
+func (s *Store) AccountByName(name string) (Account, error) {
+	return scanAccount(s.db.QueryRow(`SELECT `+accountColumns+` FROM accounts a WHERE a.name = ?`, name))
+}
+
+// Sessions are stored by the hash of their token: a leaked database does
+// not give working session cookies.
+func (s *Store) CreateSession(tokenHash string, accountID int64, expires time.Time) error {
+	_, err := s.db.Exec(`INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)`,
+		tokenHash, accountID, expires.UnixMilli())
+	return err
+}
+
+func (s *Store) AccountBySession(tokenHash string, now time.Time) (Account, error) {
+	return scanAccount(s.db.QueryRow(`SELECT `+accountColumns+` FROM sessions x JOIN accounts a ON a.id = x.account_id
+		WHERE x.token_hash = ? AND x.expires_at > ?`, tokenHash, now.UnixMilli()))
+}
+
+func (s *Store) DeleteSession(tokenHash string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
+	return err
 }

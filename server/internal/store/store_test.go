@@ -192,3 +192,47 @@ func TestUploadedBytesSince(t *testing.T) {
 		t.Fatalf("got %d %v, want 500", n, err)
 	}
 }
+
+func TestAccounts(t *testing.T) {
+	s := open(t)
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	a, err := s.CreateAccount(Account{Name: "Alice", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now)
+	if err != nil || a.ID == 0 {
+		t.Fatalf("create: %+v %v", a, err)
+	}
+	if _, err := s.CreateAccount(Account{Name: "alice", PasswordHash: "h2", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now); err != ErrNameTaken {
+		t.Fatalf("duplicate (other case): got %v, want ErrNameTaken", err)
+	}
+	got, err := s.AccountByName("ALICE")
+	if err != nil || got.ID != a.ID || got.Name != "Alice" || string(got.CertPEM) != "c" || got.PasswordHash != "h" {
+		t.Fatalf("by name: %+v %v", got, err)
+	}
+	if _, err := s.AccountByName("bob"); err != ErrNotFound {
+		t.Fatalf("missing: got %v", err)
+	}
+}
+
+func TestSessions(t *testing.T) {
+	s := open(t)
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	a, err := s.CreateAccount(Account{Name: "alice", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession("hash1", a.ID, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.AccountBySession("hash1", now)
+	if err != nil || got.ID != a.ID {
+		t.Fatalf("session: %+v %v", got, err)
+	}
+	if _, err := s.AccountBySession("hash1", now.Add(2*time.Hour)); err != ErrNotFound {
+		t.Fatalf("expired session: got %v", err)
+	}
+	if err := s.DeleteSession("hash1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AccountBySession("hash1", now); err != ErrNotFound {
+		t.Fatalf("deleted session: got %v", err)
+	}
+}
