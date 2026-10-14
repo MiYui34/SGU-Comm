@@ -15,3 +15,7 @@ Small items from the account reviews.
 ## Acceptance Criteria
 
 - Each item above is handled or explicitly dropped.
+
+## Result
+
+- All items done. The PermissionDenied toast is covered by reducer tests; no UI path in the test setup triggers a refusal, so it was not seen in a browser.
