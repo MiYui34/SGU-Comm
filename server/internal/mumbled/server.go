@@ -83,6 +83,7 @@ type client struct {
 	session   uint32
 	name      string
 	host      netip.Addr
+	legacy    bool // a client before 1.5: legacy UDP format
 	limiter   *rate.Limiter
 	bandwidth *rate.Limiter // voice bytes per second
 

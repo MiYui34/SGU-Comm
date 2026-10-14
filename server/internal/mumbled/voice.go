@@ -1,79 +1,38 @@
 package mumbled
 
 import (
+	"bytes"
 	"net"
 	"net/netip"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protowire"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 )
 
-// splitAudio splits a protobuf audio packet into its voice target and
-// the fields that are passed on unchanged. ok is false for packets that
-// are not audio.
-func splitAudio(packet []byte) (target uint32, rest []byte, ok bool) {
-	if len(packet) == 0 || packet[0] != 0 {
-		return 0, nil, false
-	}
-	b := packet[1:]
-	for len(b) > 0 {
-		num, typ, n := protowire.ConsumeTag(b)
-		if n < 0 {
-			return 0, nil, false
-		}
-		m := protowire.ConsumeFieldValue(num, typ, b[n:])
-		if m < 0 {
-			return 0, nil, false
-		}
-		switch num {
-		case 1:
-			v, _ := protowire.ConsumeVarint(b[n:])
-			if typ != protowire.VarintType || v > loopbackTarget {
-				return 0, nil, false
-			}
-			target = uint32(v)
-		case 2, 3: // set by the server
-		default:
-			rest = append(rest, b[:n+m]...)
-		}
-		b = b[n+m:]
-	}
-	return target, rest, true
-}
-
-// relayed is the audio packet as a receiver gets it: the server sets the
-// context and the sender's session.
-func relayed(rest []byte, sender uint32, ctx AudioContext) []byte {
-	out := []byte{0}
-	out = protowire.AppendTag(out, 2, protowire.VarintType)
-	out = protowire.AppendVarint(out, uint64(ctx))
-	out = protowire.AppendTag(out, 3, protowire.VarintType)
-	out = protowire.AppendVarint(out, uint64(sender))
-	return append(out, rest...)
-}
-
 // voice relays an audio packet from c to its receivers.
 func (s *Server) voice(c *client, packet []byte) {
-	target, rest, ok := splitAudio(packet)
+	p, ok := decodeAudio(packet, c.legacy)
 	// As Murmur: headers count too (IP, UDP, crypt).
 	if !ok || !c.bandwidth.AllowN(time.Now(), 20+8+4+len(packet)) {
 		return
 	}
 	type receiver struct {
-		c    *client
-		addr netip.AddrPort
-		ctx  AudioContext
+		c        *client
+		addr     netip.AddrPort
+		ctx      AudioContext
+		position bool
 	}
 	s.mu.Lock()
 	var receivers []receiver
-	for session, ctx := range s.state.Receivers(c.session, target) {
+	sender := s.state.Users[c.session]
+	for session, ctx := range s.state.Receivers(c.session, p.target) {
 		o := s.clients[session]
-		if o == nil {
+		if o == nil || sender == nil {
 			continue
 		}
-		r := receiver{c: o, ctx: ctx}
+		// As Murmur: the position only within the same game.
+		r := receiver{c: o, ctx: ctx, position: bytes.Equal(sender.PluginContext, s.state.Users[session].PluginContext)}
 		if o.udpVoice && s.udp != nil {
 			r.addr = o.udpAddr
 		}
@@ -81,23 +40,28 @@ func (s *Server) voice(c *client, packet []byte) {
 	}
 	udp := s.udp
 	s.mu.Unlock()
-	// One packet (and TCP frame) per context, at most four.
+	// One packet (and TCP frame) per format and context, at most eight.
+	type kind struct {
+		legacy, position bool
+		ctx              AudioContext
+	}
 	type packetFor struct{ udp, tcp []byte }
-	packets := map[AudioContext]packetFor{}
+	packets := map[kind]packetFor{}
 	for _, r := range receivers {
-		p, ok := packets[r.ctx]
+		k := kind{r.c.legacy, r.position, r.ctx}
+		out, ok := packets[k]
 		if !ok {
-			p.udp = relayed(rest, c.session, r.ctx)
-			p.tcp = mumble.EncodeFrame(mumble.TypeUDPTunnel, p.udp)
-			packets[r.ctx] = p
+			out.udp = encodeServerAudio(p, c.session, r.ctx, r.c.legacy, r.position)
+			out.tcp = mumble.EncodeFrame(mumble.TypeUDPTunnel, out.udp)
+			packets[k] = out
 		}
 		if r.addr.IsValid() {
 			r.c.cryptMu.Lock()
-			crypted := r.c.crypt.Encrypt(p.udp)
+			crypted := r.c.crypt.Encrypt(out.udp)
 			r.c.cryptMu.Unlock()
 			udp.WriteToUDPAddrPort(crypted, r.addr)
 		} else {
-			r.c.send(p.tcp, true)
+			r.c.send(out.tcp, true)
 		}
 	}
 }
@@ -168,14 +132,15 @@ func (s *Server) udpPacket(conn *net.UDPConn, addr netip.AddrPort, packet []byte
 		}
 		// As Murmur: only voice (not pings) over UDP means the client
 		// gets voice over UDP.
-		isAudio := len(plain) > 0 && plain[0] == 0
+		kind := udpKind(plain, c.legacy)
+		isAudio := kind == udpAudio
 		if isAudio {
 			c.udpVoice = true
 		}
 		s.mu.Unlock()
 		if isAudio {
 			s.voice(c, plain)
-		} else if len(plain) > 0 && plain[0] == 1 {
+		} else if kind == udpPing {
 			// Pings come back as they are.
 			c.cryptMu.Lock()
 			pong := c.crypt.Encrypt(plain)
@@ -184,4 +149,23 @@ func (s *Server) udpPacket(conn *net.UDPConn, addr netip.AddrPort, packet []byte
 		}
 		return
 	}
+}
+
+const (
+	udpOther = iota
+	udpAudio
+	udpPing
+)
+
+// udpKind tells audio and pings apart in the client's format.
+func udpKind(plain []byte, legacy bool) int {
+	switch {
+	case len(plain) == 0:
+		return udpOther
+	case legacy && plain[0]>>5 == legacyOpus, !legacy && plain[0] == 0:
+		return udpAudio
+	case legacy && plain[0]>>5 == 1, !legacy && plain[0] == 1:
+		return udpPing
+	}
+	return udpOther
 }

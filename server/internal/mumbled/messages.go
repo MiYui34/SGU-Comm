@@ -226,7 +226,7 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 		c.deny(deny(pb.PermissionDenied_UserName, "names cannot be changed"))
 		return
 	}
-	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil ||
+	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil || m.PluginContext != nil ||
 		len(m.ListeningChannelAdd)+len(m.ListeningChannelRemove) > 0) {
 		return // only users themselves set these
 	}
@@ -258,6 +258,9 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 	}
 	out := &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session)}
 	changed := false
+	if m.PluginContext != nil {
+		u.PluginContext = m.PluginContext // private: not sent to others, as Murmur
+	}
 	routing := false // a change of who hears whom
 	if m.SelfMute != nil || m.SelfDeaf != nil {
 		routing = routing || m.SelfDeaf != nil

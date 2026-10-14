@@ -4,6 +4,7 @@
 # MUMBLE_PASSWORD: log in with this password (simple characters only).
 # MUMBLE_CHANNEL: go to this channel after connecting (URL path).
 # MUMBLE_CERT: keep the certificate as /out/certs/NAME.p12 and use it again.
+# MUMBLE_OLD: the client is older than 1.5 (bookworm image, Qt ini settings).
 # Screenshots go to /out/NAME-*.png, the client log to /out/NAME.log.
 set -e
 host=$1 port=$2 name=$3 seconds=${4:-30}
@@ -37,10 +38,21 @@ cat > ~/.config/Mumble/Mumble/mumble_settings.json <<JSON
 }
 JSON
 
+if [ -n "$MUMBLE_OLD" ]; then
+  # Before 1.5: ini settings; the wizards are closed with keys below.
+  printf '[audio]\ntransmit=0\ninput=PulseAudio\noutput=PulseAudio\n\n[ui]\nupdatecheck=false\nplugincheck=false\n' \
+    > ~/.config/Mumble/Mumble.conf
+fi
+
 user=$name
 [ -n "$MUMBLE_PASSWORD" ] && user="$name:$MUMBLE_PASSWORD"
 mumble "mumble://$user@$host:$port/$MUMBLE_CHANNEL" >"/out/$name.log" 2>&1 &
 sleep 4
+if [ -n "$MUMBLE_OLD" ]; then
+  xdotool key Escape; sleep 2        # audio wizard
+  xdotool key Return; sleep 2        # certificate wizard: create one
+  xdotool key Return; sleep 3
+fi
 # Accept the server's self-signed certificate.
 xdotool key alt+y || true
 sleep 3

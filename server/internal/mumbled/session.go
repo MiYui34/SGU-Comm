@@ -42,6 +42,8 @@ func random16() (b [16]byte) {
 type hello struct {
 	name, password string
 	tokens         []string
+	legacy         bool // before 1.5: legacy UDP format
+	noOpus         bool
 }
 
 func handshake(conn net.Conn) (h hello, reject []byte, err error) {
@@ -57,10 +59,8 @@ func handshake(conn net.Conn) (h hello, reject []byte, err error) {
 		case mumble.TypeAuthenticate:
 			var auth pb.Authenticate
 			proto.Unmarshal(body, &auth)
-			if clientVersion(&version) < versionV2 {
-				return h, mumble.RejectFrame(pb.Reject_WrongVersion, "This server needs Mumble 1.5 or newer."), nil
-			}
-			h = hello{name: strings.TrimSpace(auth.GetUsername()), password: auth.GetPassword(), tokens: auth.Tokens}
+			h = hello{name: strings.TrimSpace(auth.GetUsername()), password: auth.GetPassword(), tokens: auth.Tokens,
+				legacy: clientVersion(&version) < versionV2, noOpus: !auth.GetOpus()}
 			return h, nil, nil
 		}
 	}
@@ -167,11 +167,16 @@ func (s *Server) handle(conn net.Conn) {
 		crypt:     cryptstate.New(key, serverNonce, clientNonce),
 		lastGood:  time.Now(),
 		host:      host,
+		legacy:    h.legacy,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	if reject := s.join(c, id, setup); reject != nil {
 		conn.Write(reject)
 		return
+	}
+	if h.noOpus { // as Murmur: such clients can neither talk nor hear
+		c.sendMsg(mumble.TypeTextMessage, &pb.TextMessage{Message: proto.String(
+			"Your client does not support the Opus codec: you will not be able to talk or hear. Please update Mumble.")})
 	}
 	written := make(chan struct{})
 	go func() {

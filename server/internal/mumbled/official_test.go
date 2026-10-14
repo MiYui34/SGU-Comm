@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -44,7 +45,11 @@ func officialClient(t *testing.T, addr, name, password string, seconds int, env 
 	t.Helper()
 	needOfficialClient(t)
 	dir, _ := filepath.Abs("../../../packages/devtools/mumble-client")
-	if out, err := exec.Command("podman", "build", "-q", "-t", "kallisti-mumble-client", dir).CombinedOutput(); err != nil {
+	image, debian := "kallisti-mumble-client", "trixie"
+	if slices.Contains(env, "MUMBLE_OLD=1") {
+		image, debian = "kallisti-mumble-client-old", "bookworm"
+	}
+	if out, err := exec.Command("podman", "build", "-q", "--build-arg", "DEBIAN="+debian, "-t", image, dir).CombinedOutput(); err != nil {
 		t.Fatalf("podman build: %v\n%s", err, out)
 	}
 	os.MkdirAll(filepath.Join(dir, "out"), 0o755)
@@ -57,7 +62,7 @@ func officialClient(t *testing.T, addr, name, password string, seconds int, env 
 	for _, e := range env {
 		args = append(args, "-e", e)
 	}
-	args = append(args, "kallisti-mumble-client", "run-client.sh", "host.containers.internal", port, name, fmt.Sprint(seconds))
+	args = append(args, image, "run-client.sh", "host.containers.internal", port, name, fmt.Sprint(seconds))
 	cmd := exec.Command("podman", args...)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -283,3 +288,40 @@ func TestOfficialClientListensToAChannel(t *testing.T) {
 	}
 	official.screenshot("listening")
 }
+
+func TestOfficialOldClientTalksWithNewClients(t *testing.T) {
+	needOfficialClient(t)
+	addr := startServer(t, "0.0.0.0", Config{}, nil)
+	watcher := dial(t, addr, "watcher")
+	old := officialClient(t, addr, "old13", "", 60, "MUMBLE_OLD=1")
+	session := watcher.waitForUser("old13", 50*time.Second)
+	// Mumble 1.3 sends the legacy format; the 1.5 test client gets protobuf.
+	for {
+		if parseAudio(t, watcher.expectWithin(mumble.TypeUDPTunnel, 10*time.Second)).sender == session {
+			break
+		}
+	}
+	time.Sleep(2 * time.Second)
+	watcher.send(mumble.TypeUserStats, &pb.UserStats{Session: proto.Uint32(session)})
+	var stats pb.UserStats
+	proto.Unmarshal(watcher.expect(mumble.TypeUserStats), &stats)
+	if stats.GetFromClient().GetGood() == 0 {
+		t.Fatalf("no UDP packets from the old client decrypted: %v", &stats)
+	}
+	// The other way: the old client shows the watcher talking.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 150 {
+			watcher.conn.Write(mumble.EncodeFrame(mumble.TypeUDPTunnel, audioTo(0, uint64(i), silentOpus)))
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	time.Sleep(1500 * time.Millisecond)
+	old.screenshot("hears-watcher")
+	<-done
+}
+
+// silentOpus is a real Opus packet (20 ms of silence, CELT mode), which
+// clients decode and show as talking.
+var silentOpus = []byte{0xf8, 0xff, 0xfe}

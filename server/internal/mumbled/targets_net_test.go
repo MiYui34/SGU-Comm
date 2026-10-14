@@ -154,3 +154,25 @@ func TestVoiceHasABandwidthLimit(t *testing.T) {
 		t.Fatalf("bob got %d of %d packets", got, sent)
 	}
 }
+
+func TestPositionGoesOnlyToTheSameGame(t *testing.T) {
+	addr := startOpen(t)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	carol := dial(t, addr, "carol")
+	for _, c := range []*testClient{alice, bob} {
+		c.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(c.session), PluginContext: []byte("game\\x00server1")})
+	}
+	alice.send(mumble.TypePing, &pb.Ping{})
+	alice.expect(mumble.TypePing)
+	bob.send(mumble.TypePing, &pb.Ping{})
+	bob.expect(mumble.TypePing)
+	alice.conn.Write(mumble.EncodeFrame(mumble.TypeUDPTunnel,
+		encodeClientAudio(audioPacket{frame: 1, opus: []byte{0xfc}, positional: []float32{1, 2, 3}}, false)))
+	if p, _ := decodeAudio(bob.expect(mumble.TypeUDPTunnel), false); len(p.positional) != 3 {
+		t.Fatalf("bob (same game) got %+v", p)
+	}
+	if p, _ := decodeAudio(carol.expect(mumble.TypeUDPTunnel), false); p.positional != nil {
+		t.Fatalf("carol (no game) got the position %v", p.positional)
+	}
+}

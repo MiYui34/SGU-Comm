@@ -371,16 +371,29 @@ func TestAGuestFromTheSameIPReplacesItsOldSession(t *testing.T) {
 	}
 }
 
-func TestOldClientsAreRefused(t *testing.T) {
-	// The spike only speaks the 1.5 UDP format.
-	c, err := tryDialVersion(t, start(t), "old", 1, 4)
-	if err != nil {
-		t.Fatal(err)
+func TestOldAndNewClientsHearEachOther(t *testing.T) {
+	addr := start(t)
+	old := dialAs(t, addr, dialOpts{name: "old", cert: clientCert(t), major: 1, minor: 4})
+	now := dial(t, addr, "new")
+	// 1.4 to 1.5 over TCP: legacy in, protobuf out.
+	old.conn.Write(mumble.EncodeFrame(mumble.TypeUDPTunnel, encodeClientAudio(audioPacket{frame: 3, opus: []byte{0xfc, 1}, terminator: true}, true)))
+	h, ok := decodeAudio(now.expect(mumble.TypeUDPTunnel), false)
+	if !ok || h.session != old.session || h.frame != 3 || !h.terminator || !bytes.Equal(h.opus, []byte{0xfc, 1}) {
+		t.Fatalf("new heard %+v", h)
 	}
-	var r pb.Reject
-	proto.Unmarshal(c.expect(mumble.TypeReject), &r)
-	if r.GetType() != pb.Reject_WrongVersion {
-		t.Fatalf("reject %v", &r)
+	// 1.5 to 1.4 over UDP: protobuf in, legacy out.
+	old.openUDP(addr)
+	now.openUDP(addr)
+	old.sendUDP([]byte{0x20, 9}) // legacy ping
+	if pong := old.readUDP(); !bytes.Equal(pong, []byte{0x20, 9}) {
+		t.Fatalf("legacy pong %x", pong)
+	}
+	old.sendUDP(encodeClientAudio(audioPacket{frame: 1, opus: []byte{0xfc}}, true)) // UDP voice from now on
+	now.expect(mumble.TypeUDPTunnel)
+	now.sendUDP(audio(8, []byte{0xfc, 8}))
+	h, ok = decodeLegacyServerAudio(old.readUDP())
+	if !ok || h.session != now.session || h.frame != 8 || !bytes.Equal(h.opus, []byte{0xfc, 8}) {
+		t.Fatalf("old heard %+v", h)
 	}
 }
 
