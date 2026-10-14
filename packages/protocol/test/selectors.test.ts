@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelTree, messagesIn, usersIn } from "../src/selectors";
+import { channelTree, messagesIn, usersIn, usersSorted } from "../src/selectors";
 import {
   emptyChannel,
   emptyUser,
@@ -72,6 +72,13 @@ describe("usersIn", () => {
       user(4, "carl", 0),
     ]);
     expect(usersIn(s, 0).map((u) => u.name)).toEqual(["Amy", "carl", "zed"]);
+  });
+});
+
+describe("usersSorted", () => {
+  it("returns every user sorted by name", () => {
+    const s = withData([], [user(1, "zed", 0), user(2, "Amy", 3)]);
+    expect(usersSorted(s).map((u) => u.name)).toEqual(["Amy", "zed"]);
   });
 });
 

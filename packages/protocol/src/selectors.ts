@@ -23,10 +23,11 @@ export const channelTree = (state: ServerState): ChannelNode | null => {
   return build(root);
 };
 
+export const usersSorted = (state: ServerState): User[] =>
+  Object.values(state.users).sort((a, b) => byName(a.name, b.name));
+
 export const usersIn = (state: ServerState, channelId: number): User[] =>
-  Object.values(state.users)
-    .filter((u) => u.channelId === channelId)
-    .sort((a, b) => byName(a.name, b.name));
+  usersSorted(state).filter((u) => u.channelId === channelId);
 
 const ancestorsOf = (state: ServerState, channelId: number): Set<number> => {
   const ids = new Set<number>();
