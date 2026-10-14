@@ -83,8 +83,15 @@
   const trustAndConnect = async () => {
     const server = parseAddress(certificate?.server ?? "");
     if (!certificate || !server || !lastCredentials) return;
-    await trustServer(server, certificate.fingerprint);
-    await start(lastCredentials);
+    const credentials = lastCredentials;
+    try {
+      await trustServer(server, certificate.fingerprint);
+    } catch (err) {
+      connection = null;
+      loginNote = `Could not trust the certificate: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    await start(credentials);
   };
 
   const start = async (credentials: Credentials) => {
@@ -112,6 +119,7 @@
     error={certificate ? null : (error ?? loginNote)}
     {certificate}
     onTrust={trustAndConnect}
+    onCancelTrust={() => (connection = null)}
     {api}
     {account}
     {desktop}

@@ -14,10 +14,12 @@
     desktop = false,
     certificate = null,
     onTrust,
+    onCancelTrust,
   }: {
     // Desktop: the server's certificate needs the user's decision.
     certificate?: (CertificateProblem & { server: string }) | null;
     onTrust?: () => void;
+    onCancelTrust?: () => void;
     // The desktop app: a server address field, no accounts (they need the
     // Kallisti server).
     desktop?: boolean;
@@ -92,10 +94,14 @@
       {/if}
       <code class="fingerprint">{formatFingerprint(certificate.fingerprint)}</code>
       <p class="hint">If you can, compare it with the server admin.</p>
-      <button class="primary" onclick={onTrust}>
-        {certificate.kind === "unknown" ? "Trust and connect" : "Trust the new certificate"}
-      </button>
-      <button class="link" onclick={() => location.reload()}>Cancel</button>
+      {#if certificate.kind === "unknown"}
+        <button class="primary" onclick={onTrust}>Trust and connect</button>
+        <button class="link" onclick={onCancelTrust}>Cancel</button>
+      {:else}
+        <!-- A changed certificate: the safe choice is the main button. -->
+        <button class="primary" onclick={onCancelTrust}>Cancel</button>
+        <button class="link danger" onclick={onTrust}>Trust the new certificate anyway</button>
+      {/if}
     </div>
   {:else if account}
     <div class="card">
@@ -215,6 +221,9 @@
   .link {
     color: var(--text-muted);
     font-size: 14px;
+  }
+  .link.danger {
+    color: var(--danger);
   }
   .link:hover {
     color: var(--text);

@@ -6,10 +6,12 @@ use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 
-/// Accepted server certificates by "host:port". Only the Rust side writes
-/// them (a page cannot change its own trust).
+/// Accepted server certificates by "host:port". The page can only confirm
+/// a fingerprint the bridge itself offered (saw on a real connection), not
+/// pin arbitrary ones.
 pub struct PinStore {
     pins: Mutex<HashMap<String, String>>,
+    offers: Mutex<HashMap<String, String>>,
     path: Option<PathBuf>,
 }
 
@@ -26,16 +28,36 @@ pub fn fingerprint(der: &[u8]) -> String {
 
 impl PinStore {
     pub fn in_memory() -> Self {
-        PinStore { pins: Mutex::new(HashMap::new()), path: None }
+        PinStore { pins: Mutex::new(HashMap::new()), offers: Mutex::new(HashMap::new()), path: None }
     }
 
-    /// Loads the pins from a JSON file (missing or broken: none).
+    /// Loads the pins from a JSON file. A broken file is kept aside as
+    /// ".broken" (and the user sees "new server" prompts), not silently lost.
     pub fn load(path: PathBuf) -> Self {
-        let pins = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        PinStore { pins: Mutex::new(pins), path: Some(path) }
+        let pins = match std::fs::read(&path) {
+            Err(_) => HashMap::new(),
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+                let _ = std::fs::rename(&path, path.with_extension("json.broken"));
+                HashMap::new()
+            }),
+        };
+        PinStore { pins: Mutex::new(pins), offers: Mutex::new(HashMap::new()), path: Some(path) }
+    }
+
+    /// The bridge saw this certificate and asks the user about it.
+    pub fn offer(&self, server: &str, fp: &str) {
+        self.offers.lock().unwrap().insert(server.to_string(), fp.to_string());
+    }
+
+    /// The user accepted the offered certificate. Anything else is refused.
+    pub fn confirm(&self, server: &str, fp: &str) -> Result<(), String> {
+        let mut offers = self.offers.lock().unwrap();
+        if offers.get(server).map(String::as_str) != Some(fp) {
+            return Err("this certificate was not offered for this server".into());
+        }
+        offers.remove(server);
+        drop(offers);
+        self.trust(server, fp).map_err(|e| e.to_string())
     }
 
     pub fn check(&self, server: &str, fp: &str) -> Check {
@@ -53,7 +75,10 @@ impl PinStore {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            std::fs::write(path, serde_json::to_vec_pretty(&*pins)?)?;
+            // Write and rename: a crash never leaves a half-written file.
+            let tmp = path.with_extension("json.tmp");
+            std::fs::write(&tmp, serde_json::to_vec_pretty(&*pins)?)?;
+            std::fs::rename(&tmp, path)?;
         }
         Ok(())
     }
@@ -62,6 +87,31 @@ impl PinStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_offered_fingerprint_can_be_trusted() {
+        let pins = PinStore::in_memory();
+        // A page script cannot pin anything the bridge did not see.
+        assert!(pins.confirm("a.example:1", "sha256:aa").is_err());
+        pins.offer("a.example:1", "sha256:aa");
+        assert!(pins.confirm("a.example:1", "sha256:bb").is_err());
+        assert!(pins.confirm("a.example:1", "sha256:aa").is_ok());
+        assert_eq!(pins.check("a.example:1", "sha256:aa"), Check::Trusted);
+        // An offer is used once.
+        assert!(pins.confirm("a.example:1", "sha256:aa").is_err());
+    }
+
+    #[test]
+    fn a_broken_file_is_kept_aside() {
+        let dir = std::env::temp_dir().join(format!("kallisti-pins-broken-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pins.json");
+        std::fs::write(&path, b"{ broken").unwrap();
+        let _store = PinStore::load(path.clone());
+        assert!(dir.join("pins.json.broken").exists(), "the broken file must be kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn unknown_servers_have_no_pin() {

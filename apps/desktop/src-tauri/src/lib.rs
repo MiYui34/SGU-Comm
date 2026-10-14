@@ -19,10 +19,11 @@ fn bridge_info(state: tauri::State<'_, BridgeInfo>) -> BridgeInfo {
     state.inner().clone()
 }
 
-/// The user accepted a server certificate (shown with its fingerprint).
+/// The user accepted the server certificate the bridge offered. Only that
+/// fingerprint can be confirmed, so page scripts cannot pin their own.
 #[tauri::command]
 fn trust_server(host: String, port: u16, fingerprint: String, pins: tauri::State<'_, Arc<pins::PinStore>>) -> Result<(), String> {
-    pins.trust(&format!("{host}:{port}"), &fingerprint).map_err(|e| e.to_string())
+    pins.confirm(&format!("{host}:{port}"), &fingerprint)
 }
 
 // The app window's origins (macOS/Linux, Windows); debug builds also the

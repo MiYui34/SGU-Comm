@@ -124,11 +124,15 @@ async fn serve(
     };
     // Trust on first use: nothing from the client reaches an unknown or
     // changed server. The client asks the user and trusts via the app.
-    let refused = match pins.check(&format!("{host}:{port}"), &fp) {
+    let server = format!("{host}:{port}");
+    let refused = match pins.check(&server, &fp) {
         Check::Trusted => None,
         Check::Unknown => Some(format!("certificate-unknown {fp}")),
         Check::Changed => Some(format!("certificate-changed {fp}")),
     };
+    if refused.is_some() {
+        pins.offer(&server, &fp);
+    }
     if let Some(reason) = refused {
         close_with(&mut ws, CloseCode::Policy, reason).await;
         return Ok(());
