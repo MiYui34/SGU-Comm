@@ -3,6 +3,7 @@
 # Usage (in the container): run-client.sh HOST PORT NAME [SECONDS]
 # MUMBLE_PASSWORD: log in with this password (simple characters only).
 # MUMBLE_CHANNEL: go to this channel after connecting (URL path).
+# MUMBLE_CERT: keep the certificate as /out/certs/NAME.p12 and use it again.
 # Screenshots go to /out/NAME-*.png, the client log to /out/NAME.log.
 set -e
 host=$1 port=$2 name=$3 seconds=${4:-30}
@@ -16,9 +17,15 @@ pactl set-default-source mic.monitor
 
 # Each client has its own certificate: no certificate wizard, and servers
 # can tell clients apart.
-openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=$name" -days 30 \
-  -keyout key.pem -out cert.pem 2>/dev/null
-openssl pkcs12 -export -passout pass: -in cert.pem -inkey key.pem -out cert.p12
+saved=/out/certs/$MUMBLE_CERT.p12
+if [ -n "$MUMBLE_CERT" ] && [ -f "$saved" ]; then
+  cp "$saved" cert.p12
+else
+  openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=$name" -days 30 \
+    -keyout key.pem -out cert.pem 2>/dev/null
+  openssl pkcs12 -export -passout pass: -in cert.pem -inkey key.pem -out cert.p12
+  if [ -n "$MUMBLE_CERT" ]; then mkdir -p /out/certs && cp cert.p12 "$saved"; fi
+fi
 mkdir -p ~/.config/Mumble/Mumble
 cat > ~/.config/Mumble/Mumble/mumble_settings.json <<JSON
 {

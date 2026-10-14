@@ -32,6 +32,44 @@ func selfState(mute, deaf bool, m *pb.UserState) (bool, bool) {
 	return mute, deaf
 }
 
+// serverMuteState applies a moderator's mute and deafen, with Murmur's
+// rules: deafened means muted, and unmuting undeafens.
+func serverMuteState(mute, deaf bool, m *pb.UserState) (bool, bool) {
+	if m.Deaf != nil {
+		deaf = m.GetDeaf()
+		if deaf {
+			mute = true
+		}
+	}
+	if m.Mute != nil {
+		mute = m.GetMute()
+		if !mute {
+			deaf = false
+		}
+	}
+	return mute, deaf
+}
+
+// moderatePermission checks server mute, deafen, suppress and priority
+// speaker as Murmur: MuteDeafen in the target's channel (for temporary
+// channels: in the first channel above that is not temporary); clients
+// can only lift a suppress.
+func (s *Server) moderatePermission(actor, u *User, m *pb.UserState) (Perm, uint32, error) {
+	if !s.state.Has(actor, u.Channel, MuteDeafen) || m.GetSuppress() {
+		return MuteDeafen, u.Channel, nil
+	}
+	if m.Mute != nil || m.Deaf != nil || m.Suppress != nil {
+		ch := s.state.Channels[u.Channel]
+		for ch != nil && ch.Temporary {
+			ch = s.state.Channels[ch.Parent]
+		}
+		if ch == nil || !s.state.Has(actor, ch.ID, MuteDeafen) {
+			return 0, 0, deny(pb.PermissionDenied_TemporaryChannel, "not in temporary channels")
+		}
+	}
+	return 0, 0, nil
+}
+
 // Tags start with a letter, "/" or "!"; "a < b" is not a tag. An unclosed
 // tag at the end is removed too.
 var htmlTag = regexp.MustCompile(`<[a-zA-Z/!][^>]*(>|$)`)
@@ -88,6 +126,16 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		var m pb.ACL
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
 			s.aclMsg(c, &m)
+		}
+	case mumble.TypeUserRemove:
+		var m pb.UserRemove
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.userRemoveMsg(c, &m)
+		}
+	case mumble.TypeBanList:
+		var m pb.BanList
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.banListMsg(c, &m)
 		}
 	case mumble.TypeUserList:
 		var m pb.UserList
@@ -173,8 +221,22 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 		c.deny(deny(pb.PermissionDenied_UserName, "names cannot be changed"))
 		return
 	}
-	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil) {
+	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil) {
 		return // only users themselves set these
+	}
+	moderate := m.Mute != nil || m.Deaf != nil || m.Suppress != nil || m.PrioritySpeaker != nil
+	if moderate && isSuperUser(u) {
+		c.deny(deny(pb.PermissionDenied_SuperUser, "SuperUser cannot be muted"))
+		return
+	}
+	if moderate {
+		if missing, where, err := s.moderatePermission(actor, u, m); err != nil {
+			c.deny(err)
+			return
+		} else if missing != 0 {
+			c.denyPerm(missing, where)
+			return
+		}
 	}
 	dest := s.state.Channels[m.GetChannelId()]
 	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel
@@ -188,12 +250,33 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 			return
 		}
 	}
+	out := &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session)}
+	changed := false
 	if m.SelfMute != nil || m.SelfDeaf != nil {
 		u.SelfMute, u.SelfDeaf = selfState(u.SelfMute, u.SelfDeaf, m)
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(target), Actor: proto.Uint32(c.session),
-			SelfMute: proto.Bool(u.SelfMute), SelfDeaf: proto.Bool(u.SelfDeaf),
-		}), nil)
+		out.SelfMute, out.SelfDeaf = proto.Bool(u.SelfMute), proto.Bool(u.SelfDeaf)
+		changed = true
+	}
+	if m.Recording != nil && m.GetRecording() != u.Recording {
+		u.Recording = m.GetRecording()
+		out.Recording = proto.Bool(u.Recording)
+		changed = true
+	}
+	if moderate {
+		u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, m)
+		out.Mute, out.Deaf = proto.Bool(u.Mute), proto.Bool(u.Deaf)
+		if m.Suppress != nil {
+			u.Suppress = m.GetSuppress() // only false gets here
+			out.Suppress = proto.Bool(u.Suppress)
+		}
+		if m.PrioritySpeaker != nil {
+			u.PrioritySpeaker = m.GetPrioritySpeaker()
+			out.PrioritySpeaker = proto.Bool(u.PrioritySpeaker)
+		}
+		changed = true
+	}
+	if changed {
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
 	}
 	if move {
 		s.moveLocked(u, dest.ID, c.session)

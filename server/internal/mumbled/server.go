@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -65,6 +66,9 @@ type Server struct {
 
 	logins logins
 
+	// Read at every accept: not under mu, which the voice path uses.
+	bans atomic.Pointer[[]BanEntry]
+
 	mu      sync.Mutex
 	state   *State
 	clients map[uint32]*client
@@ -107,17 +111,26 @@ func New(cfg Config) (*Server, error) {
 			return nil, err
 		}
 	}
+	var bans []BanEntry
+	if cfg.DB != nil {
+		var err error
+		if bans, err = cfg.DB.Bans(); err != nil {
+			return nil, err
+		}
+	}
 	state := NewState(cfg.RootName, saved)
 	state.SetLastChannelID(lastID)
 	if cfg.DB == nil {
 		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
 	}
-	return &Server{
+	srv := &Server{
 		cfg:     cfg,
 		state:   state,
 		clients: map[uint32]*client{},
 		byAddr:  map[netip.AddrPort]*client{},
-	}, nil
+	}
+	srv.bans.Store(&bans)
+	return srv, nil
 }
 
 // Serve accepts TLS connections until the listener closes.
@@ -126,6 +139,11 @@ func (s *Server) Serve(ln net.Listener) error {
 		conn, err := ln.Accept()
 		if err != nil {
 			return err
+		}
+		// Banned addresses are dropped before TLS, as in Murmur.
+		if s.banned(remoteHost(conn), "") != nil {
+			conn.Close()
+			continue
 		}
 		go s.handle(conn)
 	}
@@ -210,4 +228,24 @@ func (c *client) stats() *pb.UserStats_Stats {
 	return &pb.UserStats_Stats{
 		Good: proto.Uint32(c.crypt.Good), Late: proto.Uint32(c.crypt.Late), Lost: proto.Uint32(c.crypt.Lost),
 	}
+}
+
+// banned returns the ban that applies to an address or certificate.
+func (s *Server) banned(ip netip.Addr, hash string) *BanEntry {
+	now := time.Now()
+	for _, b := range s.currentBans() {
+		if b.Matches(ip, hash, now) {
+			return &b
+		}
+	}
+	return nil
+}
+
+// remoteHost is the client's address as bans and limits see it: IPv4 as
+// IPv4, without an IPv6 zone (a zone never matches a prefix).
+func remoteHost(conn net.Conn) netip.Addr {
+	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		return tcp.AddrPort().Addr().Unmap().WithZone("")
+	}
+	return netip.Addr{}
 }

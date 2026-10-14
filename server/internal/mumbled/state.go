@@ -49,8 +49,10 @@ type User struct {
 	speakIn map[uint32]bool
 
 	SelfMute, SelfDeaf bool
+	Recording          bool
 	// Set by moderators or the server.
 	Mute, Deaf, Suppress bool
+	PrioritySpeaker      bool
 }
 
 // DenyError is an action the server refuses, sent as PermissionDenied.

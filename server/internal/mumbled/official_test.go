@@ -16,6 +16,8 @@ import (
 	"kallisti.chat/server/internal/password"
 )
 
+var officialRuns int
+
 // officialRun is a running official client.
 type officialRun struct {
 	t               *testing.T
@@ -47,7 +49,8 @@ func officialClient(t *testing.T, addr, name, password string, seconds int, env 
 	}
 	os.MkdirAll(filepath.Join(dir, "out"), 0o755)
 	_, port, _ := net.SplitHostPort(addr)
-	container := fmt.Sprintf("kallisti-test-%s-%d", name, os.Getpid())
+	officialRuns++
+	container := fmt.Sprintf("kallisti-test-%s-%d-%d", name, os.Getpid(), officialRuns)
 	args := []string{"run", "--rm", "--name", container, "-e", "MUMBLE_PASSWORD=" + password,
 		"-v", filepath.Join(dir, "out") + ":/out",
 		"-v", filepath.Join(dir, "run-client.sh") + ":/usr/local/bin/run-client.sh:ro"}
@@ -212,4 +215,46 @@ func TestOfficialClientEditsACL(t *testing.T) {
 		}
 	}
 	official.screenshot("acl-5")
+}
+
+func TestOfficialClientIsMutedAndBanned(t *testing.T) {
+	needOfficialClient(t)
+	os.Remove("../../../packages/devtools/mumble-client/out/certs/banned.p12")
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	addr := startWith(t, "0.0.0.0", Config{DB: db})
+	su := superUser(t, addr)
+	official := officialClient(t, addr, "official", "", 60, "MUMBLE_CERT=banned")
+	session := su.waitForUser("official", 40*time.Second)
+	// Heard, until a server mute.
+	for {
+		if parseAudio(t, su.expectWithin(mumble.TypeUDPTunnel, 10*time.Second)).sender == session {
+			break
+		}
+	}
+	su.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(session), Mute: proto.Bool(true)})
+	time.Sleep(time.Second)
+	drain(su)
+	su.expectNone(mumble.TypeUDPTunnel)
+	official.screenshot("muted")
+	// Banned: kicked now, and refused when it comes back. The ban is set
+	// to the certificate only (the address may be the test's own).
+	su.send(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(session), Reason: proto.String("testing bans"), Ban: proto.Bool(true)})
+	su.send(mumble.TypeBanList, &pb.BanList{Query: proto.Bool(true)})
+	var list pb.BanList
+	proto.Unmarshal(su.expect(mumble.TypeBanList), &list)
+	list.Bans[0].Address, list.Bans[0].Mask = make([]byte, 16), proto.Uint32(0)
+	su.send(mumble.TypeBanList, &pb.BanList{Bans: list.Bans})
+	time.Sleep(2 * time.Second)
+	official.screenshot("banned")
+	again := officialClient(t, addr, "official", "", 20, "MUMBLE_CERT=banned")
+	time.Sleep(15 * time.Second)
+	again.screenshot("refused")
+	for _, f := range drain(su) {
+		var m pb.UserState
+		if f.typ == mumble.TypeUserState && proto.Unmarshal(f.body, &m) == nil && m.GetName() == "official" {
+			t.Fatal("the banned client joined again")
+		}
+	}
 }

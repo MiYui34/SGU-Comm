@@ -100,6 +100,13 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 	if s.logins.blocked(host) {
 		return identity{}, mumble.RejectFrame(pb.Reject_None, "Too many failed logins. Please try again later.")
 	}
+	if b := s.banned(host, hash); b != nil {
+		reason := "You are banned from this server."
+		if b.Reason != "" {
+			reason = "You are banned from this server: " + b.Reason
+		}
+		return identity{}, mumble.RejectFrame(pb.Reject_None, reason)
+	}
 	var byName, byHash *Registered
 	if db := s.cfg.DB; db != nil {
 		var err1, err2 error
@@ -141,10 +148,7 @@ func (s *Server) handle(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	var host netip.Addr
-	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-		host = tcp.AddrPort().Addr().Unmap()
-	}
+	host := remoteHost(conn)
 	id := identity{}
 	if reject == nil {
 		id, reject = s.identify(h, certHash(conn), host)
@@ -213,7 +217,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		if g.Registered && id.registered && g.UserID == id.userID {
 			id.lastChannel = g.Channel // the same user on another device stays where it was
 		}
-		s.kickLocked(ghost, 0, "You connected to the server from another device.")
+		s.kickLocked(ghost, 0, "You connected to the server from another device.", false)
 	}
 	s.next++
 	c.session = s.next
@@ -295,12 +299,15 @@ func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 
 // kickLocked disconnects a user: it gets the reason, everyone else the
 // removal. actor 0: the server.
-func (s *Server) kickLocked(session, actor uint32, reason string) {
+func (s *Server) kickLocked(session, actor uint32, reason string, ban bool) {
 	c := s.clients[session]
 	if c == nil {
 		return
 	}
 	msg := &pb.UserRemove{Session: proto.Uint32(session), Reason: proto.String(reason)}
+	if ban {
+		msg.Ban = proto.Bool(true)
+	}
 	if actor != 0 {
 		msg.Actor = proto.Uint32(actor)
 	}
@@ -329,6 +336,7 @@ func userState(u *User) []byte {
 		Session: proto.Uint32(u.Session), Name: proto.String(u.Name), ChannelId: proto.Uint32(u.Channel),
 		SelfMute: proto.Bool(u.SelfMute), SelfDeaf: proto.Bool(u.SelfDeaf),
 		Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf), Suppress: proto.Bool(u.Suppress),
+		PrioritySpeaker: proto.Bool(u.PrioritySpeaker), Recording: proto.Bool(u.Recording),
 	}
 	if u.Registered {
 		m.UserId = proto.Uint32(u.UserID)

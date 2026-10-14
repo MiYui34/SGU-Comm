@@ -2,7 +2,9 @@ package mumbled
 
 import (
 	"database/sql"
+	"net/netip"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -215,5 +217,25 @@ func TestRenameAndUnregister(t *testing.T) {
 	}
 	if u, _ := db.UserByHash("bbb"); u != nil {
 		t.Fatal("unregistered user still found")
+	}
+}
+
+func TestBansAreSaved(t *testing.T) {
+	db := testDB(t)
+	start := time.Unix(1_800_000_000, 0).UTC()
+	bans := []BanEntry{
+		{Prefix: netip.MustParsePrefix("10.0.0.0/8"), Name: "x", Reason: "spam", Start: start, Duration: time.Hour},
+		{Hash: "abc", Start: start},
+	}
+	if err := db.SaveBans(bans); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.Bans()
+	if err != nil || len(got) != 2 || got[0] != bans[0] || got[1] != bans[1] {
+		t.Fatalf("bans %+v err %v", got, err)
+	}
+	db.SaveBans(nil)
+	if got, _ := db.Bans(); len(got) != 0 {
+		t.Fatal("bans not replaced")
 	}
 }

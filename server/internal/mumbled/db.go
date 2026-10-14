@@ -3,6 +3,8 @@ package mumbled
 import (
 	"database/sql"
 	"errors"
+	"net/netip"
+	"time"
 
 	"kallisti.chat/server/internal/names"
 )
@@ -42,6 +44,15 @@ CREATE TABLE IF NOT EXISTS mumble_group_members (
 	user_id    INTEGER NOT NULL,
 	removed    INTEGER NOT NULL, -- 0: added, 1: removed from inherited members
 	PRIMARY KEY (channel_id, group_name, user_id)
+);
+CREATE TABLE IF NOT EXISTS mumble_bans (
+	id       INTEGER PRIMARY KEY,
+	prefix   TEXT NOT NULL DEFAULT '', -- "10.0.0.0/8", or '' for none
+	hash     TEXT NOT NULL DEFAULT '',
+	name     TEXT NOT NULL DEFAULT '',
+	reason   TEXT NOT NULL DEFAULT '',
+	start    INTEGER NOT NULL,
+	duration INTEGER NOT NULL -- seconds, 0: forever
 );
 CREATE TABLE IF NOT EXISTS mumble_meta (
 	key   TEXT PRIMARY KEY,
@@ -439,6 +450,54 @@ func (d *DB) UnregisterUser(id uint32) error {
 		`DELETE FROM mumble_group_members WHERE user_id = ?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (d *DB) Bans() ([]BanEntry, error) {
+	rows, err := d.db.Query(`SELECT prefix, hash, name, reason, start, duration FROM mumble_bans ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BanEntry
+	for rows.Next() {
+		var b BanEntry
+		var prefix string
+		var start, duration int64
+		if err := rows.Scan(&prefix, &b.Hash, &b.Name, &b.Reason, &start, &duration); err != nil {
+			return nil, err
+		}
+		if prefix != "" {
+			if b.Prefix, err = netip.ParsePrefix(prefix); err != nil {
+				return nil, err
+			}
+		}
+		b.Start, b.Duration = time.Unix(start, 0).UTC(), time.Duration(duration)*time.Second
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// SaveBans replaces the ban list.
+func (d *DB) SaveBans(bans []BanEntry) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM mumble_bans`); err != nil {
+		return err
+	}
+	for _, b := range bans {
+		prefix := ""
+		if b.Prefix.IsValid() {
+			prefix = b.Prefix.String()
+		}
+		if _, err := tx.Exec(`INSERT INTO mumble_bans (prefix, hash, name, reason, start, duration) VALUES (?, ?, ?, ?, ?, ?)`,
+			prefix, b.Hash, b.Name, b.Reason, b.Start.Unix(), int64(b.Duration/time.Second)); err != nil {
 			return err
 		}
 	}
