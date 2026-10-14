@@ -50,14 +50,9 @@ export const messagesIn = (state: ServerState, channelId: number): ChatMessage[]
 export const audioFormat = ({ serverVersion: v }: ServerState): AudioFormat =>
   v && (v.major > 1 || (v.major === 1 && v.minor >= 5)) ? "protobuf" : "legacy";
 
-// The private conversation between us and one other session.
-export const privateMessagesWith = (state: ServerState, other: number): ChatMessage[] =>
-  state.messages.filter(
-    (m) =>
-      m.channelIds.length === 0 &&
-      ((m.actor === other && m.sessions.includes(state.session ?? -1)) ||
-        (m.actor === state.session && m.sessions.includes(other))),
-  );
+// The private conversation with one person, by name.
+export const privateMessagesWith = (state: ServerState, peer: string): ChatMessage[] =>
+  state.messages.filter((m) => m.peer === peer);
 
 // Channels whose long description is known only by its hash.
 export const missingDescriptions = (state: ServerState): number[] =>

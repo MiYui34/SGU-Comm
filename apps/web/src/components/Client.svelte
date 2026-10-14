@@ -9,7 +9,7 @@
   import { untrack } from "svelte";
   import type { Connection } from "../lib/connection.svelte";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
-  import { privateCountsFrom, unreadCounts } from "../lib/chat";
+  import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
   import { toChatMessage } from "../lib/textChannels";
   import { createTextView } from "../lib/textView.svelte";
@@ -150,15 +150,14 @@
     if (menu && !menuUser) menu = null;
   });
 
-  // Unread direct messages: counted per sender, marked read while open.
-  let readCounts = $state<Record<number, number>>({});
-  const dmCounts = $derived(privateCountsFrom(server.messages, server.session));
-  const unread = $derived(unreadCounts(dmCounts, readCounts));
+  // Unread direct messages per sender name, marked read while open.
+  let readCounts = $state<Record<string, number>>({});
+  const unread = $derived(unreadCounts(server.privateCounts, readCounts));
   $effect(() => {
     if (dm === null) return;
-    const [session, count] = [dm.session, dmCounts[dm.session] ?? 0];
+    const [name, count] = [dm.name, server.privateCounts[dm.name] ?? 0];
     untrack(() => {
-      if (readCounts[session] !== count) readCounts = { ...readCounts, [session]: count };
+      if (readCounts[name] !== count) readCounts = { ...readCounts, [name]: count };
     });
   });
 
@@ -267,7 +266,7 @@
     <ChatPane
       title={dm.name}
       kind="dm"
-      messages={privateMessagesWith(server, dm.session)}
+      messages={privateMessagesWith(server, dm.name)}
       welcomeText=""
       {membersOpen}
       onToggleMembers={() => (membersOpen = !membersOpen)}

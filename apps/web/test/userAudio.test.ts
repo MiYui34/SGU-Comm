@@ -1,6 +1,5 @@
-import type { ChatMessage } from "@kallisti/protocol";
 import { describe, expect, it } from "vitest";
-import { privateCountsFrom, unreadCounts } from "../src/lib/chat";
+import { unreadCounts } from "../src/lib/chat";
 import {
   DEFAULT_USER_AUDIO,
   gainOf,
@@ -57,28 +56,8 @@ describe("gainOf", () => {
   });
 });
 
-describe("privateCountsFrom", () => {
-  const msg = (actor: number | null, sessions: number[], channelIds: number[] = []): ChatMessage => ({
-    actor,
-    actorName: null,
-    channelIds,
-    treeIds: [],
-    sessions,
-    text: "",
-    at: 0,
-  });
-
-  it("counts private messages to us per sender", () => {
-    const counts = privateCountsFrom(
-      [msg(2, [1]), msg(2, [1]), msg(3, [1]), msg(1, [2]), msg(2, [], [0]), msg(4, [5])],
-      1,
-    );
-    expect(counts).toEqual({ 2: 2, 3: 1 });
-  });
-});
-
 describe("unreadCounts", () => {
   it("subtracts what was read and drops users with nothing unread", () => {
-    expect(unreadCounts({ 2: 3, 3: 1, 4: 2 }, { 2: 1, 3: 1 })).toEqual({ 2: 2, 4: 2 });
+    expect(unreadCounts({ bob: 3, carol: 1, dave: 2 }, { bob: 1, carol: 1 })).toEqual({ bob: 2, dave: 2 });
   });
 });

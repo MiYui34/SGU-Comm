@@ -23,7 +23,8 @@
     currentChannel: number | null;
     speaking: ReadonlySet<number>;
     localMuted: ReadonlySet<number>;
-    unread: Record<number, number>;
+    // Unread private messages per user name.
+    unread: Record<string, number>;
     textChannels: TextChannel[];
     currentText: number | null;
     unreadText: ReadonlySet<number>;
@@ -81,7 +82,7 @@
                     <Icon name="headphones" off size={16} /><span class="sr-only">Deafened</span>
                   </span>
                 {/if}
-                <Badge count={unread[user.session]} />
+                <Badge count={unread[user.name]} />
               </span>
             </button>
           </li>

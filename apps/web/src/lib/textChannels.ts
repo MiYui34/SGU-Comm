@@ -168,6 +168,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       sessions: [],
       text: linkify(escapeHtml(m.text)),
       at: m.at,
+      peer: null,
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);

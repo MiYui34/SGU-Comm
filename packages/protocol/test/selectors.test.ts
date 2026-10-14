@@ -99,6 +99,7 @@ describe("messagesIn", () => {
     sessions: [],
     text,
     at: 0,
+    peer: null,
   });
 
   it("returns messages sent to the channel or to a tree that contains it", () => {
@@ -137,39 +138,23 @@ describe("audioFormat", () => {
 });
 
 describe("privateMessagesWith", () => {
-  const msg = (text: string, actor: number | null, sessions: number[], channelIds: number[] = []) => ({
-    actor,
+  const msg = (text: string, peer: string | null) => ({
+    actor: null,
     actorName: null,
-    channelIds,
+    channelIds: [],
     treeIds: [],
-    sessions,
+    sessions: [],
     text,
     at: 0,
+    peer,
   });
 
-  it("returns the private conversation between us and one user", () => {
+  it("returns the private conversation with one person, by name", () => {
     const s: ServerState = {
       ...initialState,
-      session: 1,
-      messages: [
-        msg("from 2", 2, [1]),
-        msg("to 2", 1, [2]),
-        msg("to 3", 1, [3]),
-        msg("from 3", 3, [1]),
-        msg("channel", 2, [], [0]),
-      ],
+      messages: [msg("from bob", "bob"), msg("to bob", "bob"), msg("to carol", "carol"), msg("channel", null)],
     };
-    expect(privateMessagesWith(s, 2).map((m) => m.text)).toEqual(["from 2", "to 2"]);
+    expect(privateMessagesWith(s, "bob").map((m) => m.text)).toEqual(["from bob", "to bob"]);
   });
 });
 
-describe("missingDescriptions", () => {
-  it("lists channels with a hash but no description", () => {
-    const s = withData([
-      { ...ch(0, null, "Root"), descriptionHash: "aa" },
-      { ...ch(1, 0, "A"), descriptionHash: "bb", description: "loaded" },
-      ch(2, 0, "B"),
-    ]);
-    expect(missingDescriptions(s)).toEqual([0]);
-  });
-});

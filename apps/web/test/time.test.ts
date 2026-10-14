@@ -31,6 +31,7 @@ const msg = (actor: number, t: number, text = "x"): ChatMessage => ({
   sessions: [],
   text,
   at: t,
+    peer: null,
 });
 
 describe("groupMessages across midnight", () => {

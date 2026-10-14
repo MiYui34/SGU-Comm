@@ -52,25 +52,13 @@ export const formatTimestamp = (at: number, now: number, locale?: string) => {
   return `${new Date(at).toLocaleDateString(locale)} ${time}`;
 };
 
-// Number of private messages each session has sent to us.
-export const privateCountsFrom = (
-  messages: readonly ChatMessage[],
-  me: number | null,
-): Record<number, number> => {
-  const counts: Record<number, number> = {};
-  for (const m of messages) {
-    if (m.channelIds.length || m.actor === null || m.actor === me) continue;
-    if (me !== null && m.sessions.includes(me)) counts[m.actor] = (counts[m.actor] ?? 0) + 1;
-  }
-  return counts;
-};
-
+// Unread private messages per sender name: received minus read.
 export const unreadCounts = (
-  counts: Record<number, number>,
-  read: Record<number, number>,
-): Record<number, number> =>
+  counts: Readonly<Record<string, number>>,
+  read: Readonly<Record<string, number>>,
+): Record<string, number> =>
   Object.fromEntries(
     Object.entries(counts)
-      .map(([session, n]) => [session, n - (read[Number(session)] ?? 0)] as const)
+      .map(([name, n]) => [name, n - (read[name] ?? 0)] as const)
       .filter(([, n]) => n > 0),
   );

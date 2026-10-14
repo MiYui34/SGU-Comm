@@ -14,7 +14,8 @@
     here: User[];
     elsewhere: User[];
     channelName: string;
-    unread: Record<number, number>;
+    // Unread private messages per user name.
+    unread: Record<string, number>;
     speaking: ReadonlySet<number>;
     onUserMenu: (session: number, event: MouseEvent) => void;
   } = $props();
@@ -32,7 +33,7 @@
           >
             <Avatar name={user.name} size={32} online speaking={speaking.has(user.session)} />
             <span class="name">{user.name}</span>
-            <span class="unread"><Badge count={unread[user.session]} /></span>
+            <span class="unread"><Badge count={unread[user.name]} /></span>
           </button>
         </li>
       {/each}

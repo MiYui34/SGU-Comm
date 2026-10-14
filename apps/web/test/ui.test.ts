@@ -61,6 +61,7 @@ describe("groupMessages", () => {
     sessions: [],
     text,
     at,
+    peer: null,
   });
   const MIN = 60_000;
 

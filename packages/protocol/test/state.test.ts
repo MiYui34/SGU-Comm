@@ -2,6 +2,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 import * as pb from "../src/gen/Mumble_pb";
 import type { MumbleMessage } from "../src/messages";
+import { privateMessagesWith } from "../src/selectors";
 import {
   addOwnMessage,
   emptyChannel,
@@ -167,6 +168,7 @@ describe("reduce", () => {
         sessions: [],
         text: "yo",
         at: 1001,
+        peer: null,
       },
     ]);
   });
@@ -217,6 +219,7 @@ describe("addOwnMessage", () => {
       sessions: [],
       text: "hi &amp; bye",
       at: 5000,
+      peer: null,
     });
   });
 
@@ -252,5 +255,46 @@ describe("description hashes", () => {
     const s = run([channelState({ channelId: 2, name: "x", descriptionHash: new Uint8Array([1, 2, 3]) })]);
     expect(s.channels[2]?.descriptionHash).toBe("010203");
     expect(s.channels[2]?.description).toBe("");
+  });
+});
+
+describe("private conversations by name", () => {
+  const sync = { type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 1 }) } as MumbleMessage;
+  const dmFrom = (actor: number, text: string): MumbleMessage => ({
+    type: "TextMessage",
+    message: create(pb.TextMessageSchema, { actor, session: [1], message: text }),
+  });
+
+  it("stores the partner's name on private messages", () => {
+    let s = run([sync, userState({ session: 1, name: "me" }), userState({ session: 7, name: "bob" }), dmFrom(7, "hi")]);
+    s = addOwnMessage(s, { session: 7 }, "hey bob", 2);
+    expect(s.messages.map((m) => m.peer)).toEqual(["bob", "bob"]);
+    expect(s.privateCounts).toEqual({ bob: 1 });
+  });
+
+  it("gives a reused session number a fresh conversation", () => {
+    const s = run([
+      sync,
+      userState({ session: 7, name: "bob" }),
+      dmFrom(7, "hi from bob"),
+      { type: "UserRemove", message: create(pb.UserRemoveSchema, { session: 7 }) },
+      userState({ session: 7, name: "carol" }),
+    ]);
+    expect(privateMessagesWith(s, "carol")).toEqual([]);
+    expect(s.privateCounts.carol).toBeUndefined();
+    expect(privateMessagesWith(s, "bob").map((m) => m.text)).toEqual(["hi from bob"]);
+  });
+
+  it("keeps counting private messages after the message cap", () => {
+    const s = Array.from({ length: MAX_MESSAGES + 10 }, (_, i) => dmFrom(7, `m${i}`)).reduce(
+      (acc, m, i) => reduce(acc, m, i),
+      run([sync, userState({ session: 7, name: "bob" })]),
+    );
+    expect(s.privateCounts.bob).toBe(MAX_MESSAGES + 10);
+  });
+
+  it("leaves channel messages without a peer", () => {
+    const s = run([{ type: "TextMessage", message: create(pb.TextMessageSchema, { channelId: [0], message: "x" }) }]);
+    expect(s.messages[0]?.peer).toBeNull();
   });
 });

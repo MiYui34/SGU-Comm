@@ -38,6 +38,9 @@ export type ChatMessage = {
   sessions: number[];
   text: string;
   at: number;
+  // Private messages: the other person's name. Conversations are keyed by
+  // name, because Murmur reuses session numbers of users who left.
+  peer: string | null;
 };
 
 export type Version = { major: number; minor: number; patch: number };
@@ -52,6 +55,8 @@ export type ServerState = {
   channels: Readonly<Record<number, Channel>>;
   users: Readonly<Record<number, User>>;
   messages: readonly ChatMessage[];
+  // Private messages received per sender name. Not capped like `messages`.
+  privateCounts: Readonly<Record<string, number>>;
 };
 
 export const MAX_MESSAGES = 1000;
@@ -66,6 +71,7 @@ export const initialState: ServerState = {
   channels: {},
   users: {},
   messages: [],
+  privateCounts: {},
 };
 
 // Mumble sends partial updates: only fields that are set on the wire apply.
@@ -164,18 +170,31 @@ const applyTextMessage = (
   now: number,
 ): ServerState => {
   const actor = isFieldSet(msg, pb.TextMessageSchema.field.actor) ? msg.actor : null;
+  const actorName = actor === null ? null : (state.users[actor]?.name ?? null);
+  const isPrivate = !msg.channelId.length && !msg.treeId.length && msg.session.length > 0;
+  const incoming = actor !== state.session;
+  const peer = !isPrivate ? null : incoming ? actorName : (state.users[msg.session[0]!]?.name ?? null);
   const chat: ChatMessage = {
     actor,
-    actorName: actor === null ? null : (state.users[actor]?.name ?? null),
+    actorName,
     channelIds: [...msg.channelId],
     treeIds: [...msg.treeId],
     sessions: [...msg.session],
     text: msg.message,
     at: now,
+    peer,
   };
   // Long sessions: keep only the newest messages in memory.
   const messages = [...state.messages, chat];
-  return { ...state, messages: messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages };
+  const privateCounts =
+    isPrivate && incoming && peer !== null
+      ? { ...state.privateCounts, [peer]: (state.privateCounts[peer] ?? 0) + 1 }
+      : state.privateCounts;
+  return {
+    ...state,
+    messages: messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages,
+    privateCounts,
+  };
 };
 
 export const reduce = (
