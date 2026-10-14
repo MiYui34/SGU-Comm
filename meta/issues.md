@@ -1,7 +1,6 @@
 # Open issues
 
 - [ ] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
-  - [ ] [File and image uploads](issues/file-and-image-uploads.md)
   - [ ] [User accounts and registration behind the proxy](issues/user-accounts-and-registration.md)
   - [ ] [Production deployment with docker-compose](issues/production-deployment-with-docker-compose.md)
 - [ ] [Mobile layout](issues/mobile-layout.md)
@@ -17,3 +16,4 @@
 - [ ] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
 - [ ] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)
 - [ ] [Text channels: robustness follow-ups](issues/text-channels-robustness.md)
+- [ ] [Upload quota and captions](issues/upload-quota-and-captions.md)
