@@ -33,7 +33,8 @@ Server settings: `MUMBLE_HOST` (required), `MUMBLE_PORT` (64738),
 `MUMBLE_INSECURE_TLS=1`, `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP` (10),
 `TRUST_FORWARDED_FOR=1` (only behind a reverse proxy that sets
 `X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS` (`general`,
-comma-separated).
+comma-separated), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10 per file),
+`UPLOAD_QUOTA_MB` (100 per user per day).
 The web client reads `VITE_PROXY_URL` to point at another bridge.
 
 Dev scripts (with a running bridge):

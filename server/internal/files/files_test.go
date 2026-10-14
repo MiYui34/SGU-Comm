@@ -3,6 +3,7 @@ package files
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -36,6 +37,7 @@ func setup(t *testing.T, maxBytes int64) (*httptest.Server, *store.Store) {
 		Store:          s,
 		Dir:            t.TempDir(),
 		MaxBytes:       maxBytes,
+		QuotaBytes:     3 * maxBytes,
 		AllowedOrigins: []string{"https://app.example"},
 		Now:            func() time.Time { return time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC) },
 		Redeem: func(token string) (string, bool) {
@@ -49,7 +51,8 @@ func setup(t *testing.T, maxBytes int64) (*httptest.Server, *store.Store) {
 
 func upload(t *testing.T, srv *httptest.Server, token, name, ctype string, body []byte) (*http.Response, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/upload?token="+token, bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/upload", bytes.NewReader(body))
+	req.Header.Set("X-Upload-Token", token)
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("X-Filename", url.QueryEscape(name))
 	req.Header.Set("Origin", "https://app.example")
@@ -149,7 +152,7 @@ func TestPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent || !strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "X-Filename") {
+	if resp.StatusCode != http.StatusNoContent || !strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "X-Upload-Token") {
 		t.Fatalf("preflight: %d %v", resp.StatusCode, resp.Header)
 	}
 	req.Header.Set("Origin", "https://evil.example")
@@ -181,7 +184,7 @@ func TestDeleteUnusedRemovesFiles(t *testing.T) {
 	}
 	defer s.Close()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	h := &Handler{Store: s, Dir: t.TempDir(), MaxBytes: 100, Now: func() time.Time { return now },
+	h := &Handler{Store: s, Dir: t.TempDir(), MaxBytes: 100, QuotaBytes: 1000, Now: func() time.Time { return now },
 		Redeem: func(string) (string, bool) { return "alice", true }}
 	srv := httptest.NewServer(h)
 	defer srv.Close()
@@ -194,5 +197,30 @@ func TestDeleteUnusedRemovesFiles(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(h.Dir); len(entries) != 0 {
 		t.Fatalf("files left: %v", entries)
+	}
+}
+
+func TestDailyQuota(t *testing.T) {
+	srv, _ := setup(t, 100) // quota: 300 bytes per day
+	for i := 0; i < 3; i++ {
+		if resp, v := upload(t, srv, "good", "a.bin", "application/octet-stream", make([]byte, 100)); resp.StatusCode != http.StatusOK {
+			t.Fatalf("upload %d: %d %v", i, resp.StatusCode, v)
+		}
+	}
+	resp, v := upload(t, srv, "good", "a.bin", "application/octet-stream", make([]byte, 10))
+	if resp.StatusCode != http.StatusTooManyRequests || !strings.Contains(fmt.Sprint(v["error"]), "quota") {
+		t.Fatalf("over quota: %d %v", resp.StatusCode, v)
+	}
+}
+
+func TestTokenInQueryIsNotAccepted(t *testing.T) {
+	srv, _ := setup(t, 100)
+	resp, err := http.Post(srv.URL+"/api/upload?token=good", "text/plain", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", resp.StatusCode)
 	}
 }

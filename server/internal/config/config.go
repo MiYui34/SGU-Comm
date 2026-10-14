@@ -31,6 +31,8 @@ type Config struct {
 	// Uploaded files, and the size limit per file.
 	UploadDir      string
 	UploadMaxBytes int64
+	// Bytes one user may upload per 24 hours.
+	UploadQuotaBytes int64
 }
 
 // list splits a comma-separated value, trims and drops empty and repeated
@@ -91,6 +93,11 @@ func Parse(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("UPLOAD_MAX_MB must be a positive integer")
 	}
 	c.UploadMaxBytes = int64(mb) << 20
+	quota, ok := positive(getenv("UPLOAD_QUOTA_MB"), 100)
+	if !ok {
+		return Config{}, errors.New("UPLOAD_QUOTA_MB must be a positive integer")
+	}
+	c.UploadQuotaBytes = int64(quota) << 20
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}

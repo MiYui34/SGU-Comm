@@ -179,3 +179,16 @@ func TestVerifiedAuthors(t *testing.T) {
 		t.Fatalf("got %+v", hist)
 	}
 }
+
+func TestUploadedBytesSince(t *testing.T) {
+	s := open(t)
+	day := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	s.AddUpload(Upload{Key: "a", Name: "a", Type: "x", Size: 100, Author: "alice"}, day.Add(-48*time.Hour))
+	s.AddUpload(Upload{Key: "b", Name: "b", Type: "x", Size: 200, Author: "alice"}, day)
+	s.AddUpload(Upload{Key: "c", Name: "c", Type: "x", Size: 300, Author: "alice"}, day.Add(time.Hour))
+	s.AddUpload(Upload{Key: "d", Name: "d", Type: "x", Size: 999, Author: "bob"}, day)
+	n, err := s.UploadedBytesSince("alice", day.Add(-24*time.Hour))
+	if err != nil || n != 500 {
+		t.Fatalf("got %d %v, want 500", n, err)
+	}
+}

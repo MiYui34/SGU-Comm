@@ -78,6 +78,7 @@ func run() error {
 		Store:          db,
 		Dir:            cfg.UploadDir,
 		MaxBytes:       cfg.UploadMaxBytes,
+		QuotaBytes:     cfg.UploadQuotaBytes,
 		AllowedOrigins: cfg.AllowedOrigins,
 		Now:            time.Now,
 		Redeem:         hub.RedeemUploadToken,

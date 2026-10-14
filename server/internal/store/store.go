@@ -288,3 +288,12 @@ func (s *Store) DeleteUnusedUploads(before time.Time) ([]string, error) {
 	}
 	return keys, rows.Err()
 }
+
+// UploadedBytesSince sums the sizes of an author's uploads since a time
+// (for the daily quota). Deleted unused uploads do not count.
+func (s *Store) UploadedBytesSince(author string, since time.Time) (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT coalesce(sum(size), 0) FROM uploads WHERE author = ? AND created_at >= ?`,
+		author, since.UnixMilli()).Scan(&n)
+	return n, err
+}

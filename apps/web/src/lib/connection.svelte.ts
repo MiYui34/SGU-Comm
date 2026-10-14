@@ -154,9 +154,13 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
         };
         ws.send(uploadTokenRequest());
       });
-      const res = await fetch(`${base}/api/upload?token=${encodeURIComponent(token)}`, {
+      const res = await fetch(`${base}/api/upload`, {
         method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "X-Filename": encodeURIComponent(file.name),
+          "X-Upload-Token": token,
+        },
         body: file,
       });
       const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };

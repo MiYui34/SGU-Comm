@@ -41,8 +41,8 @@
     onLoadOlder?: () => void;
     // The server refused something (for example a message that is too long).
     error?: string | null;
-    // Text channels: attach a file (button, paste or drop).
-    onUpload?: (file: File) => void;
+    // Text channels: attach a file (button, paste or drop), with a caption.
+    onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     onSend?: (text: string) => void;
@@ -101,10 +101,24 @@
   // Counted: dragging over child elements fires enter/leave pairs.
   let dragDepth = $state(0);
   const dragging = $derived(dragDepth > 0);
+  // A chosen file waits above the message box until it is sent with Enter
+  // (with the typed text as caption) or cancelled.
+  let pending = $state<{ file: File; preview: string | null } | null>(null);
+  const cancelPending = () => {
+    if (pending?.preview) URL.revokeObjectURL(pending.preview);
+    pending = null;
+  };
   const sendFiles = (files: FileList | null | undefined) => {
     const file = files?.[0];
-    if (file && onUpload) onUpload(file);
+    if (!file || !onUpload) return;
+    cancelPending();
+    pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null };
   };
+  // Another conversation: drop a waiting file.
+  $effect(() => {
+    void target;
+    untrack(cancelPending);
+  });
   const onPaste = (event: ClipboardEvent) => {
     if (onUpload && event.clipboardData?.files.length) {
       event.preventDefault();
@@ -120,6 +134,12 @@
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
+    if (pending && onUpload) {
+      onUpload(pending.file, text);
+      cancelPending();
+      draft = "";
+      return;
+    }
     if (!text || !onSend) return;
     onSend(text);
     draft = "";
@@ -248,6 +268,16 @@
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
+    {#if pending}
+      <div class="pending">
+        {#if pending.preview}
+          <img src={pending.preview} alt="" />
+        {/if}
+        <span class="pending-name ellipsis">{pending.file.name}</span>
+        <span class="file-size">{formatSize(pending.file.size)}</span>
+        <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>
+      </div>
+    {/if}
     <div class="composer" class:disabled={!onSend}>
       <button
         type="button"
@@ -272,8 +302,11 @@
       {#if uploading}<span class="uploading">Uploading…</span>{/if}
       <input
         onpaste={onPaste}
+        onkeydown={(e) => {
+          if (e.key === "Escape" && pending) cancelPending();
+        }}
         bind:value={draft}
-        placeholder={onSend ? `Message ${target}` : `${title} left the server`}
+        placeholder={pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`}
         disabled={!onSend}
         aria-label="Message"
       />
@@ -540,6 +573,32 @@
   .file-size {
     color: var(--text-faint);
     font-size: 12px;
+  }
+  .pending {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--bg-sidebar);
+  }
+  .pending img {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    object-fit: cover;
+  }
+  .pending-name {
+    flex: 1;
+  }
+  .pending-cancel {
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-muted);
+  }
+  .pending-cancel:hover {
+    color: var(--text);
   }
   .uploading {
     color: var(--text-muted);

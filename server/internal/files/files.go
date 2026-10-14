@@ -39,9 +39,11 @@ const (
 )
 
 type Handler struct {
-	Store          *store.Store
-	Dir            string
-	MaxBytes       int64
+	Store    *store.Store
+	Dir      string
+	MaxBytes int64
+	// Bytes one author may upload in 24 hours.
+	QuotaBytes     int64
 	AllowedOrigins []string
 	Now            func() time.Time
 	// Redeem checks an upload token and returns the uploader's name.
@@ -76,13 +78,23 @@ func (h *Handler) cors(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Filename")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Filename, X-Upload-Token")
 }
 
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
-	author, ok := h.Redeem(r.URL.Query().Get("token"))
+	// In a header, not the URL: URLs end up in proxy logs.
+	author, ok := h.Redeem(r.Header.Get("X-Upload-Token"))
 	if !ok {
 		jsonError(w, "invalid or expired upload token", http.StatusUnauthorized)
+		return
+	}
+	used, err := h.Store.UploadedBytesSince(author, h.Now().Add(-24*time.Hour))
+	if err != nil {
+		jsonError(w, "cannot check the upload quota", http.StatusInternalServerError)
+		return
+	}
+	if used >= h.QuotaBytes || (r.ContentLength > 0 && used+r.ContentLength > h.QuotaBytes) {
+		jsonError(w, "daily upload quota reached, try again tomorrow", http.StatusTooManyRequests)
 		return
 	}
 	http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadTimeout))
@@ -100,6 +112,10 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	case size == 0:
 		os.Remove(dst)
 		jsonError(w, "empty file", http.StatusBadRequest)
+		return
+	case used+size > h.QuotaBytes: // no or wrong Content-Length
+		os.Remove(dst)
+		jsonError(w, "daily upload quota reached, try again tomorrow", http.StatusTooManyRequests)
 		return
 	}
 	name, _ := url.QueryUnescape(r.Header.Get("X-Filename"))

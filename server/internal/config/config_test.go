@@ -26,6 +26,7 @@ func TestDefaults(t *testing.T) {
 		MaxPerIP:           10,
 		UploadDir:          "uploads",
 		UploadMaxBytes:     10 << 20,
+		UploadQuotaBytes:   100 << 20,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -63,6 +64,7 @@ func TestAllOptions(t *testing.T) {
 		TrustForwardedFor:  true,
 		UploadDir:          "/data/files",
 		UploadMaxBytes:     25 << 20,
+		UploadQuotaBytes:   100 << 20,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
