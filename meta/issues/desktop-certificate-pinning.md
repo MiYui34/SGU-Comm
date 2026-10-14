@@ -12,3 +12,8 @@ Part of [Desktop app (Tauri)](desktop-app-tauri.md). The local bridge accepts an
 ## Acceptance Criteria
 
 - A changed server certificate is refused with a clear warning, until the user accepts the new one.
+
+## Result
+
+- Pins per host:port in the app data folder (written by Rust only). Unknown: trust question with the fingerprint; changed: warning, refused until accepted. Tested with Rust tests and in Chrome through the bridge example (pin file written directly; the Tauri window could not run here).
+- Found on the way: closing with unread client data made browsers see code 1006 without the reason; the bridge now waits for the close reply.
