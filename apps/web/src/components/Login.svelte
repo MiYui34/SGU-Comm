@@ -1,16 +1,17 @@
 <script lang="ts">
   import type { Credentials } from "../lib/connection.svelte";
+  import { safeGet, safeSet } from "../lib/storage";
 
   let { error, onConnect }: { error: string | null; onConnect: (c: Credentials) => void } =
     $props();
 
-  let username = $state(localStorage.getItem("username") ?? "");
+  let username = $state(safeGet(localStorage, "username") ?? "");
   let password = $state("");
 
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (!username.trim()) return;
-    localStorage.setItem("username", username.trim());
+    safeSet(localStorage, "username", username.trim());
     onConnect({ username: username.trim(), password });
   };
 </script>
