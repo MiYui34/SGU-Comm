@@ -159,13 +159,14 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	key, clientNonce, serverNonce := random16(), random16(), random16()
 	c := &client{
-		conn:     conn,
-		out:      make(chan []byte, queueSize),
-		name:     id.name,
-		limiter:  rate.NewLimiter(messageLimit, messageBurst),
-		crypt:    cryptstate.New(key, serverNonce, clientNonce),
-		lastGood: time.Now(),
-		host:     host,
+		conn:      conn,
+		out:       make(chan []byte, queueSize),
+		name:      id.name,
+		limiter:   rate.NewLimiter(messageLimit, messageBurst),
+		bandwidth: rate.NewLimiter(maxBandwidth/8, maxBandwidth/8),
+		crypt:     cryptstate.New(key, serverNonce, clientNonce),
+		lastGood:  time.Now(),
+		host:      host,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	if reject := s.join(c, id, setup); reject != nil {
@@ -344,6 +345,7 @@ func userState(u *User) []byte {
 	if u.Hash != "" {
 		m.Hash = proto.String(u.Hash)
 	}
+	m.ListeningChannelAdd = slices.Sorted(maps.Keys(u.Listening))
 	return mumble.MessageFrame(mumble.TypeUserState, m)
 }
 

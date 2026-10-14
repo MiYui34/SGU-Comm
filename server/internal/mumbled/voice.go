@@ -10,73 +10,94 @@ import (
 	"kallisti.chat/server/internal/mumble/pb"
 )
 
-// relayed is the audio packet as receivers get it: the server sets the
-// context (normal talking) and the sender's session. ok is false for
-// packets that are not audio to the channel.
-func relayed(packet []byte, sender uint32) (out []byte, ok bool) {
+// splitAudio splits a protobuf audio packet into its voice target and
+// the fields that are passed on unchanged. ok is false for packets that
+// are not audio.
+func splitAudio(packet []byte) (target uint32, rest []byte, ok bool) {
 	if len(packet) == 0 || packet[0] != 0 {
-		return nil, false
+		return 0, nil, false
 	}
-	out = []byte{0}
-	out = protowire.AppendTag(out, 2, protowire.VarintType)
-	out = protowire.AppendVarint(out, 0)
-	out = protowire.AppendTag(out, 3, protowire.VarintType)
-	out = protowire.AppendVarint(out, uint64(sender))
 	b := packet[1:]
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
 		if n < 0 {
-			return nil, false
+			return 0, nil, false
 		}
 		m := protowire.ConsumeFieldValue(num, typ, b[n:])
 		if m < 0 {
-			return nil, false
+			return 0, nil, false
 		}
 		switch num {
-		case 1: // target: whispers are not part of the spike
-			if v, _ := protowire.ConsumeVarint(b[n:]); typ != protowire.VarintType || v != 0 {
-				return nil, false
+		case 1:
+			v, _ := protowire.ConsumeVarint(b[n:])
+			if typ != protowire.VarintType || v > loopbackTarget {
+				return 0, nil, false
 			}
+			target = uint32(v)
 		case 2, 3: // set by the server
 		default:
-			out = append(out, b[:n+m]...)
+			rest = append(rest, b[:n+m]...)
 		}
 		b = b[n+m:]
 	}
-	return out, true
+	return target, rest, true
 }
 
-// voice relays an audio packet from c to everyone else who listens.
+// relayed is the audio packet as a receiver gets it: the server sets the
+// context and the sender's session.
+func relayed(rest []byte, sender uint32, ctx AudioContext) []byte {
+	out := []byte{0}
+	out = protowire.AppendTag(out, 2, protowire.VarintType)
+	out = protowire.AppendVarint(out, uint64(ctx))
+	out = protowire.AppendTag(out, 3, protowire.VarintType)
+	out = protowire.AppendVarint(out, uint64(sender))
+	return append(out, rest...)
+}
+
+// voice relays an audio packet from c to its receivers.
 func (s *Server) voice(c *client, packet []byte) {
-	out, ok := relayed(packet, c.session)
-	if !ok {
+	target, rest, ok := splitAudio(packet)
+	// As Murmur: headers count too (IP, UDP, crypt).
+	if !ok || !c.bandwidth.AllowN(time.Now(), 20+8+4+len(packet)) {
 		return
 	}
-	type target struct {
+	type receiver struct {
 		c    *client
 		addr netip.AddrPort
+		ctx  AudioContext
 	}
 	s.mu.Lock()
-	var targets []target
-	for _, session := range s.state.Listeners(c.session) {
+	var receivers []receiver
+	for session, ctx := range s.state.Receivers(c.session, target) {
 		o := s.clients[session]
-		t := target{c: o}
-		if o.udpVoice && s.udp != nil {
-			t.addr = o.udpAddr
+		if o == nil {
+			continue
 		}
-		targets = append(targets, t)
+		r := receiver{c: o, ctx: ctx}
+		if o.udpVoice && s.udp != nil {
+			r.addr = o.udpAddr
+		}
+		receivers = append(receivers, r)
 	}
 	udp := s.udp
 	s.mu.Unlock()
-	tunnel := mumble.EncodeFrame(mumble.TypeUDPTunnel, out)
-	for _, t := range targets {
-		if t.addr.IsValid() {
-			t.c.cryptMu.Lock()
-			packet := t.c.crypt.Encrypt(out)
-			t.c.cryptMu.Unlock()
-			udp.WriteToUDPAddrPort(packet, t.addr)
+	// One packet (and TCP frame) per context, at most four.
+	type packetFor struct{ udp, tcp []byte }
+	packets := map[AudioContext]packetFor{}
+	for _, r := range receivers {
+		p, ok := packets[r.ctx]
+		if !ok {
+			p.udp = relayed(rest, c.session, r.ctx)
+			p.tcp = mumble.EncodeFrame(mumble.TypeUDPTunnel, p.udp)
+			packets[r.ctx] = p
+		}
+		if r.addr.IsValid() {
+			r.c.cryptMu.Lock()
+			crypted := r.c.crypt.Encrypt(p.udp)
+			r.c.cryptMu.Unlock()
+			udp.WriteToUDPAddrPort(crypted, r.addr)
 		} else {
-			t.c.send(tunnel, true)
+			r.c.send(p.tcp, true)
 		}
 	}
 }

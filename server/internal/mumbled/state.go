@@ -18,6 +18,7 @@ type State struct {
 	Channels    map[uint32]*Channel
 	Users       map[uint32]*User
 	nextChannel uint32
+	gen         uint64 // see Changed
 }
 
 type Channel struct {
@@ -44,9 +45,10 @@ type User struct {
 	Hash       string   // client certificate, or ""
 	Tokens     []string // access tokens (Authenticate.tokens)
 
-	// Channels this user's voice reaches: its own and linked ones where it
-	// may speak. nil: to compute (after moves, links, ACL changes).
-	speakIn map[uint32]bool
+	Targets   map[uint32]VoiceTarget // whisper and shout targets by id
+	Listening map[uint32]bool        // channels it listens to
+
+	cache map[uint32]cachedReceivers // receivers by voice target
 
 	SelfMute, SelfDeaf bool
 	Recording          bool
@@ -211,7 +213,7 @@ func (s *State) EditChannel(id uint32, e ChannelEdit) error {
 		}
 	}
 	if parent != c.Parent {
-		s.forgetSpeak() // inherited ACLs change
+		s.Changed() // inherited ACLs change
 	}
 	c.Parent, c.Name = parent, name
 	if e.Description != nil {
@@ -260,22 +262,19 @@ func (s *State) RemoveChannel(id uint32) (moved map[uint32]uint32, removed []uin
 			s.Unlink(r, l)
 		}
 		delete(s.Channels, r)
+		for _, u := range s.Users {
+			delete(u.Listening, r)
+		}
 	}
+	s.Changed()
 	return moved, removed, nil
-}
-
-// forgetSpeak drops every user's speakIn, for changes of links or the tree.
-func (s *State) forgetSpeak() {
-	for _, u := range s.Users {
-		u.speakIn = nil
-	}
 }
 
 // Refresh recomputes what a user may say where: suppressed without Speak
 // in its channel (as Murmur), and the channels its voice reaches.
 func (s *State) Refresh(u *User) {
 	u.Suppress = !s.Has(u, u.Channel, Speak)
-	u.speakIn = nil
+	s.Changed()
 }
 
 // speakChannels: as Murmur, voice goes to linked channels only where the
@@ -294,13 +293,13 @@ func (s *State) Link(a, b uint32) {
 	if a == b || s.Channels[a] == nil || s.Channels[b] == nil {
 		return
 	}
-	s.forgetSpeak()
+	s.Changed()
 	s.Channels[a].Links[b] = true
 	s.Channels[b].Links[a] = true
 }
 
 func (s *State) Unlink(a, b uint32) {
-	s.forgetSpeak()
+	s.Changed()
 	if s.Channels[a] != nil {
 		delete(s.Channels[a].Links, b)
 	}
@@ -330,7 +329,10 @@ func (s *State) Tree() []*Channel {
 	return out
 }
 
-func (s *State) AddUser(u *User) { s.Users[u.Session] = u }
+func (s *State) AddUser(u *User) {
+	s.Users[u.Session] = u
+	s.Changed()
+}
 
 // RemoveUser returns temporary channels that became empty and were removed.
 func (s *State) RemoveUser(session uint32) []uint32 {
@@ -339,6 +341,7 @@ func (s *State) RemoveUser(session uint32) []uint32 {
 		return nil
 	}
 	delete(s.Users, session)
+	s.Changed()
 	return s.removeIfEmptyTemporary(u.Channel)
 }
 
@@ -350,7 +353,7 @@ func (s *State) MoveUser(session, channel uint32) []uint32 {
 	}
 	old := u.Channel
 	u.Channel = channel
-	u.speakIn = nil
+	s.Changed()
 	return s.removeIfEmptyTemporary(old)
 }
 
@@ -392,18 +395,5 @@ func (s *State) linked(id uint32) map[uint32]bool {
 
 // Listeners are the users who hear the sender talk to its channel.
 func (s *State) Listeners(sender uint32) []uint32 {
-	u := s.Users[sender]
-	if u == nil || u.SelfMute || u.Mute || u.Suppress {
-		return nil
-	}
-	if u.speakIn == nil {
-		u.speakIn = s.speakChannels(u)
-	}
-	var out []uint32
-	for _, o := range s.Users {
-		if o.Session != sender && u.speakIn[o.Channel] && !o.SelfDeaf && !o.Deaf {
-			out = append(out, o.Session)
-		}
-	}
-	return out
+	return slices.Sorted(maps.Keys(s.Receivers(sender, 0)))
 }

@@ -258,3 +258,28 @@ func TestOfficialClientIsMutedAndBanned(t *testing.T) {
 		}
 	}
 }
+
+func TestOfficialClientListensToAChannel(t *testing.T) {
+	needOfficialClient(t)
+	addr := startServer(t, "0.0.0.0", Config{}, openACL)
+	watcher := dial(t, addr, "watcher")
+	games := watcher.createChannel(0, "Games", false)
+	official := officialClient(t, addr, "official", "", 60)
+	session := watcher.waitForUser("official", 40*time.Second)
+	time.Sleep(2 * time.Second)
+	// Rows: Root, official, watcher, Games.
+	official.xdo("xdotool", "mousemove", "300", "132", "click", "3")
+	time.Sleep(time.Second)
+	official.xdo("xdotool", "key", "l") // Listen To Channel
+	for {
+		var m pb.UserState
+		proto.Unmarshal(watcher.expectWithin(mumble.TypeUserState, 10*time.Second), &m)
+		if m.GetSession() == session && len(m.ListeningChannelAdd) > 0 {
+			if m.ListeningChannelAdd[0] != games {
+				t.Fatalf("listening %v", m.ListeningChannelAdd)
+			}
+			break
+		}
+	}
+	official.screenshot("listening")
+}

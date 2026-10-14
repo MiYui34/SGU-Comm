@@ -137,6 +137,11 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
 			s.banListMsg(c, &m)
 		}
+	case mumble.TypeVoiceTarget:
+		var m pb.VoiceTarget
+		if proto.Unmarshal(body, &m) == nil {
+			s.voiceTargetMsg(c, &m)
+		}
 	case mumble.TypeUserList:
 		var m pb.UserList
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
@@ -221,7 +226,8 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 		c.deny(deny(pb.PermissionDenied_UserName, "names cannot be changed"))
 		return
 	}
-	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil) {
+	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil ||
+		len(m.ListeningChannelAdd)+len(m.ListeningChannelRemove) > 0) {
 		return // only users themselves set these
 	}
 	moderate := m.Mute != nil || m.Deaf != nil || m.Suppress != nil || m.PrioritySpeaker != nil
@@ -252,7 +258,9 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 	}
 	out := &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session)}
 	changed := false
+	routing := false // a change of who hears whom
 	if m.SelfMute != nil || m.SelfDeaf != nil {
+		routing = routing || m.SelfDeaf != nil
 		u.SelfMute, u.SelfDeaf = selfState(u.SelfMute, u.SelfDeaf, m)
 		out.SelfMute, out.SelfDeaf = proto.Bool(u.SelfMute), proto.Bool(u.SelfDeaf)
 		changed = true
@@ -263,6 +271,7 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 		changed = true
 	}
 	if moderate {
+		routing = true
 		u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, m)
 		out.Mute, out.Deaf = proto.Bool(u.Mute), proto.Bool(u.Deaf)
 		if m.Suppress != nil {
@@ -274,6 +283,25 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 			out.PrioritySpeaker = proto.Bool(u.PrioritySpeaker)
 		}
 		changed = true
+	}
+	for _, ch := range m.ListeningChannelAdd {
+		if s.state.Channels[ch] != nil && !s.state.Has(u, ch, Listen) {
+			c.denyPerm(Listen, ch)
+		} else if !u.Listening[ch] && len(u.Listening) >= maxListening {
+			c.deny(deny(pb.PermissionDenied_UserListenerLimit, "you listen to too many channels"))
+		} else if s.state.Listen(u.Session, ch, true) {
+			out.ListeningChannelAdd = append(out.ListeningChannelAdd, ch)
+			changed = true
+		}
+	}
+	for _, ch := range m.ListeningChannelRemove {
+		if s.state.Listen(u.Session, ch, false) {
+			out.ListeningChannelRemove = append(out.ListeningChannelRemove, ch)
+			changed = true
+		}
+	}
+	if routing {
+		s.state.Changed()
 	}
 	if changed {
 		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
@@ -651,4 +679,21 @@ func (s *Server) editPermission(u *User, ch *Channel, m *pb.ChannelState) (Perm,
 		}
 	}
 	return 0, 0
+}
+
+// voiceTargetMsg stores a whisper or shout target.
+func (s *Server) voiceTargetMsg(c *client, m *pb.VoiceTarget) {
+	var vt VoiceTarget
+	for _, t := range m.Targets {
+		vt.Sessions = append(vt.Sessions, t.Session...)
+		if t.ChannelId != nil {
+			vt.Channels = append(vt.Channels, TargetChannel{ID: t.GetChannelId(), Children: t.GetChildren(), Links: t.GetLinks(), Group: t.GetGroup()})
+		}
+		if len(vt.Sessions) > maxTargetSessions*2 || len(vt.Channels) > maxTargetChannels*2 {
+			break
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.SetTarget(c.session, m.GetId(), vt)
 }

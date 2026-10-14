@@ -78,6 +78,7 @@ func (s *Server) moveLocked(u *User, channel, actor uint32) {
 // Speak, and (if a channel is given) everyone learns whether they may
 // enter it.
 func (s *Server) permissionsChangedLocked(changed *Channel) {
+	s.state.Changed()  // who may speak and whisper where
 	var below []uint32 // subchannels inherit the change
 	if changed != nil {
 		below = s.state.Subtree(changed.ID)

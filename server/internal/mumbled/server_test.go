@@ -231,9 +231,14 @@ func (c *testClient) expectNone(typ uint16) {
 
 // audio is a protobuf UDP audio packet (type byte 0) to the channel.
 func audio(frameNumber uint64, opus []byte) []byte {
+	return audioTo(0, frameNumber, opus)
+}
+
+// audioTo is an audio packet to a voice target (0: the channel).
+func audioTo(target uint32, frameNumber uint64, opus []byte) []byte {
 	b := []byte{0}
 	b = protowire.AppendTag(b, 1, protowire.VarintType)
-	b = protowire.AppendVarint(b, 0)
+	b = protowire.AppendVarint(b, uint64(target))
 	b = protowire.AppendTag(b, 4, protowire.VarintType)
 	b = protowire.AppendVarint(b, frameNumber)
 	b = protowire.AppendTag(b, 5, protowire.BytesType)
@@ -241,9 +246,10 @@ func audio(frameNumber uint64, opus []byte) []byte {
 }
 
 type heard struct {
-	sender uint32
-	frame  uint64
-	opus   []byte
+	context uint32
+	sender  uint32
+	frame   uint64
+	opus    []byte
 }
 
 func parseAudio(t *testing.T, packet []byte) heard {
@@ -257,6 +263,9 @@ func parseAudio(t *testing.T, packet []byte) heard {
 		num, typ, n := protowire.ConsumeTag(b)
 		b = b[n:]
 		switch {
+		case num == 2 && typ == protowire.VarintType:
+			v, n := protowire.ConsumeVarint(b)
+			h.context, b = uint32(v), b[n:]
 		case num == 3 && typ == protowire.VarintType:
 			v, n := protowire.ConsumeVarint(b)
 			h.sender, b = uint32(v), b[n:]

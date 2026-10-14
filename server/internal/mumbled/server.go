@@ -41,7 +41,6 @@ const (
 	maxHandshakeFrame = 64 << 10
 	maxFrame          = 128 << 10
 	queueSize         = 512
-	maxBandwidth      = 558000
 	maxTextLength     = 5000
 	// The CELT version Murmur announces (0.7.0) next to Opus.
 	celt070 = -2147483637
@@ -85,6 +84,7 @@ type client struct {
 	name      string
 	host      netip.Addr
 	limiter   *rate.Limiter
+	bandwidth *rate.Limiter // voice bytes per second
 
 	// Guarded by Server.mu.
 	udpAddr  netip.AddrPort
