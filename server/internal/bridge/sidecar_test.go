@@ -242,18 +242,18 @@ func accounts(names ...string) (func(*http.Request) (string, *tls.Certificate, b
 
 func TestAccountsDialWithTheirCertificate(t *testing.T) {
 	echo := startEcho(t)
-	var got atomic.Pointer[tls.Certificate]
-	dial := func(ctx context.Context, cert *tls.Certificate) (net.Conn, error) {
-		got.Store(cert)
-		return dialer(echo.addr)(ctx, cert)
+	var got atomic.Pointer[Upstream]
+	dial := func(ctx context.Context, up Upstream) (net.Conn, error) {
+		got.Store(&up)
+		return dialer(echo.addr)(ctx, up)
 	}
 	lookup, isAccount := accounts("carol")
 	url := startBridge(t, Options{Dial: dial, UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
 	c, _, _ := connect(t, url+"?user=carol", "")
 	c.Write(testCtx(t), websocket.MessageBinary, hello("carol"))
 	eventually(t, func() bool { return echo.open.Load() == 1 })
-	if got.Load() == nil {
-		t.Fatal("dialed without the account certificate")
+	if up := got.Load(); up == nil || up.Cert == nil || up.AccountName != "carol" || up.IP == "" {
+		t.Fatalf("dialed with %+v", up)
 	}
 }
 

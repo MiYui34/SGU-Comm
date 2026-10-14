@@ -1,4 +1,6 @@
-// Command server bridges browser WebSockets to one Mumble server.
+// Command server is the Kallisti server: the web app, accounts, text
+// channels, and voice through its built-in Mumble server (or a Murmur at
+// MUMBLE_HOST).
 package main
 
 import (
@@ -42,13 +44,6 @@ func run() error {
 		slog.Warn("ALLOWED_ORIGINS is *: every origin can connect (development only)")
 	}
 
-	upstream := net.JoinHostPort(cfg.MumbleHost, strconv.Itoa(cfg.MumblePort))
-	tlsConfig := &tls.Config{InsecureSkipVerify: !cfg.RejectUnauthorized}
-	// SNI does not allow IP addresses.
-	if net.ParseIP(cfg.MumbleHost) == nil {
-		tlsConfig.ServerName = cfg.MumbleHost
-	}
-
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("open database %s: %w", cfg.DBPath, err)
@@ -68,6 +63,16 @@ func run() error {
 		AllowedOrigins:    cfg.AllowedOrigins,
 		TrustForwardedFor: cfg.TrustForwardedFor,
 	}
+	dial, upstream := murmurDialer(cfg)
+	if cfg.Builtin != nil {
+		mumble, err := startBuiltin(cfg.Builtin, db)
+		if err != nil {
+			return err
+		}
+		defer mumble.close()
+		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
+		accounts.NameTaken = mumble.nameTaken
+	}
 	b := bridge.New(bridge.Options{
 		Sidecar:           hub,
 		UniqueGuestNames:  true,
@@ -75,16 +80,7 @@ func run() error {
 		MaxConnections:    cfg.MaxConnections,
 		MaxPerIP:          cfg.MaxPerIP,
 		TrustForwardedFor: cfg.TrustForwardedFor,
-		// Accounts connect with their own client certificate, so Murmur can
-		// register them; guests without one.
-		Dial: func(ctx context.Context, cert *tls.Certificate) (net.Conn, error) {
-			conf := tlsConfig.Clone()
-			if cert != nil {
-				conf.Certificates = []tls.Certificate{*cert}
-			}
-			d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: conf}
-			return d.DialContext(ctx, "tcp", upstream)
-		},
+		Dial:              dial,
 		Account: func(r *http.Request) (string, *tls.Certificate, bool) {
 			acc, ok := accounts.AccountFor(r)
 			if !ok {
@@ -163,4 +159,23 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// murmurDialer connects web clients to Murmur. Accounts connect with their
+// own client certificate, so Murmur can register them; guests without one.
+func murmurDialer(cfg config.Config) (func(context.Context, bridge.Upstream) (net.Conn, error), string) {
+	upstream := net.JoinHostPort(cfg.MumbleHost, strconv.Itoa(cfg.MumblePort))
+	tlsConfig := &tls.Config{InsecureSkipVerify: !cfg.RejectUnauthorized}
+	// SNI does not allow IP addresses.
+	if net.ParseIP(cfg.MumbleHost) == nil {
+		tlsConfig.ServerName = cfg.MumbleHost
+	}
+	return func(ctx context.Context, up bridge.Upstream) (net.Conn, error) {
+		conf := tlsConfig.Clone()
+		if up.Cert != nil {
+			conf.Certificates = []tls.Certificate{*up.Cert}
+		}
+		d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: conf}
+		return d.DialContext(ctx, "tcp", upstream)
+	}, upstream
 }

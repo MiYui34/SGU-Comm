@@ -78,8 +78,9 @@ func TestErrors(t *testing.T) {
 		vars map[string]string
 		want string
 	}{
-		{map[string]string{}, "MUMBLE_HOST is required"},
 		{map[string]string{"MUMBLE_HOST": "x"}, "ALLOWED_ORIGINS is required (use * to allow every origin)"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "MUMBLE_LISTEN": "nope"}, "MUMBLE_LISTEN must be host:port"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "MUMBLE_MAX_USERS": "0"}, "MUMBLE_MAX_USERS must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MUMBLE_PORT": "abc"}, "MUMBLE_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "LISTEN_PORT": "70000"}, "LISTEN_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS": "0"}, "MAX_CONNECTIONS must be a positive integer"},
@@ -111,5 +112,26 @@ func TestOriginAllowed(t *testing.T) {
 		if got := OriginAllowed(c.allowed, c.origin); got != c.want {
 			t.Errorf("OriginAllowed(%v, %q) = %v, want %v", c.allowed, c.origin, got, c.want)
 		}
+	}
+}
+
+func TestTheBuiltInServerIsTheDefault(t *testing.T) {
+	got, err := Parse(env(map[string]string{"ALLOWED_ORIGINS": "*", "DB_PATH": "/data/kallisti.db"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &Builtin{Listen: ":64738", ServerName: "Kallisti", MaxUsers: 100, CertDir: "/data"}
+	if !reflect.DeepEqual(got.Builtin, want) {
+		t.Errorf("got %+v, want %+v", got.Builtin, want)
+	}
+	got, _ = Parse(env(map[string]string{
+		"ALLOWED_ORIGINS": "*", "MUMBLE_LISTEN": "0.0.0.0:7000", "SERVER_NAME": "Our place",
+		"MUMBLE_WELCOME": "Hi!", "MUMBLE_PASSWORD": "pw", "MUMBLE_MAX_USERS": "20",
+		"MUMBLE_MAX_PER_IP": "5", "CERT_DIR": "/certs",
+	}))
+	want = &Builtin{Listen: "0.0.0.0:7000", ServerName: "Our place", Welcome: "Hi!", Password: "pw",
+		MaxUsers: 20, MaxPerIP: 5, CertDir: "/certs"}
+	if !reflect.DeepEqual(got.Builtin, want) {
+		t.Errorf("got %+v, want %+v", got.Builtin, want)
 	}
 }

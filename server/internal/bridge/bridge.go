@@ -35,9 +35,9 @@ type Options struct {
 	MaxConnections    int
 	MaxPerIP          int
 	TrustForwardedFor bool
-	// Dial opens the upstream connection (TLS to Mumble in production),
-	// with the account's client certificate, or nil for guests.
-	Dial func(ctx context.Context, cert *tls.Certificate) (net.Conn, error)
+	// Dial opens the upstream connection: TLS to Murmur, or a session of
+	// the built-in Mumble server.
+	Dial func(ctx context.Context, up Upstream) (net.Conn, error)
 	// Account returns the account behind a request (session cookie): its
 	// name and client certificate. Nil: everyone is a guest.
 	Account func(r *http.Request) (name string, cert *tls.Certificate, ok bool)
@@ -50,6 +50,13 @@ type Options struct {
 	// users share our IP, and Murmur kicks the older session of a name
 	// from the same IP.
 	UniqueGuestNames bool
+}
+
+// Upstream is who a connection is for.
+type Upstream struct {
+	IP          string           // the client's address
+	AccountName string           // "" for guests
+	Cert        *tls.Certificate // the account's client certificate, or nil
 }
 
 type Bridge struct {
@@ -169,7 +176,11 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hello = early
 	}
 
-	upstream, err := b.opts.Dial(b.ctx, cert)
+	up := Upstream{IP: ip, Cert: cert}
+	if isAccount {
+		up.AccountName = accountName
+	}
+	upstream, err := b.opts.Dial(b.ctx, up)
 	if err != nil {
 		slog.Warn("upstream connect failed", "err", err)
 		ws.Close(websocket.StatusInternalError, "upstream unavailable")

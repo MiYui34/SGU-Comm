@@ -4,12 +4,17 @@ package config
 import (
 	"cmp"
 	"errors"
+	"net"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
+	// The Mumble server: the built-in one (Builtin), or Murmur at
+	// MumbleHost when that is set.
+	Builtin    *Builtin
 	MumbleHost string
 	MumblePort int
 	ListenPort int
@@ -22,8 +27,9 @@ type Config struct {
 	DBPath string
 	// Text channel names, in display order.
 	TextChannels []string
-	// Connections from one IP. All web users reach Murmur from our IP, so
-	// one client must not use them all (Murmur's autoban would hit everyone).
+	// Web connections from one IP. With Murmur, all web users reach it from
+	// our IP, so one client must not use them all (its autoban would hit
+	// everyone).
 	MaxPerIP int
 	// Use the first X-Forwarded-For address as the client IP. Only behind a
 	// reverse proxy that sets it: clients can fake the header.
@@ -66,12 +72,43 @@ func parsePort(value string, fallback int) (int, bool) {
 	return n, err == nil && n > 0 && n < 65536
 }
 
+// Builtin configures the built-in Mumble server.
+type Builtin struct {
+	Listen     string // TCP and UDP for Mumble clients
+	ServerName string // the root channel's name
+	Welcome    string
+	Password   string // server password for guests
+	MaxUsers   int
+	MaxPerIP   int    // 0: no limit
+	CertDir    string // the server certificate (made on the first start)
+}
+
+func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
+	b := &Builtin{
+		Listen:     cmp.Or(getenv("MUMBLE_LISTEN"), ":64738"),
+		ServerName: cmp.Or(getenv("SERVER_NAME"), "Kallisti"),
+		Welcome:    getenv("MUMBLE_WELCOME"),
+		Password:   getenv("MUMBLE_PASSWORD"),
+		CertDir:    cmp.Or(getenv("CERT_DIR"), filepath.Dir(dbPath)),
+	}
+	if _, _, err := net.SplitHostPort(b.Listen); err != nil {
+		return nil, errors.New("MUMBLE_LISTEN must be host:port")
+	}
+	var ok bool
+	if b.MaxUsers, ok = positive(getenv("MUMBLE_MAX_USERS"), 100); !ok {
+		return nil, errors.New("MUMBLE_MAX_USERS must be a positive integer")
+	}
+	if v := getenv("MUMBLE_MAX_PER_IP"); v != "" {
+		if b.MaxPerIP, ok = positive(v, 0); !ok {
+			return nil, errors.New("MUMBLE_MAX_PER_IP must be a positive integer")
+		}
+	}
+	return b, nil
+}
+
 // Parse reads the settings. getenv is os.Getenv in production.
 func Parse(getenv func(string) string) (Config, error) {
 	c := Config{MumbleHost: getenv("MUMBLE_HOST"), RejectUnauthorized: getenv("MUMBLE_INSECURE_TLS") != "1"}
-	if c.MumbleHost == "" {
-		return Config{}, errors.New("MUMBLE_HOST is required")
-	}
 	c.AllowedOrigins = list(getenv("ALLOWED_ORIGINS"))
 	if len(c.AllowedOrigins) == 0 {
 		return Config{}, errors.New("ALLOWED_ORIGINS is required (use * to allow every origin)")
@@ -105,6 +142,12 @@ func Parse(getenv func(string) string) (Config, error) {
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}
+	}
+	if c.MumbleHost == "" {
+		var err error
+		if c.Builtin, err = parseBuiltin(getenv, c.DBPath); err != nil {
+			return Config{}, err
+		}
 	}
 	return c, nil
 }
