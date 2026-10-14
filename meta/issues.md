@@ -20,3 +20,4 @@
 - [ ] [Direct messages keyed by user, not session](issues/direct-messages-keyed-by-user-not-session.md)
 - [ ] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
 - [ ] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)
+- [ ] [Rename to Kallisti](issues/rename-to-kallisti.md)
