@@ -6,7 +6,7 @@ const FRAME_SIZE = 960; // 20 ms
 const FRAME_MS = 20;
 // Mumble counts frames in 10 ms steps.
 const MUMBLE_FRAME_US = 10_000;
-const VAD = { thresholdDb: -45, holdMs: 300 };
+const VAD_HOLD_MS = 300;
 
 export type Capture = ReturnType<typeof createCapture>;
 
@@ -17,10 +17,14 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let muted = false;
   let mode: TransmitMode = "vad";
   let pttDown = false;
+  let thresholdDb = -45;
   let vad: VadState = { talking: false, silentMs: 0 };
   let timestamp = 0;
   let closed = false;
+  // Bumped on every device switch, so a slow older getUserMedia loses.
+  let generation = 0;
   let stream: MediaStream | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
   let node: AudioWorkletNode | null = null;
   // Timestamps of frames that end a transmission. Keyed by timestamp, so a
   // dropped or merged frame cannot shift the flag to another packet.
@@ -68,36 +72,61 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
 
   const onFrame = (samples: Float32Array<ArrayBuffer>) => {
     level = levelDb(samples);
-    vad = vadStep(vad, level, FRAME_MS, VAD);
+    vad = vadStep(vad, level, FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
     const next = shouldTransmit({ mode, vadTalking: vad.talking, pttDown, muted });
     // The first quiet frame after talking ends the transmission.
     if (next || transmitting) encode(samples, !next);
     transmitting = next;
   };
 
-  const start = async () => {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      // close() can run while the permission prompt is open.
-      if (closed) return stopStream();
+  // Made once. Shared promise, so two quick device switches cannot make two.
+  let nodePromise: Promise<AudioWorkletNode> | null = null;
+  const workletNode = () =>
+    (nodePromise ??= (async () => {
       await ctx.audioWorklet.addModule(new URL("./capture.worklet.js", import.meta.url));
-      if (closed) return stopStream();
       node = new AudioWorkletNode(ctx, "capture", {
         numberOfOutputs: 0,
         channelCount: 1,
         channelCountMode: "explicit",
         processorOptions: { frameSize: FRAME_SIZE },
       });
-      node.port.onmessage = (event: MessageEvent<Float32Array<ArrayBuffer>>) => onFrame(event.data);
-      ctx.createMediaStreamSource(stream).connect(node);
-    } catch (err) {
-      if (!closed) micError = err instanceof Error ? err.message : String(err);
-    }
+      node.port.onmessage = (event: MessageEvent<Float32Array<ArrayBuffer>>) =>
+        onFrame(event.data);
+      return node;
+    })());
+
+  const stopStream = () => {
+    source?.disconnect();
+    stream?.getTracks().forEach((t) => t.stop());
+    source = stream = null;
   };
 
-  const stopStream = () => stream?.getTracks().forEach((t) => t.stop());
+  // Opens the microphone (null: the default device). Also used to switch.
+  const start = async (deviceId: string | null = null) => {
+    const mine = ++generation;
+    const stale = () => closed || mine !== generation;
+    try {
+      const next = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      // close() or another switch can run while the permission prompt is open.
+      if (stale()) return next.getTracks().forEach((t) => t.stop());
+      const target = await workletNode();
+      if (stale()) return next.getTracks().forEach((t) => t.stop());
+      stopStream();
+      stream = next;
+      source = ctx.createMediaStreamSource(next);
+      source.connect(target);
+      micError = null;
+    } catch (err) {
+      if (!stale()) micError = err instanceof Error ? err.message : String(err);
+    }
+  };
 
   return {
     get level() {
@@ -115,14 +144,20 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     },
     setMode: (value: TransmitMode) => {
       mode = value;
+      // A key held during the switch never sends its keyup to us.
+      pttDown = false;
     },
     setPttDown: (value: boolean) => {
       pttDown = value;
     },
+    setThreshold: (db: number) => {
+      thresholdDb = db;
+    },
     close: () => {
       closed = true;
       stopStream();
-      node?.disconnect();
+      // The node can still be on its way: disconnect it when it arrives.
+      void nodePromise?.then((n) => n.disconnect()).catch(() => {});
       if (encoder.state !== "closed") encoder.close();
     },
   };

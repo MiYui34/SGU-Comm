@@ -93,6 +93,11 @@ export const createPlayback = (ctx: AudioContext) => {
       }
     },
     remove,
+    // Does nothing where outputDeviceSupported() is false.
+    setOutputDevice: (deviceId: string | null) => {
+      const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+      void sink.setSinkId?.(deviceId ?? "").catch((err) => console.warn("output device", err));
+    },
     setDeaf: (value: boolean) => {
       deaf = value;
       // Also silences chunks that are already scheduled.

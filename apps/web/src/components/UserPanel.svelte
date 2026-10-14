@@ -8,7 +8,13 @@
     me,
     micError,
     onSelfState,
-  }: { me: User; micError: string | null; onSelfState: (s: SelfState) => void } = $props();
+    onSettings,
+  }: {
+    me: User;
+    micError: string | null;
+    onSelfState: (s: SelfState) => void;
+    onSettings: () => void;
+  } = $props();
 </script>
 
 <section class="panel" aria-label="Your status">
@@ -35,6 +41,9 @@
   >
     <Icon name="headphones" off={me.selfDeaf} size={20} />
   </button>
+  <button title="Voice settings" onclick={onSettings}>
+    <Icon name="gear" size={20} />
+  </button>
 </section>
 
 <style>
@@ -49,11 +58,15 @@
     flex: 1;
     min-width: 0;
   }
+  .name,
+  .status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .name {
     font-weight: 600;
     font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .status {
     color: var(--accent);

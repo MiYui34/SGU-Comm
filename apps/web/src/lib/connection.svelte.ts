@@ -43,8 +43,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   };
 
   const playback = audio && createPlayback(audio);
+  // The UI starts capture, with the device from the settings.
   const capture = audio && createCapture(audio, sendAudio);
-  void capture?.start();
 
   // Voice and leaving users go to the playback side. State stays pure.
   const routeAudio = (msg: MumbleMessage) => {
