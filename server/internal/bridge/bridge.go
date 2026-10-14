@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"kallisti.chat/server/internal/clientip"
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
@@ -98,28 +99,12 @@ func (b *Bridge) release(ip string) {
 	b.wg.Done()
 }
 
-// clientIP is the remote address, or the first X-Forwarded-For entry when
-// that header is trusted (set by our own reverse proxy).
-func clientIP(r *http.Request, trustForwarded bool) string {
-	if trustForwarded {
-		first, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
-		if ip := strings.TrimSpace(first); ip != "" {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
 func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !config.OriginAllowed(b.opts.AllowedOrigins, r.Header.Get("Origin")) {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return
 	}
-	ip := clientIP(r, b.opts.TrustForwardedFor)
+	ip := clientip.Of(r, b.opts.TrustForwardedFor)
 	if status := b.admit(ip); status != 0 {
 		http.Error(w, "too many connections", status)
 		return
