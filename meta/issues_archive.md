@@ -23,3 +23,6 @@
 - [x] [Mobile layout](issues/mobile-layout.md)
 - [x] [Production deployment with docker-compose](issues/production-deployment-with-docker-compose.md)
 - [x] [Guests: refuse a name another web user has](issues/guests-refuse-duplicate-names.md)
+- [x] [Accounts and Murmur registration](issues/accounts-and-murmur-registration.md)
+- [x] [User accounts and registration behind the proxy](issues/user-accounts-and-registration.md)
+- [x] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
