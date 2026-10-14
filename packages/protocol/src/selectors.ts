@@ -58,3 +58,9 @@ export const privateMessagesWith = (state: ServerState, other: number): ChatMess
       ((m.actor === other && m.sessions.includes(state.session ?? -1)) ||
         (m.actor === state.session && m.sessions.includes(other))),
   );
+
+// Channels whose long description is known only by its hash.
+export const missingDescriptions = (state: ServerState): number[] =>
+  Object.values(state.channels)
+    .filter((c) => c.descriptionHash !== null && c.description === "")
+    .map((c) => c.id);

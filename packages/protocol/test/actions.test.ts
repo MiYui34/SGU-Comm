@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decodeFrames } from "../src/framing";
 import { decodeMessage } from "../src/messages";
-import { escapeHtml, joinChannel, sendText, setSelfState } from "../src/actions";
+import { escapeHtml, joinChannel, requestDescriptions, sendText, setSelfState } from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
   const { frames } = decodeFrames(bytes);
@@ -47,5 +47,13 @@ describe("setSelfState", () => {
     const msg = decodeOne(setSelfState(9, { selfMute: true, selfDeaf: false }));
     if (msg.type !== "UserState") throw new Error();
     expect(msg.message).toMatchObject({ session: 9, selfMute: true, selfDeaf: false });
+  });
+});
+
+describe("requestDescriptions", () => {
+  it("asks for channel description blobs", () => {
+    const msg = decodeOne(requestDescriptions([0, 4]));
+    if (msg.type !== "RequestBlob") throw new Error();
+    expect(msg.message.channelDescription).toEqual([0, 4]);
   });
 });

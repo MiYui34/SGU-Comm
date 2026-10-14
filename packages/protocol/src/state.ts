@@ -8,6 +8,9 @@ export type Channel = {
   parent: number | null;
   name: string;
   description: string;
+  // Set instead of `description` when the text is long (128 bytes or more).
+  // Fetch the text with a RequestBlob (see missingDescriptions).
+  descriptionHash: string | null;
   position: number;
   temporary: boolean;
 };
@@ -80,6 +83,7 @@ export const emptyChannel = (id: number): Channel => ({
   parent: null,
   name: "",
   description: "",
+  descriptionHash: null,
   position: 0,
   temporary: false,
 });
@@ -118,7 +122,7 @@ const without = <V>(record: Readonly<Record<number, V>>, key: number) => {
 
 const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerState => {
   const prev = state.channels[msg.channelId] ?? emptyChannel(msg.channelId);
-  const next = {
+  const next: Channel = {
     ...prev,
     ...pickSet(msg, pb.ChannelStateSchema, [
       "parent",
@@ -128,6 +132,9 @@ const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerStat
       "temporary",
     ]),
   };
+  if (isFieldSet(msg, pb.ChannelStateSchema.field.descriptionHash)) {
+    next.descriptionHash = [...msg.descriptionHash].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
   return { ...state, channels: { ...state.channels, [msg.channelId]: next } };
 };
 

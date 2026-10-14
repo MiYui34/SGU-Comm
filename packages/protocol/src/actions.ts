@@ -29,3 +29,6 @@ export const setSelfState = (
   session: number,
   state: { selfMute: boolean; selfDeaf: boolean },
 ) => encodeMessage("UserState", { session, ...state });
+
+export const requestDescriptions = (channelIds: number[]) =>
+  encodeMessage("RequestBlob", { channelDescription: channelIds });

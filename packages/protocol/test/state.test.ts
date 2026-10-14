@@ -246,3 +246,11 @@ describe("message cap", () => {
     expect(s.messages.at(-1)?.text).toBe(`m${MAX_MESSAGES + 4}`);
   });
 });
+
+describe("description hashes", () => {
+  it("stores the hash of a long description", () => {
+    const s = run([channelState({ channelId: 2, name: "x", descriptionHash: new Uint8Array([1, 2, 3]) })]);
+    expect(s.channels[2]?.descriptionHash).toBe("010203");
+    expect(s.channels[2]?.description).toBe("");
+  });
+});

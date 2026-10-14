@@ -3,6 +3,7 @@ import {
   audioFormat,
   channelTree,
   messagesIn,
+  missingDescriptions,
   privateMessagesWith,
   usersIn,
   usersSorted,
@@ -159,5 +160,16 @@ describe("privateMessagesWith", () => {
       ],
     };
     expect(privateMessagesWith(s, 2).map((m) => m.text)).toEqual(["from 2", "to 2"]);
+  });
+});
+
+describe("missingDescriptions", () => {
+  it("lists channels with a hash but no description", () => {
+    const s = withData([
+      { ...ch(0, null, "Root"), descriptionHash: "aa" },
+      { ...ch(1, 0, "A"), descriptionHash: "bb", description: "loaded" },
+      ch(2, 0, "B"),
+    ]);
+    expect(missingDescriptions(s)).toEqual([0]);
   });
 });
