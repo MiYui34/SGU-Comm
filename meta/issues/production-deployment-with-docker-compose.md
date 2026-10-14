@@ -14,3 +14,7 @@ A deployable set: Murmur, our server and the static web app. Part of [Sidecar: D
 ## Acceptance Criteria
 
 - `docker compose up` gives a working server with voice and chat over HTTPS.
+
+## Result
+
+- Tested with podman compose and DOMAIN=localhost (HTTPS via Caddy's internal CA). Not tested with a public domain and a real certificate.

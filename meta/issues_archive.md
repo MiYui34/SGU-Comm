@@ -21,3 +21,4 @@
 - [x] [Upload quota and captions](issues/upload-quota-and-captions.md)
 - [x] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
 - [x] [Mobile layout](issues/mobile-layout.md)
+- [x] [Production deployment with docker-compose](issues/production-deployment-with-docker-compose.md)
