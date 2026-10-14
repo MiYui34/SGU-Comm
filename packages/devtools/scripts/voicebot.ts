@@ -42,7 +42,9 @@ let state: ServerState = initialState;
 const push = createMessageStream();
 const ws = new WebSocket(url);
 ws.on("open", () => ws.send(handshake({ username: name })));
-ws.on("message", (data) => {
+ws.on("message", (data, isBinary) => {
+  // Text frames are the Kallisti server's JSON API, not Mumble.
+  if (!isBinary) return;
   const wasSynced = state.status === "synced";
   for (const msg of push(new Uint8Array(data as Buffer))) state = reduce(state, msg, Date.now());
   if (wasSynced || state.status !== "synced") return;

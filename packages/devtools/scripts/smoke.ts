@@ -16,7 +16,9 @@ const push = createMessageStream();
 const ws = new WebSocket(process.argv[2] ?? "ws://127.0.0.1:8080");
 
 ws.on("open", () => ws.send(handshake({ username: `smoke-${process.pid}` })));
-ws.on("message", (data) => {
+ws.on("message", (data, isBinary) => {
+  // Text frames are the Kallisti server's JSON API, not Mumble.
+  if (!isBinary) return;
   for (const msg of push(new Uint8Array(data as Buffer))) {
     state = reduce(state, msg, Date.now());
   }
