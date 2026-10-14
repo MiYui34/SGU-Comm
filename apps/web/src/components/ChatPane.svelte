@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ChatMessage } from "@kallisti/protocol";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
+  import { nextScrollTop } from "../lib/scroll";
+  import { untrack } from "svelte";
   import { sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
@@ -12,15 +14,27 @@
     welcomeText,
     membersOpen,
     onToggleMembers,
+    more = false,
+    loadingOlder = false,
+    onLoadOlder,
+    error = null,
     onSend,
     onClose,
   }: {
     title: string;
-    kind: "channel" | "dm";
+    // channel: a Mumble voice channel's chat (not stored), text: a stored
+    // Kallisti text channel, dm: a private conversation.
+    kind: "channel" | "text" | "dm";
     messages: readonly ChatMessage[];
     welcomeText: string;
     membersOpen: boolean;
     onToggleMembers: () => void;
+    // Text channels: older messages can be loaded.
+    more?: boolean;
+    loadingOlder?: boolean;
+    onLoadOlder?: () => void;
+    // The server refused something (for example a message that is too long).
+    error?: string | null;
     // Missing: the conversation is read-only (the other user left).
     onSend?: (text: string) => void;
     onClose?: () => void;
@@ -31,19 +45,37 @@
   // "Today at" must turn into "Yesterday at" after midnight.
   let now = $state(Date.now());
   const items = $derived(chatItems(messages));
-  const target = $derived(kind === "dm" ? `@${title}` : title);
+  const target = $derived(kind === "dm" ? `@${title}` : kind === "text" ? `#${title}` : title);
 
   $effect(() => {
     const timer = setInterval(() => (now = Date.now()), 60_000);
     return () => clearInterval(timer);
   });
 
+  // Scrolling after new content: measure before the DOM update, then follow
+  // the bottom or keep the reading position (see nextScrollTop). Tracks the
+  // count, not `messages` (a new array on every server update); `target`
+  // tells a conversation switch, the first message's time tells older
+  // history loading above.
+  // Both effects track exactly the same values, and the snapshot is used
+  // once: a stale snapshot would move the reader back.
+  let before: { scrollHeight: number; scrollTop: number; clientHeight: number } | null = null;
+  let shown = { target: "", firstAt: 0 };
+  $effect.pre(() => {
+    void [messages.length, target];
+    if (list) before = { scrollHeight: list.scrollHeight, scrollTop: list.scrollTop, clientHeight: list.clientHeight };
+  });
   $effect(() => {
-    // Not the number of groups: a new message can join the last group. Not
-    // `messages` itself: it is a new array on every server update. The title
-    // covers a channel switch to a channel with the same message count.
-    void [messages.length, title];
-    list?.scrollTo({ top: list.scrollHeight });
+    void [messages.length, target];
+    untrack(() => {
+      if (!list) return;
+      const firstAt = messages[0]?.at ?? 0;
+      const switched = target !== shown.target || !before;
+      const prepended = !switched && firstAt < shown.firstAt;
+      list.scrollTop = before ? nextScrollTop(before, list.scrollHeight, switched, prepended) : list.scrollHeight;
+      shown = { target, firstAt };
+      before = null;
+    });
   });
 
   const submit = (event: SubmitEvent) => {
@@ -60,11 +92,11 @@
     {#if kind === "dm"}
       <span class="at" aria-hidden="true">@</span>
     {:else}
-      <Icon name="speaker" size={22} />
+      <Icon name={kind === "text" ? "hash" : "speaker"} size={22} />
     {/if}
     <h1>{title}</h1>
     <div class="tools">
-      {#if kind === "channel"}
+      {#if kind !== "dm"}
         <button
           class:on={membersOpen}
           onclick={onToggleMembers}
@@ -85,20 +117,33 @@
   </header>
 
   <div class="scroller" bind:this={list}>
+    {#if more}
+      <div class="older">
+        <button onclick={onLoadOlder} disabled={loadingOlder}>
+          {loadingOlder ? "Loading…" : "Load older messages"}
+        </button>
+      </div>
+    {:else}
     <div class="intro">
       <div class="intro-icon" aria-hidden="true">
-        {#if kind === "dm"}@{:else}<Icon name="speaker" size={36} />{/if}
+        {#if kind === "dm"}@{:else}<Icon name={kind === "text" ? "hash" : "speaker"} size={36} />{/if}
       </div>
-      <h2>{kind === "dm" ? title : `Welcome to ${title}!`}</h2>
+      <h2>{kind === "dm" ? title : `Welcome to ${target}!`}</h2>
       <p>
-        {kind === "dm"
-          ? `This is the start of your conversation with ${title}. Private messages are not stored.`
-          : `This is the start of the ${title} channel. Messages are not stored: you only see what was sent while you were here.`}
+        {#if kind === "dm"}
+          This is the start of your conversation with {title}. Private messages are not stored.
+        {:else if kind === "text"}
+          This is the start of the {target} channel.
+        {:else}
+          This is the start of the {title} voice channel's chat. These messages are not stored: you
+          only see what was sent while you were here.
+        {/if}
       </p>
       {#if welcomeText}
         <div class="welcome">{@html safe(welcomeText)}</div>
       {/if}
     </div>
+    {/if}
 
     <ol class="messages">
       {#each items as item (item.kind === "day" ? `day-${item.at}` : item.group.messages[0])}
@@ -139,6 +184,9 @@
   </div>
 
   <form onsubmit={submit}>
+    {#if error}
+      <p class="error" role="alert">{error}</p>
+    {/if}
     <div class="composer" class:disabled={!onSend}>
       <button type="button" class="attach" title="Uploads come later" disabled>
         <Icon name="plus" size={18} />
@@ -237,6 +285,21 @@
     background: var(--bg-sidebar);
     color: var(--text-muted);
   }
+  .older {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+  .older button {
+    padding: 6px 14px;
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .older button:hover {
+    color: var(--text);
+  }
   .messages {
     list-style: none;
     margin: 0;
@@ -324,6 +387,11 @@
   form {
     flex-shrink: 0;
     padding: 0 16px 24px;
+  }
+  .error {
+    margin: 0 0 8px;
+    color: var(--danger);
+    font-size: 14px;
   }
   .composer {
     display: flex;

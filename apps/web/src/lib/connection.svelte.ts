@@ -16,6 +16,14 @@ import {
   type ServerState,
   type TextTarget,
 } from "@kallisti/protocol";
+import {
+  historyRequest,
+  initialTextState,
+  parseServerEvent,
+  reduceText,
+  sendRequest,
+  type TextState,
+} from "./textChannels";
 import { createCapture } from "./voice/capture.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 
@@ -31,6 +39,8 @@ export type Connection = ReturnType<typeof connect>;
 export const connect = (url: string, credentials: Credentials, audio: AudioContext | null) => {
   let state = $state.raw<ServerState>(initialState);
   let closed = $state(false);
+  // Text channels from the Kallisti server (unavailable on plain Mumble).
+  let text = $state.raw<TextState>(initialTextState);
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
@@ -63,6 +73,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     timer = setInterval(() => ws.send(ping(Date.now())), PING_INTERVAL_MS);
   };
   ws.onmessage = (event) => {
+    // Text frames: the Kallisti server's JSON API. Binary: the Mumble stream.
+    if (typeof event.data === "string") {
+      const ev = parseServerEvent(event.data);
+      if (ev) text = reduceText(text, ev);
+      return;
+    }
     try {
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
       messages.forEach(routeAudio);
@@ -87,6 +103,15 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     get closed() {
       return closed;
+    },
+    get text() {
+      return text;
+    },
+    requestHistory: (channel: number, before?: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
+    },
+    sendToTextChannel: (channel: number, message: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message));
     },
     playback,
     capture,

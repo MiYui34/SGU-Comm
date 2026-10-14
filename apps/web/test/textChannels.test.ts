@@ -7,6 +7,7 @@ import {
   reduceText,
   sendRequest,
   toChatMessage,
+  unreadTextIds,
   type TextMessage,
 } from "../src/lib/textChannels";
 
@@ -102,5 +103,28 @@ describe("toChatMessage", () => {
       text: '&lt;b&gt;hi&lt;/b&gt; <a href="https://x.org">https://x.org</a>',
       at: 1000,
     });
+  });
+});
+
+describe("toChatMessage cache", () => {
+  it("returns the same object for the same message", () => {
+    const m = msg(1);
+    expect(toChatMessage(m)).toBe(toChatMessage(m));
+  });
+});
+
+describe("unreadTextIds", () => {
+  it("lists channels with messages newer than the last seen one", () => {
+    let s = reduceText(initialTextState, {
+      type: "ready",
+      channels: [
+        { id: 1, name: "a" },
+        { id: 2, name: "b" },
+        { id: 3, name: "c" },
+      ],
+    });
+    s = reduceText(s, { type: "message", message: msg(5, 1) });
+    s = reduceText(s, { type: "message", message: msg(6, 2) });
+    expect(unreadTextIds(s, { 1: 5 })).toEqual(new Set([2]));
   });
 });

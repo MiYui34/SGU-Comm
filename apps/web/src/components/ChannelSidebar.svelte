@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
+  import type { TextChannel } from "../lib/textChannels";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
   import Icon from "./Icon.svelte";
@@ -10,6 +11,10 @@
     speaking,
     localMuted,
     unread,
+    textChannels,
+    currentText,
+    unreadText,
+    onOpenText,
     onJoin,
     onUserMenu,
   }: {
@@ -18,12 +23,17 @@
     speaking: ReadonlySet<number>;
     localMuted: ReadonlySet<number>;
     unread: Record<number, number>;
+    textChannels: TextChannel[];
+    currentText: number | null;
+    unreadText: ReadonlySet<number>;
+    onOpenText: (id: number) => void;
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
   } = $props();
 
   const tree = $derived(channelTree(server));
   let collapsed = $state(false);
+  let textCollapsed = $state(false);
   const INDENT = 16;
 </script>
 
@@ -35,6 +45,7 @@
     <button
       class="channel"
       class:current={node.channel.id === currentChannel}
+      aria-current={node.channel.id === currentChannel ? "page" : undefined}
       onclick={() => onJoin(node.channel.id)}
       title={node.channel.description || undefined}
     >
@@ -86,13 +97,41 @@
   </li>
 {/snippet}
 
-<nav aria-label="Channels">
-  <button class="category" aria-expanded={!collapsed} onclick={() => (collapsed = !collapsed)}>
-    <svg class="chevron" class:collapsed width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+{#snippet category(label: string, isCollapsed: boolean, toggle: () => void)}
+  <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
+    <svg class="chevron" class:collapsed={isCollapsed} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" />
     </svg>
-    Voice channels
+    {label}
   </button>
+{/snippet}
+
+<nav aria-label="Channels">
+  {#if textChannels.length}
+    {@render category("Text channels", textCollapsed, () => (textCollapsed = !textCollapsed))}
+    {#if !textCollapsed}
+      <ul class="text-channels">
+        {#each textChannels as ch (ch.id)}
+          <li>
+            <button
+              class="channel"
+              class:current={ch.id === currentText}
+              class:unread={unreadText.has(ch.id) && ch.id !== currentText}
+              aria-current={ch.id === currentText ? "page" : undefined}
+              onclick={() => onOpenText(ch.id)}
+            >
+              <Icon name="hash" size={20} />
+              <span class="name">{ch.name}</span>
+              {#if unreadText.has(ch.id) && ch.id !== currentText}
+                <span class="sr-only">unread</span>
+              {/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  {/if}
+  {@render category("Voice channels", collapsed, () => (collapsed = !collapsed))}
   {#if tree && !collapsed}
     <ul>{@render channel(tree, 0)}</ul>
   {/if}
@@ -149,6 +188,14 @@
   .channel.current {
     background: var(--bg-active);
     color: white;
+  }
+  /* New messages: white and bold, like Discord. */
+  .channel.unread {
+    color: white;
+    font-weight: 600;
+  }
+  .text-channels {
+    margin-bottom: 16px;
   }
   .users {
     margin: 0 0 4px 28px;

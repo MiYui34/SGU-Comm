@@ -75,6 +75,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "history":
       return {
         ...state,
+        lastError: null,
         messages: { ...state.messages, [event.channel]: merge(state.messages[event.channel], event.messages) },
         loaded: { ...state.loaded, [event.channel]: true },
         more: { ...state.more, [event.channel]: event.more },
@@ -99,13 +100,32 @@ export const sendRequest = (channel: number, text: string) =>
 export const linkify = (escaped: string) =>
   escaped.replace(/https?:\/\/[^\s<]+[^\s<.,:;!?)\]'"]/g, (url) => `<a href="${url}">${url}</a>`);
 
+// Cached per message object: the reducer keeps message objects, so the chat
+// list gets stable objects and does not re-render every line.
+const chatCache = new WeakMap<TextMessage, ChatMessage>();
+
 // Text channel messages are plain text: escape, then link URLs.
-export const toChatMessage = (m: TextMessage): ChatMessage => ({
-  actor: null,
-  actorName: m.author,
-  channelIds: [],
-  treeIds: [],
-  sessions: [],
-  text: linkify(escapeHtml(m.text)),
-  at: m.at,
-});
+export const toChatMessage = (m: TextMessage): ChatMessage => {
+  let chat = chatCache.get(m);
+  if (!chat) {
+    chat = {
+      actor: null,
+      actorName: m.author,
+      channelIds: [],
+      treeIds: [],
+      sessions: [],
+      text: linkify(escapeHtml(m.text)),
+      at: m.at,
+    };
+    chatCache.set(m, chat);
+  }
+  return chat;
+};
+
+// Channels with a message newer than the newest one seen there.
+export const unreadTextIds = (state: TextState, seen: Record<number, number>): Set<number> =>
+  new Set(
+    state.channels
+      .filter((c) => (state.messages[c.id]?.at(-1)?.id ?? 0) > (seen[c.id] ?? 0))
+      .map((c) => c.id),
+  );

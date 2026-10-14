@@ -10,6 +10,8 @@
   import type { Connection } from "../lib/connection.svelte";
   import { pttAction } from "../lib/settings";
   import { privateCountsFrom, unreadCounts } from "../lib/chat";
+  import { toChatMessage } from "../lib/textChannels";
+  import { createTextView } from "../lib/textView.svelte";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import type { SelfState } from "../lib/voice";
@@ -80,10 +82,38 @@
   });
   const localMuted = $derived(new Set(users.filter((u) => audioOf(u.name).muted).map((u) => u.session)));
 
-  // Open user menu, and open direct-message conversation (by session).
+  // What the main pane shows. A direct message keeps the partner's name, so
+  // it still shows after they left.
+  type View =
+    | { kind: "voice" }
+    | { kind: "text"; id: number }
+    | { kind: "dm"; session: number; name: string };
+  let view = $state<View>({ kind: "voice" });
+  let navigated = false;
+  const show = (next: View) => {
+    navigated = true;
+    view = next;
+  };
+  const dm = $derived(view.kind === "dm" ? view : null);
+
+  // Text channels (Kallisti server only). Like Discord, open the first one
+  // when they arrive, unless the user already picked something.
+  const text = $derived(connection.text);
+  const textId = $derived(view.kind === "text" ? view.id : null);
+  const textChannel = $derived(text.channels.find((c) => c.id === textId));
+  $effect(() => {
+    const first = text.channels[0];
+    if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
+  });
+  // The open channel was removed: back to the voice view.
+  $effect(() => {
+    if (view.kind === "text" && text.available && !textChannel) view = { kind: "voice" };
+  });
+  const textView = createTextView(() => connection, () => textId);
+  const textChat = $derived(textId === null ? [] : (text.messages[textId] ?? []).map(toChatMessage));
+
+  // Open user menu.
   let menu = $state<{ session: number; x: number; y: number } | null>(null);
-  // The name is kept, so it still shows after the partner left.
-  let dm = $state<{ session: number; name: string } | null>(null);
   const menuUser = $derived(menu && server.users[menu.session]);
   const openMenu = (session: number, event: MouseEvent) => {
     event.preventDefault();
@@ -117,10 +147,12 @@
     const user = dm && server.users[dm.session];
     return user && user.name === dm?.name ? user : undefined;
   });
-  const send = (text: string) =>
-    connection.sendText(dm === null ? { channelId } : { session: dm.session }, text);
+  const send = (message: string) => {
+    if (view.kind === "text") connection.sendToTextChannel(view.id, message);
+    else connection.sendText(dm === null ? { channelId } : { session: dm.session }, message);
+  };
   const join = (id: number) => {
-    dm = null;
+    show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
 </script>
@@ -135,7 +167,7 @@
     x={menu.x}
     y={menu.y}
     onAudio={(patch) => userAudio.update(menuUser.name, patch)}
-    onMessage={() => (dm = { session: menuUser.session, name: menuUser.name })}
+    onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name })}
     onSettings={() => (showSettings = true)}
     onClose={() => (menu = null)}
   />
@@ -159,7 +191,11 @@
       {speaking}
       {localMuted}
       {unread}
-      currentChannel={dm === null ? channelId : null}
+      textChannels={text.channels}
+      currentText={textId}
+      unreadText={textView.unread}
+      onOpenText={(id) => show({ kind: "text", id })}
+      currentChannel={view.kind === "voice" ? channelId : null}
       onJoin={join}
       onUserMenu={openMenu}
     />
@@ -172,7 +208,21 @@
       />
     {/if}
   </div>
-  {#if dm === null}
+  {#if view.kind === "text"}
+    <ChatPane
+      title={textChannel?.name ?? ""}
+      kind="text"
+      messages={textChat}
+      welcomeText=""
+      more={text.more[view.id] ?? false}
+      loadingOlder={textView.loadingOlder}
+      onLoadOlder={textView.loadOlder}
+      error={text.lastError}
+      {membersOpen}
+      onToggleMembers={() => (membersOpen = !membersOpen)}
+      onSend={send}
+    />
+  {:else if dm === null}
     <ChatPane
       title={channelName}
       kind="channel"
@@ -191,7 +241,7 @@
       {membersOpen}
       onToggleMembers={() => (membersOpen = !membersOpen)}
       onSend={dmPartner ? send : undefined}
-      onClose={() => (dm = null)}
+      onClose={() => show({ kind: "voice" })}
     />
   {/if}
   {#if membersOpen}
