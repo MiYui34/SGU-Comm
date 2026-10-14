@@ -56,3 +56,11 @@ describe("chatItems", () => {
     ]);
   });
 });
+
+describe("groupMessages by name", () => {
+  it("does not merge different authors that share no session", () => {
+    const a = { ...msg(1, at(2026, 10, 14, 9)), actor: null, actorName: "alice" };
+    const b = { ...msg(1, at(2026, 10, 14, 9, 1)), actor: null, actorName: "bob" };
+    expect(groupMessages([a, b])).toHaveLength(2);
+  });
+});

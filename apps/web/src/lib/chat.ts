@@ -18,7 +18,8 @@ export const groupMessages = (messages: readonly ChatMessage[]): MessageGroup[] 
   for (const m of messages) {
     const last = groups.at(-1);
     const prev = last?.messages.at(-1);
-    if (last && prev && last.actor === m.actor && m.at - prev.at <= GROUP_WINDOW_MS && sameDay(prev.at, m.at)) {
+    const sameAuthor = last?.actor === m.actor && last.actorName === m.actorName;
+    if (last && prev && sameAuthor && m.at - prev.at <= GROUP_WINDOW_MS && sameDay(prev.at, m.at)) {
       last.messages.push(m);
     } else {
       groups.push({ actor: m.actor, actorName: m.actorName, at: m.at, messages: [m] });
