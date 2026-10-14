@@ -3,10 +3,13 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net"
+	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -217,4 +220,65 @@ func TestNameIsFreeAgainAfterLeaving(t *testing.T) {
 	second, _, _ := connect(t, url, "")
 	second.Write(testCtx(t), websocket.MessageBinary, hello("bob"))
 	eventually(t, func() bool { return echo.open.Load() == 1 })
+}
+
+// accounts: requests with a "user" query value belong to that account.
+func accounts(names ...string) (func(*http.Request) (string, *tls.Certificate, bool), func(string) bool) {
+	cert := &tls.Certificate{}
+	lookup := func(r *http.Request) (string, *tls.Certificate, bool) {
+		u := r.URL.Query().Get("user")
+		return u, cert, u != ""
+	}
+	isAccount := func(name string) bool {
+		for _, n := range names {
+			if strings.EqualFold(n, name) {
+				return true
+			}
+		}
+		return false
+	}
+	return lookup, isAccount
+}
+
+func TestAccountsDialWithTheirCertificate(t *testing.T) {
+	echo := startEcho(t)
+	var got atomic.Pointer[tls.Certificate]
+	dial := func(ctx context.Context, cert *tls.Certificate) (net.Conn, error) {
+		got.Store(cert)
+		return dialer(echo.addr)(ctx, cert)
+	}
+	lookup, isAccount := accounts("carol")
+	url := startBridge(t, Options{Dial: dial, UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
+	c, _, _ := connect(t, url+"?user=carol", "")
+	c.Write(testCtx(t), websocket.MessageBinary, hello("carol"))
+	eventually(t, func() bool { return echo.open.Load() == 1 })
+	if got.Load() == nil {
+		t.Fatal("dialed without the account certificate")
+	}
+}
+
+func TestAccountsMustUseTheirName(t *testing.T) {
+	echo := startEcho(t)
+	lookup, isAccount := accounts("carol")
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
+	c, _, _ := connect(t, url+"?user=carol", "")
+	c.Write(testCtx(t), websocket.MessageBinary, hello("somebody-else"))
+	if m := readReject(t, c); m == nil {
+		t.Fatal("an account used a foreign name")
+	}
+}
+
+func TestGuestsCannotUseAnAccountName(t *testing.T) {
+	echo := startEcho(t)
+	lookup, isAccount := accounts("carol")
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
+	c, _, _ := connect(t, url, "")
+	c.Write(testCtx(t), websocket.MessageBinary, hello("Carol"))
+	m := readReject(t, c)
+	if m == nil || !strings.Contains(m.GetReason(), "account") {
+		t.Fatalf("got %v", m)
+	}
+	if echo.open.Load() != 0 {
+		t.Fatal("the guest reached the upstream")
+	}
 }

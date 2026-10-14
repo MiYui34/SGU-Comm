@@ -5,6 +5,7 @@ package bridge
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"log/slog"
@@ -34,8 +35,14 @@ type Options struct {
 	MaxConnections    int
 	MaxPerIP          int
 	TrustForwardedFor bool
-	// Dial opens the upstream connection (TLS to Mumble in production).
-	Dial func(ctx context.Context) (net.Conn, error)
+	// Dial opens the upstream connection (TLS to Mumble in production),
+	// with the account's client certificate, or nil for guests.
+	Dial func(ctx context.Context, cert *tls.Certificate) (net.Conn, error)
+	// Account returns the account behind a request (session cookie): its
+	// name and client certificate. Nil: everyone is a guest.
+	Account func(r *http.Request) (name string, cert *tls.Certificate, ok bool)
+	// IsAccountName: guests may not use the names of accounts.
+	IsAccountName func(name string) bool
 	// Sidecar serves text channels over text frames. Nil: text frames close
 	// the connection with 1003.
 	Sidecar *sidecar.Hub
@@ -123,24 +130,44 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(MaxPayload)
 
-	// Guests: read up to Authenticate first, and refuse a name in use.
+	var accountName string
+	var cert *tls.Certificate
+	isAccount := false
+	if b.opts.Account != nil {
+		accountName, cert, isAccount = b.opts.Account(r)
+	}
+
+	// Read up to Authenticate first. Accounts must use their own name (their
+	// certificate registers it on Murmur). Guests may not use an account's
+	// name, nor a name another web guest has.
 	var hello []byte
 	if b.opts.UniqueGuestNames {
 		name, early, ok := b.readHello(ws)
 		if !ok {
 			return
 		}
-		if !b.reserveName(name) {
-			ws.Write(b.ctx, websocket.MessageBinary,
-				mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is already in use."))
-			ws.Close(websocket.StatusNormalClosure, "name in use")
-			return
+		reject := func(typ pb.Reject_RejectType, reason string) {
+			ws.Write(b.ctx, websocket.MessageBinary, mumble.RejectFrame(typ, reason))
+			ws.Close(websocket.StatusNormalClosure, "rejected")
 		}
-		defer b.releaseName(name)
+		switch {
+		case isAccount && !strings.EqualFold(name, accountName):
+			reject(pb.Reject_InvalidUsername, "Use your account name, "+accountName+".")
+			return
+		case !isAccount && b.opts.IsAccountName != nil && b.opts.IsAccountName(name):
+			reject(pb.Reject_UsernameInUse, "This name belongs to an account. Log in to use it.")
+			return
+		case !isAccount:
+			if !b.reserveName(name) {
+				reject(pb.Reject_UsernameInUse, "This name is already in use.")
+				return
+			}
+			defer b.releaseName(name)
+		}
 		hello = early
 	}
 
-	upstream, err := b.opts.Dial(b.ctx)
+	upstream, err := b.opts.Dial(b.ctx, cert)
 	if err != nil {
 		slog.Warn("upstream connect failed", "err", err)
 		ws.Close(websocket.StatusInternalError, "upstream unavailable")

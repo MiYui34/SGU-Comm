@@ -3,6 +3,7 @@ package bridge
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -49,8 +50,8 @@ func startEcho(t *testing.T) *echoServer {
 	return e
 }
 
-func dialer(addr string) func(context.Context) (net.Conn, error) {
-	return func(ctx context.Context) (net.Conn, error) {
+func dialer(addr string) func(context.Context, *tls.Certificate) (net.Conn, error) {
+	return func(ctx context.Context, _ *tls.Certificate) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", addr)
 	}
@@ -163,7 +164,7 @@ func TestClosesUpstreamWhenWebSocketCloses(t *testing.T) {
 }
 
 func TestUpstreamDialErrorCloses1011(t *testing.T) {
-	fail := func(context.Context) (net.Conn, error) { return nil, errors.New("no route") }
+	fail := func(context.Context, *tls.Certificate) (net.Conn, error) { return nil, errors.New("no route") }
 	c, _, err := connect(t, startBridge(t, Options{Dial: fail}), "")
 	if err != nil {
 		t.Fatal(err)

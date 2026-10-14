@@ -16,7 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"kallisti.chat/server/internal/auth"
 	"kallisti.chat/server/internal/bridge"
+	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/sidecar"
@@ -46,7 +48,6 @@ func run() error {
 	if net.ParseIP(cfg.MumbleHost) == nil {
 		tlsConfig.ServerName = cfg.MumbleHost
 	}
-	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: tlsConfig}
 
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -61,6 +62,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load text channels: %w", err)
 	}
+	accounts := &auth.Service{
+		Store:             db,
+		Now:               time.Now,
+		AllowedOrigins:    cfg.AllowedOrigins,
+		TrustForwardedFor: cfg.TrustForwardedFor,
+	}
 	b := bridge.New(bridge.Options{
 		Sidecar:           hub,
 		UniqueGuestNames:  true,
@@ -68,8 +75,31 @@ func run() error {
 		MaxConnections:    cfg.MaxConnections,
 		MaxPerIP:          cfg.MaxPerIP,
 		TrustForwardedFor: cfg.TrustForwardedFor,
-		Dial: func(ctx context.Context) (net.Conn, error) {
-			return dialer.DialContext(ctx, "tcp", upstream)
+		// Accounts connect with their own client certificate, so Murmur can
+		// register them; guests without one.
+		Dial: func(ctx context.Context, cert *tls.Certificate) (net.Conn, error) {
+			conf := tlsConfig.Clone()
+			if cert != nil {
+				conf.Certificates = []tls.Certificate{*cert}
+			}
+			d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: conf}
+			return d.DialContext(ctx, "tcp", upstream)
+		},
+		Account: func(r *http.Request) (string, *tls.Certificate, bool) {
+			acc, ok := accounts.AccountFor(r)
+			if !ok {
+				return "", nil, false
+			}
+			cert, err := certs.Load(acc.CertPEM, acc.KeyPEM)
+			if err != nil {
+				slog.Error("load account certificate", "account", acc.Name, "err", err)
+				return "", nil, false
+			}
+			return acc.Name, &cert, true
+		},
+		IsAccountName: func(name string) bool {
+			_, err := db.AccountByName(name)
+			return err == nil
 		},
 	})
 
@@ -92,6 +122,9 @@ func run() error {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
+	for _, path := range []string{"/api/accounts", "/api/login", "/api/logout", "/api/me"} {
+		mux.Handle(path, accounts)
+	}
 	mux.Handle("/files/", fileHandler)
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
 	// else to the web app.
