@@ -16,3 +16,4 @@
 - [x] [Voice: fall back to the default microphone](issues/voice-fall-back-to-the-default-microphone.md)
 - [x] [Audio limiter for user volume above 100 %](issues/audio-limiter-for-user-volume.md)
 - [x] [Direct messages keyed by user, not session](issues/direct-messages-keyed-by-user-not-session.md)
+- [x] [Text channels: robustness follow-ups](issues/text-channels-robustness.md)
