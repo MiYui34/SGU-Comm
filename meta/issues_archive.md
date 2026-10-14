@@ -27,3 +27,4 @@
 - [x] [User accounts and registration behind the proxy](issues/user-accounts-and-registration.md)
 - [x] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
 - [x] [Account UX follow-ups](issues/account-ux-follow-ups.md)
+- [x] [Desktop: Tauri shell with a local bridge](issues/desktop-shell-with-local-bridge.md)

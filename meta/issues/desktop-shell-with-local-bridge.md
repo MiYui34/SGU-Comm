@@ -15,3 +15,7 @@ Part of [Desktop app (Tauri)](desktop-app-tauri.md). A Tauri app around the web 
 
 - An automated test connects through the local bridge to Murmur and syncs.
 - The app builds on macOS.
+
+## Result
+
+- Automated tests: TLS echo and a real Murmur through the bridge. Release build produces Kallisti.app. The window itself could not be opened in the development sandbox.
