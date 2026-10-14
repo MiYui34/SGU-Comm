@@ -20,12 +20,17 @@ import (
 
 func start(t *testing.T) string {
 	t.Helper()
+	return startOn(t, "127.0.0.1")
+}
+
+func startOn(t *testing.T, host string) string {
+	t.Helper()
 	certPEM, keyPEM, err := certs.GenerateServer("test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cert, _ := certs.Load(certPEM, keyPEM)
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+	ln, err := tls.Listen("tcp", net.JoinHostPort(host, "0"), &tls.Config{Certificates: []tls.Certificate{cert}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +122,12 @@ func (c *testClient) send(typ uint16, m proto.Message) {
 // expect reads frames until one of the type arrives.
 func (c *testClient) expect(typ uint16) []byte {
 	c.t.Helper()
-	timeout := time.After(3 * time.Second)
+	return c.expectWithin(typ, 3*time.Second)
+}
+
+func (c *testClient) expectWithin(typ uint16, d time.Duration) []byte {
+	c.t.Helper()
+	timeout := time.After(d)
 	for {
 		select {
 		case f, ok := <-c.frames:
