@@ -36,3 +36,4 @@
 - [x] [Mumble server: accounts and registration](issues/mumble-server-accounts.md)
 - [x] [Mumble server: permissions](issues/mumble-server-permissions.md)
 - [x] [Mumble server: moderation](issues/mumble-server-moderation.md)
+- [x] [Mumble server: whispers and shouts](issues/mumble-server-voice-targets.md)
