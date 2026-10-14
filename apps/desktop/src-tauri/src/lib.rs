@@ -1,5 +1,6 @@
 pub mod bridge;
 pub mod crypt;
+pub mod frames;
 pub mod ocb2;
 pub mod pins;
 
