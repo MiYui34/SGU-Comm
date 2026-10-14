@@ -294,3 +294,14 @@ func TestPasswordAndSessionsOfAnAccount(t *testing.T) {
 		t.Error("session two still valid after deleting all")
 	}
 }
+
+func TestTheDatabaseIsShared(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.DB().Ping(); err != nil {
+		t.Fatal(err)
+	}
+}

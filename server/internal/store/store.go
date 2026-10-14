@@ -56,6 +56,10 @@ type Upload struct {
 
 type Store struct{ db *sql.DB }
 
+// DB is the database, for other parts that keep their tables in the same
+// file (the built-in Mumble server).
+func (s *Store) DB() *sql.DB { return s.db }
+
 const schema = `
 CREATE TABLE IF NOT EXISTS channels (
 	id       INTEGER PRIMARY KEY,

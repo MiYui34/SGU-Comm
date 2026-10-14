@@ -43,6 +43,9 @@ type Service struct {
 	Now               func() time.Time
 	AllowedOrigins    []string
 	TrustForwardedFor bool
+	// NameTaken reports names (as names.Key) used elsewhere, for example by
+	// users registered on the Mumble server. Nil: none.
+	NameTaken func(key string) bool
 
 	mu     sync.Mutex
 	limits map[string]*rate.Limiter
@@ -117,6 +120,10 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 	name := norm.NFC.String(strings.TrimSpace(c.Name))
 	if msg := names.Check(name); msg != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		return
+	}
+	if a.NameTaken != nil && a.NameTaken(names.Key(name)) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
 		return
 	}
 	if n := utf8.RuneCountInString(c.Password); n < 8 || n > 256 {

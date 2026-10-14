@@ -230,3 +230,12 @@ func TestWildcardOriginsGetCredentialsOnlyForLocalhost(t *testing.T) {
 		}
 	}
 }
+
+func TestNamesTakenElsewhereAreRefused(t *testing.T) {
+	a, srv := setup(t)
+	a.NameTaken = func(name string) bool { return name == "bob" } // registered in Mumble
+	resp, body := post(t, srv, "/api/accounts", map[string]string{"name": "Bob", "password": "long enough"}, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status %d %v", resp.StatusCode, body)
+	}
+}
