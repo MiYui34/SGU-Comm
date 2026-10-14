@@ -168,3 +168,15 @@ folder keep the old name "mumble-discord".
   own count of decrypted UDP packets is `from_client.good`.
 - Murmur's autoban blocks an IP after 10 connects in 120 s. The dev
   container runs with `MUMBLE_CONFIG_AUTOBANATTEMPTS=0` for the tests.
+
+## Built-in Mumble server spike (2026-10-14)
+
+- Grumble (Go Murmur) was checked briefly: little activity since 2023,
+  announces 1.2.5, legacy UDP format only. Not a base.
+- A minimal server in Go (`internal/mumbled`) passes the same bridge tests as
+  Murmur, and the web client works through it with voice and text.
+- Murmur (Server.cpp) sets a client's UDP flag only for UDP audio, not for
+  pings, and clears it for a UDPTunnel over TCP. It requests a nonce resync
+  when no packet decrypted for 5 s, at most every 5 s.
+- Closing a `tls.Conn` waits for its writer (close_notify needs the write
+  lock), so the server never closes a connection while it holds a lock.
