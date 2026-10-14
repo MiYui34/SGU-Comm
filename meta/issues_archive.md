@@ -6,3 +6,5 @@
 - [x] [Graceful proxy shutdown](issues/graceful-proxy-shutdown.md)
 - [x] [Rename to Kallisti](issues/rename-to-kallisti.md)
 - [x] [Per-IP connection limit in the proxy](issues/per-ip-connection-limit-in-the-proxy.md)
+- [x] [Text channels with persistent history](issues/text-channels-with-persistent-history.md)
+- [x] [Chat autoscroll only when at the bottom](issues/chat-autoscroll-only-when-at-the-bottom.md)

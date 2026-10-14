@@ -1,7 +1,6 @@
 # Open issues
 
 - [ ] [Sidecar: Discord-style server features](issues/sidecar-discord-style-server-features.md)
-  - [ ] [Text channels with persistent history](issues/text-channels-with-persistent-history.md)
   - [ ] [File and image uploads](issues/file-and-image-uploads.md)
   - [ ] [User accounts and registration behind the proxy](issues/user-accounts-and-registration.md)
   - [ ] [Production deployment with docker-compose](issues/production-deployment-with-docker-compose.md)
@@ -9,7 +8,6 @@
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
 - [ ] [Fetch long channel descriptions with RequestBlob](issues/fetch-long-channel-descriptions-with-requestblob.md)
 - [ ] [Cap chat history in memory](issues/cap-chat-history-in-memory.md)
-- [ ] [Chat autoscroll only when at the bottom](issues/chat-autoscroll-only-when-at-the-bottom.md)
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
