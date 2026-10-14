@@ -209,3 +209,62 @@ func TestRateLimit(t *testing.T) {
 		t.Fatal("no request was limited")
 	}
 }
+
+func TestUploadTokens(t *testing.T) {
+	h := newHub(t, "general")
+	c := ready(t, h, "alice")
+	c.Handle([]byte(`{"type":"upload-token"}`))
+	m := next(t, c)
+	token, _ := m["token"].(string)
+	if m["type"] != "upload-token" || len(token) < 32 {
+		t.Fatalf("got %v", m)
+	}
+	if author, ok := h.RedeemUploadToken(token); !ok || author != "alice" {
+		t.Fatalf("redeem: %q %v", author, ok)
+	}
+	if _, ok := h.RedeemUploadToken(token); ok {
+		t.Fatal("token used twice")
+	}
+	if _, ok := h.RedeemUploadToken("made-up"); ok {
+		t.Fatal("unknown token accepted")
+	}
+}
+
+func TestUploadTokensExpire(t *testing.T) {
+	h := newHub(t, "general")
+	now := clock
+	h.now = func() time.Time { return now }
+	c := ready(t, h, "alice")
+	c.Handle([]byte(`{"type":"upload-token"}`))
+	token := next(t, c)["token"].(string)
+	now = now.Add(tokenLifetime + time.Second)
+	if _, ok := h.RedeemUploadToken(token); ok {
+		t.Fatal("expired token accepted")
+	}
+}
+
+func TestSendWithUpload(t *testing.T) {
+	h := newHub(t, "general")
+	alice, bob := ready(t, h, "alice"), ready(t, h, "bob")
+	if _, err := h.store.AddUpload(store.Upload{Key: "abc", Name: "cat.png", Type: "image/png", Size: 3, Author: "alice"}, clock); err != nil {
+		t.Fatal(err)
+	}
+	// Someone else's upload is refused.
+	bob.Handle([]byte(`{"type":"send","channel":1,"text":"","upload":"abc"}`))
+	if m := next(t, bob); m["type"] != "error" {
+		t.Fatalf("bob: %v", m)
+	}
+	// An attachment needs no text.
+	alice.Handle([]byte(`{"type":"send","channel":1,"text":"","upload":"abc"}`))
+	m := next(t, alice)
+	msg := m["message"].(map[string]any)
+	up, _ := msg["upload"].(map[string]any)
+	if m["type"] != "message" || up["name"] != "cat.png" || up["type"] != "image/png" || up["url"] != "/files/abc/cat.png" {
+		t.Fatalf("got %v", m)
+	}
+	next(t, bob)
+	alice.Handle([]byte(`{"type":"send","channel":1,"text":"","upload":"missing"}`))
+	if m := next(t, alice); m["type"] != "error" {
+		t.Fatalf("missing upload: %v", m)
+	}
+}

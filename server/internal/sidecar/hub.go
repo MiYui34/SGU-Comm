@@ -4,8 +4,11 @@
 package sidecar
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +28,8 @@ const (
 	// Requests per connection: a steady rate with a short burst.
 	perSecond = 5
 	burst     = 10
+	// An upload token is valid this long, for one upload.
+	tokenLifetime = 5 * time.Minute
 )
 
 type Hub struct {
@@ -34,6 +39,12 @@ type Hub struct {
 	channels []wireChannel
 	mu       sync.Mutex
 	conns    map[*Conn]struct{}
+	tokens   map[string]uploadToken
+}
+
+type uploadToken struct {
+	author  string
+	expires time.Time
 }
 
 func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
@@ -45,7 +56,7 @@ func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
 	for i, ch := range channels {
 		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
 	}
-	return &Hub{store: s, now: now, channels: wire, conns: map[*Conn]struct{}{}}, nil
+	return &Hub{store: s, now: now, channels: wire, conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
 }
 
 func (h *Hub) count() int {
@@ -109,15 +120,32 @@ type wireChannel struct {
 }
 
 type wireMessage struct {
-	ID      int64  `json:"id"`
-	Channel int64  `json:"channel"`
-	Author  string `json:"author"`
-	Text    string `json:"text"`
-	At      int64  `json:"at"` // Unix milliseconds
+	ID      int64       `json:"id"`
+	Channel int64       `json:"channel"`
+	Author  string      `json:"author"`
+	Text    string      `json:"text"`
+	At      int64       `json:"at"` // Unix milliseconds
+	Upload  *wireUpload `json:"upload,omitempty"`
+}
+
+type wireUpload struct {
+	URL  string `json:"url"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
+}
+
+// FileURL is where the server serves an upload (relative to the server).
+func FileURL(u store.Upload) string {
+	return "/files/" + u.Key + "/" + url.PathEscape(u.Name)
 }
 
 func toWire(m store.Message) wireMessage {
-	return wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli()}
+	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli()}
+	if u := m.Upload; u != nil {
+		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
+	}
+	return w
 }
 
 type request struct {
@@ -125,6 +153,7 @@ type request struct {
 	Channel int64  `json:"channel"`
 	Before  int64  `json:"before"`
 	Text    string `json:"text"`
+	Upload  string `json:"upload"` // key of an upload to attach
 }
 
 // Handle answers one request from the browser.
@@ -143,6 +172,10 @@ func (c *Conn) Handle(raw []byte) {
 	}
 	if !c.limit.Allow() {
 		c.sendError("too many requests, slow down")
+		return
+	}
+	if req.Type == "upload-token" {
+		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name)})
 		return
 	}
 	if req.Type != "send" && req.Type != "history" {
@@ -190,11 +223,23 @@ func (c *Conn) history(req request) {
 
 func (c *Conn) post(id mumble.Identity, req request) {
 	text := strings.TrimSpace(req.Text)
-	if text == "" || utf8.RuneCountInString(text) > MaxTextLength {
+	// A message with an attachment may have no text.
+	if (text == "" && req.Upload == "") || utf8.RuneCountInString(text) > MaxTextLength {
 		c.sendError("message must be 1 to 2000 characters")
 		return
 	}
-	m, err := c.hub.store.AddMessage(req.Channel, id.Name, text, c.hub.now())
+	var m store.Message
+	var err error
+	if req.Upload == "" {
+		m, err = c.hub.store.AddMessage(req.Channel, id.Name, text, c.hub.now())
+	} else {
+		u, uerr := c.hub.store.UploadByKey(req.Upload)
+		if uerr != nil || u.Author != id.Name {
+			c.sendError("unknown upload")
+			return
+		}
+		m, err = c.hub.store.AddMessageWithUpload(req.Channel, id.Name, text, c.hub.now(), u.ID)
+	}
 	if err != nil {
 		c.sendError("cannot store message")
 		return
@@ -236,4 +281,33 @@ func (c *Conn) send(v any) {
 	default:
 		slog.Warn("sidecar outbox full, message dropped")
 	}
+}
+
+func (h *Hub) issueUploadToken(author string) string {
+	b := make([]byte, 24)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.now()
+	for t, v := range h.tokens { // drop expired tokens
+		if now.After(v.expires) {
+			delete(h.tokens, t)
+		}
+	}
+	h.tokens[token] = uploadToken{author: author, expires: now.Add(tokenLifetime)}
+	return token
+}
+
+// RedeemUploadToken returns the author a token was issued to. A token works
+// once and only before it expires.
+func (h *Hub) RedeemUploadToken(token string) (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	t, ok := h.tokens[token]
+	delete(h.tokens, token)
+	if !ok || h.now().After(t.expires) {
+		return "", false
+	}
+	return t.author, true
 }
