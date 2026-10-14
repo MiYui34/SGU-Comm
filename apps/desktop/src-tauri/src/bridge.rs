@@ -6,14 +6,19 @@
 //! secret in the URL, and checks the Origin (websites in a normal browser can
 //! also open WebSockets to localhost).
 
+use std::io::ErrorKind;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use crate::frames::{self, CryptSetup, Splitter, CRYPT_SETUP, UDP_TUNNEL, VERSION};
 use crate::pins::{self, Check, PinStore};
+use crate::udp::{self, Incoming, UdpVoice};
 
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse, Request, Response},
     http::StatusCode,
@@ -114,7 +119,7 @@ async fn serve(
     let mut ws = tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::accept_hdr_async(tcp, check)).await??;
     let (host, port) = target.ok_or("no target")?;
 
-    let (upstream, fp) = match connect_upstream(&host, port).await {
+    let (upstream, fp, peer) = match connect_upstream(&host, port).await {
         Ok(u) => u,
         Err(err) => {
             // Tell the client why, instead of just dropping the socket.
@@ -137,41 +142,132 @@ async fn serve(
         close_with(&mut ws, CloseCode::Policy, reason).await;
         return Ok(());
     }
-    let (mut up_read, mut up_write) = tokio::io::split(upstream);
-    let (mut ws_write, mut ws_read) = ws.split();
+    let udp = udp_socket(peer).await.ok();
+    let voice = Mutex::new(UdpVoice::default());
+    let (mut up_read, up_write) = tokio::io::split(upstream);
+    let up_write = tokio::sync::Mutex::new(up_write);
+    let (ws_write, mut ws_read) = ws.split();
+    let ws_write = tokio::sync::Mutex::new(ws_write);
 
-    // Browser to server: binary frames are the Mumble stream.
+    // Browser to server: binary frames are the Mumble stream. Voice goes
+    // over UDP while UDP works, everything else over TLS.
     let to_server = async {
+        let mut splitter = Splitter::default();
         while let Some(Ok(msg)) = ws_read.next().await {
-            match msg {
-                Message::Binary(data) => up_write.write_all(&data).await?,
+            let data = match msg {
+                Message::Binary(data) => data,
                 Message::Close(_) => break,
-                _ => {} // no text API without the Kallisti server
+                _ => continue, // no text API without the Kallisti server
+            };
+            let mut tcp = Vec::with_capacity(data.len());
+            for frame in splitter.feed(&data).map_err(std::io::Error::other)? {
+                let via_udp = udp.as_ref().filter(|_| frame.typ == UDP_TUNNEL);
+                let packet = via_udp.and_then(|_| voice.lock().unwrap().outgoing(Instant::now(), frame.body()));
+                match (via_udp, packet) {
+                    (Some(socket), Some(packet)) => {
+                        let _ = socket.send(&packet).await;
+                    }
+                    _ => tcp.extend_from_slice(&frame.raw),
+                }
+            }
+            if !tcp.is_empty() {
+                up_write.lock().await.write_all(&tcp).await?;
             }
         }
-        up_write.shutdown().await
+        up_write.lock().await.shutdown().await
     };
-    // Server to browser.
+    // Server to browser, unchanged. The bridge reads the server's Version
+    // (UDP format) and CryptSetup (UDP keys) on the way. Only whole frames
+    // go to the browser, so UDP voice never lands inside a TCP frame.
     let to_browser = async {
+        let mut splitter = Splitter::default();
         let mut buf = vec![0u8; 32 * 1024];
         loop {
             let n = up_read.read(&mut buf).await?;
             if n == 0 {
                 break;
             }
-            if ws_write.send(Message::Binary(buf[..n].to_vec().into())).await.is_err() {
+            let mut out = Vec::with_capacity(n);
+            for frame in splitter.feed(&buf[..n]).map_err(std::io::Error::other)? {
+                match frame.typ {
+                    VERSION => voice.lock().unwrap().set_legacy(udp::is_legacy_server(frame.body())),
+                    CRYPT_SETUP => {
+                        let reply = CryptSetup::parse(frame.body()).and_then(|cs| voice.lock().unwrap().on_crypt_setup(&cs));
+                        if let Some(reply) = reply {
+                            up_write.lock().await.write_all(&reply).await?;
+                        }
+                        send_ping(&udp, &voice).await; // find out at once if UDP works
+                    }
+                    _ => {}
+                }
+                out.extend_from_slice(&frame.raw);
+            }
+            if !out.is_empty() && ws_write.lock().await.send(Message::Binary(out.into())).await.is_err() {
                 break;
             }
         }
-        let _ = ws_write.close().await;
+        let _ = ws_write.lock().await.close().await;
         Ok::<_, std::io::Error>(())
+    };
+    // UDP from the server, and pings.
+    let udp_loop = async {
+        let Some(socket) = &udp else { return std::future::pending::<std::io::Result<()>>().await };
+        let mut buf = vec![0u8; 2048];
+        let mut pings = tokio::time::interval(udp::PING_INTERVAL);
+        loop {
+            tokio::select! {
+                _ = pings.tick() => {
+                    let to_tcp = voice.lock().unwrap().check(Instant::now());
+                    if let Some(frame) = to_tcp {
+                        up_write.lock().await.write_all(&frame).await?;
+                    }
+                    send_ping(&udp, &voice).await;
+                }
+                r = socket.recv(&mut buf) => {
+                    let n = match r {
+                        Ok(n) => n,
+                        // ICMP replies (port unreachable): no UDP for now.
+                        Err(e) if matches!(e.kind(), ErrorKind::ConnectionRefused | ErrorKind::ConnectionReset) => continue,
+                        // Anything else: give up on UDP, keep the TCP session.
+                        Err(_) => return std::future::pending().await,
+                    };
+                    let incoming = voice.lock().unwrap().incoming(Instant::now(), &buf[..n]);
+                    match incoming {
+                        Incoming::Audio(plain) => {
+                            let frame = frames::make_frame(UDP_TUNNEL, &plain);
+                            if ws_write.lock().await.send(Message::Binary(frame.into())).await.is_err() {
+                                return Ok(());
+                            }
+                        }
+                        Incoming::Resync(request) => up_write.lock().await.write_all(&request).await?,
+                        Incoming::Pong | Incoming::Dropped => {}
+                    }
+                }
+            }
+        }
     };
     // Whichever side ends first ends the connection.
     tokio::select! {
         r = to_server => r?,
         r = to_browser => r?,
+        r = udp_loop => r?,
     }
     Ok(())
+}
+
+async fn udp_socket(peer: SocketAddr) -> std::io::Result<UdpSocket> {
+    let local = if peer.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+    let socket = UdpSocket::bind(local).await?;
+    socket.connect(peer).await?;
+    Ok(socket)
+}
+
+async fn send_ping(udp: &Option<UdpSocket>, voice: &Mutex<UdpVoice>) {
+    let Some(socket) = udp else { return };
+    let ping = voice.lock().unwrap().ping();
+    if let Some(ping) = ping {
+        let _ = socket.send(&ping).await;
+    }
 }
 
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -190,19 +286,21 @@ async fn close_with(ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>, code
     .await;
 }
 
-/// Connects with TLS and returns the server certificate's fingerprint.
+/// Connects with TLS. Returns the server certificate's fingerprint and the
+/// server address (for UDP).
 async fn connect_upstream(
     host: &str,
     port: u16,
-) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
     let tcp = tokio::time::timeout(HANDSHAKE_TIMEOUT, TcpStream::connect((host, port))).await??;
     tcp.set_nodelay(true)?;
+    let peer = tcp.peer_addr()?;
     let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
     let seen = Arc::new(Mutex::new(None));
     let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(seen.clone())));
     let stream = tls.connect(name, tcp).await?;
     let fp = seen.lock().unwrap().take().ok_or("no server certificate")?;
-    Ok((stream, fp))
+    Ok((stream, fp, peer))
 }
 
 /// Mumble servers usually have self-signed certificates, so the CA check is

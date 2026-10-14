@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use crate::crypt::CryptState;
-use crate::frames::{fields, make_frame, CryptSetup, Value, CRYPT_SETUP};
+use crate::frames::{fields, make_frame, CryptSetup, Value, CRYPT_SETUP, UDP_TUNNEL};
 
 pub const PING_INTERVAL: Duration = Duration::from_secs(5);
 // Two lost pings in a row are fine, three mean UDP is gone.
@@ -20,6 +20,7 @@ pub struct UdpVoice {
     last_good: Option<Instant>,
     last_resync: Option<Instant>,
     ping_count: u8,
+    was_usable: bool,
 }
 
 pub enum Incoming {
@@ -47,6 +48,10 @@ pub fn is_legacy_server(version_body: &[u8]) -> bool {
         (None, None) => return false,
     };
     (major, minor) < (1, 5)
+}
+
+fn ping_body(legacy: bool, timestamp: u8) -> Vec<u8> {
+    if legacy { vec![0x20, timestamp] } else { vec![0x01, 0x08, timestamp] }
 }
 
 impl UdpVoice {
@@ -84,8 +89,17 @@ impl UdpVoice {
         let crypt = self.crypt.as_mut()?;
         // The timestamp only has to come back; keep it to one byte.
         self.ping_count = (self.ping_count + 1) & 0x7f;
-        let plain = if self.legacy { vec![0x20, self.ping_count] } else { vec![0x01, 0x08, self.ping_count] };
-        Some(crypt.encrypt(&plain))
+        Some(crypt.encrypt(&ping_body(self.legacy, self.ping_count)))
+    }
+
+    /// Call on each ping tick. When UDP stops working, returns a frame for
+    /// the server: Murmur keeps sending voice over UDP until it gets a
+    /// UDPTunnel over TCP. It ignores the ping inside.
+    pub fn check(&mut self, now: Instant) -> Option<Vec<u8>> {
+        let usable = self.usable(now);
+        let stopped = self.was_usable && !usable;
+        self.was_usable = usable;
+        stopped.then(|| make_frame(UDP_TUNNEL, &ping_body(self.legacy, 0)))
     }
 
     /// The encrypted packet for a UDPTunnel body, or None to keep it on TCP.
@@ -120,7 +134,7 @@ impl UdpVoice {
 mod tests {
     use super::*;
     use crate::crypt::CryptState;
-    use crate::frames::{make_frame, CryptSetup, CRYPT_SETUP};
+    use crate::frames::{make_frame, CryptSetup, CRYPT_SETUP, UDP_TUNNEL};
     use std::time::{Duration, Instant};
 
     const KEY: [u8; 16] = [3; 16];
@@ -156,6 +170,23 @@ mod tests {
 
         // Without pongs for a while, voice goes back to TCP.
         assert!(!v.usable(now + Duration::from_secs(13)));
+    }
+
+    #[test]
+    fn tells_the_server_once_when_udp_stops_working() {
+        let now = Instant::now();
+        let mut v = UdpVoice::default();
+        v.on_crypt_setup(&setup());
+        assert!(v.check(now).is_none(), "UDP never worked");
+        let mut server = murmur();
+        let ping = server.decrypt(&v.ping().unwrap()).unwrap();
+        v.incoming(now, &server.encrypt(&ping));
+        assert!(v.check(now).is_none());
+        // A ping in a UDPTunnel frame makes Murmur send voice over TCP again.
+        let later = now + Duration::from_secs(13);
+        let frame = v.check(later).unwrap();
+        assert_eq!(frame, make_frame(UDP_TUNNEL, &[0x01, 0x08, 0]));
+        assert!(v.check(later).is_none(), "only once");
     }
 
     #[test]
