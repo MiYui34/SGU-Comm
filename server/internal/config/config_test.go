@@ -24,6 +24,8 @@ func TestDefaults(t *testing.T) {
 		DBPath:             "kallisti.db",
 		TextChannels:       []string{"general"},
 		MaxPerIP:           10,
+		UploadDir:          "uploads",
+		UploadMaxBytes:     10 << 20,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -42,6 +44,8 @@ func TestAllOptions(t *testing.T) {
 		"TEXT_CHANNELS":          " general, links ,,general, memes",
 		"MAX_CONNECTIONS_PER_IP": "3",
 		"TRUST_FORWARDED_FOR":    "1",
+		"UPLOAD_DIR":             "/data/files",
+		"UPLOAD_MAX_MB":          "25",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +61,8 @@ func TestAllOptions(t *testing.T) {
 		TextChannels:       []string{"general", "links", "memes"},
 		MaxPerIP:           3,
 		TrustForwardedFor:  true,
+		UploadDir:          "/data/files",
+		UploadMaxBytes:     25 << 20,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -74,6 +80,7 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "LISTEN_PORT": "70000"}, "LISTEN_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS": "0"}, "MAX_CONNECTIONS must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS_PER_IP": "-1"}, "MAX_CONNECTIONS_PER_IP must be a positive integer"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "UPLOAD_MAX_MB": "big"}, "UPLOAD_MAX_MB must be a positive integer"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))

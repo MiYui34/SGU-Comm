@@ -28,6 +28,9 @@ type Config struct {
 	// Use the first X-Forwarded-For address as the client IP. Only behind a
 	// reverse proxy that sets it: clients can fake the header.
 	TrustForwardedFor bool
+	// Uploaded files, and the size limit per file.
+	UploadDir      string
+	UploadMaxBytes int64
 }
 
 // list splits a comma-separated value, trims and drops empty and repeated
@@ -82,6 +85,12 @@ func Parse(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("MAX_CONNECTIONS_PER_IP must be a positive integer")
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
+	c.UploadDir = cmp.Or(getenv("UPLOAD_DIR"), "uploads")
+	mb, ok := positive(getenv("UPLOAD_MAX_MB"), 10)
+	if !ok {
+		return Config{}, errors.New("UPLOAD_MAX_MB must be a positive integer")
+	}
+	c.UploadMaxBytes = int64(mb) << 20
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}

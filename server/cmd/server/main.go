@@ -18,6 +18,7 @@ import (
 
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 )
@@ -70,11 +71,27 @@ func run() error {
 		},
 	})
 
+	if err := os.MkdirAll(cfg.UploadDir, 0o700); err != nil {
+		return fmt.Errorf("create upload directory: %w", err)
+	}
+	fileHandler := &files.Handler{
+		Store:          db,
+		Dir:            cfg.UploadDir,
+		MaxBytes:       cfg.UploadMaxBytes,
+		AllowedOrigins: cfg.AllowedOrigins,
+		Now:            time.Now,
+		Redeem:         hub.RedeemUploadToken,
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/api/upload", fileHandler)
+	mux.Handle("/files/", fileHandler)
+	mux.Handle("/", b) // WebSocket bridge
+
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ListenPort))
 	if err != nil {
 		return fmt.Errorf("cannot listen on port %d: %w", cfg.ListenPort, err)
 	}
-	srv := &http.Server{Handler: b, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	slog.Info("server running", "listen", ln.Addr().String(), "mumble", upstream,
 		"db", cfg.DBPath, "text_channels", cfg.TextChannels)
 
