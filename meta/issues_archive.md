@@ -20,3 +20,4 @@
 - [x] [UI contrast and shared styles](issues/ui-contrast-and-shared-styles.md)
 - [x] [Upload quota and captions](issues/upload-quota-and-captions.md)
 - [x] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
+- [x] [Mobile layout](issues/mobile-layout.md)
