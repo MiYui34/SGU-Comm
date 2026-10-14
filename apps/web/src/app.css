@@ -1,0 +1,42 @@
+:root {
+  --bg-rail: #15161a;
+  --bg-sidebar: #1d1f24;
+  --bg-main: #24262c;
+  --bg-input: #2e3138;
+  --bg-hover: #2c2f36;
+  --bg-active: #353943;
+  --text: #e6e7ea;
+  --text-muted: #9a9ea8;
+  --text-faint: #6b6f78;
+  --accent: #3ba99c;
+  --danger: #e2585b;
+  --border: #111215;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--bg-main);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+}
