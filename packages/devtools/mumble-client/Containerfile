@@ -1,0 +1,9 @@
+# The official Mumble 1.5 client on a virtual display, for server tests.
+FROM docker.io/library/debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      mumble xvfb xdotool x11-utils imagemagick pulseaudio pulseaudio-utils \
+      sqlite3 ca-certificates procps openssl \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd -m tester
+USER tester
+WORKDIR /home/tester
