@@ -96,3 +96,9 @@ The server (bridge now, sidecar later) moves to Go, in `server/`. Reasons:
 fast to write network servers in, natural backpressure with blocking I/O,
 and `pion` is a strong option if a WebRTC voice bridge is needed later.
 WebSocket library: `github.com/coder/websocket`.
+- Go bridge: `coder/websocket`'s `Close` waits up to 5 s for the peer's close
+  frame. Shutdown therefore closes connections from a hook, while the
+  connection's own reads keep running to receive that frame. Cancelling the
+  read context instead drops the connection without a close frame.
+- Bun replaces the `ws` package with its own WebSocket. It reports close code
+  1000 where Node's `ws` shows the real code (1001). Use Node to check codes.
