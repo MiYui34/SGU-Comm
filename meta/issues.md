@@ -7,4 +7,3 @@
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
-- [ ] [Voice: reset the Opus encoder for each talk spurt](issues/voice-reset-the-opus-encoder-for-each-talk-spurt.md)
