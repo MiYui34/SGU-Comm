@@ -5,8 +5,6 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Built-in Mumble server (replace Murmur)](issues/built-in-mumble-server.md)
-  - [ ] [Mumble server: spike with a minimal Go server](issues/mumble-server-spike.md)
-  - [ ] [Mumble server: test harness with the official client](issues/mumble-server-official-client-harness.md)
   - [ ] [Mumble server: channels](issues/mumble-server-channels.md)
   - [ ] [Mumble server: accounts and registration](issues/mumble-server-accounts.md)
   - [ ] [Mumble server: permissions](issues/mumble-server-permissions.md)

@@ -16,3 +16,9 @@ Mumble 1.5 client in podman (Xvfb), so every step is tested with it.
 
 - The official client connects to `mumbled`, and its user appears in the
   user list of another client.
+
+## Result
+
+- `packages/devtools/mumble-client`; run the test with
+  `KALLISTI_OFFICIAL_CLIENT=1 go test -run Official ./internal/mumbled`.
+- The client joins, sends voice, and its UDP packets decrypt on our server.

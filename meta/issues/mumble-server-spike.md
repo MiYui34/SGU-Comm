@@ -59,3 +59,4 @@ The spike is the protocol core. Still to do, by size (S < M < L):
 
 Together this is about four to six times the spike. Permissions are the
 largest risk, because Mumble clients show and edit ACLs directly.
+- Done: the official client test passes (see the harness issue).

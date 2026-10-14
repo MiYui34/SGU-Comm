@@ -30,3 +30,5 @@
 - [x] [Desktop: Tauri shell with a local bridge](issues/desktop-shell-with-local-bridge.md)
 - [x] [Desktop: trust on first use for server certificates](issues/desktop-certificate-pinning.md)
 - [x] [Desktop: native UDP voice](issues/desktop-native-udp-voice.md)
+- [x] [Mumble server: spike with a minimal Go server](issues/mumble-server-spike.md)
+- [x] [Mumble server: test harness with the official client](issues/mumble-server-official-client-harness.md)
