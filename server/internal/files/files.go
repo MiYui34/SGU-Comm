@@ -30,6 +30,14 @@ import (
 // is a download like everything else.
 var inlineTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
+const (
+	// Uploads not attached to a message within this time are deleted, so
+	// the server is no free file host.
+	UnusedLifetime = 10 * time.Minute
+	// A slow upload cannot hold a connection open longer than this.
+	uploadTimeout = 2 * time.Minute
+)
+
 type Handler struct {
 	Store          *store.Store
 	Dir            string
@@ -61,6 +69,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // cors lets the web app (possibly on another origin) post uploads.
 func (h *Handler) cors(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Vary", "Origin")
 	origin := r.Header.Get("Origin")
 	if origin == "" || !config.OriginAllowed(h.AllowedOrigins, origin) {
 		return
@@ -68,7 +77,6 @@ func (h *Handler) cors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Filename")
-	w.Header().Add("Vary", "Origin")
 }
 
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +85,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid or expired upload token", http.StatusUnauthorized)
 		return
 	}
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadTimeout))
 	key := randomKey()
 	dst := filepath.Join(h.Dir, key)
 	size, sniffed, err := h.save(dst, r.Body)
@@ -195,4 +204,19 @@ func jsonError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// DeleteUnused removes uploads that were never attached (database and
+// disk). Run it from time to time.
+func (h *Handler) DeleteUnused() {
+	keys, err := h.Store.DeleteUnusedUploads(h.Now().Add(-UnusedLifetime))
+	if err != nil {
+		slog.Error("delete unused uploads", "err", err)
+		return
+	}
+	for _, k := range keys {
+		if err := os.Remove(filepath.Join(h.Dir, k)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("delete upload file", "key", k, "err", err)
+		}
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +171,28 @@ func TestCleanName(t *testing.T) {
 		if got := cleanName(in); got != want {
 			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestDeleteUnusedRemovesFiles(t *testing.T) {
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	h := &Handler{Store: s, Dir: t.TempDir(), MaxBytes: 100, Now: func() time.Time { return now },
+		Redeem: func(string) (string, bool) { return "alice", true }}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	_, v := upload(t, srv, "any", "a.txt", "text/plain", []byte("hello"))
+	key := v["key"].(string)
+	now = now.Add(UnusedLifetime + time.Second)
+	h.DeleteUnused()
+	if _, err := s.UploadByKey(key); err == nil {
+		t.Fatal("upload still in the database")
+	}
+	if entries, _ := os.ReadDir(h.Dir); len(entries) != 0 {
+		t.Fatalf("files left: %v", entries)
 	}
 }

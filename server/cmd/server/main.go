@@ -82,6 +82,11 @@ func run() error {
 		Now:            time.Now,
 		Redeem:         hub.RedeemUploadToken,
 	}
+	go func() {
+		for range time.Tick(time.Minute) {
+			fileHandler.DeleteUnused()
+		}
+	}()
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
 	mux.Handle("/files/", fileHandler)

@@ -251,3 +251,22 @@ func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error)
 	slices.Reverse(out)
 	return out, rows.Err()
 }
+
+// DeleteUnusedUploads removes uploads created before `before` that were
+// never attached, and returns their keys (the caller deletes the files).
+func (s *Store) DeleteUnusedUploads(before time.Time) ([]string, error) {
+	rows, err := s.db.Query(`DELETE FROM uploads WHERE used = 0 AND created_at < ? RETURNING key`, before.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}

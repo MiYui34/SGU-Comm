@@ -142,3 +142,29 @@ func TestMigratesAnOldDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeleteUnusedUploads(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	old := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	stale, _ := s.AddUpload(Upload{Key: "stale", Name: "a", Type: "x", Size: 1, Author: "a"}, old)
+	attached, _ := s.AddUpload(Upload{Key: "attached", Name: "b", Type: "x", Size: 1, Author: "a"}, old)
+	s.AddMessageWithUpload(1, "a", "", old, attached.ID)
+	s.AddUpload(Upload{Key: "fresh", Name: "c", Type: "x", Size: 1, Author: "a"}, old.Add(time.Hour))
+	keys, err := s.DeleteUnusedUploads(old.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0] != "stale" {
+		t.Fatalf("deleted %v", keys)
+	}
+	if _, err := s.UploadByKey("stale"); err == nil {
+		t.Fatal("stale upload still there")
+	}
+	_ = stale
+	for _, k := range []string{"attached", "fresh"} {
+		if _, err := s.UploadByKey(k); err != nil {
+			t.Fatalf("%s was deleted", k)
+		}
+	}
+}
