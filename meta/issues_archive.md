@@ -10,3 +10,4 @@
 - [x] [Chat autoscroll only when at the bottom](issues/chat-autoscroll-only-when-at-the-bottom.md)
 - [x] [Cap chat history in memory](issues/cap-chat-history-in-memory.md)
 - [x] [File and image uploads](issues/file-and-image-uploads.md)
+- [x] [Fetch long channel descriptions with RequestBlob](issues/fetch-long-channel-descriptions-with-requestblob.md)
