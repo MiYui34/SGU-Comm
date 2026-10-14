@@ -1,4 +1,5 @@
 import type { OutgoingAudio } from "@kallisti/protocol";
+import { shouldFallBack } from "./fallback";
 import { levelDb, shouldTransmit, vadStep, type TransmitMode, type VadState } from "./vad";
 
 const SAMPLE_RATE = 48_000;
@@ -14,6 +15,9 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let level = $state(-100);
   let transmitting = $state(false);
   let micError = $state<string | null>(null);
+  // The microphone really in use, and whether it replaced the chosen one.
+  let deviceLabel = $state("");
+  let fellBack = $state(false);
   let muted = false;
   let mode: TransmitMode = "vad";
   let pttDown = false;
@@ -123,8 +127,21 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       source = ctx.createMediaStreamSource(next);
       source.connect(target);
       micError = null;
+      const track = next.getAudioTracks()[0];
+      deviceLabel = track?.label ?? "";
+      fellBack = false;
+      // Unplugged while in use: go on with the default microphone.
+      if (track) track.onended = () => {
+        if (!stale() && deviceId !== null) void start(null).then(() => (fellBack = !micError));
+      };
     } catch (err) {
-      if (!stale()) micError = err instanceof Error ? err.message : String(err);
+      if (stale()) return;
+      if (shouldFallBack(err, deviceId)) {
+        await start(null);
+        fellBack = !micError;
+        return;
+      }
+      micError = err instanceof Error ? err.message : String(err);
     }
   };
 
@@ -137,6 +154,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     },
     get micError() {
       return micError;
+    },
+    get deviceLabel() {
+      return deviceLabel;
+    },
+    get fellBack() {
+      return fellBack;
     },
     start,
     setMuted: (value: boolean) => {

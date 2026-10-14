@@ -203,6 +203,8 @@
   <SettingsDialog
     settings={prefs}
     level={capture?.level ?? -100}
+    deviceLabel={capture?.deviceLabel ?? ""}
+    fellBack={capture?.fellBack ?? false}
     onChange={settings.update}
     onClose={() => (showSettings = false)}
   />

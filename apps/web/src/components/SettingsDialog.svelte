@@ -5,11 +5,16 @@
   let {
     settings,
     level,
+    deviceLabel = "",
+    fellBack = false,
     onChange,
     onClose,
   }: {
     settings: Settings;
     level: number;
+    // The microphone really in use, and whether the chosen one failed.
+    deviceLabel?: string;
+    fellBack?: boolean;
     onChange: (patch: Partial<Settings>) => void;
     onClose: () => void;
   } = $props();
@@ -65,6 +70,13 @@
         {/if}
       {/each}
     </select>
+    {#if fellBack}
+      <span class="hint warn" role="status">
+        The chosen microphone is not available. Using {deviceLabel || "the default microphone"}.
+      </span>
+    {:else if deviceLabel}
+      <span class="hint">In use: {deviceLabel}</span>
+    {/if}
   </label>
 
   {#if outputSupported}
@@ -241,8 +253,13 @@
   input[type="radio"] {
     accent-color: var(--accent);
   }
+  .hint.warn {
+    color: var(--danger);
+  }
   .hint {
     margin: 0;
+    text-transform: none;
+    font-weight: normal;
     font-size: 12px;
     color: var(--text-faint);
   }
