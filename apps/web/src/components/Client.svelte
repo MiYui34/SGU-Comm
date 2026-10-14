@@ -10,6 +10,7 @@
   import type { Connection } from "../lib/connection.svelte";
   import { pttAction } from "../lib/settings";
   import { privateCountsFrom, unreadCounts } from "../lib/chat";
+  import { htmlToText } from "../lib/htmlText";
   import { toChatMessage } from "../lib/textChannels";
   import { createTextView } from "../lib/textView.svelte";
   import { settings, userAudio } from "../lib/settings.svelte";
@@ -251,6 +252,7 @@
   {:else if dm === null}
     <ChatPane
       title={channelName}
+      topic={htmlToText(server.channels[channelId]?.description ?? "")}
       kind="channel"
       messages={messagesIn(server, channelId)}
       welcomeText={channelId === 0 ? server.welcomeText : ""}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
+  import { htmlToText } from "../lib/htmlText";
   import type { TextChannel } from "../lib/textChannels";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
@@ -47,7 +48,7 @@
       class:current={node.channel.id === currentChannel}
       aria-current={node.channel.id === currentChannel ? "page" : undefined}
       onclick={() => onJoin(node.channel.id)}
-      title={node.channel.description || undefined}
+      title={htmlToText(node.channel.description) || undefined}
     >
       <Icon name="speaker" size={20} />
       <span class="name">{node.channel.name}</span>

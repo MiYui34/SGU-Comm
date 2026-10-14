@@ -10,6 +10,7 @@
 
   let {
     title,
+    topic = "",
     kind,
     messages,
     welcomeText,
@@ -25,6 +26,8 @@
     onClose,
   }: {
     title: string;
+    // Shown after the title, like a Discord channel topic (plain text).
+    topic?: string;
     // channel: a Mumble voice channel's chat (not stored), text: a stored
     // Kallisti text channel, dm: a private conversation.
     kind: "channel" | "text" | "dm";
@@ -134,6 +137,10 @@
       <Icon name={kind === "text" ? "hash" : "speaker"} size={22} />
     {/if}
     <h1>{title}</h1>
+    {#if topic}
+      <span class="divider-v" aria-hidden="true"></span>
+      <span class="topic" title={topic}>{topic}</span>
+    {/if}
     <div class="tools">
       {#if kind !== "dm"}
         <button
@@ -303,6 +310,20 @@
     font-size: 16px;
     font-weight: 600;
     color: var(--text);
+  }
+  .divider-v {
+    width: 1px;
+    height: 24px;
+    margin: 0 4px;
+    background: var(--border-subtle);
+  }
+  .topic {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .tools {
     display: flex;

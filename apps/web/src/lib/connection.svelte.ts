@@ -7,8 +7,10 @@ import {
   encodeVoicePacket,
   handshake,
   initialState,
+  missingDescriptions,
   ping,
   reduce,
+  requestDescriptions,
   sendText,
   type Bytes,
   type MumbleMessage,
@@ -51,6 +53,16 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   ws.binaryType = "arraybuffer";
   let timer: ReturnType<typeof setInterval> | undefined;
 
+  // Long channel descriptions arrive as a hash: ask for each text once.
+  const askedDescriptions = new Set<number>();
+  const fetchDescriptions = () => {
+    if (state.status !== "synced") return;
+    const ids = missingDescriptions(state).filter((id) => !askedDescriptions.has(id));
+    if (!ids.length) return;
+    ids.forEach((id) => askedDescriptions.add(id));
+    send(requestDescriptions(ids));
+  };
+
   const send = (bytes: Bytes) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
   };
@@ -89,6 +101,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
       messages.forEach(routeAudio);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
+      fetchDescriptions();
     } catch (err) {
       // A broken frame leaves the stream out of sync: give up on it.
       console.error("protocol error:", err);
