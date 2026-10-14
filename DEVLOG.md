@@ -122,3 +122,8 @@ folder keep the old name "mumble-discord".
 - SQLite runs with WAL and `synchronous=NORMAL`: a message insert happens in
   the sender's read loop, and a full sync on every insert would delay their
   voice.
+- Playback limiter: Chrome's DynamicsCompressorNode adds make-up gain
+  (1.14 at threshold -2 dB, ratio 20, knee 0), which made all quiet audio
+  louder. A fixed gain of 1/1.14 after it cancels that. Measured with an
+  OfflineAudioContext: full-scale tone at 200 % peaks at 0.85, levels below
+  the threshold pass unchanged.

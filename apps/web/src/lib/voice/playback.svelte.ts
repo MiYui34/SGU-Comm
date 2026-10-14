@@ -1,5 +1,6 @@
 import type { AudioPacket } from "@kallisti/protocol";
 import { SvelteSet } from "svelte/reactivity";
+import { createLimiter } from "./limiter";
 import { nextStart, type PlayoutConfig } from "./schedule";
 
 const SAMPLE_RATE = 48_000;
@@ -25,7 +26,9 @@ export const createPlayback = (ctx: AudioContext) => {
   const gains = new Map<number, number>();
   const speaking = new SvelteSet<number>();
   const output = ctx.createGain();
-  output.connect(ctx.destination);
+  const limiter = createLimiter(ctx);
+  output.connect(limiter.input);
+  limiter.output.connect(ctx.destination);
   let deaf = false;
 
   const play = (speaker: Speaker, data: AudioData) => {
@@ -109,6 +112,8 @@ export const createPlayback = (ctx: AudioContext) => {
       gains.delete(session);
     },
     setUserGain: (session: number, value: number) => {
+      // Unmuted: the decoder skipped packets meanwhile, so start a new one.
+      if (gains.get(session) === 0 && value > 0) remove(session);
       gains.set(session, value);
       const speaker = speakers.get(session);
       // A short ramp: a jump in gain can click.
