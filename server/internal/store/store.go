@@ -386,3 +386,14 @@ func (s *Store) DeleteExpiredSessions(now time.Time) (int64, error) {
 	}
 	return res.RowsAffected()
 }
+
+func (s *Store) SetPassword(accountID int64, hash string) error {
+	_, err := s.db.Exec(`UPDATE accounts SET password_hash = ? WHERE id = ?`, hash, accountID)
+	return err
+}
+
+// DeleteSessionsExcept ends all sessions of an account but one ("" ends all).
+func (s *Store) DeleteSessionsExcept(accountID int64, keepTokenHash string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE account_id = ? AND token_hash != ?`, accountID, keepTokenHash)
+	return err
+}

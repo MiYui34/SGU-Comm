@@ -265,3 +265,32 @@ func TestDeleteExpiredSessions(t *testing.T) {
 		t.Fatal("valid session deleted")
 	}
 }
+
+func TestPasswordAndSessionsOfAnAccount(t *testing.T) {
+	s := open(t)
+	now := time.Now()
+	a, _ := s.CreateAccount(Account{Name: "alice", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now)
+	s.CreateSession("one", a.ID, now.Add(time.Hour))
+	s.CreateSession("two", a.ID, now.Add(time.Hour))
+	if err := s.SetPassword(a.ID, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.AccountByName("alice"); got.PasswordHash != "h2" {
+		t.Fatalf("hash %q", got.PasswordHash)
+	}
+	if err := s.DeleteSessionsExcept(a.ID, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AccountBySession("one", now); err != ErrNotFound {
+		t.Error("session one still valid")
+	}
+	if _, err := s.AccountBySession("two", now); err != nil {
+		t.Error("session two was deleted")
+	}
+	if err := s.DeleteSessionsExcept(a.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AccountBySession("two", now); err != ErrNotFound {
+		t.Error("session two still valid after deleting all")
+	}
+}

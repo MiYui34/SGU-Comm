@@ -12,6 +12,8 @@ import (
 	"mime"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +78,10 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.login(w, r)
 	case r.URL.Path == "/api/logout" && r.Method == http.MethodPost:
 		a.logout(w, r)
+	case r.URL.Path == "/api/logout-all" && r.Method == http.MethodPost:
+		a.logoutAll(w, r)
+	case r.URL.Path == "/api/password" && r.Method == http.MethodPost:
+		a.changePassword(w, r)
 	case r.URL.Path == "/api/me" && r.Method == http.MethodGet:
 		if acc, ok := a.AccountFor(r); ok {
 			writeJSON(w, http.StatusOK, map[string]string{"name": acc.Name})
@@ -180,6 +186,64 @@ func (a *Service) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// logoutAll ends every session of the account, this one too.
+func (a *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
+	acc, ok := a.AccountFor(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
+		return
+	}
+	if err := a.Store.DeleteSessionsExcept(acc.ID, ""); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot log out"})
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// changePassword needs the old password and ends all other sessions.
+func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
+	acc, ok := a.AccountFor(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
+		return
+	}
+	if !a.allow(r) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts, try again later"})
+		return
+	}
+	var c struct {
+		Old string `json:"old"`
+		New string `json:"new"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&c) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	if n := utf8.RuneCountInString(c.New); n < 8 || n > 256 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
+		return
+	}
+	release := limitHashing()
+	ok = checkPassword(acc.PasswordHash, c.Old)
+	var hash string
+	var err error
+	if ok {
+		hash, err = hashPassword(c.New)
+	}
+	release()
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "the current password is wrong"})
+		return
+	}
+	cookie, _ := r.Cookie(CookieName)
+	if err != nil || a.Store.SetPassword(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, tokenHash(cookie.Value)) != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot change the password"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *Service) startSession(w http.ResponseWriter, r *http.Request, acc store.Account) bool {
 	b := make([]byte, 32)
 	rand.Read(b)
@@ -204,11 +268,16 @@ func (a *Service) secure(r *http.Request) bool {
 	return r.TLS != nil || (a.TrustForwardedFor && r.Header.Get("X-Forwarded-Proto") == "https")
 }
 
-// cors allows the web app's origin to call the API with its cookie.
+// cors allows the web app's origin to call the API with its cookie. With
+// ALLOWED_ORIGINS=* (development) only localhost origins get credentials:
+// a production server set to * by mistake is not open to every site.
 func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Vary", "Origin")
 	origin := r.Header.Get("Origin")
 	if origin == "" || !config.OriginAllowed(a.AllowedOrigins, origin) {
+		return
+	}
+	if !slices.Contains(a.AllowedOrigins, origin) && !isLocalhost(origin) {
 		return
 	}
 	h := w.Header()
@@ -257,6 +326,15 @@ var hashing = make(chan struct{}, 4)
 func limitHashing() func() {
 	hashing <- struct{}{}
 	return func() { <-hashing }
+}
+
+func isLocalhost(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func tokenHash(token string) string {

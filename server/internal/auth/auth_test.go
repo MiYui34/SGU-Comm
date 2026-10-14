@@ -187,3 +187,60 @@ func TestLimiterKeys(t *testing.T) {
 		t.Error("IPv4 addresses must not share a limit")
 	}
 }
+
+func TestPasswordChangeEndsOtherSessions(t *testing.T) {
+	a, srv := setup(t)
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "erin", "password": "old password"}, nil)
+	first := sessionCookie(resp)
+	resp, _ = post(t, srv, "/api/login", map[string]string{"name": "erin", "password": "old password"}, nil)
+	second := sessionCookie(resp)
+	if resp, v := post(t, srv, "/api/password", map[string]string{"old": "wrong", "new": "new password"}, second); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong old password: %d %v", resp.StatusCode, v)
+	}
+	if resp, v := post(t, srv, "/api/password", map[string]string{"old": "old password", "new": "new password"}, second); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("change: %d %v", resp.StatusCode, v)
+	}
+	if _, ok := a.AccountFor(requestWith(first)); ok {
+		t.Error("other session still valid")
+	}
+	if _, ok := a.AccountFor(requestWith(second)); !ok {
+		t.Error("the changing session was ended")
+	}
+	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "erin", "password": "new password"}, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("login with the new password: %d", resp.StatusCode)
+	}
+}
+
+func TestLogoutEverywhere(t *testing.T) {
+	a, srv := setup(t)
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "frank", "password": "longpassword"}, nil)
+	first := sessionCookie(resp)
+	resp, _ = post(t, srv, "/api/login", map[string]string{"name": "frank", "password": "longpassword"}, nil)
+	second := sessionCookie(resp)
+	if resp, _ := post(t, srv, "/api/logout-all", map[string]string{}, second); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout-all: %d", resp.StatusCode)
+	}
+	for _, c := range []*http.Cookie{first, second} {
+		if _, ok := a.AccountFor(requestWith(c)); ok {
+			t.Error("a session is still valid")
+		}
+	}
+}
+
+func TestWildcardOriginsGetCredentialsOnlyForLocalhost(t *testing.T) {
+	a := &Service{AllowedOrigins: []string{"*"}}
+	for origin, want := range map[string]bool{
+		"http://localhost:5173":         true,
+		"http://127.0.0.1:5173":         true,
+		"https://evil.example":          false,
+		"http://localhost.evil.example": false,
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("OPTIONS", "/api/login", nil)
+		r.Header.Set("Origin", origin)
+		a.cors(w, r)
+		if got := w.Header().Get("Access-Control-Allow-Credentials") == "true"; got != want {
+			t.Errorf("%s: credentials %v, want %v", origin, got, want)
+		}
+	}
+}
