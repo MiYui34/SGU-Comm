@@ -15,3 +15,10 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 
 - Two clients in different channels do not hear each other; after a move
   they do. Channels survive a restart.
+
+## Result
+
+- Done: tree, links (voice follows links further), temporary channels,
+  moves, text to channels, trees and users, SQLite storage, ids are not
+  reused. Tested with our clients and the official client.
+- Channel listeners moved to the whispers issue.

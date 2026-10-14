@@ -8,6 +8,8 @@ Part of [Built-in Mumble server](built-in-mumble-server.md).
 
 - VoiceTarget (users, channels, linked channels, children, groups);
   audio with a target goes only to those users, with the right context.
+- Channel listeners (Mumble 1.4): users hear a channel they are not in
+  (listening_channel_add/remove, Listen permission).
 
 ## Acceptance Criteria
 
