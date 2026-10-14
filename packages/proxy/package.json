@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/main.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "smoke": "bun scripts/smoke.ts"
   },
   "dependencies": {
     "ws": "^8.22.0"
