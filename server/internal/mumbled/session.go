@@ -94,6 +94,8 @@ type identity struct {
 	hash        string
 	tokens      []string
 	lastChannel uint32
+	comment     string
+	texture     []byte
 }
 
 func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []byte) {
@@ -123,7 +125,12 @@ func (s *Server) identify(h hello, hash string, host netip.Addr) (identity, []by
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongUserPW, "Wrong certificate or password for existing user.")
 	}
 	if r != nil {
-		return identity{name: r.Name, registered: true, userID: r.ID, hash: hash, tokens: h.tokens, lastChannel: r.LastChannel}, nil
+		comment, texture, err := s.cfg.DB.UserContent(r.ID)
+		if err != nil {
+			slog.Error("loading a comment", "user", r.ID, "err", err)
+		}
+		return identity{name: r.Name, registered: true, userID: r.ID, hash: hash, tokens: h.tokens,
+			lastChannel: r.LastChannel, comment: comment, texture: texture}, nil
 	}
 	if why := names.Check(h.name); why != "" {
 		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername, why)
@@ -234,7 +241,8 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	c.sendMsg(mumble.TypeCodecVersion, &pb.CodecVersion{
 		Alpha: proto.Int32(celt070), Beta: proto.Int32(0), PreferAlpha: proto.Bool(true), Opus: proto.Bool(true),
 	})
-	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash, Tokens: id.tokens}
+	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash, Tokens: id.tokens,
+		Comment: id.comment, Texture: id.texture}
 	// The last channel if the user may enter it, else root (as Murmur).
 	if ch := s.state.Channels[id.lastChannel]; ch != nil && s.state.Has(u, ch.ID, Enter) {
 		u.Channel = ch.ID
@@ -327,9 +335,10 @@ func (s *Server) kickLocked(session, actor uint32, reason string, ban bool) {
 // channelState is the full ChannelState of a channel, without links.
 func channelState(ch *Channel) *pb.ChannelState {
 	m := &pb.ChannelState{
-		ChannelId: proto.Uint32(ch.ID), Name: proto.String(ch.Name), Description: proto.String(ch.Description),
+		ChannelId: proto.Uint32(ch.ID), Name: proto.String(ch.Name),
 		Position: proto.Int32(ch.Position), Temporary: proto.Bool(ch.Temporary),
 	}
+	m.Description, m.DescriptionHash = commentFields(ch.Description)
 	if ch.ID != 0 {
 		m.Parent = proto.Uint32(ch.Parent)
 	}
@@ -351,6 +360,7 @@ func userState(u *User) []byte {
 		m.Hash = proto.String(u.Hash)
 	}
 	m.ListeningChannelAdd = slices.Sorted(maps.Keys(u.Listening))
+	setUserBlobs(m, u)
 	return mumble.MessageFrame(mumble.TypeUserState, m)
 }
 

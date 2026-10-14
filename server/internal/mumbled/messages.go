@@ -142,6 +142,11 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		if proto.Unmarshal(body, &m) == nil {
 			s.voiceTargetMsg(c, &m)
 		}
+	case mumble.TypeRequestBlob:
+		var m pb.RequestBlob
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
+			s.requestBlobMsg(c, &m)
+		}
 	case mumble.TypeUserList:
 		var m pb.UserList
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
@@ -206,8 +211,21 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 }
 
 func (s *Server) userStateMsg(c *client, m *pb.UserState) {
+	if m.Comment != nil || m.Texture != nil {
+		s.saveMu.Lock() // the save below keeps the order of the changes
+		defer s.saveMu.Unlock()
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	after := s.userStateLocked(c, m)
+	s.mu.Unlock()
+	if after != nil {
+		after()
+	}
+}
+
+// userStateLocked applies a UserState; it returns work for after the lock
+// (saving), or nil.
+func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 	actor := s.state.Users[c.session]
 	target := c.session
 	if m.Session != nil {
@@ -229,6 +247,16 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 	if u != actor && (m.SelfMute != nil || m.SelfDeaf != nil || m.Recording != nil || m.PluginContext != nil ||
 		len(m.ListeningChannelAdd)+len(m.ListeningChannelRemove) > 0) {
 		return // only users themselves set these
+	}
+	content := m.Comment != nil || m.Texture != nil
+	if content {
+		if missing, err := s.contentChange(actor, u, m); err != nil {
+			c.deny(err)
+			return
+		} else if missing != 0 {
+			c.denyPerm(missing, 0)
+			return
+		}
 	}
 	moderate := m.Mute != nil || m.Deaf != nil || m.Suppress != nil || m.PrioritySpeaker != nil
 	if moderate && isSuperUser(u) {
@@ -303,6 +331,12 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 			changed = true
 		}
 	}
+	if content {
+		applyContent(u, m, out)
+		changed = true
+		saved := contentOf(u)
+		after = func() { s.saveContent(saved) }
+	}
 	if routing {
 		s.state.Changed()
 	}
@@ -312,6 +346,7 @@ func (s *Server) userStateMsg(c *client, m *pb.UserState) {
 	if move {
 		s.moveLocked(u, dest.ID, c.session)
 	}
+	return after
 }
 
 // cloneChannel copies a channel for saving outside the lock.
@@ -452,7 +487,7 @@ func (s *Server) editChannel(c *client, m *pb.ChannelState) {
 		out.Name = proto.String(ch.Name)
 	}
 	if m.Description != nil {
-		out.Description = proto.String(ch.Description)
+		out.Description, out.DescriptionHash = commentFields(ch.Description)
 	}
 	// Only links that really change.
 	save := []*Channel{}
@@ -626,6 +661,12 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 			Session: proto.Uint32(target), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id),
 		}), nil)
 		s.permissionsChangedLocked(nil) // @auth and user entries apply now
+		if u.Comment != "" || len(u.Texture) > 0 {
+			saved := contentOf(u) // what was set before registering stays
+			s.mu.Unlock()
+			s.saveContent(saved)
+			s.mu.Lock()
+		}
 	}
 }
 

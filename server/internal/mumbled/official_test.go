@@ -325,3 +325,21 @@ func TestOfficialOldClientTalksWithNewClients(t *testing.T) {
 // silentOpus is a real Opus packet (20 ms of silence, CELT mode), which
 // clients decode and show as talking.
 var silentOpus = []byte{0xf8, 0xff, 0xfe}
+
+func TestOfficialClientFetchesALongComment(t *testing.T) {
+	needOfficialClient(t)
+	addr := startServer(t, "0.0.0.0", Config{}, openACL)
+	watcher := dial(t, addr, "watcher")
+	comment := "This is a long comment that the server sends as a hash first. " +
+		"The official client asks for it with RequestBlob when it needs to show it."
+	watcher.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(watcher.session), Comment: proto.String(comment)})
+	official := officialClient(t, addr, "official", "", 60)
+	watcher.waitForUser("official", 40*time.Second)
+	time.Sleep(2 * time.Second)
+	// Rows: Root, official, watcher. Hovering shows the comment.
+	official.xdo("xdotool", "mousemove", "330", "112", "click", "3")
+	time.Sleep(time.Second)
+	official.xdo("xdotool", "key", "w") // View Comment
+	time.Sleep(2 * time.Second)
+	official.screenshot("comment")
+}

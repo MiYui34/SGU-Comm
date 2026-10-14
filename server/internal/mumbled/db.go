@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS mumble_channel_links (
 // Columns added after the first version, for databases made before.
 var migrations = []struct{ table, column, def string }{
 	{"mumble_channels", "no_inherit_acl", "INTEGER NOT NULL DEFAULT 0"},
+	{"mumble_users", "comment", "TEXT NOT NULL DEFAULT ''"},
+	{"mumble_users", "texture", "BLOB"},
 }
 
 func OpenDB(db *sql.DB) (*DB, error) {
@@ -502,4 +504,16 @@ func (d *DB) SaveBans(bans []BanEntry) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// UserContent is a registered user's comment and avatar (read at login
+// only: avatars are large).
+func (d *DB) UserContent(id uint32) (comment string, texture []byte, err error) {
+	err = d.db.QueryRow(`SELECT comment, texture FROM mumble_users WHERE id = ?`, id).Scan(&comment, &texture)
+	return comment, texture, err
+}
+
+func (d *DB) SetUserContent(id uint32, comment string, texture []byte) error {
+	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ? WHERE id = ?`, comment, texture, id)
+	return err
 }

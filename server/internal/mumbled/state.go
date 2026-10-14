@@ -53,6 +53,8 @@ type User struct {
 	SelfMute, SelfDeaf bool
 	Recording          bool
 	PluginContext      []byte // the game: positions go only to the same one
+	Comment            string
+	Texture            []byte // avatar
 	// Set by moderators or the server.
 	Mute, Deaf, Suppress bool
 	PrioritySpeaker      bool
