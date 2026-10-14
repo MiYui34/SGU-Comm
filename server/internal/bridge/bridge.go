@@ -14,7 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/mumble-discord/server/internal/config"
+	"kallisti.chat/server/internal/config"
 )
 
 // MaxPayload is the Mumble frame limit. Larger messages close with 1009.

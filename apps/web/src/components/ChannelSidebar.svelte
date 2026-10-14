@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { channelTree, usersIn, type ChannelNode, type ServerState } from "@mumble-discord/protocol";
+  import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
   import Icon from "./Icon.svelte";

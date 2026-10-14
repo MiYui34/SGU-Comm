@@ -1,5 +1,5 @@
 {
-  "name": "@mumble-discord/web",
+  "name": "@kallisti/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,7 @@
     "vitest": "^5.0.4"
   },
   "dependencies": {
-    "@mumble-discord/protocol": "workspace:*",
+    "@kallisti/protocol": "workspace:*",
     "dompurify": "^3.4.17"
   }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { User } from "@mumble-discord/protocol";
+  import type { User } from "@kallisti/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
 

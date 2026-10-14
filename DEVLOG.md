@@ -102,3 +102,10 @@ WebSocket library: `github.com/coder/websocket`.
   read context instead drops the connection without a close frame.
 - Bun replaces the `ws` package with its own WebSocket. It reports close code
   1000 where Node's `ws` shows the real code (1001). Use Node to check codes.
+
+## Name: Kallisti (2026-10-14)
+
+The product is called Kallisti (kallisti.chat). Packages use the `@kallisti/*`
+scope, the Go module is `kallisti.chat/server`, and the client announces
+itself as "Kallisti" to Mumble servers. The Gitea repository and the local
+folder keep the old name "mumble-discord".

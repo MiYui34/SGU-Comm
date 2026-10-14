@@ -5,7 +5,7 @@
     privateMessagesWith,
     setSelfState,
     usersSorted,
-  } from "@mumble-discord/protocol";
+  } from "@kallisti/protocol";
   import { untrack } from "svelte";
   import type { Connection } from "../lib/connection.svelte";
   import { pttAction } from "../lib/settings";
@@ -27,7 +27,7 @@
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
   const channelId = $derived(me?.channelId ?? 0);
   const channelName = $derived(server.channels[channelId]?.name ?? "");
-  const serverName = $derived(server.channels[0]?.name ?? "Mumble");
+  const serverName = $derived(server.channels[0]?.name ?? "Server");
   const users = $derived(usersSorted(server));
 
   const capture = $derived(connection.capture);

@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mumble-discord/server/internal/bridge"
-	"github.com/mumble-discord/server/internal/config"
+	"kallisti.chat/server/internal/bridge"
+	"kallisti.chat/server/internal/config"
 )
 
 func main() {

@@ -22,7 +22,7 @@ export const handshake = ({
   concat(
     encodeMessage("Version", {
       ...versionNumbers(1, 5, 0),
-      release: "mumble-discord",
+      release: "Kallisti",
       os: "Web",
     }),
     encodeMessage("Authenticate", { username, password, opus: true }),

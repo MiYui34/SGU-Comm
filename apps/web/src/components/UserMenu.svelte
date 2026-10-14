@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { User } from "@mumble-discord/protocol";
+  import type { User } from "@kallisti/protocol";
   import { MAX_VOLUME, type UserAudio } from "../lib/userAudio";
   import Avatar from "./Avatar.svelte";
   import ContextMenu from "./ContextMenu.svelte";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ChatMessage } from "@mumble-discord/protocol";
+  import type { ChatMessage } from "@kallisti/protocol";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";

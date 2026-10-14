@@ -1,6 +1,7 @@
-# mumble-discord
+# Kallisti
 
-A Mumble client with a Discord-like interface. Web first.
+Voice and text chat on top of Mumble, with a Discord-like interface. Web first.
+https://kallisti.chat
 
 - `packages/protocol`: Mumble protocol (framing, protobuf codec, state, voice packets)
 - `apps/web`: Svelte web client (chat, voice, settings)
@@ -24,7 +25,7 @@ cd server
 MUMBLE_HOST=127.0.0.1 MUMBLE_INSECURE_TLS=1 ALLOWED_ORIGINS='*' go run ./cmd/server
 
 # Web client on http://localhost:5173 (bridge defaults to port 8080)
-pnpm --filter @mumble-discord/web dev
+pnpm --filter @kallisti/web dev
 ```
 
 Server settings: `MUMBLE_HOST` (required), `MUMBLE_PORT` (64738),
@@ -35,6 +36,6 @@ The web client reads `VITE_PROXY_URL` to point at another bridge.
 Dev scripts (with a running bridge):
 
 ```sh
-pnpm --filter @mumble-discord/devtools smoke ws://127.0.0.1:8080
-pnpm --filter @mumble-discord/devtools voicebot tone.opus ws://127.0.0.1:8080
+pnpm --filter @kallisti/devtools smoke ws://127.0.0.1:8080
+pnpm --filter @kallisti/devtools voicebot tone.opus ws://127.0.0.1:8080
 ```

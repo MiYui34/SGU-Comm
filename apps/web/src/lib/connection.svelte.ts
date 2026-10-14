@@ -15,7 +15,7 @@ import {
   type OutgoingAudio,
   type ServerState,
   type TextTarget,
-} from "@mumble-discord/protocol";
+} from "@kallisti/protocol";
 import { createCapture } from "./voice/capture.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 

@@ -17,7 +17,8 @@
 
 <div class="screen">
   <form onsubmit={submit}>
-    <h1>Join the voice server</h1>
+    <h1>Welcome to Kallisti</h1>
+    <p class="sub">Join the voice server</p>
     <label>
       Name
       <input bind:value={username} required maxlength="64" autocomplete="nickname" />
@@ -48,8 +49,13 @@
     background: var(--bg-main);
   }
   h1 {
-    margin: 0 0 8px;
-    font-size: 22px;
+    margin: 0;
+    font-size: 24px;
+    text-align: center;
+  }
+  .sub {
+    margin: -8px 0 8px;
+    color: var(--text-muted);
     text-align: center;
   }
   label {

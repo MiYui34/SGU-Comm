@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { User } from "@mumble-discord/protocol";
+  import type { User } from "@kallisti/protocol";
   import { toggleDeaf, toggleMute, type SelfState } from "../lib/voice";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";

@@ -10,7 +10,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@mumble-discord/protocol':
+      '@kallisti/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       dompurify:

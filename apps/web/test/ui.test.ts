@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@mumble-discord/protocol";
+import type { ChatMessage } from "@kallisti/protocol";
 import { describe, expect, it } from "vitest";
 import { avatarColor, initials } from "../src/lib/avatar";
 import { groupMessages } from "../src/lib/chat";

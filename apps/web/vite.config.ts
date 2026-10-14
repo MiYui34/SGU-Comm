@@ -4,5 +4,5 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [svelte()],
   // Workspace source package: do not pre-bundle, or edits are not picked up.
-  optimizeDeps: { exclude: ["@mumble-discord/protocol"] },
+  optimizeDeps: { exclude: ["@kallisti/protocol"] },
 });

@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@mumble-discord/protocol";
+import type { ChatMessage } from "@kallisti/protocol";
 
 export type MessageGroup = {
   actor: number | null;

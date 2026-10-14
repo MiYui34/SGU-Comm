@@ -1,4 +1,4 @@
-import type { AudioPacket } from "@mumble-discord/protocol";
+import type { AudioPacket } from "@kallisti/protocol";
 import { SvelteSet } from "svelte/reactivity";
 import { nextStart, type PlayoutConfig } from "./schedule";
 

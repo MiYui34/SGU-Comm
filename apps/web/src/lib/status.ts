@@ -1,4 +1,4 @@
-import type { ServerState } from "@mumble-discord/protocol";
+import type { ServerState } from "@kallisti/protocol";
 
 // Null while the connection is healthy, otherwise a message for the user.
 export const connectionError = (state: ServerState, closed: boolean): string | null => {

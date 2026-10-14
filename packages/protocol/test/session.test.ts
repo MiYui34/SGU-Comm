@@ -21,7 +21,7 @@ describe("handshake", () => {
     const [version, auth] = msgs;
     if (version?.type !== "Version" || auth?.type !== "Authenticate") throw new Error();
     expect(version.message.versionV1).toBe(0x010500);
-    expect(version.message.release).toBe("mumble-discord");
+    expect(version.message.release).toBe("Kallisti");
     expect(auth.message).toMatchObject({ username: "alice", password: "pw", opus: true });
   });
 });

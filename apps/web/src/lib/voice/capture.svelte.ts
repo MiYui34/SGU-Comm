@@ -1,4 +1,4 @@
-import type { OutgoingAudio } from "@mumble-discord/protocol";
+import type { OutgoingAudio } from "@kallisti/protocol";
 import { levelDb, shouldTransmit, vadStep, type TransmitMode, type VadState } from "./vad";
 
 const SAMPLE_RATE = 48_000;

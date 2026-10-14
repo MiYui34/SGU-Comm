@@ -1,5 +1,5 @@
 {
-  "name": "@mumble-discord/protocol",
+  "name": "@kallisti/protocol",
   "version": "0.0.0",
   "private": true,
   "type": "module",

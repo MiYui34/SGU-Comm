@@ -1,4 +1,4 @@
-import { initialState } from "@mumble-discord/protocol";
+import { initialState } from "@kallisti/protocol";
 import { describe, expect, it } from "vitest";
 import { initials } from "../src/lib/avatar";
 import { connectionError, proxyUrl } from "../src/lib/status";
