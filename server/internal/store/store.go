@@ -146,10 +146,50 @@ func migrate(db *sql.DB) error {
 			}
 		}
 	}
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('channels') WHERE name = 'voice_channel'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		// The Mumble channel whose chat this hidden channel is.
+		if _, err := db.Exec(`ALTER TABLE channels ADD COLUMN voice_channel INTEGER`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`CREATE UNIQUE INDEX channels_voice ON channels (voice_channel) WHERE voice_channel IS NOT NULL`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// VoiceChat is the hidden channel that holds a voice channel's chat (the
+// Mumble channel id; the built-in server never reuses them), made on first
+// use.
+func (s *Store) VoiceChat(voice uint32) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM channels WHERE voice_channel = ?`, voice).Scan(&id)
+	if err == nil || !errors.Is(err, sql.ErrNoRows) {
+		return id, err
+	}
+	// The name only has to be unique; text channel names cannot have ":".
+	err = s.db.QueryRow(`INSERT INTO channels (name, position, hidden, voice_channel) VALUES (?, 0, 1, ?)
+		ON CONFLICT (voice_channel) WHERE voice_channel IS NOT NULL DO UPDATE SET hidden = 1 RETURNING id`,
+		fmt.Sprintf("voice:%d", voice), voice).Scan(&id)
+	return id, err
+}
+
+// VoiceOf is the voice channel whose chat a channel is (ok false for text
+// channels).
+func (s *Store) VoiceOf(channel int64) (voice uint32, ok bool, err error) {
+	var v sql.NullInt64
+	err = s.db.QueryRow(`SELECT voice_channel FROM channels WHERE id = ?`, channel).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return uint32(v.Int64), v.Valid, err
+}
 
 // EnsureChannels makes the configured channels visible, in this order.
 // Channels that are no longer configured are hidden, not deleted, so their

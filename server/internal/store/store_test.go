@@ -305,3 +305,40 @@ func TestTheDatabaseIsShared(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestVoiceChannelChats(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.EnsureChannels([]string{"general"})
+	id, err := s.VoiceChat(5)
+	if err != nil || id == 0 {
+		t.Fatalf("id %d err %v", id, err)
+	}
+	again, _ := s.VoiceChat(5)
+	other, _ := s.VoiceChat(6)
+	if again != id || other == id {
+		t.Fatalf("ids %d %d %d", id, again, other)
+	}
+	if voice, ok, _ := s.VoiceOf(id); !ok || voice != 5 {
+		t.Fatalf("voice of %d: %d %v", id, voice, ok)
+	}
+	if _, ok, _ := s.VoiceOf(1); ok {
+		t.Fatal("a text channel is a voice chat")
+	}
+	// Voice chats are not text channels, also after a restart.
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	if len(chans) != 1 || chans[0].Name != "general" {
+		t.Fatalf("channels %+v", chans)
+	}
+	// Messages work as in text channels.
+	if _, err := s.AddMessage(NewMessage{ChannelID: id, Author: "alice", Text: "hi", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if msgs, _ := s.History(id, 0, 10); len(msgs) != 1 {
+		t.Fatalf("history %+v", msgs)
+	}
+}
