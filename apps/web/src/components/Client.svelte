@@ -262,7 +262,13 @@
   // it, once the server told us. Not for the lobby.
   const storedVoiceChat = $derived(text.voiceChats && view.kind === "voice" && dm === null && voiceOn && !(lobby && channelId === 0));
   const voiceChatId = $derived(storedVoiceChat ? (text.voiceChannels[channelId] ?? null) : null);
+  // Asked once per visit of a channel: after an error, a new visit asks
+  // again.
   const askedVoiceChats = new Set<number>();
+  $effect(() => {
+    void channelId;
+    untrack(() => askedVoiceChats.clear());
+  });
   $effect(() => {
     if (storedVoiceChat && voiceChatId === null && !askedVoiceChats.has(channelId)) {
       askedVoiceChats.add(channelId);
