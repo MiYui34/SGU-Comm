@@ -5,7 +5,6 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Several servers in one client](issues/multiple-servers.md)
-- [ ] [Remember what was read](issues/read-state.md)
 - [ ] [Desktop notifications](issues/desktop-notifications.md)
 - [ ] [Bans and users in the web app](issues/web-moderation-view.md)
 - [ ] [Channel menu on phones](issues/mobile-channel-menu.md)

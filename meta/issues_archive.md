@@ -60,3 +60,4 @@
 - [x] [Mention autocomplete](issues/mention-autocomplete.md)
 - [x] [Automatic database backups](issues/database-backups.md)
 - [x] [Edit and delete messages](issues/message-edit-delete.md)
+- [x] [Remember what was read](issues/read-state.md)
