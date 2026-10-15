@@ -122,7 +122,8 @@ func TestAdminsManageTextChannels(t *testing.T) {
 	admin := readyAs(t, h, 1, "admin")
 	bob := readyAs(t, h, 2, "bob")
 	bob.Handle([]byte(`{"type":"create-channel","name":"games"}`))
-	if m := next(t, bob); m["type"] != "error" {
+	// Errors about channel changes say so (the client shows them apart).
+	if m := next(t, bob); m["type"] != "error" || m["about"] != "channels" {
 		t.Fatalf("bob got %v", m)
 	}
 	admin.Handle([]byte(`{"type":"create-channel","name":"  Game Night "}`))

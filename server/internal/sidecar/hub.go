@@ -407,6 +407,12 @@ func (c *Conn) sendError(msg string) {
 	c.send(map[string]any{"type": "error", "message": msg})
 }
 
+// manageError answers a channel change: the client shows it apart from
+// the chat.
+func (c *Conn) manageError(msg string) {
+	c.send(map[string]any{"type": "error", "message": msg, "about": "channels"})
+}
+
 var resync = []byte(`{"type":"resync"}`)
 
 // send never blocks: a client that does not read its outbox loses messages
@@ -480,7 +486,7 @@ func textChannelName(raw string) (string, bool) {
 func (c *Conn) manage(id mumble.Identity, req request) {
 	h := c.hub
 	if h.voice == nil || !h.voice.MayManage(id.Session) {
-		c.sendError("you may not manage channels")
+		c.manageError("you may not manage channels")
 		return
 	}
 	h.manageMu.Lock()
@@ -490,7 +496,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	case "create-channel", "rename-channel":
 		name, ok := textChannelName(req.Name)
 		if !ok {
-			c.sendError("a channel name has 1 to 32 letters, digits, - or _")
+			c.manageError("a channel name has 1 to 32 letters, digits, - or _")
 			return
 		}
 		if req.Type == "create-channel" {
@@ -505,10 +511,10 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	}
 	switch {
 	case errors.Is(err, store.ErrNameTaken):
-		c.sendError("a channel with this name exists")
+		c.manageError("a channel with this name exists")
 		return
 	case err != nil:
-		c.sendError("cannot change the channel")
+		c.manageError("cannot change the channel")
 		return
 	}
 	if err := h.reloadChannels(); err != nil {
