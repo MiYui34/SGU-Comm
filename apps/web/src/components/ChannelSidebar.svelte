@@ -9,6 +9,7 @@
   let {
     server,
     currentChannel,
+    lobby = false,
     speaking,
     localMuted,
     unread,
@@ -21,6 +22,9 @@
   }: {
     server: ServerState;
     currentChannel: number | null;
+    // Root is a lobby without voice: only the channels below it are voice
+    // channels, and users in root are not shown here.
+    lobby?: boolean;
     speaking: ReadonlySet<number>;
     localMuted: ReadonlySet<number>;
     // Unread private messages per user name.
@@ -135,7 +139,15 @@
   {/if}
   {@render category("Voice channels", collapsed, () => (collapsed = !collapsed))}
   {#if tree && !collapsed}
-    <ul>{@render channel(tree, 0)}</ul>
+    {#if lobby}
+      <ul>
+        {#each tree.children as child (child.channel.id)}
+          {@render channel(child, 1)}
+        {/each}
+      </ul>
+    {:else}
+      <ul>{@render channel(tree, 0)}</ul>
+    {/if}
   {/if}
 </nav>
 

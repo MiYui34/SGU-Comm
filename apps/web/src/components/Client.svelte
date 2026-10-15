@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    inVoice,
+    isLobby,
     joinChannel,
     messagesIn,
     privateMessagesWith,
@@ -19,7 +21,7 @@
   import { createTextView } from "../lib/textView.svelte";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
-  import type { SelfState } from "../lib/voice";
+  import { micWanted, type SelfState } from "../lib/voice";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
   import MemberList from "./MemberList.svelte";
@@ -28,6 +30,7 @@
   import Toast from "./Toast.svelte";
   import UserMenu from "./UserMenu.svelte";
   import UserPanel from "./UserPanel.svelte";
+  import VoiceBar from "./VoiceBar.svelte";
 
   let { connection, account }: { connection: Connection; account?: AccountActions } = $props();
 
@@ -50,6 +53,9 @@
 
   let showSettings = $state(false);
   let membersOpen = $state(true);
+  // Kallisti servers: root is a lobby, voice channels are joined on purpose.
+  const lobby = $derived(isLobby(server));
+  const voiceOn = $derived(inVoice(server));
   const prefs = $derived(settings.value);
   $effect(() => capture?.setMode(prefs.mode));
   // A rebound key never sends the keyup of the old one.
@@ -59,13 +65,14 @@
   });
   $effect(() => capture?.setThreshold(prefs.vadThresholdDb));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
-  // Opens the microphone, and reopens it when the device setting changes.
-  // Its own derived: `prefs` is a new object on every settings change, and
-  // only a device change may reopen the microphone.
+  // Opens the microphone while it is used (see micWanted), and reopens it
+  // when the device setting changes. Own deriveds: `prefs` is a new object
+  // on every settings change, and only a device change may reopen it.
   const inputDeviceId = $derived(prefs.inputDeviceId);
+  const micOn = $derived(micWanted({ inVoice: voiceOn, selfMute: me?.selfMute ?? false, settingsOpen: showSettings }));
   $effect(() => {
-    const [target, deviceId] = [capture, inputDeviceId];
-    untrack(() => void target?.start(deviceId));
+    const [target, deviceId, on] = [capture, inputDeviceId, micOn];
+    untrack(() => (on ? void target?.start(deviceId) : target?.stop()));
   });
 
   // Desktop app: the push-to-talk key works in the background too.
@@ -312,6 +319,13 @@
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
+  // Back to the lobby. Its chat is not a place to stay: show a text channel.
+  const leaveVoice = () => {
+    if (!me || !lobby) return;
+    connection.send(joinChannel(me.session, 0));
+    const first = text.channels[0];
+    if (view.kind === "voice" && first) show({ kind: "text", id: first.id });
+  };
 </script>
 
 {#if server.notice}
@@ -366,13 +380,18 @@
       unreadText={textView.unread}
       onOpenText={(id) => show({ kind: "text", id })}
       currentChannel={view.kind === "voice" ? channelId : null}
+      {lobby}
       onJoin={join}
       onUserMenu={openMenu}
     />
     {#if me}
+      {#if lobby && voiceOn}
+        <VoiceBar channel={channelName} onLeave={leaveVoice} />
+      {/if}
       <UserPanel
         {me}
-        micError={capture?.micError ?? null}
+        status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
+        micError={micOn ? (capture?.micError ?? null) : null}
         onSelfState={updateSelf}
         onSettings={() => (showSettings = true)}
       />

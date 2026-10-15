@@ -239,3 +239,48 @@ func TestBansAreSaved(t *testing.T) {
 		t.Fatal("bans not replaced")
 	}
 }
+
+func TestTheLobbyIsSetUpOnce(t *testing.T) {
+	db := testDB(t)
+	if err := db.InitLobby(); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := db.Channels()
+	s := NewState("Root", saved)
+	guest := &User{Session: 1, Name: "guest"}
+	if s.Has(guest, 0, Speak) {
+		t.Fatal("voice in the lobby")
+	}
+	var general *Channel
+	for _, c := range s.Channels {
+		if c.Name == "General" {
+			general = c
+		}
+	}
+	if general == nil || !s.Has(guest, general.ID, Speak) {
+		t.Fatalf("no General voice channel: %+v", s.Channels)
+	}
+	// Again: nothing changes (an admin may have removed General since).
+	db.DeleteChannels([]uint32{general.ID})
+	if err := db.InitLobby(); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = db.Channels()
+	if len(saved) != 1 || len(NewState("Root", saved).Channels[0].ACLs) != 4 {
+		t.Fatalf("after a second run: %+v", saved)
+	}
+}
+
+func TestAnOldServerKeepsItsChannels(t *testing.T) {
+	db := testDB(t)
+	s := NewState("Root", nil)
+	games, _ := s.AddChannel(0, "Games", false)
+	db.SaveChannel(games)
+	db.InitLobby()
+	saved, _ := db.Channels()
+	for _, c := range saved {
+		if c.Name == "General" {
+			t.Fatal("made General although channels exist")
+		}
+	}
+}

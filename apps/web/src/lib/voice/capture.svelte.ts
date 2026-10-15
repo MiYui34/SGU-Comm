@@ -89,6 +89,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   };
 
   const onFrame = (samples: Float32Array<ArrayBuffer>) => {
+    if (!source) return; // a frame still on its way after stop()
     level = levelDb(samples);
     vad = vadStep(vad, level, FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
     const next = shouldTransmit({ mode, vadTalking: vad.talking, pttDown, muted });
@@ -181,6 +182,15 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       return fellBack;
     },
     start,
+    // Closes the microphone (the browser stops showing it as recording);
+    // start opens it again.
+    stop: () => {
+      generation++; // a getUserMedia still on its way is not used
+      stopStream();
+      level = -100;
+      transmitting = false;
+      vad = { talking: false, silentMs: 0 };
+    },
     setMuted: (value: boolean) => {
       muted = value;
     },

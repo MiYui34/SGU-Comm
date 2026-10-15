@@ -6,11 +6,14 @@
 
   let {
     me,
+    status = "Voice connected",
     micError,
     onSelfState,
     onSettings,
   }: {
     me: User;
+    // "Voice connected", "Not in voice", ...
+    status?: string;
     micError: string | null;
     onSelfState: (s: SelfState) => void;
     onSettings: () => void;
@@ -24,7 +27,7 @@
     {#if micError}
       <div class="status error ellipsis" title={micError}>No microphone</div>
     {:else}
-      <div class="status ellipsis">Voice connected</div>
+      <div class="status ellipsis" class:idle={status !== "Voice connected"}>{status}</div>
     {/if}
   </div>
   <button
@@ -72,6 +75,10 @@
   .status.error {
     color: var(--danger);
   }
+  .status.idle {
+    color: var(--text-muted);
+  }
+
   button {
     display: inline-flex;
     padding: 6px;

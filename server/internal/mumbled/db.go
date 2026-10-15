@@ -517,3 +517,42 @@ func (d *DB) SetUserContent(id uint32, comment string, texture []byte) error {
 	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ? WHERE id = ?`, comment, texture, id)
 	return err
 }
+
+// InitLobby makes root a lobby without voice, as Kallisti servers have it:
+// users arrive there and join voice channels on purpose. A new server gets
+// a "General" voice channel. Runs once per database.
+func (d *DB) InitLobby() error {
+	var done int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM mumble_meta WHERE key = 'lobby'`).Scan(&done); err != nil || done > 0 {
+		return err
+	}
+	saved, err := d.Channels()
+	if err != nil {
+		return err
+	}
+	s := NewState("Root", saved)
+	root := s.Channels[0]
+	root.ACLs = append(root.ACLs, ACL{ApplyHere: true, ApplySubs: false, Group: "all", Deny: Speak})
+	if err := d.SaveChannel(root); err != nil {
+		return err
+	}
+	if len(s.Channels) == 1 {
+		last, err := d.NextChannel()
+		if err != nil {
+			return err
+		}
+		s.SetLastChannelID(last)
+		general, err := s.AddChannel(0, "General", false)
+		if err != nil {
+			return err
+		}
+		if err := d.SaveChannel(general); err != nil {
+			return err
+		}
+		if err := d.SaveNextChannel(general.ID); err != nil {
+			return err
+		}
+	}
+	_, err = d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('lobby', 1)`)
+	return err
+}

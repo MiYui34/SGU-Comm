@@ -43,6 +43,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store) (*builtin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Mumble tables: %w", err)
 	}
+	if err := mdb.InitLobby(); err != nil {
+		return nil, fmt.Errorf("lobby: %w", err)
+	}
 	// SuperUser's password, from the environment (not visible in ps).
 	if pw := os.Getenv("MUMBLED_SUPERUSER_PASSWORD"); pw != "" {
 		hash, err := password.Hash(pw)
