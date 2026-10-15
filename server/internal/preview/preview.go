@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -28,16 +29,19 @@ import (
 )
 
 const (
-	timeout        = 5 * time.Second
+	timeout        = 5 * time.Second // per connection step
+	fetchTime      = 8 * time.Second // page and image together
 	maxRedirects   = 3
 	maxPage        = 512 << 10 // bytes read of a page (the head is enough)
-	maxImage       = 512 << 10
+	maxImage       = 256 << 10
 	maxTitle       = 200 // runes
 	maxDescription = 300
 	maxSite        = 100
 	cacheFor       = time.Hour
 	maxEntries     = 500
-	parallel       = 4 // fetches at the same time
+	parallel       = 4  // fetches at the same time
+	maxQueued      = 64 // fetches waiting or running (two pages of links); more get none
+	maxImageBytes  = 32 << 20
 )
 
 // Preview is what a card shows. Image is the key of the fetched image (see
@@ -67,11 +71,16 @@ type Fetcher struct {
 	mu     sync.Mutex
 	pages  map[string]*entry
 	images map[string]picture
+	// Under mu: fetches waiting or running, and image bytes kept (the
+	// oldest images go first).
+	inflight, maxQueued       int
+	imageBytes, maxImageBytes int
+	imageOrder                []string
 }
 
 func New() *Fetcher {
 	f := &Fetcher{allow: publicAddr, now: time.Now, sem: make(chan struct{}, parallel),
-		pages: map[string]*entry{}, images: map[string]picture{}}
+		pages: map[string]*entry{}, images: map[string]picture{}, maxQueued: maxQueued, maxImageBytes: maxImageBytes}
 	dialer := &net.Dialer{Timeout: timeout, Control: func(_, address string, _ syscall.RawConn) error {
 		ap, err := netip.ParseAddrPort(address)
 		if err != nil || !f.allow(ap) {
@@ -84,6 +93,7 @@ func New() *Fetcher {
 		Transport: &http.Transport{
 			Proxy:                  nil, // straight to the host: the check above sees its address
 			DialContext:            dialer.DialContext,
+			DisableKeepAlives:      true, // no idle connections to hosts that keep them open
 			TLSHandshakeTimeout:    timeout,
 			ResponseHeaderTimeout:  timeout,
 			MaxResponseHeaderBytes: 64 << 10,
@@ -92,6 +102,7 @@ func New() *Fetcher {
 			if len(via) > maxRedirects {
 				return errors.New("too many redirects")
 			}
+			req.Header.Del("Referer") // the link may carry a token
 			return webURL(req.URL)
 		},
 	}
@@ -99,9 +110,15 @@ func New() *Fetcher {
 }
 
 var blocked = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT (also VPNs)
 	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
 	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/96"),        // IPv4-compatible
+	netip.MustParsePrefix("2001::/32"),    // Teredo: IPv4 inside
+	netip.MustParsePrefix("2002::/16"),    // 6to4: IPv4 inside
 	netip.MustParsePrefix("64:ff9b::/96"), // NAT64: IPv4 behind it
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2001:db8::/32"),
@@ -143,7 +160,12 @@ func (f *Fetcher) Get(ctx context.Context, raw string) *Preview {
 		}
 	}
 	if !ok {
+		if f.inflight >= f.maxQueued {
+			f.mu.Unlock()
+			return nil // busy: not cached, a later ask may get it
+		}
 		f.trim()
+		f.inflight++
 		e = &entry{done: make(chan struct{}), at: f.now()}
 		f.pages[raw] = e
 		go f.fill(raw, e)
@@ -160,22 +182,47 @@ func (f *Fetcher) Get(ctx context.Context, raw string) *Preview {
 func (f *Fetcher) fill(raw string, e *entry) {
 	defer close(e.done)
 	f.sem <- struct{}{}
-	defer func() { <-f.sem }()
-	p, image, err := f.fetch(raw)
+	ctx, cancel := context.WithTimeout(context.Background(), fetchTime)
+	p, image, err := f.fetch(ctx, raw)
+	cancel()
+	<-f.sem
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inflight--
 	if err != nil {
 		slog.Debug("link preview", "url", raw, "err", err)
 		return
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	if image.data != nil {
 		p.Image = randomKey()
-		f.images[p.Image] = image
+		f.keepImage(p.Image, image)
 	}
 	e.preview = &p
 }
 
-func (f *Fetcher) fetch(raw string) (Preview, picture, error) {
+// keepImage stores an image; the oldest go while over the byte limit.
+// Callers hold mu.
+func (f *Fetcher) keepImage(key string, img picture) {
+	f.images[key] = img
+	f.imageBytes += len(img.data)
+	f.imageOrder = append(f.imageOrder, key)
+	if len(f.imageOrder) > 2*len(f.images)+16 { // keys of images forgotten since
+		f.imageOrder = slices.DeleteFunc(f.imageOrder, func(k string) bool { _, ok := f.images[k]; return !ok })
+	}
+	for f.imageBytes > f.maxImageBytes && len(f.imageOrder) > 0 {
+		f.dropImage(f.imageOrder[0])
+		f.imageOrder = f.imageOrder[1:]
+	}
+}
+
+func (f *Fetcher) dropImage(key string) {
+	if img, ok := f.images[key]; ok {
+		f.imageBytes -= len(img.data)
+		delete(f.images, key)
+	}
+}
+
+func (f *Fetcher) fetch(ctx context.Context, raw string) (Preview, picture, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return Preview{}, picture{}, err
@@ -183,29 +230,38 @@ func (f *Fetcher) fetch(raw string) (Preview, picture, error) {
 	if err := webURL(u); err != nil {
 		return Preview{}, picture{}, err
 	}
-	res, err := f.get(u.String(), "text/html")
+	p, imageURL, err := f.page(ctx, u.String())
 	if err != nil {
 		return Preview{}, picture{}, err
+	}
+	p.URL = raw
+	return p, f.image(ctx, imageURL), nil
+}
+
+// page fetches and reads a page (its connection closes before the image).
+func (f *Fetcher) page(ctx context.Context, u string) (Preview, string, error) {
+	res, err := f.get(ctx, u, "text/html")
+	if err != nil {
+		return Preview{}, "", err
 	}
 	defer res.Body.Close()
 	ctype := res.Header.Get("Content-Type")
-	if !strings.HasPrefix(ctype, "text/html") && !strings.HasPrefix(ctype, "application/xhtml") {
-		return Preview{}, picture{}, errors.New("not a page")
+	if mt, _, _ := mime.ParseMediaType(ctype); mt != "text/html" && mt != "application/xhtml+xml" {
+		return Preview{}, "", errors.New("not a page")
 	}
 	body, err := charset.NewReader(io.LimitReader(res.Body, maxPage), ctype)
 	if err != nil {
-		return Preview{}, picture{}, err
+		return Preview{}, "", err
 	}
 	p, imageURL := parse(body, res.Request.URL)
 	if p.Title == "" {
-		return Preview{}, picture{}, errors.New("no title")
+		return Preview{}, "", errors.New("no title")
 	}
-	p.URL = raw
-	return p, f.image(imageURL), nil
+	return p, imageURL, nil
 }
 
-func (f *Fetcher) get(u, accept string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+func (f *Fetcher) get(ctx context.Context, u, accept string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -226,11 +282,11 @@ var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 // image fetches a preview picture: only real images (by their bytes), and
 // small ones.
-func (f *Fetcher) image(u string) picture {
+func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if u == "" {
 		return picture{}
 	}
-	res, err := f.get(u, "image/*")
+	res, err := f.get(ctx, u, "image/*")
 	if err != nil {
 		return picture{}
 	}
@@ -340,27 +396,34 @@ func randomKey() string {
 	return hex.EncodeToString(b)
 }
 
-// trim keeps the cache small: old entries go, then any (with their images).
-// Callers hold mu.
+// trim keeps the cache small: when full, the oldest finished entries go
+// (with their images). Callers hold mu.
 func (f *Fetcher) trim() {
 	if len(f.pages) < maxEntries {
 		return
 	}
+	type aged struct {
+		raw string
+		at  time.Time
+	}
+	var done []aged
 	for raw, e := range f.pages {
-		if f.now().Sub(e.at) > cacheFor || len(f.pages) >= maxEntries {
-			select {
-			case <-e.done:
-				f.forget(raw)
-			default: // on its way: kept
-			}
+		select {
+		case <-e.done:
+			done = append(done, aged{raw, e.at})
+		default: // on its way: kept
 		}
+	}
+	slices.SortFunc(done, func(a, b aged) int { return a.at.Compare(b.at) })
+	for _, d := range done[:min(len(done), len(f.pages)-maxEntries*9/10)] {
+		f.forget(d.raw)
 	}
 }
 
 // forget removes a page and its image. Callers hold mu.
 func (f *Fetcher) forget(raw string) {
 	if e := f.pages[raw]; e != nil && e.preview != nil && e.preview.Image != "" {
-		delete(f.images, e.preview.Image)
+		f.dropImage(e.preview.Image)
 	}
 	delete(f.pages, raw)
 }

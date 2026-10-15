@@ -4,6 +4,7 @@
 package sidecar
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -127,16 +128,23 @@ type Conn struct {
 	lagged bool
 	// The last typing signal passed on, per channel (see typing).
 	typed map[int64]time.Time
+	// Ends with the connection (work on its behalf stops); previewing:
+	// previews on their way.
+	ctx        context.Context
+	stop       context.CancelFunc
+	previewing int
 }
 
 func (h *Hub) Connect() *Conn {
-	return &Conn{hub: h, out: make(chan []byte, outboxSize), limit: rate.NewLimiter(perSecond, burst)}
+	ctx, stop := context.WithCancel(context.Background())
+	return &Conn{hub: h, out: make(chan []byte, outboxSize), limit: rate.NewLimiter(perSecond, burst), ctx: ctx, stop: stop}
 }
 
 // Outbox is closed when the connection closes.
 func (c *Conn) Outbox() <-chan []byte { return c.out }
 
 func (c *Conn) Close() {
+	c.stop()
 	c.mu.Lock()
 	id := c.identity
 	c.mu.Unlock()

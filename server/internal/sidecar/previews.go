@@ -3,6 +3,7 @@ package sidecar
 import (
 	"context"
 	"regexp"
+	"slices"
 	"time"
 
 	"kallisti.chat/server/internal/mumble"
@@ -35,12 +36,13 @@ func firstLink(text string) string { return linkPattern.FindString(text) }
 
 // previews answers with a "preview" event per asked message that has a
 // link and that the user may read (preview null: none), as each is ready.
+// At most maxPreviewAsks are on their way per connection; more are dropped.
 func (c *Conn) previews(id mumble.Identity, req request) {
 	if c.hub.Previews == nil {
 		return
 	}
-	asks := req.Messages[:min(len(req.Messages), maxPreviewAsks)]
-	for _, mid := range asks {
+	asks := slices.Compact(slices.Sorted(slices.Values(req.Messages)))
+	for _, mid := range asks[:min(len(asks), maxPreviewAsks)] {
 		m, err := c.hub.store.MessageByID(mid)
 		if err != nil {
 			continue
@@ -50,11 +52,27 @@ func (c *Conn) previews(id mumble.Identity, req request) {
 		if link == "" || !ok || isVoice && !c.hub.voice.MayRead(id.Session, voice) {
 			continue
 		}
+		c.mu.Lock()
+		busy := c.previewing >= maxPreviewAsks
+		if !busy {
+			c.previewing++
+		}
+		c.mu.Unlock()
+		if busy {
+			return
+		}
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), previewWait)
+			ctx, cancel := context.WithTimeout(c.ctx, previewWait)
 			defer cancel()
+			p := c.hub.Previews.Get(ctx, link)
+			c.mu.Lock()
+			c.previewing--
+			c.mu.Unlock()
+			if ctx.Err() != nil && p == nil {
+				return // closed or too slow: no answer (asked again after a reload)
+			}
 			var out *wirePreview
-			if p := c.hub.Previews.Get(ctx, link); p != nil {
+			if p != nil {
 				out = &wirePreview{URL: p.URL, Title: p.Title, Description: p.Description, Site: p.Site}
 				if p.Image != "" {
 					out.Image = "/api/link-image/" + p.Image

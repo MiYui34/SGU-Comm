@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestParse(t *testing.T) {
@@ -44,7 +45,8 @@ func TestPublicAddresses(t *testing.T) {
 		"93.184.216.34:22": false, "127.0.0.1:443": false, "10.1.2.3:80": false, "192.168.1.1:80": false,
 		"172.16.0.1:80": false, "169.254.169.254:80": false, "100.100.1.1:443": false, "0.0.0.0:80": false,
 		"[::1]:443": false, "[fd00::1]:443": false, "[fe80::1]:443": false, "[::ffff:127.0.0.1]:443": false,
-		"[64:ff9b::a00:1]:443": false,
+		"[64:ff9b::a00:1]:443": false, "0.1.2.3:80": false, "240.0.0.1:80": false, "[::7f00:1]:443": false,
+		"[2002:a00:1::1]:443": false, "[2001:0:1::1]:443": false, "192.88.99.1:80": false,
 	} {
 		if got := publicAddr(netip.MustParseAddrPort(addr)); got != want {
 			t.Errorf("%s: %v", addr, got)
@@ -62,7 +64,7 @@ func TestFetchWithImage(t *testing.T) {
 		switch r.URL.Path {
 		case "/page":
 			hits.Add(1)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Type", "Text/HTML; charset=utf-8")
 			fmt.Fprint(w, `<head><title>Hello</title><meta property="og:image" content="/pic"></head>`)
 		case "/pic":
 			w.Write(png)
@@ -110,5 +112,49 @@ func TestLocalAddressesAreRefused(t *testing.T) {
 	}
 	if p := New().Get(context.Background(), "ftp://example.org/"); p != nil {
 		t.Fatalf("ftp: %+v", p)
+	}
+}
+
+func TestTheQueueIsLimited(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		fmt.Fprint(w, `<title>slow</title>`)
+	}))
+	defer srv.Close()
+	defer close(release)
+	f := New()
+	f.allow = local
+	f.maxQueued = 1
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if p := f.Get(ctx, srv.URL+"/1"); p != nil { // waits, then gives up
+		t.Fatalf("got %+v", p)
+	}
+	if p := f.Get(context.Background(), srv.URL+"/2"); p != nil { // refused at once
+		t.Fatalf("got %+v", p)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, queued := f.pages[srv.URL+"/2"]; queued || len(f.pages) != 1 {
+		t.Fatalf("pages %v", f.pages)
+	}
+}
+
+func TestImagesHaveATotalLimit(t *testing.T) {
+	f := New()
+	f.maxImageBytes = 100
+	for i := range 5 {
+		f.mu.Lock()
+		f.keepImage(fmt.Sprint(i), picture{data: make([]byte, 40), typ: "image/png"})
+		f.mu.Unlock()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.images) != 2 || f.imageBytes != 80 {
+		t.Fatalf("%d images, %d bytes", len(f.images), f.imageBytes)
+	}
+	if _, ok := f.images["4"]; !ok {
+		t.Fatal("the newest went")
 	}
 }

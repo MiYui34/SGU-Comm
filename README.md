@@ -135,7 +135,7 @@ per file), `UPLOAD_QUOTA_MB` (100 per user per day), `BACKUP_DIR` (daily
 database backups at start and every 24 hours; none when unset),
 `BACKUP_KEEP` (7), `LINK_PREVIEWS=0` (the server fetches no pages for
 link previews; by default it fetches the first link of a message, only from
-public addresses). To restore, stop the server and copy a backup over
+public addresses, so linked sites see the server's address). To restore, stop the server and copy a backup over
 `DB_PATH` (remove `DB_PATH-wal` and `DB_PATH-shm` too). Uploads are files in
 `UPLOAD_DIR`: back that folder up separately.
 
