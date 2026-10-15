@@ -96,3 +96,13 @@ button:disabled {
   background: var(--bg-hover);
   color: var(--text);
 }
+
+/* Phones zoom into text fields under 16px (iOS Safari): never smaller on
+   touch screens. Zoom itself stays allowed. */
+@media (pointer: coarse), (max-width: 700px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}

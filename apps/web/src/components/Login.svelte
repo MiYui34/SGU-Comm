@@ -214,6 +214,10 @@
     border-radius: 4px;
     background: var(--bg-rail);
     outline: none;
+    /* Not the label's small caps; 16px also keeps phones from zooming in. */
+    font-size: 16px;
+    font-weight: normal;
+    color: var(--text);
   }
   .primary {
     padding: 12px;
