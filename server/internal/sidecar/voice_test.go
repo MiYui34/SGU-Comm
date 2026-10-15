@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -43,7 +44,6 @@ func voiceChat(t *testing.T, c *Conn, voice int) float64 {
 	}
 	return m["channel"].(float64)
 }
-
 
 func TestVoiceChannelChats(t *testing.T) {
 	h := newHub(t, "general")
@@ -111,5 +111,71 @@ func TestVoiceChatsNeedTheBuiltInServer(t *testing.T) {
 	c.Handle([]byte(`{"type":"voice-chat","voice":5}`))
 	if m := next(t, c); m["type"] != "error" {
 		t.Fatalf("got %v", m)
+	}
+}
+
+func (f *fakeVoice) MayManage(session uint32) bool { return session == 1 }
+
+func TestAdminsManageTextChannels(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	admin := readyAs(t, h, 1, "admin")
+	bob := readyAs(t, h, 2, "bob")
+	bob.Handle([]byte(`{"type":"create-channel","name":"games"}`))
+	if m := next(t, bob); m["type"] != "error" {
+		t.Fatalf("bob got %v", m)
+	}
+	admin.Handle([]byte(`{"type":"create-channel","name":"  Game Night "}`))
+	for _, c := range []*Conn{admin, bob} {
+		m := next(t, c)
+		chans := m["channels"].([]any)
+		if m["type"] != "channels" || len(chans) != 2 || chans[1].(map[string]any)["name"] != "game-night" {
+			t.Fatalf("got %v", m)
+		}
+	}
+	id := strconv.Itoa(int(next0(t, admin, h)))
+	admin.Handle([]byte(`{"type":"rename-channel","channel":` + id + `,"name":"games"}`))
+	if m := next(t, admin); m["type"] != "channels" {
+		t.Fatalf("rename: %v", m)
+	}
+	next(t, bob)
+	admin.Handle([]byte(`{"type":"order-channels","channels":[` + id + `]}`))
+	m := next(t, admin)
+	if chans := m["channels"].([]any); chans[0].(map[string]any)["name"] != "games" {
+		t.Fatalf("order: %v", m)
+	}
+	next(t, bob)
+	admin.Handle([]byte(`{"type":"delete-channel","channel":` + id + `}`))
+	if m := next(t, admin); len(m["channels"].([]any)) != 1 {
+		t.Fatalf("delete: %v", m)
+	}
+	admin.Handle([]byte(`{"type":"create-channel","name":"bad:name"}`))
+	if m := next(t, admin); m["type"] != "error" {
+		t.Fatalf("bad name: %v", m)
+	}
+}
+
+// next0 is the id of the second text channel.
+func next0(t *testing.T, _ *Conn, h *Hub) float64 {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return float64(h.channels[1].ID)
+}
+
+func TestTextChannelNames(t *testing.T) {
+	for in, want := range map[string]string{
+		"General":       "general",
+		" game  night ": "game-night",
+		"Küche":         "küche",
+	} {
+		if got, ok := textChannelName(in); !ok || got != want {
+			t.Errorf("%q: %q %v", in, got, ok)
+		}
+	}
+	for _, bad := range []string{"", "a:b", strings.Repeat("x", 33), "<b>"} {
+		if _, ok := textChannelName(bad); ok {
+			t.Errorf("%q accepted", bad)
+		}
 	}
 }

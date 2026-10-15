@@ -49,7 +49,13 @@ func run() error {
 		return fmt.Errorf("open database %s: %w", cfg.DBPath, err)
 	}
 	defer db.Close()
-	if err := db.EnsureChannels(cfg.TextChannels); err != nil {
+	// With the built-in server, admins manage the text channels: the
+	// configured ones only seed a new server.
+	setUp := db.EnsureChannels
+	if cfg.Builtin != nil {
+		setUp = db.SeedChannels
+	}
+	if err := setUp(cfg.TextChannels); err != nil {
 		return fmt.Errorf("set up text channels: %w", err)
 	}
 

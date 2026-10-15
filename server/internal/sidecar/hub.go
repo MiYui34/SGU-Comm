@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,9 @@ type Voice interface {
 	MayRead(session, channel uint32) bool
 	MayWrite(session, channel uint32) bool
 	SendChannelText(from, channel uint32, text string)
+	// MayManage: the user may create, rename, order and delete text
+	// channels.
+	MayManage(session uint32) bool
 }
 
 type Hub struct {
@@ -47,7 +52,7 @@ type Hub struct {
 	voice Voice
 	// The server's public address, for upload links sent to Mumble clients.
 	publicBase string
-	// Channels are fixed at startup.
+	// Text channels; changed by admins (with the built-in server). Under mu.
 	channels []wireChannel
 	mu       sync.Mutex
 	conns    map[*Conn]struct{}
@@ -129,10 +134,11 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.ready = true
 		c.hub.conns[c] = struct{}{}
 	}
+	channels := c.hub.channels
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
 	if becomesReady {
-		c.send(map[string]any{"type": "ready", "channels": c.hub.channels, "voiceChats": c.hub.voice != nil})
+		c.send(map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil})
 	}
 }
 
@@ -175,12 +181,14 @@ func toWire(m store.Message) wireMessage {
 }
 
 type request struct {
-	Type    string `json:"type"`
-	Voice   uint32 `json:"voice"` // voice-chat: the Mumble channel
-	Channel int64  `json:"channel"`
-	Before  int64  `json:"before"`
-	Text    string `json:"text"`
-	Upload  string `json:"upload"` // key of an upload to attach
+	Type     string  `json:"type"`
+	Name     string  `json:"name"`     // create-channel, rename-channel
+	Channels []int64 `json:"channels"` // order-channels
+	Voice    uint32  `json:"voice"`    // voice-chat: the Mumble channel
+	Channel  int64   `json:"channel"`
+	Before   int64   `json:"before"`
+	Text     string  `json:"text"`
+	Upload   string  `json:"upload"` // key of an upload to attach
 }
 
 // Handle answers one request from the browser.
@@ -207,6 +215,11 @@ func (c *Conn) Handle(raw []byte) {
 	}
 	if req.Type == "voice-chat" {
 		c.voiceChat(*id, req.Voice)
+		return
+	}
+	switch req.Type {
+	case "create-channel", "rename-channel", "delete-channel", "order-channels":
+		c.manage(*id, req)
 		return
 	}
 	if req.Type != "send" && req.Type != "history" {
@@ -287,6 +300,8 @@ func (h *Hub) MumbleText(from uint32, name string, registered bool, voice uint32
 }
 
 func (h *Hub) channelExists(id int64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for _, ch := range h.channels {
 		if ch.ID == id {
 			return true
@@ -448,4 +463,95 @@ func (h *Hub) RedeemUploadToken(token string) (string, bool) {
 		return "", false
 	}
 	return t.author, true
+}
+
+// Text channel names as Discord has them: lower case, "-" for spaces.
+var channelNameChars = regexp.MustCompile(`^[\p{L}\p{N}_-]{1,32}$`)
+
+func textChannelName(raw string) (string, bool) {
+	name := strings.ToLower(strings.Join(strings.Fields(raw), "-"))
+	return name, channelNameChars.MatchString(name)
+}
+
+// manage changes the text channels (admins only) and sends everyone the
+// new list.
+func (c *Conn) manage(id mumble.Identity, req request) {
+	h := c.hub
+	if h.voice == nil || !h.voice.MayManage(id.Session) {
+		c.sendError("you may not manage channels")
+		return
+	}
+	var err error
+	switch req.Type {
+	case "create-channel", "rename-channel":
+		name, ok := textChannelName(req.Name)
+		if !ok {
+			c.sendError("a channel name has 1 to 32 letters, digits, - or _")
+			return
+		}
+		if req.Type == "create-channel" {
+			_, err = h.store.CreateChannel(name)
+		} else {
+			err = h.store.RenameChannel(req.Channel, name)
+		}
+	case "delete-channel":
+		err = h.store.HideChannel(req.Channel)
+	case "order-channels":
+		err = h.store.SetPositions(h.fullOrder(req.Channels))
+	}
+	switch {
+	case errors.Is(err, store.ErrNameTaken):
+		c.sendError("a channel with this name exists")
+		return
+	case err != nil:
+		c.sendError("cannot change the channel")
+		return
+	}
+	if err := h.reloadChannels(); err != nil {
+		slog.Error("load text channels", "err", err)
+		return
+	}
+	h.mu.Lock()
+	channels := h.channels
+	h.mu.Unlock()
+	h.broadcast(map[string]any{"type": "channels", "channels": channels})
+}
+
+func (h *Hub) reloadChannels() error {
+	channels, err := h.store.Channels()
+	if err != nil {
+		return err
+	}
+	wire := make([]wireChannel, len(channels))
+	for i, ch := range channels {
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
+	}
+	h.mu.Lock()
+	h.channels = wire
+	h.mu.Unlock()
+	return nil
+}
+
+// fullOrder: the given text channels first, the others after them in their
+// current order (a partial list must not leave two at one position).
+func (h *Hub) fullOrder(first []int64) []int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	known := map[int64]bool{}
+	for _, ch := range h.channels {
+		known[ch.ID] = true
+	}
+	var out []int64
+	for _, id := range first {
+		if known[id] {
+			out = append(out, id)
+			delete(known, id)
+		}
+	}
+	for _, ch := range h.channels {
+		if known[ch.ID] {
+			out = append(out, ch.ID)
+		}
+	}
+	return out
 }
