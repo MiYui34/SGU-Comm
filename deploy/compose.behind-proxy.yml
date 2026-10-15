@@ -1,0 +1,20 @@
+# Kallisti behind a reverse proxy that already runs in Docker (for example
+# another project's Caddy). Set DOMAIN and PROXY_NETWORK (the proxy's
+# Docker network), point the proxy at kallisti:8080, then:
+#   docker compose -f deploy/compose.behind-proxy.yml up -d
+name: kallisti
+services:
+  kallisti:
+    extends:
+      file: compose.yml
+      service: kallisti
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK}
+    external: true
+
+volumes:
+  kallisti-data:
