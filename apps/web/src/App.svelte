@@ -1,7 +1,7 @@
 <script lang="ts">
   import Client from "./components/Client.svelte";
   import Login from "./components/Login.svelte";
-  import { createAccountsApi, type AccountActions } from "./lib/accounts";
+  import { createAccountsApi, type Account, type AccountActions } from "./lib/accounts";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
   import {
     bridgeUrl,
@@ -24,17 +24,17 @@
   let connection = $state<Connection | null>(null);
   // The account API lives on the Kallisti server (same host as the bridge).
   const api = createAccountsApi(httpBase(PROXY_URL));
-  let account = $state<string | null>(null);
+  let account = $state<Account | null>(null);
   // Only if the user has not acted yet: a late answer must not undo a login.
   // The desktop app has no Kallisti server, so no accounts.
   if (!isDesktop())
-    void api.me().then((name) => {
-      if (!connection && account === null) account = name;
+    void api.me().then((acc) => {
+      if (!connection && account === null) account = acc;
     });
   // An account connection failed (for example an expired session): ask the
   // server again, so the login form comes back instead of a dead end.
   $effect(() => {
-    if (error && connection?.account) void api.me().then((name) => (account = name));
+    if (error && connection?.account) void api.me().then((acc) => (account = acc));
   });
 
   // A lost connection comes back by itself (see shouldReconnect): until
@@ -67,6 +67,9 @@
     audio = null;
   };
   const accountActions: AccountActions = {
+    get temporary() {
+      return account?.temporary ?? false;
+    },
     logout: async () => {
       const ok = await api.logout();
       if (ok) account = null;
@@ -77,7 +80,10 @@
       account = null;
       leave("Logged out on all devices.");
     },
-    changePassword: api.changePassword,
+    changePassword: async (old, next) => {
+      await api.changePassword(old, next);
+      if (account?.temporary) account = { ...account, temporary: false }; // kept now
+    },
   };
 
   // The desktop app connects through its local bridge to the server the
@@ -221,7 +227,7 @@
     {api}
     {account}
     {desktop}
-    onAccountChange={(name) => (account = name)}
+    onAccountChange={(acc) => (account = acc)}
     onConnect={start}
   />
 {:else if connection.state.status === "synced"}

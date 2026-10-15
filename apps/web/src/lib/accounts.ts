@@ -1,8 +1,23 @@
 // The Kallisti server's account API. The session is an HttpOnly cookie, so
 // every call includes credentials (the API may be on another origin in
 // development).
+// A logged-in account; temporary: a guest account without a password (the
+// server deletes it after a day without a visit).
+export type Account = { name: string; temporary: boolean };
+
+// An answer the server refused, with its status.
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) => {
-  const call = async (path: string, body?: unknown): Promise<{ name?: string; mumble?: boolean }> => {
+  type Answer = { name?: string; mumble?: boolean; temporary?: boolean };
+  const call = async (path: string, body?: unknown): Promise<Answer> => {
     // GET without Content-Type: no CORS preflight needed.
     const res = await fetchFn(`${base}${path}`, {
       credentials: "include",
@@ -10,8 +25,8 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
         ? { method: "GET" }
         : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
     });
-    const data = (await res.json().catch(() => ({}))) as { name?: string; mumble?: boolean; error?: string };
-    if (!res.ok) throw new Error(data.error ?? `request failed (${res.status})`);
+    const data = (await res.json().catch(() => ({}))) as Answer & { error?: string };
+    if (!res.ok) throw new ApiError(data.error ?? `request failed (${res.status})`, res.status);
     return data;
   };
   return {
@@ -23,6 +38,16 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
     },
     create: async (name: string, password: string) =>
       (await call("/api/accounts", { name, password })).name ?? name,
+    // A temporary account for a guest; null: the server has none (an
+    // external Murmur), join as a classic guest.
+    guest: async (name: string): Promise<Account | null> => {
+      try {
+        return { name: (await call("/api/guest", { name: name.trim() })).name ?? name.trim(), temporary: true };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
     // false: the server did not confirm (the session cookie may remain).
     logout: async () =>
       call("/api/logout", {}).then(
@@ -36,9 +61,10 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
       await call("/api/password", { old, new: next });
     },
     // The logged-in account, or null (also for servers without accounts).
-    me: async () => {
+    me: async (): Promise<Account | null> => {
       try {
-        return (await call("/api/me")).name ?? null;
+        const data = await call("/api/me");
+        return data.name ? { name: data.name, temporary: data.temporary === true } : null;
       } catch {
         return null;
       }
@@ -52,8 +78,10 @@ export type AccountsApi = ReturnType<typeof createAccountsApi>;
 export const modeForError = (error: string | null): "guest" | "login" =>
   error?.includes("belongs to an account") ? "login" : "guest";
 
-// What a logged-in user can do from the settings.
+// What a logged-in user can do from the settings (temporary: a guest
+// account, which gets its first password without an old one).
 export type AccountActions = {
+  temporary: boolean;
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   changePassword: (old: string, next: string) => Promise<void>;

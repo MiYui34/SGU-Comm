@@ -43,7 +43,21 @@ describe("accounts API", () => {
     const api = createAccountsApi("http://srv", fakeFetch(401, { error: "not logged in" }, []));
     expect(await api.me()).toBeNull();
     const api2 = createAccountsApi("http://srv", fakeFetch(200, { name: "carol" }, []));
-    expect(await api2.me()).toBe("carol");
+    expect(await api2.me()).toEqual({ name: "carol", temporary: false });
+    const api3 = createAccountsApi("http://srv", fakeFetch(200, { name: "visitor", temporary: true }, []));
+    expect(await api3.me()).toEqual({ name: "visitor", temporary: true });
+  });
+
+  it("joins as a guest account where the server has them", async () => {
+    const calls: Call[] = [];
+    const api = createAccountsApi("http://srv", fakeFetch(201, { name: "visitor", temporary: true }, calls));
+    expect(await api.guest(" visitor")).toEqual({ name: "visitor", temporary: true });
+    expect(calls[0]?.url).toBe("http://srv/api/guest");
+    // No guest accounts (an external Murmur): a classic guest.
+    const none = createAccountsApi("http://srv", fakeFetch(404, {}, []));
+    expect(await none.guest("visitor")).toBeNull();
+    const taken = createAccountsApi("http://srv", fakeFetch(409, { error: "this name is already taken" }, []));
+    await expect(taken.guest("visitor")).rejects.toThrow("this name is already taken");
   });
 
   it("treats a server without accounts as not logged in", async () => {

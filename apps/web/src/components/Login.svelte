@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { modeForError, type AccountsApi } from "../lib/accounts";
+  import { modeForError, type Account, type AccountsApi } from "../lib/accounts";
   import { formatFingerprint, type CertificateProblem } from "../lib/desktop";
   import type { Credentials } from "../lib/connection.svelte";
   import { safeGet, safeSet } from "../lib/storage";
@@ -26,8 +26,8 @@
     error: string | null;
     api: AccountsApi;
     // The logged-in account (null: none, or a server without accounts).
-    account: string | null;
-    onAccountChange: (name: string | null) => void;
+    account: Account | null;
+    onAccountChange: (account: Account | null) => void;
     onConnect: (c: Credentials) => void;
   } = $props();
 
@@ -56,17 +56,25 @@
     event.preventDefault();
     const name = username.trim();
     if (!name) return;
-    if (mode === "guest") return connectAs(name, false);
+    if (mode === "guest" && desktop) return connectAs(name, false);
     busy = true;
     apiError = null;
     try {
+      // A guest gets a temporary account where the server has them (its
+      // name is kept, and it can keep the account with a password).
+      if (mode === "guest") {
+        const guest = await api.guest(name);
+        if (!guest) return connectAs(name, false);
+        onAccountChange(guest);
+        return connectAs(guest.name, true);
+      }
       const result = mode === "login" ? await api.login(name, password) : { name: await api.create(name, password), mumble: false };
       const pw = password;
       password = "";
       // A Mumble registration (SuperUser, for example) logs in to Mumble with
       // its password.
       if (result.mumble) return connectAs(result.name, false, pw);
-      onAccountChange(result.name);
+      onAccountChange({ name: result.name, temporary: false });
       connectAs(result.name, true);
     } catch (err) {
       apiError = err instanceof Error ? err.message : String(err);
@@ -110,9 +118,11 @@
   {:else if account}
     <div class="card">
       <h1>Welcome back</h1>
-      <p class="sub">Logged in as <strong>{account}</strong></p>
+      <p class="sub">
+        {account.temporary ? "Your guest account" : "Logged in as"} <strong>{account.name}</strong>
+      </p>
       {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
-      <button class="primary" onclick={() => connectAs(account, true)}>Continue as {account}</button>
+      <button class="primary" onclick={() => connectAs(account.name, true)}>Continue as {account.name}</button>
       <button class="link" onclick={logout}>Log out</button>
     </div>
   {:else}

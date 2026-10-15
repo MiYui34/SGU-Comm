@@ -57,8 +57,9 @@
   const changePassword = async (event: SubmitEvent) => {
     event.preventDefault();
     try {
+      const kept = account?.temporary;
       await account?.changePassword(oldPassword, newPassword);
-      passwordNote = "Password changed. Other devices are logged out.";
+      passwordNote = kept ? "Password set: your account stays." : "Password changed. Other devices are logged out.";
       oldPassword = newPassword = "";
     } catch (err) {
       passwordNote = err instanceof Error ? err.message : String(err);
@@ -223,20 +224,34 @@
   </label>
   {#if account}
     <form class="account" onsubmit={changePassword}>
-      <span class="label">Change password</span>
-      <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
+      {#if account.temporary}
+        <span class="label">Keep this account</span>
+        <p class="hint">
+          This is a guest account: it is deleted a day after your last visit. With a password it stays, and you can log
+          in on other devices.
+        </p>
+      {:else}
+        <span class="label">Change password</span>
+        <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
+      {/if}
       <input type="password" bind:value={newPassword} placeholder="New password (8 or more characters)" autocomplete="new-password" minlength="8" required />
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
-        <button type="submit" class="secondary">Change password</button>
+        <button type="submit" class="secondary">{account.temporary ? "Set password" : "Change password"}</button>
       </div>
     </form>
     <div class="account">
       <span class="label">Log out</span>
-      <p class="hint">"Everywhere" also logs out your other browsers and devices, for example after you used a shared computer.</p>
+      {#if account.temporary}
+        <p class="hint">Without a password you cannot come back to this account from another browser.</p>
+      {:else}
+        <p class="hint">"Everywhere" also logs out your other browsers and devices, for example after you used a shared computer.</p>
+      {/if}
       <div class="buttons">
         <button type="button" class="logout" onclick={account.logout}>Log out</button>
-        <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
+        {#if !account.temporary}
+          <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
+        {/if}
       </div>
     </div>
   {/if}
