@@ -7,4 +7,3 @@
 - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
 - [ ] [Pinned messages](issues/web-pinned-messages.md)
-- [ ] [Voice: DeepFilterNet3 as the strongest noise suppression](issues/voice-deepfilternet.md)

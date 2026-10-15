@@ -272,3 +272,9 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
   eval). Found only with the built app: Vite sends no CSP.
 - An AudioContext in a headless test tab only runs after a click; worklet
   experiments must come after one.
+- DeepFilterNet3 comes from @workadventure/noise-suppression (only its DFN
+  part ends up in dist: worklet, 14.6 MB engine, 8 MB model). It passes the
+  compiled module in processorOptions, which works where port messages
+  fail. Its dispose() does not free the filter state, so there is one node
+  per AudioContext, kept and connected in or out. The Go server now gzips
+  assets (the engine: 4 MB).
