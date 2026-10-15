@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
+  import { longPress } from "../lib/longPress";
   import { mirrorIds, withoutMirrors } from "../lib/mirrors";
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
@@ -65,6 +66,7 @@
        flat list. Only deeper channels are indented. -->
   <li style:padding-left="{depth > 1 ? INDENT : 0}px">
     <button
+      use:longPress
       class="channel hover-row"
       class:current={node.channel.id === currentChannel}
       aria-current={node.channel.id === currentChannel ? "page" : undefined}
@@ -149,6 +151,7 @@
         {#each textChannels as ch (ch.id)}
           <li>
             <button
+              use:longPress
               class="channel hover-row"
               class:current={ch.id === currentText}
               class:unread={unreadText.has(ch.id) && ch.id !== currentText}
@@ -237,6 +240,9 @@
     align-items: center;
     gap: 6px;
     width: 100%;
+    /* A long press opens the channel menu, not the phone's text menu. */
+    -webkit-touch-callout: none;
+    user-select: none;
     height: 34px;
     margin: 1px 0;
     padding: 0 8px;
