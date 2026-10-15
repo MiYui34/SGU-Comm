@@ -42,4 +42,25 @@ describe("markdown", () => {
     expect(md("`<b>`")).toBe("<code>&lt;b&gt;</code>");
     expect(md("\u0000" + "0\u0000")).not.toContain("\u0000");
   });
+
+  it("ends a link before a closing marker or an escaped bracket", () => {
+    const a = '<a href="https://x.org">https://x.org</a>';
+    expect(md("**https://x.org**")).toBe(`<strong>${a}</strong>`);
+    expect(md("_https://x.org_")).toBe(`<em>${a}</em>`);
+    expect(md("<https://x.org>")).toBe(`&lt;${a}&gt;`);
+    expect(md('"https://x.org"')).toBe(`&quot;${a}&quot;`);
+  });
+
+  it("keeps a code block inside inline code", () => {
+    expect(md("`a ```b``` c`")).not.toContain("\u0000");
+  });
+
+  it("keeps formatting inside a quote", () => {
+    expect(md("> a *b\nc*")).toBe("<blockquote>a *b</blockquote>c*");
+  });
+
+  it("needs a space after > for a quote (not >.<)", () => {
+    expect(md(">.< oops")).toBe("&gt;.&lt; oops");
+  });
 });
+

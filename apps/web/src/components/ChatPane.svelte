@@ -2,7 +2,7 @@
   import { opensLightbox } from "../lib/lightbox";
   import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
-  import type { ChatMessage } from "@kallisti/protocol";
+  import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
@@ -286,6 +286,9 @@
   // Stored messages carry their id and the message they answer.
   const idOf = (m: ChatMessage | DisplayMessage) => ("source" in m ? m.source?.id : undefined);
   const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
+  // Mentions as notifications see them: in the written text, not the
+  // Markdown result (Mumble messages have no source: their HTML).
+  const pingText = (m: ChatMessage | DisplayMessage) => ("source" in m && m.source ? escapeHtml(m.source.text) : m.text);
   // Replies: the message we answer, and jumping to an original.
   let replying = $state<{ id: number; author: string } | null>(null);
   let flashed = $state<number | null>(null);
@@ -429,7 +432,7 @@
         {:else}
           {@const group = item.group}
           {#each group.messages as m, i (m)}
-            <li class="line" class:first={i === 0} class:mentioned={pingsMe(m.text, group.actorName, replyOf(m)?.author, me)}
+            <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me)}
               class:flash={idOf(m) !== undefined && idOf(m) === flashed}
               data-message={idOf(m)}>
               {#if i === 0}
