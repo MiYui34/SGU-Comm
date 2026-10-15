@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"kallisti.chat/server/internal/mumble"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -274,4 +275,30 @@ func TestRejectsConnectionsAboveThePerIPLimit(t *testing.T) {
 	if err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("got %v %v, want 429", resp, err)
 	}
+}
+
+func TestKeepsSilentClientsAlive(t *testing.T) {
+	// The page's timers may sleep in a background tab: the bridge pings
+	// upstream itself (the echo sends the ping back).
+	echo := startEcho(t)
+	c, _, err := connect(t, startBridge(t, Options{Dial: dialer(echo.addr), KeepAlive: 50 * time.Millisecond}), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, data, err := c.Read(testCtx(t))
+	if err != nil || typ != websocket.MessageBinary || len(data) < 6 || data[0] != 0 || data[1] != byte(mumble.TypePing) {
+		t.Fatalf("got %v %x %v", typ, data, err)
+	}
+}
+
+func TestClosesBrowsersThatDoNotAnswerPings(t *testing.T) {
+	echo := startEcho(t)
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), KeepAlive: 30 * time.Millisecond})
+	c, _, err := connect(t, url, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not reading: the client answers no WebSocket ping.
+	_ = c
+	eventually(t, func() bool { return b.count() == 0 })
 }

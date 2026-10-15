@@ -4,9 +4,11 @@
 package bridge
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"log/slog"
 	"net"
@@ -50,6 +52,11 @@ type Options struct {
 	// all web users share our IP there, and it kicks the older session of a
 	// name from the same IP.
 	UniqueGuestNames bool
+	// KeepAlive: how often the bridge pings the Mumble server for each web
+	// client, and the browser (WebSocket ping; no answer within three
+	// times this: closed). Browsers slow page timers in background tabs,
+	// so the client's own pings may come too late. 0: 10 seconds.
+	KeepAlive time.Duration
 }
 
 // Upstream is who a connection is for.
@@ -211,6 +218,7 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wg.Go(c.writeSidecar)
 	}
 	wg.Go(c.upstreamToClient)
+	wg.Go(c.keepAlive)
 	c.clientToUpstream()
 	// Stop everything else and wait for it, so no goroutine outlives the
 	// connection count.
@@ -220,6 +228,45 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.side.Close()
 	}
 	wg.Wait()
+}
+
+const defaultKeepAlive = 10 * time.Second
+
+// keepAlive pings upstream (the Mumble server drops silent clients after
+// 30 s) and the browser (its network code answers, not the page), until
+// the connection ends. A browser that does not answer is closed.
+func (c *conn) keepAlive() {
+	every := cmp.Or(c.bridge.opts.KeepAlive, defaultKeepAlive)
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-tick.C:
+		}
+		ping := mumble.MessageFrame(mumble.TypePing, &pb.Ping{Timestamp: proto.Uint64(uint64(time.Now().UnixMilli()))})
+		if _, err := c.upstream.Write(ping); err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.ctx, 3*every)
+		err := c.ws.Ping(ctx)
+		cancel()
+		if err != nil {
+			if c.ctx.Err() == nil {
+				// No close handshake: the browser does not answer anyway.
+				c.ws.CloseNow()
+				c.upstream.Close()
+			}
+			return
+		}
+	}
+}
+
+func (b *Bridge) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.active
 }
 
 // conn is one browser connection with its upstream.
