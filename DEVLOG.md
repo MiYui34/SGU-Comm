@@ -220,3 +220,24 @@ sends none. Browser tests of anything that loads resources (images,
 media, workers, connections) must also run against the built app on the
 Go server (`pnpm --filter @kallisti/web build`, then the server with
 `WEB_DIR=apps/web/dist`).
+
+## 2026-10-15: Chat features (Markdown, reactions, typing, previews)
+
+- Murmur reads text messages longer than `textmessagelength` as XML (to
+  check the length without images) and refuses invalid ones: `<br>` must
+  be `<br/>` in messages with images (found with the Jukebox covers).
+- Markdown runs on escaped text; code and links are set aside first (NUL
+  placeholders, NUL stripped from input), so nothing inside them is
+  formatted. Mentions for highlights, badges and notifications all use
+  the written text, not the Markdown HTML.
+- Reactions: emoji have several forms that look the same (with or without
+  U+FE0F, joiners at the end). The server normalizes (FE0F after the older
+  BMP symbols, nowhere else) and allows only symbols plus what sequences
+  add (skin tones, FE0F, tags, joiners between parts). The picker uses the
+  same form.
+- Link previews: the server fetches (readers' IPs stay private). The
+  dialer's Control function checks the resolved address of every
+  connection (redirects, DNS rebinding), with keep-alive off (idle sockets
+  to hostile hosts), a queue limit, one deadline for page and image, and a
+  byte limit for cached images. Clients ask per message over the sidecar
+  (read permission applies), not per URL over HTTP.

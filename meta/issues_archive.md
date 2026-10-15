@@ -81,3 +81,4 @@
 - [x] [Mute a channel](issues/web-mute-a-channel.md)
 - [x] [Reactions on messages](issues/web-reactions.md)
 - [x] [Typing indicator](issues/typing-indicator.md)
+- [x] [Link previews](issues/link-previews.md)
