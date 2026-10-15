@@ -9,3 +9,5 @@ browsers cannot open TCP connections).
 ## Decision
 
 - Later. Hide the (+) until then.
+- Part of [Join other servers with your account](join-other-servers.md)
+  (step 1): the rail, a connection per server, one voice channel at a time.
