@@ -46,10 +46,10 @@
   let busy = $state(false);
   let apiError = $state<string | null>(null);
 
-  const connectAs = (name: string, isAccount: boolean) => {
+  const connectAs = (name: string, isAccount: boolean, pw = serverPassword) => {
     safeSet(localStorage, "username", name);
     if (desktop) safeSet(localStorage, "server", server.trim());
-    onConnect({ username: name, password: serverPassword, account: isAccount, server: server.trim() });
+    onConnect({ username: name, password: pw, account: isAccount, server: server.trim() });
   };
 
   const submit = async (event: SubmitEvent) => {
@@ -60,10 +60,14 @@
     busy = true;
     apiError = null;
     try {
-      const accountName = mode === "login" ? await api.login(name, password) : await api.create(name, password);
+      const result = mode === "login" ? await api.login(name, password) : { name: await api.create(name, password), mumble: false };
+      const pw = password;
       password = "";
-      onAccountChange(accountName);
-      connectAs(accountName, true);
+      // A Mumble registration (SuperUser, for example) logs in to Mumble with
+      // its password.
+      if (result.mumble) return connectAs(result.name, false, pw);
+      onAccountChange(result.name);
+      connectAs(result.name, true);
     } catch (err) {
       apiError = err instanceof Error ? err.message : String(err);
     } finally {

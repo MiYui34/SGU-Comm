@@ -16,10 +16,15 @@ describe("accounts API", () => {
   it("logs in with the cookie included", async () => {
     const calls: Call[] = [];
     const api = createAccountsApi("http://srv:8080", fakeFetch(200, { name: "Alice" }, calls));
-    expect(await api.login("alice", "secret pw")).toBe("Alice");
+    expect(await api.login("alice", "secret pw")).toEqual({ name: "Alice", mumble: false });
     expect(calls[0]?.url).toBe("http://srv:8080/api/login");
     expect(calls[0]?.init).toMatchObject({ method: "POST", credentials: "include" });
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ name: "alice", password: "secret pw" });
+  });
+
+  it("tells a Mumble registration's login apart", async () => {
+    const api = createAccountsApi("http://srv", fakeFetch(200, { name: "SuperUser", mumble: true }, []));
+    expect(await api.login("superuser", "pw")).toEqual({ name: "SuperUser", mumble: true });
   });
 
   it("creates an account", async () => {

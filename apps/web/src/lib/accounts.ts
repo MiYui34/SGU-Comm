@@ -2,7 +2,7 @@
 // every call includes credentials (the API may be on another origin in
 // development).
 export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) => {
-  const call = async (path: string, body?: unknown): Promise<{ name?: string }> => {
+  const call = async (path: string, body?: unknown): Promise<{ name?: string; mumble?: boolean }> => {
     // GET without Content-Type: no CORS preflight needed.
     const res = await fetchFn(`${base}${path}`, {
       credentials: "include",
@@ -10,12 +10,17 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
         ? { method: "GET" }
         : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
     });
-    const data = (await res.json().catch(() => ({}))) as { name?: string; error?: string };
+    const data = (await res.json().catch(() => ({}))) as { name?: string; mumble?: boolean; error?: string };
     if (!res.ok) throw new Error(data.error ?? `request failed (${res.status})`);
     return data;
   };
   return {
-    login: async (name: string, password: string) => (await call("/api/login", { name, password })).name ?? name,
+    // mumble: a Mumble registration (built-in server), not a web account. It
+    // has no session: connect with the name and password.
+    login: async (name: string, password: string) => {
+      const data = await call("/api/login", { name, password });
+      return { name: data.name ?? name, mumble: data.mumble === true };
+    },
     create: async (name: string, password: string) =>
       (await call("/api/accounts", { name, password })).name ?? name,
     // false: the server did not confirm (the session cookie may remain).
