@@ -255,3 +255,13 @@ func TestUserList(t *testing.T) {
 	alice.send(mumble.TypeUserList, &pb.UserList{})
 	alice.expectDenied(pb.PermissionDenied_Permission)
 }
+
+func TestSuperUserSeesItsRealRootPermissions(t *testing.T) {
+	addr, _ := adminServer(t)
+	c, _ := tryDialWith(t, addr, dialOpts{name: "SuperUser", password: "admin"})
+	var m pb.ServerSync
+	proto.Unmarshal(c.expect(mumble.TypeServerSync), &m)
+	if p := Perm(m.GetPermissions()); p&Speak != 0 || p&Write == 0 {
+		t.Fatalf("permissions %#x", p)
+	}
+}

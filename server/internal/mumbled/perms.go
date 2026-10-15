@@ -35,11 +35,10 @@ func (s *State) channelStateFor(ch *Channel, u *User) *pb.ChannelState {
 	return m
 }
 
-// rootPerms is what ServerSync reports: the permissions in root.
+// rootPerms is what ServerSync reports: the permissions in root. Murmur
+// sends everything to SuperUser; here SuperUser gets its real permissions
+// (no Speak), so clients show it the lobby too.
 func (s *State) rootPerms(u *User) uint64 {
-	if isSuperUser(u) {
-		return uint64(AllPerms)
-	}
 	return uint64(s.Permissions(u, 0))
 }
 
