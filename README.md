@@ -66,7 +66,11 @@ comma-separated or `*`), `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP`
 that sets `X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS`
 (`general`, comma-separated; with the built-in server only the first start
 uses it, then admins manage text channels in the client), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10
-per file), `UPLOAD_QUOTA_MB` (100 per user per day).
+per file), `UPLOAD_QUOTA_MB` (100 per user per day), `BACKUP_DIR` (daily
+database backups at start and every 24 hours; none when unset),
+`BACKUP_KEEP` (7). To restore, stop the server and copy a backup over
+`DB_PATH` (remove `DB_PATH-wal` and `DB_PATH-shm` too). Uploads are files in
+`UPLOAD_DIR`: back that folder up separately.
 
 The built-in Mumble server: `MUMBLE_LISTEN` (`:64738`, TCP and UDP),
 `SERVER_NAME` (`Kallisti`), `MUMBLE_WELCOME`, `MUMBLE_PASSWORD` (for guests),

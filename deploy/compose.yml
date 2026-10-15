@@ -18,6 +18,7 @@ services:
       # The Mumble admin (log in as SuperUser with a Mumble client). Unset:
       # keep the password from an earlier start.
       MUMBLED_SUPERUSER_PASSWORD: "${SUPERUSER_PASSWORD:-}"
+      BACKUP_DIR: "/data/backups" # daily database backups, the newest 7 kept
     volumes:
       - kallisti-data:/data # database, uploads, server certificate
 

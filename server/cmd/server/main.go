@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"kallisti.chat/server/internal/auth"
+	"kallisti.chat/server/internal/backup"
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
@@ -118,6 +119,9 @@ func run() error {
 		Redeem:         hub.RedeemUploadToken,
 	}
 	hub.OnUploadDeleted = fileHandler.Remove
+	if cfg.BackupDir != "" {
+		go backup.Daily(db.DB(), cfg.BackupDir, cfg.BackupKeep)
+	}
 	go func() {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()

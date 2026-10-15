@@ -27,6 +27,7 @@ func TestDefaults(t *testing.T) {
 		UploadDir:          "uploads",
 		UploadMaxBytes:     10 << 20,
 		UploadQuotaBytes:   100 << 20,
+		BackupKeep:         7,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -48,6 +49,8 @@ func TestAllOptions(t *testing.T) {
 		"UPLOAD_DIR":             "/data/files",
 		"UPLOAD_MAX_MB":          "25",
 		"WEB_DIR":                "/app/web",
+		"BACKUP_DIR":             "/data/backups",
+		"BACKUP_KEEP":            "3",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +70,8 @@ func TestAllOptions(t *testing.T) {
 		UploadMaxBytes:     25 << 20,
 		UploadQuotaBytes:   100 << 20,
 		WebDir:             "/app/web",
+		BackupDir:          "/data/backups",
+		BackupKeep:         3,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -86,6 +91,7 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS": "0"}, "MAX_CONNECTIONS must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS_PER_IP": "-1"}, "MAX_CONNECTIONS_PER_IP must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "UPLOAD_MAX_MB": "big"}, "UPLOAD_MAX_MB must be a positive integer"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "BACKUP_KEEP": "0"}, "BACKUP_KEEP must be a positive integer"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))

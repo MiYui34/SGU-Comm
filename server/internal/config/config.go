@@ -35,7 +35,11 @@ type Config struct {
 	// reverse proxy that sets it: clients can fake the header.
 	TrustForwardedFor bool
 	// Uploaded files, and the size limit per file.
-	UploadDir      string
+	UploadDir string
+	// BackupDir: daily database backups go here (empty: none); the newest
+	// BackupKeep stay.
+	BackupDir      string
+	BackupKeep     int
 	UploadMaxBytes int64
 	// Bytes one user may upload per 24 hours.
 	UploadQuotaBytes int64
@@ -138,6 +142,10 @@ func Parse(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("UPLOAD_QUOTA_MB must be a positive integer")
 	}
 	c.UploadQuotaBytes = int64(quota) << 20
+	c.BackupDir = getenv("BACKUP_DIR")
+	if c.BackupKeep, ok = positive(getenv("BACKUP_KEEP"), 7); !ok {
+		return Config{}, errors.New("BACKUP_KEEP must be a positive integer")
+	}
 	c.WebDir = getenv("WEB_DIR")
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
