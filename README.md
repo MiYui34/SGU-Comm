@@ -98,3 +98,7 @@ Dev scripts (with a running bridge):
 pnpm --filter @kallisti/devtools smoke ws://127.0.0.1:8080
 pnpm --filter @kallisti/devtools voicebot tone.opus ws://127.0.0.1:8080
 ```
+
+## License
+
+Public domain: [the Unlicense](LICENSE).

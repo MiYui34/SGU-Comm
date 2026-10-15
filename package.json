@@ -1,5 +1,6 @@
 {
   "name": "kallisti",
+  "license": "Unlicense",
   "private": true,
   "type": "module",
   "scripts": {

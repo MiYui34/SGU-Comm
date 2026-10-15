@@ -1,5 +1,6 @@
 {
   "name": "@kallisti/protocol",
+  "license": "Unlicense",
   "version": "0.0.0",
   "private": true,
   "type": "module",

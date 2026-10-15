@@ -1,6 +1,7 @@
 [package]
 name = "kallisti-desktop"
 version = "0.1.0"
+license = "Unlicense"
 edition = "2021"
 description = "Kallisti desktop app"
 
