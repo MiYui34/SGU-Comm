@@ -1,6 +1,8 @@
 package site
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -88,5 +90,43 @@ func TestNoPathTraversal(t *testing.T) {
 	h := New(bridge, dir)
 	if body := get(t, h, "/../secret.txt", false).Body.String(); strings.Contains(body, "secret") {
 		t.Fatal("path traversal")
+	}
+}
+
+func TestAssetsAreGzipped(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
+	big := bytes.Repeat([]byte("wasm wasm wasm "), 10_000)
+	os.WriteFile(filepath.Join(dir, "assets", "app-1.wasm"), big, 0o644)
+	os.WriteFile(filepath.Join(dir, "assets", "model-1.tar.gz"), []byte("\x1f\x8balready"), 0o644)
+	h := New(http.NotFoundHandler(), dir)
+	get := func(path, enc string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		if enc != "" {
+			r.Header.Set("Accept-Encoding", enc)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	w := get("/assets/app-1.wasm", "gzip, br")
+	if w.Header().Get("Content-Encoding") != "gzip" || w.Header().Get("Content-Type") != "application/wasm" || w.Body.Len() >= len(big)/10 {
+		t.Fatalf("gzip: %v, %d bytes", w.Header(), w.Body.Len())
+	}
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := io.ReadAll(zr); !bytes.Equal(got, big) {
+		t.Fatal("content differs")
+	}
+	if w := get("/assets/app-1.wasm", ""); w.Header().Get("Content-Encoding") != "" || w.Body.Len() != len(big) {
+		t.Fatalf("plain: %v", w.Header())
+	}
+	if w := get("/assets/model-1.tar.gz", "gzip"); w.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("compressed twice: %v", w.Header())
+	}
+	if w := get("/assets/missing.js", "gzip"); w.Code != 404 {
+		t.Fatalf("missing: %d", w.Code)
 	}
 }

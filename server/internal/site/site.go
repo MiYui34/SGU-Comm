@@ -25,6 +25,7 @@ func New(bridge http.Handler, webDir string) http.Handler {
 		return bridge
 	}
 	files := http.FileServer(http.Dir(webDir))
+	gz := &gzipCache{files: map[string][]byte{}}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			bridge.ServeHTTP(w, r)
@@ -38,6 +39,9 @@ func New(bridge http.Handler, webDir string) http.Handler {
 		if strings.HasPrefix(clean, "/assets/") {
 			// Vite puts a content hash in asset names.
 			h.Set("Cache-Control", "public, max-age=31536000, immutable")
+			if gz.serve(w, r, webDir, clean) {
+				return
+			}
 			files.ServeHTTP(w, r)
 			return
 		}

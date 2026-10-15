@@ -144,11 +144,11 @@
     {:else if noiseRunning && noiseRunning === settings.noiseSuppression}
       <span class="hint" role="status">{noiseLabel(noiseRunning)} is running.</span>
     {:else if settings.noiseSuppression === "strongest"}
-      <span class="hint" role="status">Loading DeepFilterNet3 (about 20 MB, once)…</span>
+      <span class="hint" role="status">Loading DeepFilterNet3 (about 12 MB, once)…</span>
     {:else}
       <span class="hint">
         Strong removes fan and other steady noise; typing alone does not start sending. Strongest also removes most
-        typing, but loads about 20 MB, uses more CPU and adds a little delay.
+        typing, but loads about 12 MB, uses more CPU and adds a little delay.
       </span>
     {/if}
   </label>
