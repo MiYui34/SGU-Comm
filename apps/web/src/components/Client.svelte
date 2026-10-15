@@ -118,11 +118,8 @@
   const micOn = $derived(
     micWanted({ inVoice: voiceOn, selfMute: me?.selfMute ?? false, settingsOpen: showSettings, closeWhenMuted }),
   );
-  // The noise setting reopens it too: the browser's own filter is set when
-  // the microphone opens.
   $effect(() => {
     const [target, deviceId, on] = [capture, inputDeviceId, micOn];
-    void strongNoise;
     untrack(() => (on ? void target?.start(deviceId) : target?.stop()));
   });
 

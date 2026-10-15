@@ -40,6 +40,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let denoising = $state(false); // RNNoise runs (the worklet said so)
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
+  const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
   // Timestamps of frames that end a transmission. Keyed by timestamp, so a
   // dropped or merged frame cannot shift the flag to another packet.
   const terminators = new Set<number>();
@@ -135,20 +136,29 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       return node;
     })());
 
-  // Tells the worklet to run RNNoise or not (the module loads once, when
-  // first used). A change while it loads wins.
+  // RNNoise's bytes, fetched once, when first used.
+  const loadRnnoise = () =>
+    (rnnoise ??= fetch(rnnoiseUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText)))));
+
+  // Tells the worklet to run RNNoise or not. A change while it loads wins.
   const applyDenoise = async () => {
     if (!node) return; // the node applies it when it is made
+    if (!strong) {
+      node.port.postMessage({ denoise: null });
+      return;
+    }
     try {
-      const bytes = strong ? await (rnnoise ??= fetch(rnnoiseUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText))))) : null;
-      if (strong === (bytes !== null)) node.port.postMessage({ denoise: bytes }); // copied: kept for next time
+      const bytes = await loadRnnoise();
+      if (strong) node.port.postMessage({ denoise: bytes }); // copied: kept for next time
     } catch (err) {
       rnnoise = null;
       denoiseFailed(err instanceof Error ? err.message : String(err));
     }
   };
-  // Back to the browser's filter (it was off for RNNoise): reopen.
+  // Back to the browser's filter (it was off for RNNoise): reopen. Not if
+  // the user went back to it meanwhile.
   const denoiseFailed = (why: string) => {
+    if (!strong) return;
     strong = false;
     noiseError = `Strong noise suppression could not start (${why}). The standard one is on.`;
     if (stream) void start(device);
@@ -247,16 +257,18 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     setThreshold: (db: number) => {
       thresholdDb = db;
     },
-    // Strong: RNNoise. Takes effect for the filter at once; the browser's
-    // own filter changes when the microphone opens again (start).
+    // Strong: RNNoise. The microphone opens again: the browser's own
+    // filter (off with RNNoise) is set when it opens.
     setStrongNoiseSuppression: (on: boolean) => {
+      if (on === strong) return;
       strong = on;
       noiseError = null;
       void applyDenoise();
+      if (stream) void start(device);
     },
     // The echo test: what the microphone sends, after the filters.
     setEcho: (on: boolean) => {
-      echo.gain.value = on ? 1 : 0;
+      echo.gain.value = on ? ECHO_GAIN : 0;
     },
     close: () => {
       closed = true;

@@ -87,15 +87,16 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.filled = 0;
       this.denoiser = null;
       this.echo = new Fifo(this.size * 5);
-      // { denoise: ArrayBuffer | null }: RNNoise (its bytes) on or off. The
-      // answer says whether it runs ({ denoising }) or failed.
+      // { denoise: ArrayBuffer | null }: RNNoise (its bytes) on or off. It
+      // is made once and kept (switched off, not destroyed). The answer
+      // says whether it runs ({ denoising }) or failed.
+      this.denoising = false;
       this.port.onmessage = ({ data }) => {
         if (!("denoise" in data)) return;
-        this.denoiser?.destroy();
-        this.denoiser = null;
         try {
-          if (data.denoise) this.denoiser = createDenoiser(new WebAssembly.Module(data.denoise));
-          this.port.postMessage({ denoising: this.denoiser !== null });
+          if (data.denoise && !this.denoiser) this.denoiser = createDenoiser(new WebAssembly.Module(data.denoise));
+          this.denoising = !!data.denoise;
+          this.port.postMessage({ denoising: this.denoising });
         } catch (err) {
           this.port.postMessage({ denoiseError: String(err) });
         }
@@ -118,7 +119,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
 
     flush() {
       let vad;
-      if (this.denoiser) {
+      if (this.denoising) {
         vad = 0;
         for (let at = 0; at + RNNOISE_FRAME <= this.size; at += RNNOISE_FRAME)
           vad = Math.max(vad, this.denoiser.process(this.frame.subarray(at, at + RNNOISE_FRAME)));
