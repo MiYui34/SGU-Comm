@@ -75,7 +75,8 @@ func (h *Hub) mirrorOf(text int64) uint32 {
 // UserMoved hears the voice server's users change channels (see
 // mumbled.Config.OnUserMoved). Per connection it keeps the last message
 // a user saw in each mirror: Mumble clients keep their chat log until
-// they disconnect.
+// they disconnect. Moves arrive a little late: a message written just
+// then may come twice (live and in the history) or count as seen.
 func (h *Hub) UserMoved(session, from, to uint32) {
 	h.visitsMu.Lock()
 	defer h.visitsMu.Unlock()

@@ -636,6 +636,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		plain := html.UnescapeString(text)
 		from, name, registered := c.session, actor.Name, actor.Registered
 		for _, id := range slices.Sorted(maps.Keys(channels)) {
+			// Text channel mirrors only count when written to directly.
+			if s.isMirrorLocked(id) && !slices.Contains(m.ChannelId, id) {
+				continue
+			}
 			if s.state.Channels[id] != nil {
 				hooks = append(hooks, func() { hook(from, name, registered, id, plain) })
 			}

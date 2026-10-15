@@ -19,7 +19,7 @@ const (
 	textParentName = "Text channels"
 	// After the voice channels in clients' trees.
 	textParentPosition = 1000
-	mirrorDeny         = Speak | Write | MakeChannel | MakeTempChannel | LinkChannel
+	mirrorDeny         = Speak | Write | MakeChannel | MakeTempChannel | LinkChannel // see mirrorACL
 )
 
 // TextMirror is one wanted mirror: its Mumble channel (0: make one) and
@@ -44,14 +44,27 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 	touched := map[uint32]bool{}
 	parent := s.state.Channels[saved]
 	if saved == 0 || parent == nil || parent.Parent != 0 {
-		if parent, err = s.state.AddChannel(0, textParentName, false); err != nil {
-			s.mu.Unlock()
-			return nil, err
+		// One from before whose id was not saved, or a new one.
+		parent = nil
+		for _, ch := range s.state.Channels {
+			if ch.Parent == 0 && ch.ID != 0 && ch.Name == textParentName {
+				parent = ch
+			}
 		}
-		parent.Position = textParentPosition
-		parent.ACLs = []ACL{{ApplyHere: true, ApplySubs: true, Group: "all", Deny: mirrorDeny}}
+		if parent == nil {
+			if parent, err = s.state.AddChannel(0, textParentName, false); err != nil {
+				s.mu.Unlock()
+				return nil, err
+			}
+			parent.Position = textParentPosition
+		}
 		touched[parent.ID] = true
 	}
+	if !slices.Equal(parent.ACLs, mirrorACL()) {
+		parent.ACLs = mirrorACL()
+		touched[parent.ID] = true
+	}
+	s.textParent = parent.ID
 	keep := map[uint32]bool{}
 	for _, w := range want {
 		if ch := s.state.Channels[w.Channel]; w.Channel != 0 && ch != nil && ch.Parent == parent.ID {
@@ -91,6 +104,9 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 			}
 		}
 	}
+	if touched[parent.ID] {
+		s.permissionsChangedLocked(parent) // suppress states follow Speak
+	}
 	lastID := s.state.LastChannelID()
 	s.mu.Unlock()
 	s.save(save, removed, lastID)
@@ -102,8 +118,25 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 	return ids, nil
 }
 
+// mirrorACL: in the parent and the mirrors nobody speaks, edits or builds;
+// texts only in the mirrors.
+func mirrorACL() []ACL {
+	return []ACL{
+		{ApplyHere: true, ApplySubs: true, Group: "all", Deny: mirrorDeny},
+		{ApplyHere: true, ApplySubs: false, Group: "all", Deny: TextMessage},
+	}
+}
+
+// isMirrorLocked: a text channel mirror or their parent.
+func (s *Server) isMirrorLocked(id uint32) bool {
+	ch := s.state.Channels[id]
+	return s.textParent != 0 && ch != nil && (ch.ID == s.textParent || ch.Parent == s.textParent)
+}
+
 func (s *Server) loadTextParent() (uint32, error) {
 	if s.cfg.DB == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		return s.textParent, nil
 	}
 	return s.cfg.DB.TextParent()
@@ -111,8 +144,7 @@ func (s *Server) loadTextParent() (uint32, error) {
 
 func (s *Server) storeTextParent(id uint32) error {
 	if s.cfg.DB == nil {
-		s.textParent = id
-		return nil
+		return nil // s.textParent has it
 	}
 	return s.cfg.DB.SetTextParent(id)
 }

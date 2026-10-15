@@ -83,3 +83,21 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 		t.Fatalf("new connection: %q", got)
 	}
 }
+
+func TestNoMirrorsWithoutTheBuiltInServer(t *testing.T) {
+	// The server ran with the built-in Mumble server before, now with
+	// Murmur: Murmur's channels with those ids are not mirrors.
+	h := newHub(t, "general")
+	h.store.SetMumbleChannel(h.channels[0].ID, 5)
+	h2, err := NewHub(h.store, h.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := h2.Connect()
+	t.Cleanup(c.Close)
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "x"})
+	ready := next(t, c)
+	if _, ok := ready["channels"].([]any)[0].(map[string]any)["mumble"]; ok {
+		t.Fatalf("ready %v", ready)
+	}
+}

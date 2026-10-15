@@ -148,3 +148,49 @@ func TestServerTextsGoToOneUser(t *testing.T) {
 		t.Fatalf("text %v", &m)
 	}
 }
+
+func TestTreeTextsSkipMirrors(t *testing.T) {
+	var mu sync.Mutex
+	var got []uint32
+	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, channel uint32, _ string) {
+		mu.Lock()
+		got = append(got, channel)
+		mu.Unlock()
+	}}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, openACL)
+	ids, _ := s.SyncTextChannels([]TextMirror{{Name: "general"}})
+	alice := dial(t, addr, "alice")
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{TreeId: []uint32{0}, Message: proto.String("to all")})
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{ids[0]}, Message: proto.String("to #general")})
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(got) == 2 })
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(got, []uint32{0, ids[0]}) {
+		t.Fatalf("hook got %v", got)
+	}
+}
+
+func TestNobodyWritesInTheMirrorsParent(t *testing.T) {
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{}, nil)
+	s.SyncTextChannels([]TextMirror{{Name: "general"}})
+	parent, _ := mirrorTree(t, s)
+	c := dial(t, addr, "guest")
+	s.mu.Lock()
+	u := s.state.Users[c.session]
+	here, below := s.state.Has(u, parent.ID, TextMessage), s.state.Has(u, parent.ID+1, TextMessage)
+	s.mu.Unlock()
+	if here || !below {
+		t.Fatalf("TextMessage in the parent %v, in a mirror %v", here, below)
+	}
+}
+
+func TestSyncAdoptsAnUnsavedParent(t *testing.T) {
+	db := testDB(t)
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	s.SyncTextChannels([]TextMirror{{Name: "general"}})
+	db.SetTextParent(0) // as if saving the parent's id had failed
+	if _, err := s.SyncTextChannels([]TextMirror{{Name: "general"}}); err != nil {
+		t.Fatal(err)
+	}
+	mirrorTree(t, s)
+}

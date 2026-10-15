@@ -85,7 +85,8 @@ type Server struct {
 	// Hooks that must not run under mu go through this queue, in order.
 	events     chan func()
 	stopEvents chan struct{}
-	textParent uint32 // the text channel mirrors' parent, without a DB
+	stopOnce   sync.Once
+	textParent uint32 // the text channel mirrors' parent (see SyncTextChannels), under mu
 
 	// Read at every accept: not under mu, which the voice path uses.
 	bans atomic.Pointer[[]BanEntry]
@@ -207,7 +208,7 @@ func (s *Server) Close() {
 	s.mu.Lock()
 	s.closing.Store(true)
 	if s.stopEvents != nil {
-		close(s.stopEvents)
+		s.stopOnce.Do(func() { close(s.stopEvents) })
 	}
 	clients := make([]*client, 0, len(s.clients))
 	for _, c := range s.clients {

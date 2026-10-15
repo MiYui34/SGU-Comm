@@ -83,7 +83,7 @@ func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Hub{store: s, now: now, channels: toWireChannels(channels), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
+	return &Hub{store: s, now: now, channels: toWireChannels(channels, false), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
 }
 
 // SetVoice turns on stored voice channel chats. Call it before clients
@@ -319,26 +319,23 @@ func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		text = string([]rune(text)[:MaxTextLength])
 	}
+	chat, broadcast := int64(0), h.broadcast
 	if c, ok := h.textOf(channel); ok {
-		m, err := h.store.AddMessage(store.NewMessage{ChannelID: c.ID, Author: name, Verified: registered, Text: text, At: h.now()})
-		if err != nil {
-			slog.Error("store a text channel message", "err", err)
+		chat = c.ID
+	} else {
+		var err error
+		if chat, err = h.store.VoiceChat(channel); err != nil {
+			slog.Error("voice channel chat", "channel", channel, "err", err)
 			return
 		}
-		h.broadcast(map[string]any{"type": "message", "message": toWire(m)})
-		return
-	}
-	chat, err := h.store.VoiceChat(channel)
-	if err != nil {
-		slog.Error("voice channel chat", "channel", channel, "err", err)
-		return
+		broadcast = func(v any) { h.broadcastVoice(channel, v) }
 	}
 	m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: name, Verified: registered, Text: text, At: h.now()})
 	if err != nil {
-		slog.Error("store a voice channel message", "err", err)
+		slog.Error("store a Mumble message", "err", err)
 		return
 	}
-	h.broadcastVoice(channel, map[string]any{"type": "message", "message": toWire(m)})
+	broadcast(map[string]any{"type": "message", "message": toWire(m)})
 }
 
 func (h *Hub) channelExists(id int64) bool {
@@ -596,10 +593,15 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	h.broadcast(map[string]any{"type": "channels", "channels": channels})
 }
 
-func toWireChannels(channels []store.Channel) []wireChannel {
+// toWireChannels: mirrors only with the built-in server (the ids may be
+// left from it when Murmur runs now).
+func toWireChannels(channels []store.Channel, mirrors bool) []wireChannel {
 	wire := make([]wireChannel, len(channels))
 	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Mumble: ch.Mumble}
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
+		if mirrors {
+			wire[i].Mumble = ch.Mumble
+		}
 	}
 	return wire
 }
@@ -610,7 +612,7 @@ func (h *Hub) reloadChannels() error {
 		return err
 	}
 	h.mu.Lock()
-	h.channels = toWireChannels(channels)
+	h.channels = toWireChannels(channels, h.voice != nil)
 	h.mu.Unlock()
 	return nil
 }
