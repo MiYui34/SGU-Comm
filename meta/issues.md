@@ -5,7 +5,6 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Several servers in one client](issues/multiple-servers.md)
-- [ ] [Desktop notifications](issues/desktop-notifications.md)
 - [ ] [Bans and users in the web app](issues/web-moderation-view.md)
 - [ ] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)
 - [ ] [Avatar size check](issues/avatar-size-check.md)
