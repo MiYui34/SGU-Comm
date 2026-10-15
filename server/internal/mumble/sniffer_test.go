@@ -111,8 +111,8 @@ func TestRegisteredUsers(t *testing.T) {
 	b := frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), Name: proto.String("alice"), UserId: proto.Uint32(12)})
 	b = append(b, frame(t, TypeServerSync, &pb.ServerSync{Session: proto.Uint32(7)})...)
 	id, _, _ := s.Feed(b)
-	if !id.Registered {
-		t.Fatalf("got %+v, want registered", id)
+	if !id.Registered || id.UserID != 12 {
+		t.Fatalf("got %+v, want registered as 12", id)
 	}
 	var u Sniffer
 	id, _, _ = u.Feed(handshake(t))
@@ -125,7 +125,7 @@ func TestRegistrationLater(t *testing.T) {
 	var s Sniffer
 	s.Feed(handshake(t))
 	id, changed, _ := s.Feed(frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), UserId: proto.Uint32(3)}))
-	if !changed || !id.Registered || id.Name != "alice" {
+	if !changed || !id.Registered || id.UserID != 3 || id.Name != "alice" {
 		t.Fatalf("got %+v %v", id, changed)
 	}
 }

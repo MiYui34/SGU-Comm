@@ -50,6 +50,8 @@ type Identity struct {
 	// Registered on the Mumble server: the name belongs to this user. An
 	// unregistered name is only unique while its owner is online.
 	Registered bool
+	// The registration's id (only with Registered: SuperUser is 0).
+	UserID uint32
 }
 
 // Sniffer reads the server-to-client byte stream of one connection and
@@ -88,7 +90,7 @@ func (s *Sniffer) handle(typ uint16, body []byte) bool {
 				id.Name = m.GetName()
 			}
 			if m.UserId != nil {
-				id.Registered = true
+				id.Registered, id.UserID = true, m.GetUserId()
 			}
 			return id
 		}
