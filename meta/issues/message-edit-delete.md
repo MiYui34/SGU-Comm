@@ -17,3 +17,15 @@ channel chats; moderators and admins delete anyone's.
 ## Acceptance Criteria
 
 - Store, sidecar and web tests; browser check with two users.
+
+## Result
+
+- Done. Server: verified authors by name, guests only messages from their
+  current connection (forgotten on disconnect: Murmur reuses sessions),
+  moderators and admins delete any; deleting removes the attachment file.
+  Web: hover/focus actions (always shown on phones), inline edit, Up arrow,
+  confirm with focus and Escape, "(edited)".
+- Tested: store, sidecar and web tests; browser with a guest, a second
+  user and SuperUser.
+- Limits: edits and deletes do not reach Mumble clients; ownership goes by
+  name (a renamed account loses its old messages).

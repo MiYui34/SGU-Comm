@@ -59,3 +59,4 @@
 - [x] [Mentions](issues/mentions.md)
 - [x] [Mention autocomplete](issues/mention-autocomplete.md)
 - [x] [Automatic database backups](issues/database-backups.md)
+- [x] [Edit and delete messages](issues/message-edit-delete.md)
