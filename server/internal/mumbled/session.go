@@ -74,6 +74,12 @@ func TLSConfig(cert tls.Certificate) *tls.Config {
 	return &tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequestClientCert, MinVersion: tls.VersionTLS12}
 }
 
+// TLSConfigFrom asks get for the certificate on each handshake (for
+// certificates that are renewed while the server runs).
+func TLSConfigFrom(get func(*tls.ClientHelloInfo) (*tls.Certificate, error)) *tls.Config {
+	return &tls.Config{GetCertificate: get, ClientAuth: tls.RequestClientCert, MinVersion: tls.VersionTLS12}
+}
+
 // certHash is the SHA-1 of the client certificate, as Murmur shows it.
 func certHash(conn net.Conn) string {
 	tc, ok := conn.(*tls.Conn)

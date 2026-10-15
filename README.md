@@ -76,7 +76,13 @@ The built-in Mumble server: `MUMBLE_LISTEN` (`:64738`, TCP and UDP),
 `SERVER_NAME` (`Kallisti`), `MUMBLE_WELCOME`, `MUMBLE_PASSWORD` (for guests),
 `MUMBLE_MAX_USERS` (100), `MUMBLE_MAX_PER_IP` (no limit), `CERT_DIR` (the
 folder of `DB_PATH`; the server certificate is made on the first start),
-`MUMBLED_SUPERUSER_PASSWORD` (sets SuperUser's password).
+`MUMBLED_SUPERUSER_PASSWORD` (sets SuperUser's password),
+`MUMBLE_CERT_FILE` and `MUMBLE_KEY_FILE` (PEM files of a certificate for
+the server's name, for example from Let's Encrypt, so Mumble clients do not
+ask to trust a self-signed one; reloaded when they change; until they exist
+the self-signed certificate is used). The files must be readable by the
+server's user: Caddy keeps its keys readable by root only, so copy them out
+(for example with a daily timer).
 
 With `MUMBLE_HOST` set, the server uses that Murmur instead (`MUMBLE_PORT`,
 64738; `MUMBLE_INSECURE_TLS=1` for self-signed certificates).

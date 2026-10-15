@@ -85,6 +85,9 @@ type Builtin struct {
 	MaxUsers   int
 	MaxPerIP   int    // 0: no limit
 	CertDir    string // the server certificate (made on the first start)
+	// CertFile and KeyFile: a certificate from elsewhere (for example the
+	// reverse proxy's Let's Encrypt files), reloaded when they change.
+	CertFile, KeyFile string
 }
 
 func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
@@ -94,6 +97,11 @@ func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
 		Welcome:    getenv("MUMBLE_WELCOME"),
 		Password:   getenv("MUMBLE_PASSWORD"),
 		CertDir:    cmp.Or(getenv("CERT_DIR"), filepath.Dir(dbPath)),
+		CertFile:   getenv("MUMBLE_CERT_FILE"),
+		KeyFile:    getenv("MUMBLE_KEY_FILE"),
+	}
+	if (b.CertFile == "") != (b.KeyFile == "") {
+		return nil, errors.New("set both MUMBLE_CERT_FILE and MUMBLE_KEY_FILE, or neither")
 	}
 	if _, _, err := net.SplitHostPort(b.Listen); err != nil {
 		return nil, errors.New("MUMBLE_LISTEN must be host:port")

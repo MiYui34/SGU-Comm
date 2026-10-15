@@ -63,9 +63,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		}
 		os.Unsetenv("MUMBLED_SUPERUSER_PASSWORD")
 	}
-	cert, err := certs.LoadOrCreateServer(cfg.CertDir)
+	tlsConfig, err := mumbleTLS(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("server certificate in %s: %w", cfg.CertDir, err)
+		return nil, err
 	}
 	var onText func(from uint32, name string, registered bool, channel uint32, text string)
 	var onRoles func()
@@ -87,7 +87,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if hub != nil {
 		hub.SetVoice(voiceServer{srv}, publicBase) // before anyone connects
 	}
-	ln, err := tls.Listen("tcp", cfg.Listen, mumbled.TLSConfig(cert))
+	ln, err := tls.Listen("tcp", cfg.Listen, tlsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Mumble port: %w", err)
 	}
@@ -104,6 +104,24 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	go srv.Serve(ln)
 	go srv.ServeUDP(udp)
 	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp}, nil
+}
+
+// mumbleTLS: the configured certificate files (reloaded when renewed), or
+// a self-signed certificate made on the first start (CERT_DIR).
+func mumbleTLS(cfg *config.Builtin) (*tls.Config, error) {
+	cert, err := certs.LoadOrCreateServer(cfg.CertDir)
+	if err != nil {
+		return nil, fmt.Errorf("server certificate in %s: %w", cfg.CertDir, err)
+	}
+	if cfg.CertFile == "" {
+		return mumbled.TLSConfig(cert), nil
+	}
+	// Until the files exist (a new proxy), the self-signed one.
+	files, err := certs.NewFileSource(cfg.CertFile, cfg.KeyFile, &cert)
+	if err != nil {
+		return nil, fmt.Errorf("Mumble certificate: %w", err)
+	}
+	return mumbled.TLSConfigFrom(files.GetCertificate), nil
 }
 
 // voiceServer is the built-in server as the sidecar's Voice.
