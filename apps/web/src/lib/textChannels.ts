@@ -16,8 +16,10 @@ export type TextMessage = {
   author: string;
   text: string;
   at: number;
-  // The author was registered on the Mumble server (a verified name).
+  // The author was registered on the Mumble server (a verified name),
+  // with this user id (unknown for old messages).
   verified?: boolean;
+  authorId?: number;
   upload?: Attachment;
   edited?: number; // Unix milliseconds
   // The message it answers (author empty: deleted since).
@@ -31,6 +33,7 @@ export type Quote = { id: number; author: string; text: string };
 export type DisplayMessage = ChatMessage & {
   upload?: Attachment;
   verified?: boolean;
+  authorId?: number;
   edited?: number;
   source?: { id: number; text: string };
   reply?: Quote;
@@ -173,6 +176,7 @@ const isMessage = (v: unknown): v is TextMessage =>
   isStr(v.text) &&
   isNum(v.at) &&
   (v.verified === undefined || typeof v.verified === "boolean") &&
+  (v.authorId === undefined || isNum(v.authorId)) &&
   (v.edited === undefined || isNum(v.edited)) &&
   (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
   (v.upload === undefined || isAttachment(v.upload)) &&
@@ -413,6 +417,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       at: m.at,
       peer: null,
       verified: m.verified === true,
+      ...(m.authorId !== undefined && { authorId: m.authorId }),
       source: { id: m.id, text: m.text },
       ...(m.edited !== undefined && { edited: m.edited }),
       ...(m.reply && { reply: m.reply }),

@@ -17,6 +17,12 @@ describe("ownsMessage", () => {
     expect(ownsMessage(line("guest", true, 6000), user("guest", null), 5000)).toBe(false);
   });
 
+  it("by user id where the server knows it", () => {
+    const withId = (name: string, authorId: number) => ({ ...line(name, true), authorId });
+    expect(ownsMessage(withId("old name", 4), user("lain", 4), 0)).toBe(true); // renamed
+    expect(ownsMessage(withId("lain", 9), user("lain", 4), 0)).toBe(false); // another lain before
+  });
+
   it("nobody owns others' messages", () => {
     expect(ownsMessage(line("bob", true), user("lain", 4), 0)).toBe(false);
     expect(ownsMessage(line("bob", true), undefined, 0)).toBe(false);
