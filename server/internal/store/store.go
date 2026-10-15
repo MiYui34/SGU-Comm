@@ -33,6 +33,14 @@ type Message struct {
 	// The author was registered on the Mumble server (a verified name).
 	Verified bool
 	Upload   *Upload // optional attachment
+	Reply    *Quote  // the message it answers
+}
+
+// Quote is the message a reply answers (Author empty: deleted since).
+type Quote struct {
+	ID     int64
+	Author string
+	Text   string
 }
 
 // NewMessage is a message to store. UploadID 0: no attachment.
@@ -43,6 +51,7 @@ type NewMessage struct {
 	Text      string
 	At        time.Time
 	UploadID  int64
+	ReplyTo   int64 // 0: not a reply; else a message in the same channel
 }
 
 // Upload is a stored file. Key is the random, unguessable part of its URL.
@@ -146,6 +155,7 @@ func migrate(db *sql.DB) error {
 		{"upload_id", "INTEGER REFERENCES uploads(id)"},
 		{"verified", "INTEGER NOT NULL DEFAULT 0"},
 		{"edited_at", "INTEGER"},
+		{"reply_to", "INTEGER"},
 	} {
 		var n int
 		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name = ?`, col.name).Scan(&n)
@@ -384,8 +394,18 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 		}
 		upload = sql.NullInt64{Int64: n.UploadID, Valid: true}
 	}
-	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, text, created_at, upload_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		n.ChannelID, n.Author, n.Verified, n.Text, n.At.UnixMilli(), upload)
+	var reply sql.NullInt64
+	var quote *Quote
+	if n.ReplyTo != 0 {
+		q := Quote{ID: n.ReplyTo}
+		err := tx.QueryRow(`SELECT author, text FROM messages WHERE id = ? AND channel_id = ?`, n.ReplyTo, n.ChannelID).Scan(&q.Author, &q.Text)
+		if err != nil {
+			return Message{}, errors.New("the message to answer is not in this channel")
+		}
+		reply, quote = sql.NullInt64{Int64: n.ReplyTo, Valid: true}, &q
+	}
+	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		n.ChannelID, n.Author, n.Verified, n.Text, n.At.UnixMilli(), upload, reply)
 	if err != nil {
 		return Message{}, err
 	}
@@ -393,7 +413,7 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, Text: n.Text, CreatedAt: n.At}
+	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, Text: n.Text, CreatedAt: n.At, Reply: quote}
 	if upload.Valid {
 		u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, n.UploadID))
 		if err != nil {
@@ -430,8 +450,9 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 }
 
 const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.text, m.created_at, m.edited_at,
-		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used
-	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id `
+		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used,
+		m.reply_to, r.author, r.text
+	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
@@ -442,9 +463,15 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 		key, name, typ, who sql.NullString
 		used                sql.NullBool
 	}
+	var replyTo sql.NullInt64
+	var replyAuthor, replyText sql.NullString
 	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &m.Text, &at, &edited,
-		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used); err != nil {
+		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used,
+		&replyTo, &replyAuthor, &replyText); err != nil {
 		return Message{}, err
+	}
+	if replyTo.Valid {
+		m.Reply = &Quote{ID: replyTo.Int64, Author: replyAuthor.String, Text: replyText.String}
 	}
 	m.CreatedAt = time.UnixMilli(at).UTC()
 	if edited.Valid {
@@ -555,25 +582,26 @@ func (s *Store) ReadMarks(user string) (map[int64]int64, error) {
 const maxMessagesAfter = 500
 
 // MessagesAfter is a channel's newest message id (0: none), and its
-// messages after `after` whose text contains `contains` (newest first, at
-// most maxMessagesAfter): for unread marks and mention counts.
+// messages after `after` whose text contains `contains` or that answer
+// another (newest first, among the newest maxMessagesAfter): for unread
+// marks and mention counts.
 func (s *Store) MessagesAfter(channel, after int64, contains string) (int64, []Message, error) {
 	var latest int64
 	if err := s.db.QueryRow(`SELECT coalesce(max(id), 0) FROM messages WHERE channel_id = ?`, channel).Scan(&latest); err != nil {
 		return 0, nil, err
 	}
 	// Only the newest maxMessagesAfter messages are looked at.
-	rows, err := s.db.Query(`SELECT id, author, verified, text FROM messages WHERE id IN (
+	rows, err := s.db.Query(messageSelect+`WHERE m.id IN (
 			SELECT id FROM messages WHERE channel_id = ? AND id > ? ORDER BY id DESC LIMIT ?)
-		AND instr(text, ?) > 0 ORDER BY id DESC`, channel, after, maxMessagesAfter, contains)
+		AND (instr(m.text, ?) > 0 OR m.reply_to IS NOT NULL) ORDER BY m.id DESC`, channel, after, maxMessagesAfter, contains)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer rows.Close()
 	var out []Message
 	for rows.Next() {
-		m := Message{ChannelID: channel}
-		if err := rows.Scan(&m.ID, &m.Author, &m.Verified, &m.Text); err != nil {
+		m, err := scanMessage(rows)
+		if err != nil {
 			return 0, nil, err
 		}
 		out = append(out, m)

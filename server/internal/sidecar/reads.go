@@ -65,7 +65,8 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		}
 		e.Latest = latest
 		for _, m := range msgs {
-			if names.Key(m.Author) != user && mention.MatchString(m.Text) {
+			repliesToMe := m.Reply != nil && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
+			if names.Key(m.Author) != user && (mention.MatchString(m.Text) || repliesToMe) {
 				e.Mentions++
 			}
 		}

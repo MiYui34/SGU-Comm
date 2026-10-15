@@ -552,3 +552,29 @@ func TestChannelTopics(t *testing.T) {
 		t.Fatalf("unknown channel: %v", err)
 	}
 }
+
+func TestReplies(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general", "random"})
+	chans, _ := s.Channels()
+	at := time.Now()
+	orig, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "alice", Text: "a long original message here", At: at})
+	reply, err := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "bob", Text: "yes", At: at, ReplyTo: orig.ID})
+	if err != nil || reply.Reply == nil || reply.Reply.ID != orig.ID || reply.Reply.Author != "alice" || reply.Reply.Text != orig.Text {
+		t.Fatalf("reply %+v %v", reply.Reply, err)
+	}
+	hist, _ := s.History(chans[0].ID, 0, 10)
+	if hist[1].Reply == nil || hist[1].Reply.Author != "alice" {
+		t.Fatalf("history %+v", hist[1])
+	}
+	// Only to a message in the same channel.
+	if _, err := s.AddMessage(NewMessage{ChannelID: chans[1].ID, Author: "bob", Text: "x", At: at, ReplyTo: orig.ID}); err == nil {
+		t.Fatal("replied across channels")
+	}
+	// The original goes: the reply stays, its quote is gone.
+	s.DeleteMessage(orig.ID)
+	hist, _ = s.History(chans[0].ID, 0, 10)
+	if hist[0].Reply == nil || hist[0].Reply.Author != "" || hist[0].Reply.ID != orig.ID {
+		t.Fatalf("after delete %+v", hist[0].Reply)
+	}
+}

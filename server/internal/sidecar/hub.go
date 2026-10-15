@@ -201,6 +201,24 @@ type wireMessage struct {
 	Verified bool        `json:"verified"`
 	Upload   *wireUpload `json:"upload,omitempty"`
 	Edited   int64       `json:"edited,omitempty"` // Unix milliseconds
+	Reply    *wireQuote  `json:"reply,omitempty"`
+}
+
+// wireQuote is the start of the message a reply answers (author empty:
+// deleted since).
+type wireQuote struct {
+	ID     int64  `json:"id"`
+	Author string `json:"author"`
+	Text   string `json:"text"`
+}
+
+const quoteLength = 100
+
+func shorten(text string, n int) string {
+	if utf8.RuneCountInString(text) <= n {
+		return text
+	}
+	return string([]rune(text)[:n]) + "…"
 }
 
 type wireUpload struct {
@@ -220,6 +238,9 @@ func toWire(m store.Message) wireMessage {
 	if !m.EditedAt.IsZero() {
 		w.Edited = m.EditedAt.UnixMilli()
 	}
+	if r := m.Reply; r != nil {
+		w.Reply = &wireQuote{ID: r.ID, Author: r.Author, Text: shorten(r.Text, quoteLength)}
+	}
 	if u := m.Upload; u != nil {
 		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
 	}
@@ -236,6 +257,7 @@ type request struct {
 	Text      string  `json:"text"`
 	Upload    string  `json:"upload"`    // key of an upload to attach
 	Message   int64   `json:"message"`   // edit-message, delete-message
+	Reply     int64   `json:"reply"`     // send: the message it answers
 	User      uint32  `json:"user"`      // set-moderator: registered user id
 	Moderator bool    `json:"moderator"` // set-moderator
 }
@@ -404,7 +426,13 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 		c.sendError(textError)
 		return
 	}
-	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, Text: text, At: c.hub.now()}
+	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, Text: text, At: c.hub.now(), ReplyTo: req.Reply}
+	if req.Reply != 0 {
+		if orig, err := c.hub.store.MessageByID(req.Reply); err != nil || orig.ChannelID != req.Channel {
+			c.sendError("the message to answer is not in this channel")
+			return
+		}
+	}
 	if req.Upload != "" {
 		u, err := c.hub.store.UploadByKey(req.Upload)
 		if err != nil || u.Author != id.Name {
@@ -436,14 +464,19 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 // mumbleText is a stored message as Mumble clients see it: an upload as a
 // link (or its name, without a public address).
 func (h *Hub) mumbleText(m store.Message) string {
-	if m.Upload == nil {
-		return m.Text
+	text := m.Text
+	if m.Upload != nil {
+		file := "[" + m.Upload.Name + "]"
+		if h.publicBase != "" {
+			file = h.publicBase + FileURL(*m.Upload)
+		}
+		text = strings.TrimSpace(text + " " + file)
 	}
-	file := "[" + m.Upload.Name + "]"
-	if h.publicBase != "" {
-		file = h.publicBase + FileURL(*m.Upload)
+	// Mumble clients have no replies: a short quote first.
+	if r := m.Reply; r != nil && r.Author != "" {
+		text = "> " + r.Author + ": " + shorten(r.Text, 60) + " — " + text
 	}
-	return strings.TrimSpace(m.Text + " " + file)
+	return text
 }
 
 // broadcastVoice sends to the connections whose user may read the chat.

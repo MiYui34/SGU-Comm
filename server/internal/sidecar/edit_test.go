@@ -133,3 +133,32 @@ func TestEditingAVoiceChatNeedsWrite(t *testing.T) {
 		t.Fatalf("edited without write: %v", got)
 	}
 }
+
+func TestReplies(t *testing.T) {
+	h := newHub(t, "general", "random")
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	orig := say(t, h, alice, "question?")
+	next(t, bob)
+	general := strconv.FormatInt(h.channels[0].ID, 10)
+	bob.Handle([]byte(`{"type":"send","channel":` + general + `,"text":"answer","reply":` + strconv.FormatInt(orig, 10) + `}`))
+	m := next(t, bob)
+	q, ok := m["message"].(map[string]any)["reply"].(map[string]any)
+	if !ok || q["id"] != float64(orig) || q["author"] != "alice" || q["text"] != "question?" {
+		t.Fatalf("reply %v", m)
+	}
+	random := strconv.FormatInt(h.channels[1].ID, 10)
+	bob.Handle([]byte(`{"type":"send","channel":` + random + `,"text":"x","reply":` + strconv.FormatInt(orig, 10) + `}`))
+	next(t, alice) // the answer above
+	if m := next(t, bob); m["type"] != "error" {
+		t.Fatalf("cross-channel reply: %v", m)
+	}
+	// Alice comes back later: the reply counts as a mention of her.
+	c := h.Connect()
+	t.Cleanup(c.Close)
+	c.SetIdentity(mumble.Identity{Session: 3, Name: "alice", Registered: true})
+	ready := next(t, c)
+	if e := ready["summary"].([]any)[0].(map[string]any); e["mentions"] != float64(1) {
+		t.Fatalf("summary %v", ready["summary"])
+	}
+}
