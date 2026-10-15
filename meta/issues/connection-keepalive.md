@@ -11,9 +11,14 @@ connection to the server" after switching tabs.
 
 - Sub-issues:
   - [x] [Bridge keeps connections alive](bridge-keepalive.md)
-  - [ ] [Reconnect automatically](auto-reconnect.md)
+  - [x] [Reconnect automatically](auto-reconnect.md)
 
 ## Acceptance Criteria
 
 - A web client whose page sends nothing for minutes stays connected.
 - A dropped connection comes back by itself, in the same place.
+
+## Result
+
+- Both sub-issues done: the bridge keeps connections alive without the
+  page's timers, and lost connections come back by themselves.

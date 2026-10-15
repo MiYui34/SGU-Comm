@@ -70,3 +70,6 @@
 - [x] [Search messages](issues/message-search.md)
 - [x] [Bans and users in the web app](issues/web-moderation-view.md)
 - [x] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)
+- [x] [Connections drop in background tabs](issues/connection-keepalive.md)
+  - [x] [Bridge keeps connections alive](issues/bridge-keepalive.md)
+  - [x] [Reconnect automatically](issues/auto-reconnect.md)
