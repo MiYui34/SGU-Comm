@@ -357,7 +357,6 @@ func (d *DB) UserByHash(hash string) (*Registered, error) {
 	return d.userWhere(`cert_hash = ?`, hash)
 }
 
-// RegisterUser adds a user with a certificate and returns its id.
 // RegisterUser adds a registration. Ids are never used twice (removed
 // guest accounts' ids stay theirs: reactions and messages refer to them),
 // so the highest id ever given is kept in mumble_meta.
