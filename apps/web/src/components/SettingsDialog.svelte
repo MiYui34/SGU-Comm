@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { ComponentProps } from "svelte";
+  import ProfilePicture from "./ProfilePicture.svelte";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
@@ -12,6 +14,7 @@
     onChange,
     onClose,
     account,
+    profile,
   }: {
     settings: Settings;
     level: number;
@@ -22,6 +25,8 @@
     onClose: () => void;
     // Logged in to an account: log out, password.
     account?: AccountActions;
+    // Our avatar picture.
+    profile?: ComponentProps<typeof ProfilePicture>;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
@@ -72,9 +77,11 @@
 
 <dialog bind:this={dialog} onclose={onClose} aria-labelledby="settings-title">
   <header>
-    <h2 id="settings-title">Voice settings</h2>
+    <h2 id="settings-title">Settings</h2>
     <button class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
   </header>
+
+  {#if profile}<ProfilePicture {...profile} />{/if}
 
   <label>
     Input device

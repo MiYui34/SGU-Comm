@@ -11,7 +11,9 @@ import {
   ping,
   reduce,
   requestDescriptions,
+  requestTextures,
   sendText,
+  setSelfTexture,
   type Bytes,
   type MumbleMessage,
   type OutgoingAudio,
@@ -31,6 +33,7 @@ import {
   type ManageAction,
   type TextState,
 } from "./textChannels";
+import { texturesToFetch } from "./avatar";
 import { createCapture } from "./voice/capture.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 
@@ -69,6 +72,14 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     if (!ids.length) return;
     ids.forEach((id) => askedDescriptions.add(id));
     send(requestDescriptions(ids));
+  };
+  // Avatars too (see texturesToFetch).
+  let askedTextures: ReadonlySet<string> = new Set();
+  const fetchTextures = () => {
+    if (state.status !== "synced") return;
+    const next = texturesToFetch(state, askedTextures);
+    askedTextures = next.asked;
+    if (next.sessions.length) send(requestTextures(next.sessions));
   };
 
   const send = (bytes: Bytes) => {
@@ -110,6 +121,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       messages.forEach(routeAudio);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
       fetchDescriptions();
+      fetchTextures();
     } catch (err) {
       // A broken frame leaves the stream out of sync: give up on it.
       console.error("protocol error:", err);
@@ -194,6 +206,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     sendText: (target: TextTarget, text: string) => {
       send(sendText(target, text));
       state = addOwnMessage(state, target, text, Date.now());
+    },
+    // Our avatar (empty: remove it).
+    setTexture: (texture: Uint8Array) => {
+      if (state.session !== null) send(setSelfTexture(state.session, texture));
     },
     close: () => ws.close(),
   };

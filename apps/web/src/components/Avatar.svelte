@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { avatarColor, initials } from "../lib/avatar";
+  import { avatarColor, initials, pictureFor } from "../lib/avatar";
 
   // The status dot and speaking ring are cut out of the background behind
   // the avatar: set --avatar-cutout to that color (default: sidebar).
@@ -9,6 +9,9 @@
     speaking = false,
     online = false,
   }: { name: string; size?: number; speaking?: boolean; online?: boolean } = $props();
+  // The user's picture, if the client knows one (see setAvatarPictures).
+  const lookup = pictureFor();
+  const picture = $derived(lookup(name));
 </script>
 
 <span class="wrap" style:width="{size}px" style:height="{size}px">
@@ -16,7 +19,8 @@
     class="avatar"
     class:speaking
     style:font-size="{size * 0.45}px"
-    style:background={avatarColor(name)}>{initials(name)}</span
+    style:background={picture ? undefined : avatarColor(name)}
+    >{#if picture}<img src={picture} alt="" />{:else}{initials(name)}{/if}</span
   >
   {#if online}
     <span class="dot" style:--dot="{Math.max(10, Math.round(size * 0.32))}px"></span>
@@ -28,6 +32,12 @@
     position: relative;
     display: inline-flex;
     flex-shrink: 0;
+  }
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
   }
   .avatar {
     display: inline-flex;

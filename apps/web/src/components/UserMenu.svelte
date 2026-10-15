@@ -49,7 +49,7 @@
   </div>
   <div class="sep"></div>
   {#if isMe}
-    <button onclick={act(onSettings)}>Voice settings</button>
+    <button onclick={act(onSettings)}>Settings</button>
   {:else}
     <button onclick={act(onMessage)}>Message</button>
     <div class="sep"></div>

@@ -47,7 +47,7 @@
   >
     <Icon name="headphones" off={me.selfDeaf} size={20} />
   </button>
-  <button title="Voice settings" onclick={onSettings}>
+  <button title="Settings" onclick={onSettings}>
     <Icon name="gear" size={20} />
   </button>
 </section>

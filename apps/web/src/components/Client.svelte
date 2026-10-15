@@ -13,6 +13,7 @@
   import type { AccountActions } from "../lib/accounts";
   import { createChannelManagement } from "../lib/channelManagement.svelte";
   import type { Connection } from "../lib/connection.svelte";
+  import { pictureUrl, setAvatarPictures } from "../lib/avatar";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
@@ -45,6 +46,9 @@
   const channelName = $derived(server.channels[channelId]?.name ?? "");
   const serverName = $derived(server.channels[0]?.name ?? "Server");
   const users = $derived(usersSorted(server));
+  // Avatars show the pictures of online users, by name.
+  const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, pictureUrl(u.texture)])));
+  setAvatarPictures((name) => pictures.get(name) ?? null);
 
   const capture = $derived(connection.capture);
   // The server does not echo our own voice: add ourselves while sending.
@@ -426,6 +430,12 @@
     fellBack={capture?.fellBack ?? false}
     onChange={settings.update}
     {account}
+    profile={me && {
+      name: me.name,
+      hasPicture: me.texture !== null || me.textureHash !== null,
+      saved: me.userId !== null,
+      onSet: connection.setTexture,
+    }}
     onClose={() => (showSettings = false)}
   />
 {/if}
