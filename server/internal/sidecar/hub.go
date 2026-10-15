@@ -55,6 +55,8 @@ type Hub struct {
 	// Text channels; changed by admins (with the built-in server). Under mu.
 	channels []wireChannel
 	mu       sync.Mutex
+	// One channel change at a time: store, reload and broadcast in order.
+	manageMu sync.Mutex
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
 }
@@ -481,6 +483,8 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		c.sendError("you may not manage channels")
 		return
 	}
+	h.manageMu.Lock()
+	defer h.manageMu.Unlock()
 	var err error
 	switch req.Type {
 	case "create-channel", "rename-channel":
