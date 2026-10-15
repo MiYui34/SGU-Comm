@@ -33,7 +33,7 @@ type Message struct {
 	CreatedAt time.Time
 	EditedAt  time.Time // zero: never edited
 	// The author was registered on the Mumble server (a verified name).
-	Verified bool
+	Verified  bool
 	Upload    *Upload // optional attachment
 	Reply     *Quote  // the message it answers
 	Reactions []Reaction
@@ -753,10 +753,10 @@ func (s *Store) UploadedBytesSince(author string, since time.Time) (int64, error
 }
 
 var (
-	ErrNotFound  = errors.New("not found")
+	ErrNotFound = errors.New("not found")
 	// A message has reactions with maxReactionKinds different emoji.
 	ErrTooManyReactions = errors.New("too many different reactions")
-	ErrNameTaken = errors.New("name taken")
+	ErrNameTaken        = errors.New("name taken")
 	// Text channel names cannot have ":" (voice channel chats use it).
 	ErrInvalidName = errors.New("invalid channel name")
 )
