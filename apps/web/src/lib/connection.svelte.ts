@@ -144,8 +144,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     requestVoiceChat: (voice: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(voiceChatRequest(voice));
     },
-    // Text channel management (admins).
-    manageTextChannels: (action: ManageAction) => {
+    // Text channels and roles (admins and moderators).
+    manage: (action: ManageAction) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
     },
     requestHistory: (channel: number, before?: number) => {

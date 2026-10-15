@@ -57,17 +57,17 @@ export const createChannelManagement = (current: () => Connection) => {
     startDelete: (kind: ChannelKind, id: number) => (form = { form: { mode: "delete", kind, name: nameOf(kind, id) }, id }),
     closeForm: () => (form = null),
     move: (kind: ChannelKind, id: number, step: -1 | 1) => {
-      if (kind === "text") connection.manageTextChannels({ order: moveInList(text.channels.map((c) => c.id), id, step) });
+      if (kind === "text") connection.manage({ order: moveInList(text.channels.map((c) => c.id), id, step) });
       else for (const c of moveVoiceChannel(channelSiblings(server, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
     },
     submit: (v: ChannelValues) => {
       if (!form) return;
       const { form: f, id } = form;
       if (f.mode === "create") {
-        if (v.kind === "text") connection.manageTextChannels({ create: v.name });
+        if (v.kind === "text") connection.manage({ create: v.name });
         else connection.send(createChannel(0, v.name, { temporary: v.temporary }));
       } else if (f.mode === "edit") {
-        if (v.kind === "text") connection.manageTextChannels({ rename: id, name: v.name });
+        if (v.kind === "text") connection.manage({ rename: id, name: v.name });
         else {
           const changes = {
             ...(v.name !== f.name ? { name: v.name } : {}),
@@ -75,7 +75,7 @@ export const createChannelManagement = (current: () => Connection) => {
           };
           if (Object.keys(changes).length) connection.send(editChannel(id, changes));
         }
-      } else if (v.kind === "text") connection.manageTextChannels({ remove: id });
+      } else if (v.kind === "text") connection.manage({ remove: id });
       else connection.send(removeChannel(id));
     },
   };

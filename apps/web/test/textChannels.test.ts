@@ -73,14 +73,14 @@ describe("reduceText", () => {
   });
 
   it("shows errors about channel changes as a notice, not in the chat", () => {
-    const failed = reduceText(ready, { type: "error", message: "name in use", about: "channels" });
+    const failed = reduceText(ready, { type: "error", message: "name in use", about: "manage" });
     expect(failed.lastError).toBeNull();
     expect(failed.notice).toEqual({ text: "name in use", n: 1 });
-    expect(reduceText(failed, { type: "error", message: "x", about: "channels" }).notice?.n).toBe(2);
+    expect(reduceText(failed, { type: "error", message: "x", about: "manage" }).notice?.n).toBe(2);
   });
 
   it("reads the topic of an error", () => {
-    expect(parseServerEvent('{"type":"error","message":"m","about":"channels"}')).toEqual({ type: "error", message: "m", about: "channels" });
+    expect(parseServerEvent('{"type":"error","message":"m","about":"manage"}')).toEqual({ type: "error", message: "m", about: "manage" });
     expect(parseServerEvent('{"type":"error","message":"m","about":"other"}')).toEqual({ type: "error", message: "m" });
   });
 });
@@ -266,5 +266,18 @@ describe("managing text channels", () => {
     expect(JSON.parse(manageRequest({ rename: 2, name: "x" }))).toEqual({ type: "rename-channel", channel: 2, name: "x" });
     expect(JSON.parse(manageRequest({ remove: 2 }))).toEqual({ type: "delete-channel", channel: 2 });
     expect(JSON.parse(manageRequest({ order: [3, 2] }))).toEqual({ type: "order-channels", channels: [3, 2] });
+    expect(JSON.parse(manageRequest({ moderator: 5, on: true }))).toEqual({ type: "set-moderator", user: 5, moderator: true });
   });
+});
+
+describe("roles", () => {
+  it("come with ready and change later", () => {
+    const ready = parseServerEvent('{"type":"ready","channels":[],"voiceChats":true,"roles":{"admins":[3],"moderators":[]}}');
+    const s = reduceText(initialTextState, ready!);
+    expect(s.roles).toEqual({ admins: [3], moderators: [] });
+    const changed = parseServerEvent('{"type":"roles","admins":[3],"moderators":[5]}');
+    expect(reduceText(s, changed!).roles).toEqual({ admins: [3], moderators: [5] });
+    expect(parseServerEvent('{"type":"roles","admins":"x","moderators":[]}')).toBeNull();
+  });
+
 });

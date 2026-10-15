@@ -1,7 +1,9 @@
 <script lang="ts">
+  import type { Role } from "../lib/roles";
   import type { User } from "@kallisti/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
+  import RoleTag from "./RoleTag.svelte";
 
   let {
     here,
@@ -10,6 +12,7 @@
     unread,
     speaking,
     onUserMenu,
+    roleOf = () => null,
     inert = false,
   }: {
     here: User[];
@@ -19,6 +22,7 @@
     unread: Record<string, number>;
     speaking: ReadonlySet<number>;
     onUserMenu: (session: number, event: MouseEvent) => void;
+    roleOf?: (user: User) => Role | null;
     inert?: boolean;
   } = $props();
 </script>
@@ -36,6 +40,7 @@
           >
             <Avatar name={user.name} size={32} online speaking={speaking.has(user.session)} />
             <span class="ellipsis">{user.name}</span>
+            <RoleTag role={roleOf(user)} />
             <span class="unread"><Badge count={unread[user.name]} /></span>
           </button>
         </li>

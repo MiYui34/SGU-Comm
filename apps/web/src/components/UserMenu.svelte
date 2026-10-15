@@ -1,7 +1,9 @@
 <script lang="ts">
+  import type { Role } from "../lib/roles";
   import type { User } from "@kallisti/protocol";
   import { MAX_VOLUME, type UserAudio } from "../lib/userAudio";
   import Avatar from "./Avatar.svelte";
+  import RoleTag from "./RoleTag.svelte";
   import ContextMenu from "./ContextMenu.svelte";
 
   let {
@@ -13,6 +15,9 @@
     onAudio,
     onMessage,
     onSettings,
+    role = null,
+    moderator = null,
+    onModerator,
     onClose,
   }: {
     user: User;
@@ -23,6 +28,10 @@
     onAudio: (patch: Partial<UserAudio>) => void;
     onMessage: () => void;
     onSettings: () => void;
+    role?: Role | null;
+    // What we may do about the user's role (see moderatorAction).
+    moderator?: "make" | "remove" | null;
+    onModerator?: (on: boolean) => void;
     onClose: () => void;
   } = $props();
 
@@ -36,6 +45,7 @@
   <div class="who">
     <Avatar name={user.name} size={32} />
     <span>{user.name}</span>
+    <RoleTag {role} />
   </div>
   <div class="sep"></div>
   {#if isMe}
@@ -65,6 +75,12 @@
       Mute
       <span class="box" class:on={audio.muted} aria-hidden="true"></span>
     </button>
+    {#if moderator && onModerator}
+      <div class="sep"></div>
+      <button onclick={act(() => onModerator(moderator === "make"))}>
+        {moderator === "make" ? "Make moderator" : "Remove moderator"}
+      </button>
+    {/if}
   {/if}
 </ContextMenu>
 

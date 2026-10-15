@@ -1,4 +1,5 @@
 import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
+import type { Roles } from "./roles";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -21,14 +22,16 @@ export type DisplayMessage = ChatMessage & { upload?: Attachment; verified?: boo
 
 export type ServerEvent =
   // voiceChats: voice channels have stored chats (the built-in server).
-  | { type: "ready"; channels: TextChannel[]; voiceChats?: boolean }
+  | { type: "ready"; channels: TextChannel[]; voiceChats?: boolean; roles?: Roles }
+  | ({ type: "roles" } & Roles)
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
   | { type: "channels"; channels: TextChannel[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
-  | { type: "error"; message: string; about?: "channels" }
+  // about "manage": the answer to a channel or role change.
+  | { type: "error"; message: string; about?: "manage" }
   | { type: "upload-token"; token: string }
   // The server dropped messages for us: reload what is shown.
   | { type: "resync" };
@@ -43,7 +46,8 @@ export type TextState = {
   loaded: Readonly<Record<number, boolean>>;
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
-  // Errors about channel changes show as a notice (n counts them), not in
+  roles: Roles;
+  // Errors about channel and role changes show as a notice (n counts them), not in
   // the chat.
   notice: { text: string; n: number } | null;
   // Counts resync events, so views can reload.
@@ -54,6 +58,7 @@ export const initialTextState: TextState = {
   available: false,
   channels: [],
   voiceChats: false,
+  roles: { admins: [], moderators: [] },
   voiceChannels: {},
   messages: {},
   loaded: {},
@@ -64,6 +69,12 @@ export const initialTextState: TextState = {
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isIds = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNum);
+const parseRoles = (v: unknown): Roles | null =>
+  typeof v === "object" && v !== null && isIds((v as Roles).admins) && isIds((v as Roles).moderators)
+    ? { admins: (v as Roles).admins, moderators: (v as Roles).moderators }
+    : null;
+
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 
@@ -90,10 +101,20 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
   }
   if (!isObj(v)) return null;
   switch (v.type) {
-    case "ready":
-      return Array.isArray(v.channels) && v.channels.every(isChannel)
-        ? { type: "ready", channels: v.channels, ...(v.voiceChats === true ? { voiceChats: true } : {}) }
-        : null;
+    case "ready": {
+      if (!Array.isArray(v.channels) || !v.channels.every(isChannel)) return null;
+      const roles = parseRoles(v.roles);
+      return {
+        type: "ready",
+        channels: v.channels,
+        ...(v.voiceChats === true ? { voiceChats: true } : {}),
+        ...(roles ? { roles } : {}),
+      };
+    }
+    case "roles": {
+      const roles = parseRoles(v);
+      return roles && { type: "roles", ...roles };
+    }
     case "voice-chat":
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "channels":
@@ -106,7 +127,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isMessage(v.message) ? { type: "message", message: v.message } : null;
     case "error":
       if (!isStr(v.message)) return null;
-      return v.about === "channels" ? { type: "error", message: v.message, about: "channels" } : { type: "error", message: v.message };
+      return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
     case "resync":
@@ -122,7 +143,15 @@ const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
 export const reduceText = (state: TextState, event: ServerEvent): TextState => {
   switch (event.type) {
     case "ready":
-      return { ...state, available: true, channels: event.channels, voiceChats: event.voiceChats === true };
+      return {
+        ...state,
+        available: true,
+        channels: event.channels,
+        voiceChats: event.voiceChats === true,
+        roles: event.roles ?? initialTextState.roles,
+      };
+    case "roles":
+      return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "channels":
@@ -140,7 +169,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
     }
     case "error":
-      return event.about === "channels"
+      return event.about === "manage"
         ? { ...state, notice: { text: event.message, n: (state.notice?.n ?? 0) + 1 } }
         : { ...state, lastError: event.message };
     case "upload-token": // answered by the connection, not state
@@ -165,7 +194,8 @@ export type ManageAction =
   | { create: string }
   | { rename: number; name: string }
   | { remove: number }
-  | { order: number[] };
+  | { order: number[] }
+  | { moderator: number; on: boolean };
 
 export const manageRequest = (a: ManageAction) =>
   JSON.stringify(
@@ -175,7 +205,9 @@ export const manageRequest = (a: ManageAction) =>
         ? { type: "rename-channel", channel: a.rename, name: a.name }
         : "remove" in a
           ? { type: "delete-channel", channel: a.remove }
-          : { type: "order-channels", channels: a.order },
+          : "moderator" in a
+            ? { type: "set-moderator", user: a.moderator, moderator: a.on }
+            : { type: "order-channels", channels: a.order },
   );
 
 // The server's HTTP origin, from the bridge WebSocket URL.

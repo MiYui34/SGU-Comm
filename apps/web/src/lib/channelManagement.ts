@@ -4,9 +4,10 @@ import type { TextState } from "./textChannels";
 
 export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: boolean; canMoveDown: boolean };
 
-// Text channels: admins (Write in root), with the built-in server.
+// Text channels: admins and moderators (MakeChannel in root), with the
+// built-in server.
 export const canManageText = (server: ServerState, text: TextState): boolean =>
-  text.voiceChats && may(server, 0, Perm.Write);
+  text.voiceChats && may(server, 0, Perm.MakeChannel);
 
 // What a channel's menu offers (null: no menu). Voice channels follow
 // Mumble's permissions, known after a queryPermissions. A move renumbers

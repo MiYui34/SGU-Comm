@@ -20,6 +20,7 @@
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
   import { toChatMessage } from "../lib/textChannels";
+  import { moderatorAction, roleOf } from "../lib/roles";
   import { createTextView } from "../lib/textView.svelte";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
@@ -410,6 +411,9 @@
     onAudio={(patch) => userAudio.update(menuUser.name, patch)}
     onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name })}
     onSettings={() => (showSettings = true)}
+    role={roleOf(text.roles, menuUser.userId)}
+    moderator={moderatorAction(server, text, menuUser)}
+    onModerator={(on) => menuUser.userId !== null && connection.manage({ moderator: menuUser.userId, on })}
     onClose={() => (menu = null)}
   />
 {/if}
@@ -480,6 +484,7 @@
       {unread}
       {speaking}
       onUserMenu={openMenu}
+      roleOf={(u) => roleOf(text.roles, u.userId)}
       here={users.filter((u) => u.channelId === channelId)}
       elsewhere={users.filter((u) => u.channelId !== channelId)}
     />
