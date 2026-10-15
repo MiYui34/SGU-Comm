@@ -910,6 +910,31 @@
     max-width: 400px;
     border-radius: 8px;
   }
+  /* Markdown (see lib/markdown). */
+  .text :global(code) {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.875em;
+  }
+  .text :global(pre) {
+    margin: 4px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-rail);
+    white-space: pre-wrap;
+  }
+  .text :global(pre code) {
+    padding: 0;
+    background: none;
+  }
+  .text :global(blockquote) {
+    margin: 2px 0;
+    padding-left: 10px;
+    border-left: 4px solid var(--border-subtle);
+    white-space: pre-line;
+  }
   .send {
     flex-shrink: 0;
     padding: 0 16px 24px;

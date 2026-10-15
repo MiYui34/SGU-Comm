@@ -1,4 +1,5 @@
 import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
+import { markdown } from "./markdown";
 import type { Roles } from "./roles";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -317,10 +318,7 @@ export const formatSize = (bytes: number) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-// http(s) URLs in already escaped text become links. Trailing punctuation
-// and a closing bracket stay outside, like in Discord.
-export const linkify = (escaped: string) =>
-  escaped.replace(/https?:\/\/[^\s<]+[^\s<.,:;!?)\]'"]/g, (url) => `<a href="${url}">${url}</a>`);
+export { linkify } from "./markdown";
 
 // Cached per message object: the reducer keeps message objects, so the chat
 // list gets stable objects and does not re-render every line.
@@ -338,7 +336,7 @@ const fileUrl = (url: string, base: string): string | null => {
 
 const chatCache = new WeakMap<TextMessage, DisplayMessage>();
 
-// Text channel messages are plain text: escape, then link URLs. Attachment
+// Text channel messages are plain text: escape, then Markdown. Attachment
 // URLs are relative to the server (`base`).
 export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
   let chat = chatCache.get(m);
@@ -350,7 +348,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       channelIds: [],
       treeIds: [],
       sessions: [],
-      text: linkify(escapeHtml(m.text)),
+      text: markdown(escapeHtml(m.text)),
       at: m.at,
       peer: null,
       verified: m.verified === true,
