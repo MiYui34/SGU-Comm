@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"cmp"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -36,6 +37,11 @@ const (
 	// Account creation and login attempts per client IP.
 	perMinute = 10
 	burst     = 10
+	// Guest accounts per client IP: a few at once, then one per 10 minutes.
+	guestBurst = 5
+	guestEvery = 10 * time.Minute
+	// Temporary accounts at the same time, by default.
+	defaultMaxGuests = 1000
 )
 
 type Service struct {
@@ -50,9 +56,42 @@ type Service struct {
 	// for names without a web account. Such logins get no session: the
 	// client connects with the name and password. Nil: none.
 	MumbleLogin func(host netip.Addr, name, password string) (string, bool)
+	// GuestAccounts: "Join as guest" makes a temporary account (the
+	// built-in server, which can remove their registrations). MaxGuests:
+	// temporary accounts at the same time (0: defaultMaxGuests).
+	GuestAccounts bool
+	MaxGuests     int
 
-	mu     sync.Mutex
-	limits map[string]*rate.Limiter
+	logins, guests limiter
+}
+
+// limiter keeps a rate limiter per client IP.
+type limiter struct {
+	mu sync.Mutex
+	m  map[string]*rate.Limiter
+}
+
+func (l *limiter) allow(ip string, every rate.Limit, burst int) bool {
+	key := limiterKey(ip)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.m == nil {
+		l.m = map[string]*rate.Limiter{}
+	}
+	lim, ok := l.m[key]
+	if !ok {
+		if len(l.m) > 10_000 {
+			// Keep memory bounded: drop idle limiters (full again), not all.
+			for k, v := range l.m {
+				if v.Tokens() >= float64(burst) {
+					delete(l.m, k)
+				}
+			}
+		}
+		lim = rate.NewLimiter(every, burst)
+		l.m[key] = lim
+	}
+	return lim.Allow()
 }
 
 type credentials struct {
@@ -82,6 +121,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/accounts" && r.Method == http.MethodPost:
 		a.create(w, r)
+	case r.URL.Path == "/api/guest" && r.Method == http.MethodPost && a.GuestAccounts:
+		a.guest(w, r)
 	case r.URL.Path == "/api/login" && r.Method == http.MethodPost:
 		a.login(w, r)
 	case r.URL.Path == "/api/logout" && r.Method == http.MethodPost:
@@ -92,7 +133,7 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.changePassword(w, r)
 	case r.URL.Path == "/api/me" && r.Method == http.MethodGet:
 		if acc, ok := a.AccountFor(r); ok {
-			writeJSON(w, http.StatusOK, map[string]string{"name": acc.Name})
+			writeJSON(w, http.StatusOK, map[string]any{"name": acc.Name, "temporary": acc.Temporary})
 		} else {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
 		}
@@ -121,13 +162,8 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	name := norm.NFC.String(strings.TrimSpace(c.Name))
-	if msg := names.Check(name); msg != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
-		return
-	}
-	if a.NameTaken != nil && a.NameTaken(names.Key(name)) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
+	name, ok := a.checkName(w, c.Name)
+	if !ok {
 		return
 	}
 	if n := utf8.RuneCountInString(c.Password); n < 8 || n > 256 {
@@ -141,25 +177,72 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
 		return
 	}
-	certPEM, keyPEM, err := certs.Generate(name)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
+	if acc, ok := a.newAccount(w, r, store.Account{Name: name, PasswordHash: hash}); ok {
+		writeJSON(w, http.StatusCreated, map[string]string{"name": acc.Name})
+	}
+}
+
+// guest makes a temporary account: no password, kept by its session
+// cookie, deleted after a day without a visit.
+func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
+	ip := clientip.Of(r, a.TrustForwardedFor)
+	if !a.allow(r) || !a.guests.allow(ip, rate.Every(guestEvery), guestBurst) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many guests from your address, try again later"})
 		return
 	}
-	acc, err := a.Store.CreateAccount(store.Account{Name: name, PasswordHash: hash, CertPEM: certPEM, KeyPEM: keyPEM}, a.Now())
+	var c credentials
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&c) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	name, ok := a.checkName(w, c.Name)
+	if !ok {
+		return
+	}
+	if n, err := a.Store.TemporaryAccounts(); err != nil || n >= cmp.Or(a.MaxGuests, defaultMaxGuests) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "too many guests right now, please create an account"})
+		return
+	}
+	if acc, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}); ok {
+		writeJSON(w, http.StatusCreated, map[string]any{"name": acc.Name, "temporary": true})
+	}
+}
+
+// checkName answers the request if a new account may not have the name.
+func (a *Service) checkName(w http.ResponseWriter, raw string) (string, bool) {
+	name := norm.NFC.String(strings.TrimSpace(raw))
+	if msg := names.Check(name); msg != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		return "", false
+	}
+	if a.NameTaken != nil && a.NameTaken(names.Key(name)) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
+		return "", false
+	}
+	return name, true
+}
+
+// newAccount stores an account with a new certificate and logs it in; on
+// failure it answers the request.
+func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.Account) (store.Account, bool) {
+	fail := func() (store.Account, bool) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
+		return store.Account{}, false
+	}
+	var err error
+	if acc.CertPEM, acc.KeyPEM, err = certs.Generate(acc.Name); err != nil {
+		return fail()
+	}
+	acc, err = a.Store.CreateAccount(acc, a.Now())
 	if errors.Is(err, store.ErrNameTaken) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
-		return
+		return store.Account{}, false
 	}
 	if err != nil {
 		slog.Error("create account", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
-		return
+		return fail()
 	}
-	if !a.startSession(w, r, acc) {
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]string{"name": acc.Name})
+	return acc, a.startSession(w, r, acc)
 }
 
 func (a *Service) login(w http.ResponseWriter, r *http.Request) {
@@ -174,8 +257,8 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 	}
 	acc, err := a.Store.AccountByName(c.Name)
 	hash := acc.PasswordHash
-	if err != nil {
-		hash = password.Dummy // same work for unknown names
+	if err != nil || acc.Temporary {
+		hash = password.Dummy // same work for unknown names; no login without a password
 	}
 	release := password.Limit()
 	ok := password.Check(hash, c.Password)
@@ -195,7 +278,7 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !ok || err != nil {
+	if !ok || err != nil || acc.Temporary {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
 		return
 	}
@@ -255,8 +338,10 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
 		return
 	}
+	// A temporary account has no password yet: the first one makes it a
+	// normal account.
 	release := password.Limit()
-	ok = password.Check(acc.PasswordHash, c.Old)
+	ok = acc.Temporary || password.Check(acc.PasswordHash, c.Old)
 	var hash string
 	var err error
 	if ok {
@@ -267,8 +352,12 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "the current password is wrong"})
 		return
 	}
+	save := a.Store.SetPassword
+	if acc.Temporary {
+		save = a.Store.MakePermanent
+	}
 	cookie, _ := r.Cookie(CookieName)
-	if err != nil || a.Store.SetPassword(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, tokenHash(cookie.Value)) != nil {
+	if err != nil || save(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, tokenHash(cookie.Value)) != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot change the password"})
 		return
 	}
@@ -319,26 +408,7 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Service) allow(r *http.Request) bool {
-	key := limiterKey(clientip.Of(r, a.TrustForwardedFor))
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.limits == nil {
-		a.limits = map[string]*rate.Limiter{}
-	}
-	l, ok := a.limits[key]
-	if !ok {
-		if len(a.limits) > 10_000 {
-			// Keep memory bounded: drop idle limiters (full again), not all.
-			for k, v := range a.limits {
-				if v.Tokens() >= burst {
-					delete(a.limits, k)
-				}
-			}
-		}
-		l = rate.NewLimiter(rate.Limit(perMinute)/60, burst)
-		a.limits[key] = l
-	}
-	return l.Allow()
+	return a.logins.allow(clientip.Of(r, a.TrustForwardedFor), rate.Limit(perMinute)/60, burst)
 }
 
 // limiterKey: one IPv6 user usually has a whole /64.
