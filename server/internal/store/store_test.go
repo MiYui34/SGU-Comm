@@ -399,3 +399,26 @@ func TestManagingTextChannels(t *testing.T) {
 		t.Fatalf("renamed a voice chat: %v", err)
 	}
 }
+
+func TestTextChannelNamesCannotLookLikeVoiceChats(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.CreateChannel("voice:7"); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.EnsureChannels([]string{"voice:7"}); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("ensure: %v", err)
+	}
+	// Configured channels never show a voice chat.
+	id, _ := s.VoiceChat(7)
+	s.EnsureChannels([]string{"general"})
+	if chans, _ := s.Channels(); len(chans) != 1 {
+		t.Fatalf("channels %+v", chans)
+	}
+	if voice, ok, _ := s.VoiceOf(id); !ok || voice != 7 {
+		t.Fatal("voice chat lost")
+	}
+}

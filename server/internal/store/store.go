@@ -195,12 +195,17 @@ func (s *Store) VoiceOf(channel int64) (voice uint32, ok bool, err error) {
 // Channels that are no longer configured are hidden, not deleted, so their
 // history comes back if they are configured again.
 func (s *Store) EnsureChannels(names []string) error {
+	for _, n := range names {
+		if strings.Contains(n, ":") {
+			return ErrInvalidName
+		}
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE channels SET hidden = 1`); err != nil {
+	if _, err := tx.Exec(`UPDATE channels SET hidden = 1 WHERE voice_channel IS NULL`); err != nil {
 		return err
 	}
 	for i, name := range names {
@@ -226,6 +231,9 @@ func (s *Store) SeedChannels(names []string) error {
 // CreateChannel adds a text channel at the end. A deleted channel of that
 // name comes back, with its history.
 func (s *Store) CreateChannel(name string) (Channel, error) {
+	if strings.Contains(name, ":") {
+		return Channel{}, ErrInvalidName
+	}
 	c := Channel{Name: name}
 	err := s.db.QueryRow(`INSERT INTO channels (name, position)
 		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0))
@@ -254,6 +262,9 @@ func (s *Store) textChannel(query string, args ...any) error {
 }
 
 func (s *Store) RenameChannel(id int64, name string) error {
+	if strings.Contains(name, ":") {
+		return ErrInvalidName
+	}
 	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND voice_channel IS NULL`, name, id)
 }
 
@@ -426,6 +437,8 @@ func (s *Store) UploadedBytesSince(author string, since time.Time) (int64, error
 var (
 	ErrNotFound  = errors.New("not found")
 	ErrNameTaken = errors.New("name taken")
+	// Text channel names cannot have ":" (voice channel chats use it).
+	ErrInvalidName = errors.New("invalid channel name")
 )
 
 // Account is a web user. Names compare by names.Key (case, NFC, spaces).
