@@ -243,7 +243,9 @@ func TestNamesTakenElsewhereAreRefused(t *testing.T) {
 
 func TestLoginWithAMumbleRegistration(t *testing.T) {
 	a, srv := setup(t)
-	a.MumbleLogin = func(_ netip.Addr, name, pw string) (string, bool) { return "SuperUser", name == "superuser" && pw == "adminpw" }
+	a.MumbleLogin = func(_ netip.Addr, name, pw string) (string, bool) {
+		return "SuperUser", name == "superuser" && pw == "adminpw"
+	}
 	resp, v := post(t, srv, "/api/login", map[string]string{"name": "superuser", "password": "adminpw"}, nil)
 	if resp.StatusCode != http.StatusOK || v["name"] != "SuperUser" || v["mumble"] != true || sessionCookie(resp) != nil && sessionCookie(resp).Value != "" {
 		t.Fatalf("mumble login: %d %v", resp.StatusCode, v)
