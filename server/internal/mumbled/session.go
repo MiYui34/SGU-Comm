@@ -348,8 +348,11 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	})
 	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash, Tokens: id.tokens,
 		Comment: id.comment, Texture: id.texture}
-	// The last channel if the user may enter it, else root (as Murmur).
-	if ch := s.state.Channels[id.lastChannel]; ch != nil && s.state.Has(u, ch.ID, Enter) {
+	// The last channel if the user may enter it, else root (as Murmur). Not
+	// where root is a lobby (no voice in root): there users join voice on
+	// purpose.
+	lobby := !s.state.Has(u, 0, Speak)
+	if ch := s.state.Channels[id.lastChannel]; ch != nil && !lobby && s.state.Has(u, ch.ID, Enter) {
 		u.Channel = ch.ID
 	}
 	if !s.state.Has(u, u.Channel, Enter) {

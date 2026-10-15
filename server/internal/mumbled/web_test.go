@@ -172,3 +172,49 @@ func TestShutdownSavesTheLastChannel(t *testing.T) {
 		t.Fatalf("after shutdown: %+v", r)
 	}
 }
+
+func TestTheLobbyDoesNotRestoreTheLastChannel(t *testing.T) {
+	// Kallisti: users arrive in the lobby and join voice on purpose, also
+	// when they were in a voice channel last time.
+	db := testDB(t)
+	if err := db.InitLobby(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	account := &WebAccount{Name: "alice", CertHash: "aaa"}
+	first := joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: account}, "alice"))
+	var general uint32
+	s.mu.Lock()
+	for _, c := range s.state.Channels {
+		if c.Name == "General" {
+			general = c.ID
+		}
+	}
+	s.mu.Unlock()
+	first.move(first.session, general)
+	first.waitForMove(first.session, general)
+	first.conn.Close()
+	eventually(t, func() bool { r, _ := db.UserByHash("aaa"); return r != nil && r.LastChannel == general })
+	again := webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: account}, "alice")
+	for {
+		var m pb.UserState
+		proto.Unmarshal(again.expect(mumble.TypeUserState), &m)
+		if m.GetName() == "alice" {
+			if m.GetChannelId() != 0 {
+				t.Fatalf("back in channel %d", m.GetChannelId())
+			}
+			return
+		}
+	}
+}
+
+func eventually(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

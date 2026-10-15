@@ -275,8 +275,12 @@ func TestAnOldServerKeepsItsChannels(t *testing.T) {
 	db := testDB(t)
 	s := NewState("Root", nil)
 	games, _ := s.AddChannel(0, "Games", false)
-	db.SaveChannel(games)
-	db.InitLobby()
+	if err := db.SaveChannel(games); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InitLobby(); err != nil {
+		t.Fatal(err)
+	}
 	saved, _ := db.Channels()
 	for _, c := range saved {
 		if c.Name == "General" {
