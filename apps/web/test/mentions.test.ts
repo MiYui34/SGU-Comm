@@ -45,6 +45,8 @@ describe("mentionCounts", () => {
   });
   const state: TextState = {
     ...initialTextState,
+    channels: [{ id: 1, name: "a" }],
+    voiceChannels: { 9: 2 },
     messages: {
       1: [msg(1, 1, "bob", "@lain old"), msg(2, 1, "bob", "@lain new"), msg(3, 1, "lain", "@lain me myself")],
       2: [msg(4, 2, "bob", "no mention"), msg(5, 2, "carol", "@LAIN hi")],
@@ -77,5 +79,21 @@ describe("autocomplete", () => {
   it("inserts @Name and a space, caret after it", () => {
     expect(insertMention("hi @la there", 3, 6, "lain")).toEqual({ text: "hi @lain there", caret: 9 });
     expect(insertMention("@", 0, 1, "lain soy")).toEqual({ text: "@lain soy ", caret: 10 });
+  });
+});
+
+describe("mentionCounts with the server's summary", () => {
+  const msg = (id: number, text: string): TextMessage => ({ id, channel: 1, author: "bob", text, at: 0 });
+  it("adds the summary's mentions and counts only newer messages", () => {
+    const state: TextState = {
+      ...initialTextState,
+      channels: [{ id: 1, name: "a" }],
+      summary: { 1: { latest: 5, mentions: 2 }, 3: { latest: 1, mentions: 4 } }, // 3 was deleted
+      messages: { 1: [msg(4, "@lain counted in the summary"), msg(6, "@lain new")] },
+    };
+    expect(mentionCounts(state, { 1: 3 }, "lain")).toEqual({ 1: 3 });
+    // Read past the summary: only what is newer than what was read.
+    expect(mentionCounts(state, { 1: 5 }, "lain")).toEqual({ 1: 1 });
+    expect(mentionCounts(state, { 1: 6 }, "lain")).toEqual({});
   });
 });

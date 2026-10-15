@@ -28,9 +28,20 @@ export type DisplayMessage = ChatMessage & {
   source?: { id: number; text: string };
 };
 
+export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
+
 export type ServerEvent =
   // voiceChats: voice channels have stored chats (the built-in server).
-  | { type: "ready"; channels: TextChannel[]; voiceChats?: boolean; roles?: Roles }
+  | {
+      type: "ready";
+      channels: TextChannel[];
+      voiceChats?: boolean;
+      roles?: Roles;
+      // Registered users: read marks, and per channel the newest message
+      // and unread mentions (voice: the voice channel of a voice chat).
+      reads?: Record<number, number>;
+      summary?: SummaryEntry[];
+    }
   | ({ type: "roles" } & Roles)
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
@@ -57,6 +68,10 @@ export type TextState = {
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
   roles: Roles;
+  // From ready (registered users): read marks, and the newest message and
+  // unread mentions per channel at that time.
+  reads: Readonly<Record<number, number>>;
+  summary: Readonly<Record<number, { latest: number; mentions: number }>>;
   // Errors about channel and role changes show as a notice (n counts them), not in
   // the chat.
   notice: { text: string; n: number } | null;
@@ -69,6 +84,8 @@ export const initialTextState: TextState = {
   channels: [],
   voiceChats: false,
   roles: { admins: [], moderators: [] },
+  reads: {},
+  summary: {},
   voiceChannels: {},
   messages: {},
   loaded: {},
@@ -79,6 +96,13 @@ export const initialTextState: TextState = {
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isSummaryEntry = (v: unknown): v is SummaryEntry =>
+  typeof v === "object" &&
+  v !== null &&
+  isNum((v as SummaryEntry).channel) &&
+  isNum((v as SummaryEntry).latest) &&
+  isNum((v as SummaryEntry).mentions) &&
+  ((v as SummaryEntry).voice === undefined || isNum((v as SummaryEntry).voice));
 const isIds = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNum);
 const parseRoles = (v: unknown): Roles | null =>
   typeof v === "object" && v !== null && isIds((v as Roles).admins) && isIds((v as Roles).moderators)
@@ -116,11 +140,15 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     case "ready": {
       if (!Array.isArray(v.channels) || !v.channels.every(isChannel)) return null;
       const roles = parseRoles(v.roles);
+      const reads = isObj(v.reads) && Object.values(v.reads).every(isNum) ? (v.reads as Record<number, number>) : undefined;
+      const summary = Array.isArray(v.summary) ? v.summary.filter(isSummaryEntry) : undefined;
       return {
         type: "ready",
         channels: v.channels,
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(roles ? { roles } : {}),
+        ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
+        ...(summary ? { summary } : {}),
       };
     }
     case "roles": {
@@ -164,6 +192,12 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         channels: event.channels,
         voiceChats: event.voiceChats === true,
         roles: event.roles ?? initialTextState.roles,
+        reads: event.reads ?? {},
+        summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
+        voiceChannels: {
+          ...state.voiceChannels,
+          ...Object.fromEntries((event.summary ?? []).flatMap((e) => (e.voice === undefined ? [] : [[e.voice, e.channel]]))),
+        },
       };
     case "roles":
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
@@ -233,6 +267,8 @@ export const manageRequest = (a: ManageAction) =>
             : { type: "order-channels", channels: a.order },
   );
 
+export const markReadRequest = (channel: number, message: number) =>
+  JSON.stringify({ type: "mark-read", channel, message });
 export const editMessageRequest = (message: number, text: string) =>
   JSON.stringify({ type: "edit-message", message, text });
 export const deleteMessageRequest = (message: number) => JSON.stringify({ type: "delete-message", message });
@@ -296,10 +332,11 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
   return chat;
 };
 
-// Channels with a message newer than the newest one seen there.
+// Channels with a message newer than the newest one seen there (loaded,
+// or known from the server's summary).
 export const unreadTextIds = (state: TextState, seen: Record<number, number>): Set<number> =>
   new Set(
     state.channels
-      .filter((c) => (state.messages[c.id]?.at(-1)?.id ?? 0) > (seen[c.id] ?? 0))
+      .filter((c) => Math.max(state.messages[c.id]?.at(-1)?.id ?? 0, state.summary[c.id]?.latest ?? 0) > (seen[c.id] ?? 0))
       .map((c) => c.id),
   );

@@ -7,6 +7,8 @@ import { unreadTextIds } from "./textChannels";
 // page back, track what was seen. Call during component setup (it uses
 // effects). `currentId` is the open text channel, or null.
 // `me` is our name, for mentions.
+const MARK_DELAY_MS = 2000;
+
 export const createTextView = (connection: () => Connection, currentId: () => number | null, me: () => string) => {
   const text = $derived(connection().text);
   const requested = new Set<number>();
@@ -46,13 +48,40 @@ export const createTextView = (connection: () => Connection, currentId: () => nu
     void text.messages[id]?.length;
     untrack(() => {
       loadingOlder = false;
-      if ((seen[id] ?? 0) < newest) seen = { ...seen, [id]: newest };
+      if ((read[id] ?? 0) >= newest) return;
+      seen = { ...seen, [id]: newest };
+      queueMark(id, newest);
     });
   });
 
-  const unread = $derived(unreadTextIds(text, seen));
+  // Read marks go to the server (registered users keep them), at most every
+  // few seconds. After a reconnect, marks the server missed go again.
+  const pending = new Map<number, number>();
+  let flush: ReturnType<typeof setTimeout> | undefined;
+  const queueMark = (id: number, message: number) => {
+    pending.set(id, Math.max(pending.get(id) ?? 0, message));
+    flush ??= setTimeout(() => {
+      flush = undefined;
+      for (const [channel, m] of pending) connection().markRead(channel, m);
+      pending.clear();
+    }, MARK_DELAY_MS);
+  };
+  $effect(() => {
+    const reads = text.reads;
+    untrack(() => {
+      for (const [id, n] of Object.entries(seen)) if (n > (reads[Number(id)] ?? 0)) queueMark(Number(id), n);
+    });
+  });
+
+  // What was read: here, or before (the server's read marks).
+  const read = $derived.by(() => {
+    const out: Record<number, number> = { ...text.reads };
+    for (const [id, n] of Object.entries(seen)) out[Number(id)] = Math.max(out[Number(id)] ?? 0, n);
+    return out;
+  });
+  const unread = $derived(unreadTextIds(text, read));
   // Unseen mentions of us per channel (text channels and voice chats).
-  const mentions = $derived(mentionCounts(text, seen, me()));
+  const mentions = $derived(mentionCounts(text, read, me()));
 
   return {
     get unread() {

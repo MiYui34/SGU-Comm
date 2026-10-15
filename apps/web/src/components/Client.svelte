@@ -314,9 +314,13 @@
   // A short sound for new mentions outside the open channel (not while
   // deafened).
   let mentionTotal = 0;
+  let knownSummary: unknown = null;
   $effect(() => {
     const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (Number(id) === chatId ? a : a + n), 0);
-    if (total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
+    // Mentions from before (the summary at login or reconnect): no sound.
+    const fresh = text.summary !== knownSummary;
+    knownSummary = text.summary;
+    if (!fresh && total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
     mentionTotal = total;
   });
   const textChat = $derived(

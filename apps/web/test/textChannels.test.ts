@@ -4,6 +4,7 @@ import {
   editMessageRequest,
   historyRequest,
   initialTextState,
+  markReadRequest,
   linkify,
   manageRequest,
   parseServerEvent,
@@ -308,5 +309,35 @@ describe("edited and deleted messages", () => {
     const line = toChatMessage({ ...msg(7), text: "a <b>", edited: 9 });
     expect(line.source).toEqual({ id: 7, text: "a <b>" });
     expect(line.edited).toBe(9);
+  });
+});
+
+describe("read state from the server", () => {
+  const raw = JSON.stringify({
+    type: "ready",
+    channels: [{ id: 1, name: "general" }, { id: 2, name: "random" }],
+    voiceChats: true,
+    reads: { "1": 4 },
+    summary: [
+      { channel: 1, latest: 9, mentions: 2 },
+      { channel: 2, latest: 3, mentions: 0 },
+      { channel: 7, voice: 5, latest: 6, mentions: 1 },
+    ],
+  });
+
+  it("keeps read marks and the summary, and learns voice chats", () => {
+    const s = reduceText(initialTextState, parseServerEvent(raw)!);
+    expect(s.reads).toEqual({ 1: 4 });
+    expect(s.summary).toEqual({ 1: { latest: 9, mentions: 2 }, 2: { latest: 3, mentions: 0 }, 7: { latest: 6, mentions: 1 } });
+    expect(s.voiceChannels[5]).toBe(7);
+  });
+
+  it("marks channels unread by the summary, without loaded messages", () => {
+    const s = reduceText(initialTextState, parseServerEvent(raw)!);
+    expect([...unreadTextIds(s, { 1: 4, 2: 3 })]).toEqual([1]);
+  });
+
+  it("builds the mark-read request", () => {
+    expect(JSON.parse(markReadRequest(1, 9))).toEqual({ type: "mark-read", channel: 1, message: 9 });
   });
 });

@@ -25,6 +25,7 @@ import {
   editMessageRequest,
   historyRequest,
   httpBase,
+  markReadRequest,
   initialTextState,
   manageRequest,
   parseServerEvent,
@@ -164,6 +165,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
+    },
+    markRead: (channel: number, message: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(markReadRequest(channel, message));
     },
     editMessage: (message: number, text: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(editMessageRequest(message, text));

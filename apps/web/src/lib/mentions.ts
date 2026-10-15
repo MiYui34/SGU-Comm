@@ -35,14 +35,20 @@ export const highlightMentions = (html: string, name: string): string =>
         .map((p, i) => (i % 2 === 0 ? p.replace(pattern(name), (m) => `<span class="mention">${m}</span>`) : p))
         .join("");
 
-// Unseen messages per channel that mention me (not my own), for badges.
-// Messages are sorted by id: count from the newest down to the last seen.
+// Unseen messages per channel that mention me (not my own), for badges:
+// the server's count up to its summary (if not read that far), plus
+// loaded messages after both. Messages are sorted by id.
 export const mentionCounts = (state: TextState, seen: Record<number, number>, me: string): Record<number, number> => {
   const out: Record<number, number> = {};
-  for (const [id, msgs] of Object.entries(state.messages)) {
-    const channel = Number(id);
-    let n = 0;
-    for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > (seen[channel] ?? 0); i--) {
+  // Only chats that still exist: text channels and known voice chats.
+  const ids = new Set([...state.channels.map((c) => c.id), ...Object.values(state.voiceChannels)]);
+  for (const channel of ids) {
+    const read = seen[channel] ?? 0;
+    const summary = state.summary[channel];
+    let n = summary && read < summary.latest ? summary.mentions : 0;
+    const after = Math.max(read, summary?.latest ?? 0);
+    const msgs = state.messages[channel] ?? [];
+    for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
       if (mentionsMe(escapeHtml(msgs[i]!.text), msgs[i]!.author, me)) n++;
     }
     if (n) out[channel] = n;
