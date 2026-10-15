@@ -1,5 +1,6 @@
-// Package backup makes consistent copies of the SQLite database while the
-// server runs, and keeps the newest few.
+// Package backup makes consistent copies of the SQLite database, before
+// the server starts (and changes the database: migrations are one-way) and
+// daily while it runs, and keeps the newest few.
 package backup
 
 import (
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 const pattern = "kallisti-*.db"
@@ -37,14 +40,32 @@ func Run(db *sql.DB, dir string, keep int, now time.Time) (string, error) {
 	return path, nil
 }
 
-// Daily runs a backup now and then every day, until the process ends.
+// BeforeStart copies the database as it is, before the server opens it
+// (an update may migrate it). No database yet (a new server): nothing.
+func BeforeStart(dbPath, dir string, keep int, now time.Time) (string, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	return Run(db, dir, keep, now)
+}
+
+// Daily runs a backup every day (the first a day after the start, which
+// had its own: see BeforeStart), until the process ends.
 func Daily(db *sql.DB, dir string, keep int) {
 	for {
+		time.Sleep(24 * time.Hour)
 		if path, err := Run(db, dir, keep, time.Now()); err != nil {
 			slog.Error("database backup", "err", err)
 		} else {
 			slog.Info("database backup", "file", path)
 		}
-		time.Sleep(24 * time.Hour)
 	}
 }

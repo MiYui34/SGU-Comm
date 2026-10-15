@@ -47,6 +47,14 @@ func run() error {
 		slog.Warn("ALLOWED_ORIGINS is *: every origin can connect (development only)")
 	}
 
+	// A copy before the database is opened: updates migrate it (one-way).
+	if cfg.BackupDir != "" {
+		if path, err := backup.BeforeStart(cfg.DBPath, cfg.BackupDir, cfg.BackupKeep, time.Now()); err != nil {
+			return fmt.Errorf("backup before the start: %w", err)
+		} else if path != "" {
+			slog.Info("database backup before the start", "file", path)
+		}
+	}
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("open database %s: %w", cfg.DBPath, err)

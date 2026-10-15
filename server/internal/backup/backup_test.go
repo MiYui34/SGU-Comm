@@ -49,3 +49,30 @@ func TestBackupMakesAReadableCopyAndKeepsTheNewest(t *testing.T) {
 		t.Fatal("removed a file that is not a backup")
 	}
 }
+
+func TestBeforeStartCopiesTheDatabaseAsItIs(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "k.db")
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	// No database yet (a new server): nothing to copy.
+	if path, err := BeforeStart(dbPath, filepath.Join(dir, "backups"), 3, now); path != "" || err != nil {
+		t.Fatalf("new server: %q %v", path, err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`CREATE TABLE old (x)`)
+	db.Exec(`INSERT INTO old VALUES (42)`)
+	db.Close()
+	path, err := BeforeStart(dbPath, filepath.Join(dir, "backups"), 3, now)
+	if err != nil || path == "" {
+		t.Fatal(path, err)
+	}
+	cp, _ := sql.Open("sqlite", path)
+	defer cp.Close()
+	var x int
+	if err := cp.QueryRow(`SELECT x FROM old`).Scan(&x); err != nil || x != 42 {
+		t.Fatalf("copy: %d %v", x, err)
+	}
+}
