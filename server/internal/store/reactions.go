@@ -3,25 +3,24 @@ package store
 import (
 	"strings"
 	"time"
-
-	"kallisti.chat/server/internal/names"
 )
 
 // At most this many different emoji per message.
 const maxReactionKinds = 20
 
-// Reaction is one emoji on a message and who chose it (first first).
+// Reaction is one emoji on a message and who chose it (first first): user
+// ids and the names to show.
 type Reaction struct {
 	Emoji string
 	Users []string
+	IDs   []uint32
 }
 
-// SetReaction adds (on) or removes a user's reaction to a message;
-// changed is false when it was already so.
-func (s *Store) SetReaction(messageID int64, emoji, user string, on bool, at time.Time) (changed bool, err error) {
-	key := names.Key(user)
+// SetReaction adds (on) or removes a registered user's reaction to a
+// message; changed is false when it was already so.
+func (s *Store) SetReaction(messageID int64, emoji string, userID uint32, user string, on bool, at time.Time) (changed bool, err error) {
 	if !on {
-		res, err := s.db.Exec(`DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_key = ?`, messageID, emoji, key)
+		res, err := s.db.Exec(`DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_id = ?`, messageID, emoji, userID)
 		if err != nil {
 			return false, err
 		}
@@ -46,8 +45,8 @@ func (s *Store) SetReaction(messageID int64, emoji, user string, on bool, at tim
 	case known == 0 && kinds >= maxReactionKinds:
 		return false, ErrTooManyReactions
 	}
-	res, err := tx.Exec(`INSERT OR IGNORE INTO reactions (message_id, emoji, user_key, user, created_at) VALUES (?, ?, ?, ?, ?)`,
-		messageID, emoji, key, user, at.UnixMilli())
+	res, err := tx.Exec(`INSERT OR IGNORE INTO reactions (message_id, emoji, user_id, user, created_at) VALUES (?, ?, ?, ?, ?)`,
+		messageID, emoji, userID, user, at.UnixMilli())
 	if err != nil {
 		return false, err
 	}
@@ -69,7 +68,7 @@ func (s *Store) withReactions(msgs []Message) error {
 	for i, m := range msgs {
 		at[m.ID], args[i] = i, m.ID
 	}
-	rows, err := s.db.Query(`SELECT message_id, emoji, user FROM reactions
+	rows, err := s.db.Query(`SELECT message_id, emoji, user_id, user FROM reactions
 		WHERE message_id IN (?`+strings.Repeat(",?", len(msgs)-1)+`)
 		ORDER BY message_id, (SELECT min(created_at) FROM reactions r WHERE r.message_id = reactions.message_id AND r.emoji = reactions.emoji),
 			emoji, created_at, rowid`, args...)
@@ -79,15 +78,17 @@ func (s *Store) withReactions(msgs []Message) error {
 	defer rows.Close()
 	for rows.Next() {
 		var id int64
+		var userID uint32
 		var emoji, user string
-		if err := rows.Scan(&id, &emoji, &user); err != nil {
+		if err := rows.Scan(&id, &emoji, &userID, &user); err != nil {
 			return err
 		}
 		m := &msgs[at[id]]
 		if n := len(m.Reactions); n > 0 && m.Reactions[n-1].Emoji == emoji {
-			m.Reactions[n-1].Users = append(m.Reactions[n-1].Users, user)
+			r := &m.Reactions[n-1]
+			r.Users, r.IDs = append(r.Users, user), append(r.IDs, userID)
 		} else {
-			m.Reactions = append(m.Reactions, Reaction{Emoji: emoji, Users: []string{user}})
+			m.Reactions = append(m.Reactions, Reaction{Emoji: emoji, Users: []string{user}, IDs: []uint32{userID}})
 		}
 	}
 	return rows.Err()

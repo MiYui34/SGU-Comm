@@ -17,30 +17,30 @@ func react(c *Conn, id int64, emoji string, on bool) {
 
 func TestReactionsGoToEveryone(t *testing.T) {
 	h := newHub(t, "general")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
-	guest := joinAs(t, h, mumble.Identity{Session: 2, Name: "guest"})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 5})
 	id := say(t, h, alice, "hi")
-	next(t, guest)
-	react(guest, id, "👍", true)
-	for _, c := range []*Conn{alice, guest} {
+	next(t, bob)
+	react(bob, id, "👍", true)
+	for _, c := range []*Conn{alice, bob} {
 		m := next(t, c)
 		rs := m["reactions"].([]any)
 		if m["type"] != "reactions" || m["message"] != float64(id) || m["channel"] != float64(h.channels[0].ID) || len(rs) != 1 {
 			t.Fatalf("got %v", m)
 		}
-		if r := rs[0].(map[string]any); r["emoji"] != "👍" || r["users"].([]any)[0] != "guest" {
+		if r := rs[0].(map[string]any); r["emoji"] != "👍" || r["users"].([]any)[0] != "bob" || r["ids"].([]any)[0] != 5.0 {
 			t.Fatalf("reaction %v", r)
 		}
 	}
-	react(guest, id, "👍", false)
+	react(bob, id, "👍", false)
 	if m := next(t, alice); len(m["reactions"].([]any)) != 0 {
 		t.Fatalf("after removing: %v", m)
 	}
-	next(t, guest)
+	next(t, bob)
 	// History has them.
 	react(alice, id, "🎉", true)
 	next(t, alice)
-	next(t, guest)
+	next(t, bob)
 	alice.Handle([]byte(`{"type":"history","channel":` + strconv.FormatInt(h.channels[0].ID, 10) + `}`))
 	msgs := next(t, alice)["messages"].([]any)
 	if rs := msgs[len(msgs)-1].(map[string]any)["reactions"].([]any); len(rs) != 1 {
@@ -48,9 +48,22 @@ func TestReactionsGoToEveryone(t *testing.T) {
 	}
 }
 
+func TestClassicGuestsCannotReact(t *testing.T) {
+	h := newHub(t, "general")
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
+	guest := joinAs(t, h, mumble.Identity{Session: 2, Name: "guest"})
+	id := say(t, h, alice, "hi")
+	next(t, guest)
+	react(guest, id, "👍", true)
+	if m := next(t, guest); m["type"] != "error" {
+		t.Fatalf("guest reacted: %v", m)
+	}
+	empty(t, alice)
+}
+
 func TestOnlyEmojiAreReactions(t *testing.T) {
 	h := newHub(t, "general")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
 	alice.limit = rate.NewLimiter(rate.Inf, 0) // many requests in a row
 	id := say(t, h, alice, "hi")
 	for _, bad := range []string{"", "lol", "<b>", " 👍", "\u200b", "★ПРИВЕТ", "ＦＵＣＫ★", "👍\u0489\u0489", "👍\u200d", "\u200d★", "👍\u200d\u200d👍", strings.Repeat("👍", 17)} {
@@ -93,8 +106,8 @@ func TestSameEmojiInOtherFormsIsOne(t *testing.T) {
 
 func TestNoEventWithoutAChange(t *testing.T) {
 	h := newHub(t, "general")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 5})
 	id := say(t, h, alice, "hi")
 	next(t, bob)
 	react(alice, id, "👍", true)

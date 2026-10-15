@@ -13,13 +13,14 @@ import (
 type wireReaction struct {
 	Emoji string   `json:"emoji"`
 	Users []string `json:"users"`
+	IDs   []uint32 `json:"ids"` // Mumble user ids, in the order of Users
 }
 
 // Never null in JSON: an event with no reactions left has [].
 func toWireReactions(rs []store.Reaction) []wireReaction {
 	out := make([]wireReaction, len(rs))
 	for i, r := range rs {
-		out[i] = wireReaction{Emoji: r.Emoji, Users: r.Users}
+		out[i] = wireReaction{Emoji: r.Emoji, Users: r.Users, IDs: r.IDs}
 	}
 	return out
 }
@@ -72,9 +73,14 @@ func normalEmoji(s string) string {
 }
 
 // react adds or removes the user's reaction, as writing does: everyone in
-// text channels, in voice chats those who may write. All readers get the
-// message's reactions.
+// text channels, in voice chats those who may write. Reactions belong to
+// user ids, so only registered users react (web guests have guest
+// accounts). All readers get the message's reactions.
 func (c *Conn) react(id mumble.Identity, req request) {
+	if !id.Registered {
+		c.sendError("join with an account (or a guest account) to react")
+		return
+	}
 	emoji := normalEmoji(req.Emoji)
 	if !validEmoji(emoji) {
 		c.sendError("not an emoji")
@@ -90,7 +96,7 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		c.sendError("unknown message") // as for messages that do not exist
 		return
 	}
-	changed, err := c.hub.store.SetReaction(m.ID, emoji, id.Name, req.On, c.hub.now())
+	changed, err := c.hub.store.SetReaction(m.ID, emoji, id.UserID, id.Name, req.On, c.hub.now())
 	if errors.Is(err, store.ErrTooManyReactions) {
 		c.sendError("this message has too many different reactions")
 		return

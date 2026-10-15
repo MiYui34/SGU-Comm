@@ -76,6 +76,15 @@ type Store struct{ db *sql.DB }
 // file (the built-in Mumble server).
 func (s *Store) DB() *sql.DB { return s.db }
 
+const reactionsTable = `CREATE TABLE IF NOT EXISTS reactions (
+	message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+	emoji      TEXT NOT NULL,
+	user_id    INTEGER NOT NULL, -- the Mumble user id
+	user       TEXT NOT NULL,    -- the name to show
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY (message_id, emoji, user_id)
+)`
+
 const schema = `
 CREATE TABLE IF NOT EXISTS channels (
 	id       INTEGER PRIMARY KEY,
@@ -110,15 +119,7 @@ CREATE TABLE IF NOT EXISTS read_marks (
 	message_id INTEGER NOT NULL,
 	PRIMARY KEY (user, channel_id)
 );
--- Who reacted to a message with which emoji (user_key: names.Key).
-CREATE TABLE IF NOT EXISTS reactions (
-	message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-	emoji      TEXT NOT NULL,
-	user_key   TEXT NOT NULL,
-	user       TEXT NOT NULL,
-	created_at INTEGER NOT NULL,
-	PRIMARY KEY (message_id, emoji, user_key)
-);
+
 CREATE TABLE IF NOT EXISTS accounts (
 	id            INTEGER PRIMARY KEY,
 	name          TEXT NOT NULL,
@@ -149,7 +150,7 @@ func Open(path string) (*Store, error) {
 	// One writer at a time is all SQLite allows anyway, and an in-memory
 	// database exists only for one connection.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + reactionsTable); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -176,6 +177,35 @@ func addColumns(db *sql.DB, table string, cols [][2]string) error {
 	return nil
 }
 
+// reactionsByID rebuilds a reactions table of the first version (kept by
+// name): registered users of the built-in server (mumble_users, in the same
+// database) keep theirs, the rest go.
+func reactionsByID(db *sql.DB) error {
+	var byName, mumbleUsers int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('reactions') WHERE name = 'user_key'`).Scan(&byName); err != nil || byName == 0 {
+		return err
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'mumble_users'`).Scan(&mumbleUsers); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	queries := []string{`ALTER TABLE reactions RENAME TO reactions_by_name`, reactionsTable}
+	if mumbleUsers > 0 {
+		queries = append(queries, `INSERT OR IGNORE INTO reactions (message_id, emoji, user_id, user, created_at)
+			SELECT r.message_id, r.emoji, u.id, r.user, r.created_at FROM reactions_by_name r JOIN mumble_users u ON u.name_key = r.user_key`)
+	}
+	for _, q := range append(queries, `DROP TABLE reactions_by_name`) {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // migrate brings databases from older versions up to the current schema:
 // columns added later are added if missing.
 func migrate(db *sql.DB) error {
@@ -191,6 +221,9 @@ func migrate(db *sql.DB) error {
 		{"temporary", "INTEGER NOT NULL DEFAULT 0"},
 		{"last_seen", "INTEGER"}, // Unix milliseconds
 	}); err != nil {
+		return err
+	}
+	if err := reactionsByID(db); err != nil {
 		return err
 	}
 	var n int

@@ -46,6 +46,7 @@
     typing = "",
     onTyping,
     onReact,
+    myId = null,
     previewOf,
     httpBase = "",
   }: {
@@ -90,8 +91,10 @@
     // "bob is typing…" under the message box; onTyping: we type.
     typing?: string;
     onTyping?: () => void;
-    // Stored messages: add (on) or remove our reaction.
+    // Stored messages: add (on) or remove our reaction; myId: our Mumble
+    // user id (null: not registered, no reactions).
     onReact?: (id: number, emoji: string, on: boolean) => void;
+    myId?: number | null;
     // Link previews of stored messages; images are on the server (httpBase).
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
@@ -284,7 +287,7 @@
   // Replies and reactions: stored chats we may write in. picking: the
   // message whose emoji picker is open (focus moves into it and back).
   const canReply = $derived((stored || kind === "text") && !!onSend);
-  const canReact = $derived(canReply && !!onReact);
+  const canReact = $derived(canReply && !!onReact && myId !== null);
   let picking = $state<number | null>(null);
   const inLine = (id: number | null, selector: string) =>
     document.querySelector<HTMLElement>(`[data-message="${id}"] ${selector}`);
@@ -667,7 +670,7 @@
     {@const id = m.source.id}
     <div class="reactions">
       {#each m.reactions as r (r.emoji)}
-        {@const mine = reactedBy(r, me)}
+        {@const mine = reactedBy(r, myId)}
         <button
           type="button"
           class="reaction"
@@ -700,7 +703,7 @@
       >
         {#if picking === id}
           {#each COMMON_EMOJI as emoji (emoji)}
-            {@const mine = !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, me)))}
+            {@const mine = !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, myId)))}
             <button
               type="button"
               class="emoji"

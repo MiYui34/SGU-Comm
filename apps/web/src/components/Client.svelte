@@ -697,6 +697,7 @@
       typing={typingText(typingHere)}
       {onTyping}
       onReact={connection.react}
+      myId={me?.userId ?? null}
       previewOf={(id) => text.previews[id] ?? null}
       httpBase={connection.httpBase}
     />

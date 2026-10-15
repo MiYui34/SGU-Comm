@@ -153,7 +153,17 @@ const isPreview = (v: unknown): v is LinkPreview =>
   (v.image === undefined || (isStr(v.image) && v.image.startsWith("/api/link-image/")));
 
 const isReactions = (v: unknown): v is Reaction[] =>
-  Array.isArray(v) && v.every((r) => isObj(r) && isStr(r.emoji) && Array.isArray(r.users) && r.users.every(isStr));
+  Array.isArray(v) &&
+  v.every(
+    (r) =>
+      isObj(r) &&
+      isStr(r.emoji) &&
+      Array.isArray(r.users) &&
+      r.users.every(isStr) &&
+      Array.isArray(r.ids) &&
+      r.ids.every(isNum) &&
+      r.ids.length === r.users.length,
+  );
 
 const isMessage = (v: unknown): v is TextMessage =>
   isObj(v) &&
