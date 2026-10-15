@@ -358,14 +358,30 @@ func (d *DB) UserByHash(hash string) (*Registered, error) {
 }
 
 // RegisterUser adds a user with a certificate and returns its id.
+// RegisterUser adds a registration. Ids are never used twice (removed
+// guest accounts' ids stay theirs: reactions and messages refer to them),
+// so the highest id ever given is kept in mumble_meta.
 func (d *DB) RegisterUser(name, certHash string) (uint32, error) {
-	res, err := d.db.Exec(`INSERT INTO mumble_users (name, name_key, cert_hash) VALUES (?, ?, NULLIF(?, ''))`,
-		name, names.Key(name), certHash)
+	tx, err := d.db.Begin()
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint32(id), err
+	defer tx.Rollback()
+	var id uint32
+	err = tx.QueryRow(`SELECT max(coalesce((SELECT value FROM mumble_meta WHERE key = 'last_user_id'), 0),
+		(SELECT coalesce(max(id), 0) FROM mumble_users)) + 1`).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO mumble_users (id, name, name_key, cert_hash) VALUES (?, ?, ?, NULLIF(?, ''))`,
+		id, name, names.Key(name), certHash); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('last_user_id', ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, id); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
 }
 
 func (d *DB) SetPassword(id uint32, passwordHash string) error {

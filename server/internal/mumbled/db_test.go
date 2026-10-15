@@ -330,3 +330,16 @@ func TestWebPasswordChecksShareTheLockout(t *testing.T) {
 		t.Fatalf("other IP: %q %v", name, ok)
 	}
 }
+
+func TestUserIDsAreNeverReused(t *testing.T) {
+	db := testDB(t)
+	a, _ := db.RegisterUser("a", "ha")
+	b, _ := db.RegisterUser("b", "hb")
+	if err := db.UnregisterUser(b); err != nil {
+		t.Fatal(err)
+	}
+	c, err := db.RegisterUser("c", "hc")
+	if err != nil || c <= b || a >= b {
+		t.Fatalf("ids %d %d %d (%v)", a, b, c, err)
+	}
+}
