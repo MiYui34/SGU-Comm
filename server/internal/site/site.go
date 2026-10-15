@@ -11,9 +11,10 @@ import (
 )
 
 // The web app needs only its own origin. Inline styles: Svelte sets style
-// attributes. blob: images: upload previews. connect-src 'self' also allows
-// ws(s) to the same host.
-const csp = "default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; " +
+// attributes. blob: images: upload previews; data: images: avatars (images
+// cannot run scripts). connect-src 'self' also allows ws(s) to the same
+// host.
+const csp = "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; " +
 	"object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
 // New returns the site handler. Without webDir, everything goes to the

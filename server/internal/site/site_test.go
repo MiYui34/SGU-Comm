@@ -48,7 +48,9 @@ func TestServesTheWebApp(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "app") {
 		t.Fatalf("index: %d %q", w.Code, w.Body.String())
 	}
-	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
+	// data: images: avatars (Mumble textures) are data: URLs.
+	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") ||
+		!strings.Contains(csp, "img-src 'self' blob: data:;") {
 		t.Errorf("CSP: %q", csp)
 	}
 	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
