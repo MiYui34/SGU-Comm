@@ -484,7 +484,7 @@
       {talking ? "Talking…" : "Hold to talk"}
     </button>
   {/if}
-  <form onsubmit={submit}>
+  <form class="send" onsubmit={submit}>
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
@@ -683,8 +683,14 @@
     min-height: 0;
     background: var(--bg-main);
   }
+  .search {
+    display: flex;
+    align-items: center;
+  }
   .search input {
     width: 160px;
+    height: 28px;
+    min-height: 0;
     padding: 4px 8px;
     border: none;
     border-radius: 4px;
@@ -745,6 +751,7 @@
   }
   .tools {
     display: flex;
+    align-items: center;
     gap: 4px;
     margin-left: auto;
   }
@@ -903,7 +910,7 @@
     max-width: 400px;
     border-radius: 8px;
   }
-  form {
+  .send {
     flex-shrink: 0;
     padding: 0 16px 24px;
   }
