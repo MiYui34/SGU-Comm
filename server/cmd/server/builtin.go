@@ -13,6 +13,7 @@ import (
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/password"
 	"kallisti.chat/server/internal/sidecar"
@@ -65,17 +66,18 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if err != nil {
 		return nil, err
 	}
-	var onText func(from uint32, name string, registered bool, channel uint32, text string, images []mumbled.Image)
+	var onText func(mumbled.ChannelText)
 	var onRoles func()
 	var onMoved func(session, from, to uint32)
 	if hub != nil {
 		onRoles, onMoved = hub.RolesChanged, hub.UserMoved
-		onText = func(from uint32, name string, registered bool, channel uint32, text string, images []mumbled.Image) {
-			imgs := make([]sidecar.Image, len(images))
-			for i, img := range images {
+		onText = func(t mumbled.ChannelText) {
+			imgs := make([]sidecar.Image, len(t.Images))
+			for i, img := range t.Images {
 				imgs[i] = sidecar.Image{Type: img.Type, Data: img.Data}
 			}
-			hub.MumbleText(from, name, registered, channel, text, imgs)
+			from := mumble.Identity{Session: t.From, Name: t.Name, Registered: t.Registered, UserID: t.UserID}
+			hub.MumbleText(from, t.Channel, t.Text, imgs)
 		}
 	}
 	srv, err := mumbled.New(mumbled.Config{

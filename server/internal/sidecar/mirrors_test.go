@@ -37,7 +37,7 @@ func TestMirrorsCarryMessagesBothWays(t *testing.T) {
 	web := readyAs(t, h, 2, "web")
 	general := int64(h.channels[0].ID)
 	// From a Mumble client in #general to the web.
-	h.MumbleText(9, "bob", true, 100, "hi from mumble", nil)
+	h.MumbleText(mumble.Identity{Session: 9, Name: "bob", Registered: true, UserID: 504}, 100, "hi from mumble", nil)
 	if m := next(t, web); m["type"] != "message" || m["message"].(map[string]any)["channel"] != float64(general) {
 		t.Fatalf("web got %v", m)
 	}
@@ -54,7 +54,7 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 	v := &fakeVoice{}
 	h.SetVoice(v, "")
 	for i := range 25 {
-		h.MumbleText(9, "bob", false, 100, fmt.Sprintf("m%d", i), nil)
+		h.MumbleText(mumble.Identity{Session: 9, Name: "bob", Registered: false}, 100, fmt.Sprintf("m%d", i), nil)
 	}
 	// First visit in this connection: the last 20, under a heading.
 	h.UserMoved(7, noChannel, 0)
@@ -65,7 +65,7 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 	}
 	// Back later: only what came while away.
 	h.UserMoved(7, 100, 0)
-	h.MumbleText(9, "bob", false, 100, "while away", nil)
+	h.MumbleText(mumble.Identity{Session: 9, Name: "bob", Registered: false}, 100, "while away", nil)
 	h.UserMoved(7, 0, 100)
 	if got := v.userTexts(7); len(got) != 2 || strings.Count(got[1], "<br>") != 1 || !strings.Contains(got[1], "while away") {
 		t.Fatalf("second visit: %q", got)
@@ -106,8 +106,8 @@ func TestTopics(t *testing.T) {
 	h := newHub(t, "general")
 	v := &fakeVoice{}
 	h.SetVoice(v, "")
-	admin := joinAs(t, h, mumble.Identity{Session: 1, Name: "admin", Registered: true})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	admin := joinAs(t, h, mumble.Identity{Session: 1, Name: "admin", Registered: true, UserID: 126})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	general := strconv.FormatInt(h.channels[0].ID, 10)
 	bob.Handle([]byte(`{"type":"set-topic","channel":` + general + `,"text":"mine"}`))
 	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
@@ -132,7 +132,7 @@ func TestMumbleClientsGetAReplyWithItsQuote(t *testing.T) {
 	h := newHub(t, "general")
 	v := &fakeVoice{}
 	h.SetVoice(v, "")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
 	orig := say(t, h, alice, "question?")
 	general := strconv.FormatInt(h.channels[0].ID, 10)
 	alice.Handle([]byte(`{"type":"send","channel":` + general + `,"text":"answer","reply":` + strconv.FormatInt(orig, 10) + `}`))

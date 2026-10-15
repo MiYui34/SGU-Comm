@@ -34,8 +34,8 @@ func say(t *testing.T, h *Hub, c *Conn, text string) int64 {
 
 func TestEditAndDeleteOwnMessages(t *testing.T) {
 	h := newHub(t, "general")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	id := strconv.FormatInt(say(t, h, alice, "helo"), 10)
 	next(t, bob)
 	alice.Handle([]byte(`{"type":"edit-message","message":` + id + `,"text":"hello"}`))
@@ -87,8 +87,8 @@ func TestModeratorsDeleteAnyMessage(t *testing.T) {
 	h.SetVoice(&fakeVoice{}, "") // session 1 may manage
 	var removed []string
 	h.OnUploadDeleted = func(key string) { removed = append(removed, key) }
-	mod := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	mod := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 372})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	h.store.AddUpload(store.Upload{Key: "spamkey", Name: "spam.png", Type: "image/png", Size: 1, Author: "bob"}, clock)
 	ch := strconv.FormatInt(h.channels[0].ID, 10)
 	bob.Handle([]byte(`{"type":"send","channel":` + ch + `,"text":"spam","upload":"spamkey"}`))
@@ -127,7 +127,7 @@ func TestEditingAVoiceChatNeedsWrite(t *testing.T) {
 	// Session 2 may not write to (or read) channel 9 in the fake.
 	chat, _ := h.store.VoiceChat(9)
 	m, _ := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: "bob", Verified: true, Text: "x", At: clock})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	bob.Handle([]byte(`{"type":"edit-message","message":` + strconv.FormatInt(m.ID, 10) + `,"text":"y"}`))
 	if got := next(t, bob); got["type"] != "error" {
 		t.Fatalf("edited without write: %v", got)
@@ -136,8 +136,8 @@ func TestEditingAVoiceChatNeedsWrite(t *testing.T) {
 
 func TestReplies(t *testing.T) {
 	h := newHub(t, "general", "random")
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	orig := say(t, h, alice, "question?")
 	next(t, bob)
 	general := strconv.FormatInt(h.channels[0].ID, 10)
@@ -156,9 +156,41 @@ func TestReplies(t *testing.T) {
 	// Alice comes back later: the reply counts as a mention of her.
 	c := h.Connect()
 	t.Cleanup(c.Close)
-	c.SetIdentity(mumble.Identity{Session: 3, Name: "alice", Registered: true})
+	c.SetIdentity(mumble.Identity{Session: 3, Name: "alice", Registered: true, UserID: 435})
 	ready := next(t, c)
 	if e := ready["summary"].([]any)[0].(map[string]any); e["mentions"] != float64(1) {
 		t.Fatalf("summary %v", ready["summary"])
+	}
+}
+
+func TestOwnershipIsByUserID(t *testing.T) {
+	h := newHub(t, "general")
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
+	id := strconv.FormatInt(say(t, h, alice, "mine"), 10)
+	alice.Close()
+	// Renamed: still hers.
+	renamed := joinAs(t, h, mumble.Identity{Session: 2, Name: "alicia", Registered: true, UserID: 4})
+	renamed.Handle([]byte(`{"type":"edit-message","message":` + id + `,"text":"still mine"}`))
+	if m := next(t, renamed); m["type"] != "message-edited" {
+		t.Fatalf("renamed: %v", m)
+	}
+	renamed.Close()
+	// Someone else with her old name (a cleaned-up guest account's name).
+	other := joinAs(t, h, mumble.Identity{Session: 3, Name: "alice", Registered: true, UserID: 9})
+	other.Handle([]byte(`{"type":"delete-message","message":` + id + `}`))
+	if m := next(t, other); m["type"] != "error" {
+		t.Fatalf("same name, other user: %v", m)
+	}
+}
+
+// Messages from before ids were kept (an external Murmur): by name.
+func TestOldMessagesWithoutIDAreByName(t *testing.T) {
+	h := newHub(t, "general")
+	m, _ := h.store.AddMessage(store.NewMessage{ChannelID: h.channels[0].ID, Author: "bob", Verified: true, AuthorID: 5, Text: "x", At: clock})
+	h.store.DB().Exec(`UPDATE messages SET author_id = NULL WHERE id = ?`, m.ID)
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 7})
+	bob.Handle([]byte(`{"type":"edit-message","message":` + strconv.FormatInt(m.ID, 10) + `,"text":"y"}`))
+	if got := next(t, bob); got["type"] != "message-edited" {
+		t.Fatalf("got %v", got)
 	}
 }

@@ -285,7 +285,7 @@ func TestVerifiedAuthor(t *testing.T) {
 	h := newHub(t, "general")
 	c := h.Connect()
 	defer c.Close()
-	c.SetIdentity(mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
 	next(t, c)
 	c.Handle([]byte(`{"type":"send","channel":1,"text":"hi"}`))
 	msg := next(t, c)["message"].(map[string]any)

@@ -214,6 +214,7 @@ type wireMessage struct {
 	Text      string         `json:"text"`
 	At        int64          `json:"at"` // Unix milliseconds
 	Verified  bool           `json:"verified"`
+	AuthorID  *uint32        `json:"authorId,omitempty"` // with verified (unknown for old messages)
 	Upload    *wireUpload    `json:"upload,omitempty"`
 	Edited    int64          `json:"edited,omitempty"` // Unix milliseconds
 	Reply     *wireQuote     `json:"reply,omitempty"`
@@ -250,7 +251,7 @@ func FileURL(u store.Upload) string {
 }
 
 func toWire(m store.Message) wireMessage {
-	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli(), Verified: m.Verified}
+	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli(), Verified: m.Verified, AuthorID: m.AuthorID}
 	if !m.EditedAt.IsZero() {
 		w.Edited = m.EditedAt.UnixMilli()
 	}
@@ -408,7 +409,7 @@ func (c *Conn) voiceChat(id mumble.Identity, voice uint32) {
 // In a text channel's mirror, it goes to the text channel (all web users).
 // Images become attachments: the first on the text, others on messages of
 // their own.
-func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint32, text string, images []Image) {
+func (h *Hub) MumbleText(from mumble.Identity, channel uint32, text string, images []Image) {
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		text = string([]rune(text)[:MaxTextLength])
 	}
@@ -424,7 +425,7 @@ func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint
 		broadcast = func(v any) { h.broadcastVoice(channel, v) }
 	}
 	store1 := func(text string, upload int64) {
-		m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: name, Verified: registered, Text: text, At: h.now(), UploadID: upload})
+		m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: from.Name, Verified: from.Registered, AuthorID: from.UserID, Text: text, At: h.now(), UploadID: upload})
 		if err != nil {
 			slog.Error("store a Mumble message", "err", err)
 			return
@@ -433,14 +434,14 @@ func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint
 	}
 	// Only registered users' images are kept (with their upload quota):
 	// guests can use any name. Mumble clients see them live anyway.
-	if len(images) == 0 || h.SaveFile == nil || !registered {
+	if len(images) == 0 || h.SaveFile == nil || !from.Registered {
 		if text != "" {
 			store1(text, 0)
 		}
 		return
 	}
 	for i, img := range images {
-		u, err := h.SaveFile(name, fmt.Sprintf("image-%d%s", i+1, imageExt(img.Type)), img.Type, img.Data)
+		u, err := h.SaveFile(from.Name, fmt.Sprintf("image-%d%s", i+1, imageExt(img.Type)), img.Type, img.Data)
 		if err != nil {
 			slog.Error("store a Mumble image", "err", err)
 			continue
@@ -508,7 +509,7 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 		c.sendError(textError)
 		return
 	}
-	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, Text: text, At: c.hub.now(), ReplyTo: req.Reply}
+	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply}
 	if req.Reply != 0 {
 		if orig, err := c.hub.store.MessageByID(req.Reply); err != nil || orig.ChannelID != req.Channel {
 			c.sendError("the message to answer is not in this channel")

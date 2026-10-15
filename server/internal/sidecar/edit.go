@@ -10,8 +10,9 @@ import (
 )
 
 // Editing and deleting messages. Registered users own the messages with
-// their verified name; guests (whose names are free) only those they wrote
-// in their current connection. Moderators and admins delete any message.
+// their user id (messages from before ids were kept: their verified name);
+// guests (whose names are free) only those they wrote in their current
+// connection. Moderators and admins delete any message.
 
 // Guest messages remembered, at most (oldest forgotten first is not
 // needed: a full map starts over).
@@ -28,12 +29,23 @@ func (h *Hub) rememberGuest(message int64, session uint32) {
 
 func (h *Hub) wrote(id mumble.Identity, m store.Message) bool {
 	if m.Verified {
-		return id.Registered && names.Key(id.Name) == names.Key(m.Author)
+		return byUser(id, m)
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	session, ok := h.guestMessages[m.ID]
 	return ok && !id.Registered && session == id.Session
+}
+
+// byUser: a registered user's own message (see wrote).
+func byUser(id mumble.Identity, m store.Message) bool {
+	if !id.Registered || !m.Verified {
+		return false
+	}
+	if m.AuthorID != nil {
+		return *m.AuthorID == id.UserID
+	}
+	return names.Key(id.Name) == names.Key(m.Author)
 }
 
 func (c *Conn) changeMessage(id mumble.Identity, req request) {

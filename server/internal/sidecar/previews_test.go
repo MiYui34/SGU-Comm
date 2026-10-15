@@ -17,7 +17,7 @@ func (f fakePreviews) Get(_ context.Context, url string) *preview.Preview { retu
 func TestPreviewsOfMessages(t *testing.T) {
 	h := newHub(t, "general")
 	h.Previews = fakePreviews{"https://example.org/a": {URL: "https://example.org/a", Title: "A page", Image: "k1"}}
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
 	withLink := say(t, h, alice, "look (https://example.org/a), nice")
 	noPreview := say(t, h, alice, "https://example.org/none")
 	plain := say(t, h, alice, "no link")

@@ -37,7 +37,7 @@ type Config struct {
 	WebAccountExists func(name, certHash string) bool
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
-	OnChannelText func(from uint32, name string, registered bool, channel uint32, text string, images []Image)
+	OnChannelText func(ChannelText)
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
 	// OnUserMoved hears users join (from NoChannel), change channels and
@@ -74,6 +74,18 @@ var (
 	// not decrypt for this long, and not more often. A variable for tests.
 	resyncAfter = 5 * time.Second
 )
+
+// ChannelText is a text a client sent to a channel (see
+// Config.OnChannelText).
+type ChannelText struct {
+	From       uint32 // session
+	Name       string
+	Registered bool
+	UserID     uint32 // with Registered
+	Channel    uint32
+	Text       string
+	Images     []Image
+}
 
 type Server struct {
 	cfg Config

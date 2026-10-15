@@ -36,7 +36,8 @@ func TestImagesReachClientsAndTheHook(t *testing.T) {
 	var mu sync.Mutex
 	var heard []Image
 	var heardText string
-	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, _ uint32, text string, images []Image) {
+	cfg := Config{OnChannelText: func(t ChannelText) {
+		text, images := t.Text, t.Images
 		mu.Lock()
 		heard, heardText = images, text
 		mu.Unlock()
@@ -63,7 +64,7 @@ func TestImagesReachClientsAndTheHook(t *testing.T) {
 func TestLongTextWithoutImagesIsStillRefused(t *testing.T) {
 	var mu sync.Mutex
 	n := 0
-	cfg := Config{OnChannelText: func(uint32, string, bool, uint32, string, []Image) { mu.Lock(); n++; mu.Unlock() }}
+	cfg := Config{OnChannelText: func(ChannelText) { mu.Lock(); n++; mu.Unlock() }}
 	_, addr := startServerAndListen(t, "127.0.0.1", cfg, openACL)
 	alice := dial(t, addr, "alice")
 	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{0}, Message: proto.String(strings.Repeat("x", 6000) + "<img")})
@@ -92,7 +93,8 @@ func TestUnpaddedBase64(t *testing.T) {
 func TestTreeMessagesStoreNoImages(t *testing.T) {
 	var mu sync.Mutex
 	var withImages, without int
-	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, _ uint32, _ string, images []Image) {
+	cfg := Config{OnChannelText: func(t ChannelText) {
+		images := t.Images
 		mu.Lock()
 		if len(images) > 0 {
 			withImages++

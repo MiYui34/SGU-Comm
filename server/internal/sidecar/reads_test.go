@@ -27,14 +27,14 @@ func TestReadyCarriesReadMarksAndASummary(t *testing.T) {
 	for _, text := range []string{"old", "@alice old", "new", "@alice new", "@bob not me"} {
 		h.store.AddMessage(store.NewMessage{ChannelID: general, Author: "bob", Text: text, At: clock})
 	}
-	own, _ := h.store.AddMessage(store.NewMessage{ChannelID: general, Author: "alice", Verified: true, Text: "@alice myself", At: clock})
-	h.store.SetReadMark("alice", general, 2)
+	own, _ := h.store.AddMessage(store.NewMessage{ChannelID: general, Author: "alice", Verified: true, AuthorID: 3, Text: "@alice myself", At: clock})
+	h.store.SetReadMark(3, general, 2)
 	chat, _ := h.store.VoiceChat(5)
 	h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: "bob", Text: "@alice in voice", At: clock})
 
 	c := h.Connect()
 	t.Cleanup(c.Close)
-	c.SetIdentity(mumble.Identity{Session: 1, Name: "Alice", Registered: true})
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "Alice", Registered: true, UserID: 3})
 	ready := next(t, c)
 	reads := ready["reads"].(map[string]any)
 	if reads[strconv.FormatInt(general, 10)] != float64(2) {
@@ -56,14 +56,14 @@ func TestReadyCarriesReadMarksAndASummary(t *testing.T) {
 func TestMarkRead(t *testing.T) {
 	h := newHub(t, "general")
 	general := h.channels[0].ID
-	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "Alice", Registered: true})
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "Alice", Registered: true, UserID: 3})
 	alice.Handle([]byte(`{"type":"mark-read","channel":` + strconv.FormatInt(general, 10) + `,"message":7}`))
 	guest := joinAs(t, h, mumble.Identity{Session: 2, Name: "guest"})
 	guest.Handle([]byte(`{"type":"mark-read","channel":` + strconv.FormatInt(general, 10) + `,"message":7}`))
-	if m, _ := h.store.ReadMarks("alice"); m[general] != 7 {
+	if m, _ := h.store.ReadMarks(3); m[general] != 7 {
 		t.Fatalf("alice marks %v", m)
 	}
-	if m, _ := h.store.ReadMarks("guest"); len(m) != 0 {
+	if m, _ := h.store.ReadMarks(0); len(m) != 0 { // guests have no id (0 is SuperUser)
 		t.Fatalf("guest marks %v", m)
 	}
 }
@@ -81,7 +81,7 @@ func TestSearch(t *testing.T) {
 	h.store.AddMessage(store.NewMessage{ChannelID: general, Author: "alice", Text: "pizza tonight", At: clock})
 	secret, _ := h.store.VoiceChat(9) // session 2 may not read channel 9 in the fake
 	h.store.AddMessage(store.NewMessage{ChannelID: secret, Author: "alice", Text: "pizza secret", At: clock})
-	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	bob.Handle([]byte(`{"type":"search","text":"pizza"}`))
 	m := next(t, bob)
 	msgs := m["messages"].([]any)
@@ -96,7 +96,7 @@ func TestSearch(t *testing.T) {
 
 func TestSearchTextHasALimit(t *testing.T) {
 	h := newHub(t, "general")
-	c := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	c := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
 	c.Handle([]byte(`{"type":"search","text":"` + strings.Repeat("x", 201) + `"}`))
 	if m := next(t, c); m["type"] != "error" {
 		t.Fatalf("long search: %v", m)

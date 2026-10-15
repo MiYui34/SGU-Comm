@@ -494,13 +494,13 @@ func TestReadMarks(t *testing.T) {
 	s := open(t)
 	s.EnsureChannels([]string{"general", "random"})
 	chans, _ := s.Channels()
-	if err := s.SetReadMark("alice", chans[0].ID, 5); err != nil {
+	if err := s.SetReadMark(1, chans[0].ID, 5); err != nil {
 		t.Fatal(err)
 	}
-	s.SetReadMark("alice", chans[0].ID, 3) // never back
-	s.SetReadMark("alice", chans[1].ID, 2)
-	s.SetReadMark("bob", chans[0].ID, 9)
-	got, err := s.ReadMarks("alice")
+	s.SetReadMark(1, chans[0].ID, 3) // never back
+	s.SetReadMark(1, chans[1].ID, 2)
+	s.SetReadMark(2, chans[0].ID, 9)
+	got, err := s.ReadMarks(1)
 	if err != nil || got[chans[0].ID] != 5 || got[chans[1].ID] != 2 || len(got) != 2 {
 		t.Fatalf("marks %v %v", got, err)
 	}

@@ -23,9 +23,9 @@ type heardText struct {
 func TestChannelTextGoesToTheHook(t *testing.T) {
 	var mu sync.Mutex
 	var got []heardText
-	cfg := Config{OnChannelText: func(from uint32, name string, registered bool, channel uint32, text string, _ []Image) {
+	cfg := Config{OnChannelText: func(t ChannelText) {
 		mu.Lock()
-		got = append(got, heardText{from, name, channel, text})
+		got = append(got, heardText{t.From, t.Name, t.Channel, t.Text})
 		mu.Unlock()
 	}}
 	s, addr := startServerAndListen(t, "127.0.0.1", cfg, openACL)
@@ -82,7 +82,8 @@ func TestOnlyAdminsManageTextChannels(t *testing.T) {
 func TestChatTextIsPlainBothWays(t *testing.T) {
 	var mu sync.Mutex
 	var got []string
-	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, channel uint32, text string, _ []Image) {
+	cfg := Config{OnChannelText: func(t ChannelText) {
+		channel, text := t.Channel, t.Text
 		mu.Lock()
 		got = append(got, fmt.Sprint(channel, ":", text))
 		mu.Unlock()

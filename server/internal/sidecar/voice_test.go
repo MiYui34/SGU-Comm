@@ -117,7 +117,7 @@ func TestVoiceChannelChats(t *testing.T) {
 	}
 	v.mu.Unlock()
 	// Text from Mumble clients is stored and shown.
-	h.MumbleText(3, "native", true, 5, "from mumble", nil)
+	h.MumbleText(mumble.Identity{Session: 3, Name: "native", Registered: true, UserID: 175}, 5, "from mumble", nil)
 	if m := next(t, bob); m["type"] != "message" || m["message"].(map[string]any)["author"] != "native" {
 		t.Fatalf("bob got %v", m)
 	}
@@ -285,7 +285,7 @@ func TestMumbleImagesBecomeAttachments(t *testing.T) {
 	}
 	web := readyAs(t, h, 2, "web")
 	// In the #general mirror (Mumble channel 100 in the fake).
-	h.MumbleText(9, "Jukebox", true, 100, "Now playing: x", []Image{{Type: "image/jpeg", Data: []byte("a")}, {Type: "image/png", Data: []byte("b")}})
+	h.MumbleText(mumble.Identity{Session: 9, Name: "Jukebox", Registered: true, UserID: 814}, 100, "Now playing: x", []Image{{Type: "image/jpeg", Data: []byte("a")}, {Type: "image/png", Data: []byte("b")}})
 	first := next(t, web)["message"].(map[string]any)
 	second := next(t, web)["message"].(map[string]any)
 	if first["text"] != "Now playing: x" || first["upload"].(map[string]any)["type"] != "image/jpeg" ||
@@ -305,7 +305,7 @@ func TestGuestsImagesAreNotStored(t *testing.T) {
 		return store.Upload{}, nil
 	}
 	web := readyAs(t, h, 2, "web")
-	h.MumbleText(9, "guest", false, 100, "look", []Image{{Type: "image/png", Data: []byte("a")}})
+	h.MumbleText(mumble.Identity{Session: 9, Name: "guest", Registered: false}, 100, "look", []Image{{Type: "image/png", Data: []byte("a")}})
 	if m := next(t, web)["message"].(map[string]any); m["text"] != "look" || m["upload"] != nil {
 		t.Fatalf("message %v", m)
 	}

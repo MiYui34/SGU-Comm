@@ -32,8 +32,10 @@ type Message struct {
 	Text      string
 	CreatedAt time.Time
 	EditedAt  time.Time // zero: never edited
-	// The author was registered on the Mumble server (a verified name).
+	// The author was registered on the Mumble server (a verified name),
+	// with this user id (nil: not known, from before ids were kept).
 	Verified  bool
+	AuthorID  *uint32
 	Upload    *Upload // optional attachment
 	Reply     *Quote  // the message it answers
 	Reactions []Reaction
@@ -51,6 +53,7 @@ type NewMessage struct {
 	ChannelID int64
 	Author    string
 	Verified  bool
+	AuthorID  uint32 // with Verified: the Mumble user id
 	Text      string
 	At        time.Time
 	UploadID  int64
@@ -112,12 +115,12 @@ CREATE TABLE IF NOT EXISTS messages (
 	verified   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
--- The newest message a registered user read in a channel (name: names.Key).
-CREATE TABLE IF NOT EXISTS read_marks (
-	user       TEXT NOT NULL,
+-- The newest message a registered user (Mumble user id) read in a channel.
+CREATE TABLE IF NOT EXISTS read_marks_by_user (
+	user_id    INTEGER NOT NULL,
 	channel_id INTEGER NOT NULL,
 	message_id INTEGER NOT NULL,
-	PRIMARY KEY (user, channel_id)
+	PRIMARY KEY (user_id, channel_id)
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -177,6 +180,104 @@ func addColumns(db *sql.DB, table string, cols [][2]string) error {
 	return nil
 }
 
+// byUserID moves data kept by name to user ids (see the built-in server's
+// mumble_users, in the same database): verified authors and read marks.
+// Verified authors without a registration lose the mark (their names are
+// free now). With an external Murmur there are no ids to find: authors keep
+// their names (see sidecar's wrote) and the old read marks go.
+func byUserID(db *sql.DB) error {
+	var mumbleUsers, oldMarks int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'mumble_users'`).Scan(&mumbleUsers); err != nil {
+		return err
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'read_marks'`).Scan(&oldMarks); err != nil {
+		return err
+	}
+	ids, err := userIDs(db, mumbleUsers > 0)
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if mumbleUsers > 0 {
+		authors, err := column[string](tx, `SELECT DISTINCT author FROM messages WHERE verified = 1 AND author_id IS NULL`)
+		if err != nil {
+			return err
+		}
+		for _, a := range authors {
+			q, args := `UPDATE messages SET verified = 0 WHERE verified = 1 AND author_id IS NULL AND author = ?`, []any{a}
+			if id, ok := ids[names.Key(a)]; ok {
+				q, args = `UPDATE messages SET author_id = ? WHERE verified = 1 AND author_id IS NULL AND author = ?`, []any{id, a}
+			}
+			if _, err := tx.Exec(q, args...); err != nil {
+				return err
+			}
+		}
+	}
+	if oldMarks > 0 {
+		users, err := column[string](tx, `SELECT DISTINCT user FROM read_marks`)
+		if err != nil {
+			return err
+		}
+		for _, u := range users {
+			if id, ok := ids[u]; ok {
+				if _, err := tx.Exec(`INSERT OR IGNORE INTO read_marks_by_user (user_id, channel_id, message_id)
+					SELECT ?, channel_id, message_id FROM read_marks WHERE user = ?`, id, u); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := tx.Exec(`DROP TABLE read_marks`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// userIDs are the built-in server's registrations by names.Key (none
+// without its table).
+func userIDs(db *sql.DB, exists bool) (map[string]uint32, error) {
+	ids := map[string]uint32{}
+	if !exists {
+		return ids, nil
+	}
+	rows, err := db.Query(`SELECT name_key, id FROM mumble_users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var id uint32
+		if err := rows.Scan(&key, &id); err != nil {
+			return nil, err
+		}
+		ids[key] = id
+	}
+	return ids, rows.Err()
+}
+
+// column reads one column of a query.
+func column[T any](tx *sql.Tx, query string) ([]T, error) {
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		var v T
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // reactionsByID rebuilds a reactions table of the first version (kept by
 // name): registered users of the built-in server (mumble_users, in the same
 // database) keep theirs, the rest go.
@@ -214,7 +315,11 @@ func migrate(db *sql.DB) error {
 		{"verified", "INTEGER NOT NULL DEFAULT 0"},
 		{"edited_at", "INTEGER"},
 		{"reply_to", "INTEGER"},
+		{"author_id", "INTEGER"}, // the Mumble user id of verified authors
 	}); err != nil {
+		return err
+	}
+	if err := byUserID(db); err != nil {
 		return err
 	}
 	if err := addColumns(db, "accounts", [][2]string{
@@ -493,8 +598,12 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 		}
 		reply, quote = sql.NullInt64{Int64: n.ReplyTo, Valid: true}, &q
 	}
-	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		n.ChannelID, n.Author, n.Verified, n.Text, n.At.UnixMilli(), upload, reply)
+	var authorID *uint32
+	if n.Verified {
+		authorID = &n.AuthorID
+	}
+	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, author_id, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply)
 	if err != nil {
 		return Message{}, err
 	}
@@ -502,7 +611,7 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, Text: n.Text, CreatedAt: n.At, Reply: quote}
+	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote}
 	if upload.Valid {
 		u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, n.UploadID))
 		if err != nil {
@@ -538,7 +647,7 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 	return u, err
 }
 
-const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.text, m.created_at, m.edited_at,
+const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at,
 		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used,
 		m.reply_to, r.author, r.text
 	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
@@ -552,12 +661,16 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 		key, name, typ, who sql.NullString
 		used                sql.NullBool
 	}
-	var replyTo sql.NullInt64
+	var replyTo, authorID sql.NullInt64
 	var replyAuthor, replyText sql.NullString
-	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &m.Text, &at, &edited,
+	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited,
 		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used,
 		&replyTo, &replyAuthor, &replyText); err != nil {
 		return Message{}, err
+	}
+	if authorID.Valid {
+		id := uint32(authorID.Int64)
+		m.AuthorID = &id
 	}
 	if replyTo.Valid {
 		m.Reply = &Quote{ID: replyTo.Int64, Author: replyAuthor.String, Text: replyText.String}
@@ -715,15 +828,15 @@ func (s *Store) Search(text string, channels []int64, author string, limit int) 
 
 // SetReadMark notes that a user read a channel up to a message; marks never
 // go back.
-func (s *Store) SetReadMark(user string, channel, message int64) error {
-	_, err := s.db.Exec(`INSERT INTO read_marks (user, channel_id, message_id) VALUES (?, ?, ?)
-		ON CONFLICT (user, channel_id) DO UPDATE SET message_id = max(message_id, excluded.message_id)`, user, channel, message)
+func (s *Store) SetReadMark(userID uint32, channel, message int64) error {
+	_, err := s.db.Exec(`INSERT INTO read_marks_by_user (user_id, channel_id, message_id) VALUES (?, ?, ?)
+		ON CONFLICT (user_id, channel_id) DO UPDATE SET message_id = max(message_id, excluded.message_id)`, userID, channel, message)
 	return err
 }
 
 // ReadMarks are a user's read marks by channel.
-func (s *Store) ReadMarks(user string) (map[int64]int64, error) {
-	rows, err := s.db.Query(`SELECT channel_id, message_id FROM read_marks WHERE user = ?`, user)
+func (s *Store) ReadMarks(userID uint32) (map[int64]int64, error) {
+	rows, err := s.db.Query(`SELECT channel_id, message_id FROM read_marks_by_user WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, err
 	}

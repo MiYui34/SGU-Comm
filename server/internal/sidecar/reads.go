@@ -88,7 +88,7 @@ func (c *Conn) search(id mumble.Identity, req request) {
 // summary of the text channels and the voice chats it may read.
 func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 	user := names.Key(id.Name)
-	marks, err := h.store.ReadMarks(user)
+	marks, err := h.store.ReadMarks(id.UserID)
 	if err != nil {
 		slog.Error("read marks", "err", err)
 		return nil, nil
@@ -105,7 +105,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		e.Latest = latest
 		for _, m := range msgs {
 			repliesToMe := m.Reply != nil && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
-			if names.Key(m.Author) != user && (mention.MatchString(m.Text) || repliesToMe) {
+			if !byUser(id, m) && (mention.MatchString(m.Text) || repliesToMe) {
 				e.Mentions++
 			}
 		}
@@ -125,7 +125,7 @@ func (c *Conn) markRead(id mumble.Identity, req request) {
 	if !ok || (isVoice && !c.hub.mayUse(id.Session, voice, false)) {
 		return
 	}
-	if err := c.hub.store.SetReadMark(names.Key(id.Name), req.Channel, req.Message); err != nil {
+	if err := c.hub.store.SetReadMark(id.UserID, req.Channel, req.Message); err != nil {
 		slog.Error("read mark", "err", err)
 	}
 }

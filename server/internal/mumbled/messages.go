@@ -657,7 +657,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		// Every channel it went to (trees included), as plain text: Mumble
 		// clients send HTML.
 		plain := html.UnescapeString(text)
-		from, name, registered := c.session, actor.Name, actor.Registered
+		base := ChannelText{From: c.session, Name: actor.Name, Registered: actor.Registered, UserID: actor.UserID, Text: plain}
 		for _, id := range slices.Sorted(maps.Keys(channels)) {
 			// Text channel mirrors only count when written to directly.
 			direct := slices.Contains(m.ChannelId, id)
@@ -671,7 +671,9 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 				imgs = nil
 			}
 			if s.state.Channels[id] != nil {
-				hooks = append(hooks, func() { hook(from, name, registered, id, plain, imgs) })
+				t := base
+				t.Channel, t.Images = id, imgs
+				hooks = append(hooks, func() { hook(t) })
 			}
 		}
 	}
