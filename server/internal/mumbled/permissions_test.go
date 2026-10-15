@@ -119,9 +119,9 @@ func TestACLQueryShowsInheritedEntries(t *testing.T) {
 	for _, g := range m.Groups {
 		admin = admin || (g.GetName() == "admin" && g.GetInherited())
 	}
-	// Root's admin and auth entries apply to subchannels; the SelfRegister
-	// entry does not.
-	if inherited != 2 || !admin {
+	// Root's admin, auth and moderator entries apply to subchannels; the
+	// SelfRegister entry does not.
+	if inherited != 4 || !admin {
 		t.Fatalf("ACL %v", &m)
 	}
 	guest := dial(t, addr, "guest")

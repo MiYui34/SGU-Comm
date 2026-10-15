@@ -34,6 +34,8 @@ type Config struct {
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
 	OnChannelText func(from uint32, name string, registered bool, channel uint32, text string)
+	// OnRolesChanged runs after admins or moderators changed (see Roles).
+	OnRolesChanged func()
 	DB            *DB // nil: nothing is saved
 }
 

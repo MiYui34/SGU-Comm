@@ -55,15 +55,15 @@ func newGroup(name string) *Group {
 	return &Group{Name: name, Inherit: true, Inheritable: true, Add: map[uint32]bool{}, Remove: map[uint32]bool{}}
 }
 
-// DefaultRootACL is Murmur's ACL for a new server: admins may do
-// everything, registered users may make temporary channels, and everyone
-// may register.
+// DefaultRootACL is Murmur's ACL for a new server, with moderators:
+// admins may do everything, moderators nearly all (see moderatorACL),
+// registered users may make temporary channels, and everyone may register.
 func DefaultRootACL() ([]ACL, map[string]*Group) {
-	return []ACL{
+	return append([]ACL{
 		{ApplyHere: true, ApplySubs: true, Group: "admin", Allow: Write},
 		{ApplyHere: true, ApplySubs: true, Group: "auth", Allow: MakeTempChannel},
 		{ApplyHere: true, ApplySubs: false, Group: "all", Allow: SelfRegister},
-	}, map[string]*Group{"admin": newGroup("admin")}
+	}, moderatorACL()...), map[string]*Group{"admin": newGroup("admin"), "moderator": newGroup("moderator")}
 }
 
 // chain lists the channels from root down to id.

@@ -137,7 +137,7 @@ func TestNewDatabasesHaveTheDefaultACL(t *testing.T) {
 	saved, _ := db.Channels()
 	s := NewState("Root", saved)
 	acls, groups := DefaultRootACL()
-	if len(s.Channels[0].ACLs) != len(acls) || s.Channels[0].Groups["admin"] == nil || len(groups) != 1 {
+	if len(s.Channels[0].ACLs) != len(acls) || s.Channels[0].Groups["admin"] == nil || len(groups) != 2 || s.Channels[0].Groups["moderator"] == nil {
 		t.Fatalf("root ACL %+v groups %+v", s.Channels[0].ACLs, s.Channels[0].Groups)
 	}
 	// An admin who removes all root ACLs keeps it that way after a restart.
@@ -268,7 +268,8 @@ func TestTheLobbyIsSetUpOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, _ = db.Channels()
-	if len(saved) != 1 || len(NewState("Root", saved).Channels[0].ACLs) != 4 {
+	acls, _ := DefaultRootACL()
+	if len(saved) != 1 || len(NewState("Root", saved).Channels[0].ACLs) != len(acls)+1 {
 		t.Fatalf("after a second run: %+v", saved)
 	}
 }

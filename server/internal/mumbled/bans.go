@@ -75,7 +75,8 @@ func (s *Server) userRemoveMsg(c *client, m *pb.UserRemove) {
 	if m.GetBan() {
 		need = Ban
 	}
-	if isSuperUser(u) || s.state.Permissions(actor, 0)&need == 0 {
+	staff := u.Registered && s.state.isStaff(u.UserID) && !s.state.Has(actor, 0, Write)
+	if isSuperUser(u) || staff || s.state.Permissions(actor, 0)&need == 0 {
 		s.mu.Unlock()
 		c.denyPerm(need, 0)
 		return

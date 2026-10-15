@@ -156,8 +156,18 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		s.sendUserNames(c, ids)
 		return
 	}
+	// Changes need Write in root: moderators have Write below root, but
+	// must not hand out rights or roles.
+	if !s.state.Has(u, 0, Write) {
+		s.mu.Unlock()
+		c.denyPerm(Write, 0)
+		return
+	}
 	s.mu.Unlock()
 	known := s.registeredIDs(aclUserIDs(m)) // DB lookups outside the lock
+	if m.GetChannelId() == 0 {
+		defer s.rolesChanged() // after the unlock below
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch, u = s.state.Channels[m.GetChannelId()], s.state.Users[c.session]
@@ -394,6 +404,13 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 	defer s.saveMu.Unlock()
 	for _, e := range m.Users {
 		id := e.GetUserId()
+		s.mu.Lock()
+		protected := s.state.isStaff(id) && !s.state.Has(u, 0, Write)
+		s.mu.Unlock()
+		if protected {
+			c.denyPerm(Write, 0)
+			continue
+		}
 		var err error
 		if e.Name != nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(e.GetName())) {
 			err = errors.New("the name belongs to a Kallisti account")
