@@ -6,6 +6,11 @@
     joinChannel,
     messagesIn,
     escapeHtml,
+    queryBans,
+    queryRegistered,
+    renameRegistered,
+    setBans,
+    unregister,
     privateMessagesWith,
     registerSelf,
     setSelfState,
@@ -28,6 +33,7 @@
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
+  import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { pingsMe } from "../lib/mentions";
   import { settings, userAudio } from "../lib/settings.svelte";
@@ -39,6 +45,8 @@
   import ChatPane from "./ChatPane.svelte";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
+  import ModerationDialog from "./ModerationDialog.svelte";
+  import Icon from "./Icon.svelte";
   import ServerRail from "./ServerRail.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
   import Toast from "./Toast.svelte";
@@ -369,6 +377,9 @@
   const textChat = $derived(
     chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
+  // Server settings (bans, registered users) for moderators and admins.
+  let showModeration = $state(false);
+  const moderation = $derived(moderationRights(server));
   // Search: the results panel, and a message to scroll to.
   let searchOpen = $state(false);
   let jumpTarget = $state<number | null>(null);
@@ -498,6 +509,28 @@
   />
 {/if}
 
+{#if showModeration}
+  <ModerationDialog
+    bans={server.bans}
+    registered={server.registered}
+    rights={moderation}
+    onLoad={(what) => connection.send(what === "bans" ? queryBans() : queryRegistered())}
+    onSetBans={(bans) => {
+      connection.send(setBans(bans));
+      connection.send(queryBans());
+    }}
+    onRename={(id, name) => {
+      connection.send(renameRegistered(id, name));
+      connection.send(queryRegistered());
+    }}
+    onUnregister={(id) => {
+      connection.send(unregister(id));
+      connection.send(queryRegistered());
+    }}
+    onClose={() => (showModeration = false)}
+  />
+{/if}
+
 {#if showSettings}
   <SettingsDialog
     settings={prefs}
@@ -524,7 +557,14 @@
   <div class="left" bind:this={leftEl} inert={phone && panel !== "channels"}>
   <ServerRail {serverName} />
   <div class="sidebar">
-    <header>{serverName}</header>
+    <header>
+      <span class="ellipsis">{serverName}</span>
+      {#if moderation.any}
+        <button type="button" class="settings" title="Server settings" aria-label="Server settings" onclick={() => (showModeration = true)}>
+          <Icon name="gear" size={18} />
+        </button>
+      {/if}
+    </header>
     <ChannelSidebar
       {server}
       {speaking}
@@ -639,10 +679,18 @@
     min-height: 0;
     background: var(--bg-sidebar);
   }
+  header .settings {
+    margin-left: auto;
+    color: var(--text-muted);
+  }
+  header .settings:hover {
+    color: var(--text);
+  }
   header {
     display: flex;
     flex-shrink: 0;
     align-items: center;
+    gap: 8px;
     height: 48px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border);
