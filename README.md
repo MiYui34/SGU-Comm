@@ -3,6 +3,8 @@
 Voice and text chat on top of Mumble, with a Discord-like interface. Web first.
 https://kallisti.chat
 
+![Kallisti in the browser: text channels, voice channels with their users, a chat with a mention and a reply, and the member list](docs/screenshot.png)
+
 - `packages/protocol`: Mumble protocol (framing, protobuf codec, state, voice packets)
 - `apps/web`: Svelte web client (chat, voice, settings)
 - `server`: Go server: web app, accounts, text channels and a built-in Mumble
