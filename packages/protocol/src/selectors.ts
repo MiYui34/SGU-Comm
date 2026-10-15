@@ -24,6 +24,16 @@ export const channelTree = (state: ServerState): ChannelNode | null => {
   return build(root);
 };
 
+// A channel and the others with the same parent, in tree order. Root has
+// no siblings.
+export const channelSiblings = (state: ServerState, channelId: number): Channel[] => {
+  const parent = state.channels[channelId]?.parent;
+  if (channelId === 0 || parent === null || parent === undefined) return [];
+  return Object.values(state.channels)
+    .filter((c) => c.parent === parent && c.id !== 0)
+    .sort(byPositionThenName);
+};
+
 export const usersSorted = (state: ServerState): User[] =>
   Object.values(state.users).sort((a, b) => byName(a.name, b.name));
 

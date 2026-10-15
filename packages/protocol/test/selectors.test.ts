@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   audioFormat,
+  channelSiblings,
   channelTree,
   inVoice,
   isLobby,
@@ -191,5 +192,14 @@ describe("may", () => {
     expect(may(s, 0, Perm.MakeChannel)).toBe(true);
     expect(may(s, 5, Perm.Write)).toBe(false);
     expect(may(s, 6, Perm.Enter)).toBe(false);
+  });
+});
+
+describe("channelSiblings", () => {
+  it("lists a channel and its siblings as the tree orders them", () => {
+    const s = withData([ch(0, null, "Root"), ch(1, 0, "b", 1), ch(2, 0, "a", 1), ch(3, 0, "z", 0), ch(4, 1, "deep")]);
+    expect(channelSiblings(s, 2).map((c) => c.id)).toEqual([3, 2, 1]);
+    expect(channelSiblings(s, 4).map((c) => c.id)).toEqual([4]);
+    expect(channelSiblings(s, 0)).toEqual([]); // root has none
   });
 });
