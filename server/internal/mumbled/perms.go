@@ -1,7 +1,8 @@
 package mumbled
 
 import (
-	"errors"
+	"cmp"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
@@ -412,19 +413,20 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 			c.denyPerm(Write, 0)
 			continue
 		}
+		var refused string // a reason the user may see
 		var err error
 		if e.Name != nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(e.GetName())) {
-			err = errors.New("the name belongs to a Kallisti account")
+			refused = "The name belongs to a Kallisti account."
 		} else if e.Name != nil && s.accountRegistration(id) {
 			// Its name is the account's: renamed, the account could not join.
-			err = errors.New("this registration belongs to a Kallisti account")
+			refused = "This registration belongs to a Kallisti account: its name cannot change."
 		} else if e.Name != nil {
 			err = db.RenameUser(id, e.GetName())
 		} else {
 			err = db.UnregisterUser(id)
 		}
-		if err != nil {
-			c.deny(deny(pb.PermissionDenied_Text, "cannot change user %d", id))
+		if refused != "" || err != nil {
+			c.deny(deny(pb.PermissionDenied_Text, "%s", cmp.Or(refused, fmt.Sprintf("Cannot change user %d.", id))))
 			continue
 		}
 		s.mu.Lock()
