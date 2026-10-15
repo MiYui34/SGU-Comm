@@ -435,7 +435,7 @@
               {#if i === 0}
                 <div class="gutter">
                   {#if group.actorName}
-                    <Avatar name={group.actorName} size={40} />
+                    <Avatar name={group.actorName} size={40} registered={"verified" in m && m.verified === true} />
                   {:else}
                     <span class="system-avatar"></span>
                   {/if}

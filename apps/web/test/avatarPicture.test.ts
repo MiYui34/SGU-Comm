@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyUser, initialState, type ServerState } from "@kallisti/protocol";
-import { imageSize, imageType, pictureUrl, squareCrop, texturesToFetch } from "../src/lib/avatar";
+import { imageSize, imageType, pictureLookup, pictureUrl, squareCrop, texturesToFetch } from "../src/lib/avatar";
 
 const bytes = (...b: number[]) => new Uint8Array(b);
 
@@ -88,5 +88,15 @@ describe("imageSize", () => {
   it("shows no picture for very large ones", () => {
     expect(pictureUrl(png(128, 128))).not.toBeNull();
     expect(pictureUrl(png(6000, 5000))).toBeNull();
+  });
+
+  it("finds online users' pictures, else the saved one of registered users", () => {
+    const lookup = pictureLookup(new Map([["alice", "data:alice"], ["bob", null]]), "https://chat.example");
+    expect(lookup("alice", true)).toBe("data:alice");
+    // Online without a picture: none (no request).
+    expect(lookup("bob", true)).toBeNull();
+    expect(lookup("carol / x", true)).toBe("https://chat.example/api/avatars/carol%20%2F%20x");
+    // Guests who left have none.
+    expect(lookup("dave", false)).toBeNull();
   });
 });

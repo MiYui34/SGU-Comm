@@ -8,10 +8,14 @@
     size = 32,
     speaking = false,
     online = false,
-  }: { name: string; size?: number; speaking?: boolean; online?: boolean } = $props();
+    registered = false,
+  }: { name: string; size?: number; speaking?: boolean; online?: boolean; registered?: boolean } = $props();
   // The user's picture, if the client knows one (see setAvatarPictures).
   const lookup = pictureFor();
-  const picture = $derived(lookup(name));
+  // A picture that did not load (no saved one): initials.
+  let failed = $state<string | null>(null);
+  const found = $derived(lookup(name, registered));
+  const picture = $derived(found === failed ? null : found);
 </script>
 
 <span class="wrap" style:width="{size}px" style:height="{size}px">
@@ -20,7 +24,7 @@
     class:speaking
     style:font-size="{size * 0.45}px"
     style:background={picture ? undefined : avatarColor(name)}
-    >{#if picture}<img src={picture} alt="" />{:else}{initials(name)}{/if}</span
+    >{#if picture}<img src={picture} alt="" onerror={() => (failed = picture)} />{:else}{initials(name)}{/if}</span
   >
   {#if online}
     <span class="dot" style:--dot="{Math.max(10, Math.round(size * 0.32))}px"></span>

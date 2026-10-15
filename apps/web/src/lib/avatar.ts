@@ -90,9 +90,20 @@ export const squareCrop = (width: number, height: number) => {
 // Avatars find pictures by name: the client sets the lookup once (a
 // context), so every Avatar shows the picture without extra props.
 const KEY = Symbol("avatar pictures");
-type Lookup = (name: string) => string | null;
+type Lookup = (name: string, registered?: boolean) => string | null;
 export const setAvatarPictures = (lookup: Lookup) => setContext(KEY, lookup);
 export const pictureFor = (): Lookup => getContext<Lookup | undefined>(KEY) ?? (() => null);
+
+// online: pictures of online users by name (null: none). Registered users
+// who are offline: the server's saved picture (404 if none).
+export const pictureLookup =
+  (online: ReadonlyMap<string, string | null>, httpBase: string): Lookup =>
+  (name, registered = false) =>
+    online.has(name)
+      ? online.get(name)!
+      : registered
+        ? `${httpBase}/api/avatars/${encodeURIComponent(name)}`
+        : null;
 
 // Avatars known only by their hash, to fetch: once per user and picture.
 // Users who left are forgotten (Murmur reuses session numbers).

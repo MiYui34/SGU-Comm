@@ -21,7 +21,7 @@
   import { createChannelManagement } from "../lib/channelManagement.svelte";
   import { canManageText } from "../lib/channelManagement";
   import type { Connection } from "../lib/connection.svelte";
-  import { pictureUrl, setAvatarPictures } from "../lib/avatar";
+  import { pictureLookup, pictureUrl, setAvatarPictures } from "../lib/avatar";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
@@ -76,7 +76,9 @@
   const users = $derived(usersSorted(server));
   // Avatars show the pictures of online users, by name.
   const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, pictureUrl(u.texture)])));
-  setAvatarPictures((name) => pictures.get(name) ?? null);
+  const lookup = $derived(pictureLookup(pictures, connection.httpBase));
+  // The context is set once: the closure reads the current lookup.
+  setAvatarPictures((name, registered) => lookup(name, registered));
 
   const capture = $derived(connection.capture);
   // The server does not echo our own voice: add ourselves while sending.
