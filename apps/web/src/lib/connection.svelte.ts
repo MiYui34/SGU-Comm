@@ -112,6 +112,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     }
   };
 
+  // Browsers do not freeze or discard tabs that hold a Web Lock: hold one
+  // while connected (a name of our own, so other tabs do not wait).
+  let releaseLock: (() => void) | undefined;
+  void navigator.locks
+    ?.request(`kallisti-connection-${crypto.randomUUID()}`, () => new Promise<void>((resolve) => (releaseLock = resolve)))
+    .catch(() => {});
   ws.onopen = () => {
     ws.send(handshake(credentials));
     timer = setInterval(() => ws.send(ping(Date.now())), PING_INTERVAL_MS);
@@ -138,6 +144,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     }
   };
   ws.onclose = (event) => {
+    releaseLock?.();
     closeReason = event.reason;
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
