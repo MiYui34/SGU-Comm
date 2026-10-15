@@ -1,6 +1,8 @@
 package sidecar
 
 import (
+	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 type fakeVoice struct {
 	mu   sync.Mutex
 	sent []string
+	mods []uint32
 }
 
 func (f *fakeVoice) MayRead(session, channel uint32) bool  { return session == 1 || channel != 9 }
@@ -116,6 +119,26 @@ func TestVoiceChatsNeedTheBuiltInServer(t *testing.T) {
 
 func (f *fakeVoice) MayManage(session uint32) bool { return session == 1 }
 
+// Session 1 is an admin (user id 0).
+func (f *fakeVoice) SetModerator(session, user uint32, on bool) error {
+	if session != 1 {
+		return errors.New("only admins make moderators")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mods = slices.DeleteFunc(f.mods, func(id uint32) bool { return id == user })
+	if on {
+		f.mods = append(f.mods, user)
+	}
+	return nil
+}
+
+func (f *fakeVoice) Roles() (admins, moderators []uint32) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return []uint32{7}, slices.Clone(f.mods)
+}
+
 func TestAdminsManageTextChannels(t *testing.T) {
 	h := newHub(t, "general")
 	h.SetVoice(&fakeVoice{}, "")
@@ -123,7 +146,7 @@ func TestAdminsManageTextChannels(t *testing.T) {
 	bob := readyAs(t, h, 2, "bob")
 	bob.Handle([]byte(`{"type":"create-channel","name":"games"}`))
 	// Errors about channel changes say so (the client shows them apart).
-	if m := next(t, bob); m["type"] != "error" || m["about"] != "channels" {
+	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
 		t.Fatalf("bob got %v", m)
 	}
 	admin.Handle([]byte(`{"type":"create-channel","name":"  Game Night "}`))
@@ -177,6 +200,32 @@ func TestTextChannelNames(t *testing.T) {
 	for _, bad := range []string{"", "a:b", strings.Repeat("x", 33), "<b>"} {
 		if _, ok := textChannelName(bad); ok {
 			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestModerators(t *testing.T) {
+	h := newHub(t, "general")
+	v := &fakeVoice{}
+	h.SetVoice(v, "")
+	admin := h.Connect()
+	t.Cleanup(admin.Close)
+	admin.SetIdentity(mumble.Identity{Session: 1, Name: "admin"})
+	ready := next(t, admin)
+	if r, ok := ready["roles"].(map[string]any); !ok || len(r["admins"].([]any)) != 1 || len(r["moderators"].([]any)) != 0 {
+		t.Fatalf("ready %v", ready)
+	}
+	bob := readyAs(t, h, 2, "bob")
+	bob.Handle([]byte(`{"type":"set-moderator","user":5,"moderator":true}`))
+	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
+		t.Fatalf("bob got %v", m)
+	}
+	admin.Handle([]byte(`{"type":"set-moderator","user":5,"moderator":true}`))
+	// The voice server reports the change; everyone gets the new roles.
+	h.RolesChanged()
+	for _, c := range []*Conn{admin, bob} {
+		if m := next(t, c); m["type"] != "roles" || len(m["moderators"].([]any)) != 1 {
+			t.Fatalf("got %v", m)
 		}
 	}
 }

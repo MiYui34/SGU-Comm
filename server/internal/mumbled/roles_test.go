@@ -79,12 +79,12 @@ func TestRolesListsAndUnmakesModerators(t *testing.T) {
 	su := superUser(t, addr)
 	_, aliceID := registered(t, addr, "alice")
 	s.SetModerator(su.session, aliceID, true)
-	if r := s.Roles(); len(r.Moderators) != 1 || r.Moderators[0] != aliceID {
-		t.Fatalf("roles %+v", r)
+	if _, mods := s.Roles(); len(mods) != 1 || mods[0] != aliceID {
+		t.Fatalf("moderators %v", mods)
 	}
 	s.SetModerator(su.session, aliceID, false)
-	if r := s.Roles(); len(r.Moderators) != 0 {
-		t.Fatalf("after unmaking: %+v", r)
+	if _, mods := s.Roles(); len(mods) != 0 {
+		t.Fatalf("after unmaking: %v", mods)
 	}
 }
 

@@ -55,5 +55,5 @@ func (s *Server) MayManage(session uint32) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u := s.state.Users[session]
-	return u != nil && s.state.Has(u, 0, Write)
+	return u != nil && s.state.Has(u, 0, MakeChannel) // admins and moderators
 }

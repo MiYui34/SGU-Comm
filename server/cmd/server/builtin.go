@@ -49,6 +49,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if err := mdb.InitLobby(); err != nil {
 		return nil, fmt.Errorf("lobby: %w", err)
 	}
+	if err := mdb.InitRoles(); err != nil {
+		return nil, fmt.Errorf("roles: %w", err)
+	}
 	// SuperUser's password, from the environment (not visible in ps).
 	if pw := os.Getenv("MUMBLED_SUPERUSER_PASSWORD"); pw != "" {
 		hash, err := password.Hash(pw)
@@ -65,14 +68,16 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		return nil, fmt.Errorf("server certificate in %s: %w", cfg.CertDir, err)
 	}
 	var onText func(from uint32, name string, registered bool, channel uint32, text string)
+	var onRoles func()
 	if hub != nil {
-		onText = hub.MumbleText
+		onText, onRoles = hub.MumbleText, hub.RolesChanged
 	}
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
 		MaxUsers: cfg.MaxUsers, MaxPerIP: cfg.MaxPerIP,
-		ReservedName:  accountExists(db), // names of web accounts are theirs only
-		OnChannelText: onText,
+		ReservedName:   accountExists(db), // names of web accounts are theirs only
+		OnChannelText:  onText,
+		OnRolesChanged: onRoles,
 	})
 	if err != nil {
 		return nil, err

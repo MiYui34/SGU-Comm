@@ -38,10 +38,12 @@ func (s *State) isStaff(id uint32) bool {
 	return id == 0 || slices.Contains(r.Admins, id) || slices.Contains(r.Moderators, id)
 }
 
-func (s *Server) Roles() Roles {
+// Roles: registered user ids of admins and moderators.
+func (s *Server) Roles() (admins, moderators []uint32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state.roles()
+	r := s.state.roles()
+	return r.Admins, r.Moderators
 }
 
 // SetModerator makes a registered user a moderator, or not. Only admins

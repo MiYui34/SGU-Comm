@@ -43,6 +43,10 @@ type Voice interface {
 	// MayManage: the user may create, rename, order and delete text
 	// channels.
 	MayManage(session uint32) bool
+	// SetModerator makes a registered user a moderator, or not (admins).
+	SetModerator(session, user uint32, on bool) error
+	// Roles: registered user ids of admins and moderators.
+	Roles() (admins, moderators []uint32)
 }
 
 type Hub struct {
@@ -140,7 +144,11 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
 	if becomesReady {
-		c.send(map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil})
+		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
+		if c.hub.voice != nil {
+			ready["roles"] = c.hub.roles()
+		}
+		c.send(ready)
 	}
 }
 
@@ -183,14 +191,16 @@ func toWire(m store.Message) wireMessage {
 }
 
 type request struct {
-	Type     string  `json:"type"`
-	Name     string  `json:"name"`     // create-channel, rename-channel
-	Channels []int64 `json:"channels"` // order-channels
-	Voice    uint32  `json:"voice"`    // voice-chat: the Mumble channel
-	Channel  int64   `json:"channel"`
-	Before   int64   `json:"before"`
-	Text     string  `json:"text"`
-	Upload   string  `json:"upload"` // key of an upload to attach
+	Type      string  `json:"type"`
+	Name      string  `json:"name"`     // create-channel, rename-channel
+	Channels  []int64 `json:"channels"` // order-channels
+	Voice     uint32  `json:"voice"`    // voice-chat: the Mumble channel
+	Channel   int64   `json:"channel"`
+	Before    int64   `json:"before"`
+	Text      string  `json:"text"`
+	Upload    string  `json:"upload"`    // key of an upload to attach
+	User      uint32  `json:"user"`      // set-moderator: registered user id
+	Moderator bool    `json:"moderator"` // set-moderator
 }
 
 // Handle answers one request from the browser.
@@ -222,6 +232,14 @@ func (c *Conn) Handle(raw []byte) {
 	switch req.Type {
 	case "create-channel", "rename-channel", "delete-channel", "order-channels":
 		c.manage(*id, req)
+		return
+	case "set-moderator":
+		// The voice server reports the change (RolesChanged).
+		if c.hub.voice == nil {
+			c.manageError("roles need the built-in Mumble server")
+		} else if err := c.hub.voice.SetModerator(id.Session, req.User, req.Moderator); err != nil {
+			c.manageError(err.Error())
+		}
 		return
 	}
 	if req.Type != "send" && req.Type != "history" {
@@ -391,6 +409,21 @@ func (h *Hub) broadcastVoice(voice uint32, v any) {
 	}
 }
 
+// roles: lists, never null in JSON.
+func (h *Hub) roles() map[string][]uint32 {
+	admins, moderators := h.voice.Roles()
+	return map[string][]uint32{"admins": append([]uint32{}, admins...), "moderators": append([]uint32{}, moderators...)}
+}
+
+// RolesChanged sends everyone the new admins and moderators.
+func (h *Hub) RolesChanged() {
+	if h.voice == nil {
+		return
+	}
+	r := h.roles()
+	h.broadcast(map[string]any{"type": "roles", "admins": r["admins"], "moderators": r["moderators"]})
+}
+
 func (h *Hub) broadcast(v any) {
 	h.mu.Lock()
 	conns := make([]*Conn, 0, len(h.conns))
@@ -407,10 +440,10 @@ func (c *Conn) sendError(msg string) {
 	c.send(map[string]any{"type": "error", "message": msg})
 }
 
-// manageError answers a channel change: the client shows it apart from
-// the chat.
+// manageError answers a management request (channels, roles): the client
+// shows it apart from the chat.
 func (c *Conn) manageError(msg string) {
-	c.send(map[string]any{"type": "error", "message": msg, "about": "channels"})
+	c.send(map[string]any{"type": "error", "message": msg, "about": "manage"})
 }
 
 var resync = []byte(`{"type":"resync"}`)
