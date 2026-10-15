@@ -200,9 +200,9 @@
       checked={settings.closeMicWhenMuted}
       onchange={(e) => onChange({ closeMicWhenMuted: e.currentTarget.checked })}
     />
-    Close the microphone when muted
+    <span>Close the microphone when muted</span>
+    <span class="hint">The browser then stops showing it as recording, but the sound stops for a moment when you mute or unmute.</span>
   </label>
-  <p class="hint">The browser then stops showing it as recording, but the sound stops for a moment when you mute or unmute.</p>
   <label class="check">
     <input
       type="checkbox"
@@ -218,9 +218,9 @@
         onChange({ notifications: on });
       }}
     />
-    Desktop notifications for mentions and private messages
+    <span>Desktop notifications for mentions and private messages</span>
+    {#if notificationNote}<span class="hint warn" role="status">{notificationNote}</span>{/if}
   </label>
-  {#if notificationNote}<p class="hint warn" role="status">{notificationNote}</p>{/if}
   {#if account}
     <form class="account" onsubmit={changePassword}>
       <span class="label">Change password</span>
@@ -229,11 +229,16 @@
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
         <button type="submit" class="secondary">Change password</button>
-        <span class="spacer"></span>
-        <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
-        <button type="button" class="logout" onclick={account.logout}>Log out</button>
       </div>
     </form>
+    <div class="account">
+      <span class="label">Log out</span>
+      <p class="hint">"Everywhere" also logs out your other browsers and devices, for example after you used a shared computer.</p>
+      <div class="buttons">
+        <button type="button" class="logout" onclick={account.logout}>Log out</button>
+        <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
+      </div>
+    </div>
   {/if}
 </dialog>
 
@@ -335,19 +340,29 @@
   .hint.warn {
     color: var(--danger);
   }
+  /* Checkbox, text, and a hint under the text. */
   .check {
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: auto 1fr;
     align-items: center;
-    gap: 8px;
+    column-gap: 8px;
+    row-gap: 2px;
     text-transform: none;
     font-weight: normal;
+  }
+  .check .hint {
+    grid-column: 2;
   }
   .account {
     display: flex;
     flex-direction: column;
     gap: 8px;
     padding-top: 12px;
+    margin-bottom: 16px;
     border-top: 1px solid var(--border-subtle);
+  }
+  .account:last-child {
+    margin-bottom: 0;
   }
   .account input {
     padding: 10px;
@@ -360,9 +375,6 @@
     flex-wrap: wrap;
     gap: 4px;
   }
-  .spacer {
-    flex: 1;
-  }
   .secondary {
     padding: 8px 14px;
     border-radius: 6px;
@@ -372,6 +384,7 @@
   .logout {
     padding: 8px 14px;
     border-radius: 6px;
+    background: var(--bg-input);
     color: var(--danger);
     font-weight: 600;
   }
