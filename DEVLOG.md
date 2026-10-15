@@ -241,3 +241,21 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
   to hostile hosts), a queue limit, one deadline for page and image, and a
   byte limit for cached images. Clients ask per message over the sidecar
   (read permission applies), not per URL over HTTP.
+
+## 2026-10-15: Guest accounts and user ids
+
+- Web guests get temporary accounts (cookie, no password, a Mumble
+  registration on the built-in server); a password keeps one, a day without
+  a visit removes it. Only with the built-in server: Kallisti cannot remove
+  registrations on an external Murmur.
+- Once accounts are deleted, names come back: everything that was keyed by
+  name (message ownership, read marks, reactions) moved to the Mumble user
+  id. SQLite reuses the highest INTEGER PRIMARY KEY after a delete, so the
+  built-in server now keeps the highest user id ever given (mumble_meta)
+  and never gives an id twice.
+- The migration maps names to ids with the built-in server's mumble_users
+  (same database, names.Key). Tested on a copy of the live database
+  before the deploy (and a second start, which must change nothing).
+- Cleanup and registration of web accounts take turns on one lock; the
+  server does not register a web account whose account is gone, and does
+  not remove the registration of a user who is online.
