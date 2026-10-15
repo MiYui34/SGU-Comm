@@ -77,3 +77,5 @@
 - [x] [Guests cannot set a profile picture](issues/guests-cannot-set-a-profile-picture.md)
 - [x] [Show pictures of offline users](issues/show-pictures-of-offline-users.md)
 - [x] [Web: keep the microphone open while muted](issues/web-keep-the-microphone-open-while-muted.md)
+- [x] [Markdown formatting in messages](issues/web-markdown.md)
+- [x] [Mute a channel](issues/web-mute-a-channel.md)
