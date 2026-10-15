@@ -1,15 +1,7 @@
 <script lang="ts">
   import {
-    channelTree,
-    createChannel,
-    editChannel,
     inVoice,
     isLobby,
-    may,
-    Perm,
-    queryPermissions,
-    removeChannel,
-    type ChannelNode,
     joinChannel,
     messagesIn,
     privateMessagesWith,
@@ -19,10 +11,10 @@
   } from "@kallisti/protocol";
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
-  import type { ChannelForm, ChannelKind } from "../lib/channelForm";
-  import { moveInList, moveVoiceChannel } from "../lib/channelOrder";
+  import { createChannelManagement } from "../lib/channelManagement.svelte";
   import type { Connection } from "../lib/connection.svelte";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
+  import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
@@ -327,13 +319,7 @@
   const menuUser = $derived(menu && server.users[menu.session]);
   const openMenu = (session: number, event: MouseEvent) => {
     event.preventDefault();
-    if (event.detail !== 0) {
-      menu = { session, x: event.clientX, y: event.clientY };
-      return;
-    }
-    // Opened with the keyboard: no pointer position, place it at the element.
-    const r = (event.target as Element).getBoundingClientRect();
-    menu = { session, x: r.left + 24, y: r.bottom };
+    menu = { session, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
   };
   // The user left: close their menu (Murmur reuses session numbers).
   $effect(() => {
@@ -370,53 +356,7 @@
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
-  // Channel management. Text channels: admins (Write in root), with the
-  // built-in server. Voice channels: Mumble's permissions; the menu asks the
-  // server what we may do in the channel.
-  const canManageText = $derived(text.voiceChats && may(server, 0, Perm.Write));
-  const canMakeVoice = $derived(may(server, 0, Perm.MakeChannel));
-  const canCreate = $derived({ text: canManageText, voice: canMakeVoice || may(server, 0, Perm.MakeTempChannel) });
-  let channelMenu = $state<{ kind: ChannelKind; id: number; x: number; y: number } | null>(null);
-  let channelForm = $state<{ form: ChannelForm; id: number } | null>(null);
-  const findNode = (node: ChannelNode | null, id: number): ChannelNode | null =>
-    !node ? null : node.channel.id === id ? node : node.children.reduce<ChannelNode | null>((f, c) => f ?? findNode(c, id), null);
-  const voiceSiblings = (id: number) =>
-    findNode(channelTree(server), server.channels[id]?.parent ?? -1)?.children.map((n) => n.channel) ?? [];
-  const menuOrder = $derived.by(() => {
-    if (!channelMenu) return [];
-    return channelMenu.kind === "text" ? text.channels.map((c) => c.id) : voiceSiblings(channelMenu.id).map((c) => c.id);
-  });
-  const openChannelMenu = (kind: ChannelKind, id: number, event: MouseEvent) => {
-    if (kind === "voice") connection.send(queryPermissions(id));
-    channelMenu = { kind, id, x: event.clientX, y: event.clientY };
-  };
-  const nameOf = (kind: ChannelKind, id: number) =>
-    kind === "text" ? (text.channels.find((c) => c.id === id)?.name ?? "") : (server.channels[id]?.name ?? "");
-  const moveChannel = (kind: ChannelKind, id: number, step: -1 | 1) => {
-    if (kind === "text") {
-      connection.manageTextChannels({ order: moveInList(text.channels.map((c) => c.id), id, step) });
-      return;
-    }
-    for (const c of moveVoiceChannel(voiceSiblings(id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
-  };
-  const submitChannel = (v: { kind: ChannelKind; name: string; description: string; temporary: boolean }) => {
-    if (!channelForm) return;
-    const { form, id } = channelForm;
-    if (form.mode === "create") {
-      if (v.kind === "text") connection.manageTextChannels({ create: v.name });
-      else connection.send(createChannel(0, v.name, { temporary: v.temporary }));
-    } else if (form.mode === "edit") {
-      if (v.kind === "text") connection.manageTextChannels({ rename: id, name: v.name });
-      else {
-        const changes = {
-          ...(v.name !== form.name ? { name: v.name } : {}),
-          ...(v.description !== form.description ? { description: v.description } : {}),
-        };
-        if (Object.keys(changes).length) connection.send(editChannel(id, changes));
-      }
-    } else if (v.kind === "text") connection.manageTextChannels({ remove: id });
-    else connection.send(removeChannel(id));
-  };
+  const channels = createChannelManagement(() => connection);
 
   // Back to the lobby. Its chat is not a place to stay: show a text channel.
   const leaveVoice = () => {
@@ -430,39 +370,33 @@
 {#if server.notice}
   {#key server.notice.at}<Toast text={server.notice.text} />{/key}
 {/if}
+{#if text.notice}
+  {#key text.notice.n}<Toast text={text.notice.text} />{/key}
+{/if}
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
 <svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
 
-{#if channelMenu}
-  {@const m = channelMenu}
-  {@const at = menuOrder.indexOf(m.id)}
+{#if channels.menu}
+  {@const m = channels.menu}
   <ChannelMenu
-    name={nameOf(m.kind, m.id)}
+    name={m.name}
     x={m.x}
     y={m.y}
-    canEdit={m.kind === "text" ? canManageText : may(server, m.id, Perm.Write)}
-    canMoveUp={at > 0}
-    canMoveDown={at >= 0 && at < menuOrder.length - 1}
-    onEdit={() =>
-      (channelForm = {
-        form: {
-          mode: "edit",
-          kind: m.kind,
-          name: nameOf(m.kind, m.id),
-          description: m.kind === "voice" ? (server.channels[m.id]?.description ?? "") : "",
-        },
-        id: m.id,
-      })}
-    onMove={(step) => moveChannel(m.kind, m.id, step)}
-    onDelete={() => (channelForm = { form: { mode: "delete", kind: m.kind, name: nameOf(m.kind, m.id) }, id: m.id })}
-    onClose={() => (channelMenu = null)}
+    canEdit={m.canEdit}
+    canDelete={m.canDelete}
+    canMoveUp={m.canMoveUp}
+    canMoveDown={m.canMoveDown}
+    onEdit={() => channels.startEdit(m.kind, m.id)}
+    onMove={(step) => channels.move(m.kind, m.id, step)}
+    onDelete={() => channels.startDelete(m.kind, m.id)}
+    onClose={channels.closeMenu}
   />
 {/if}
 
-{#if channelForm}
-  {#key channelForm}
-    <ChannelDialog form={channelForm.form} onSubmit={submitChannel} onClose={() => (channelForm = null)} />
+{#if channels.form}
+  {#key channels.form}
+    <ChannelDialog form={channels.form.form} onSubmit={channels.submit} onClose={channels.closeForm} />
   {/key}
 {/if}
 
@@ -514,13 +448,9 @@
       {lobby}
       onJoin={join}
       onUserMenu={openMenu}
-      {canCreate}
-      onCreate={(kind) =>
-        (channelForm = {
-          form: { mode: "create", kind, temporaryOnly: kind === "voice" && !canMakeVoice, canText: false },
-          id: 0,
-        })}
-      onChannelMenu={openChannelMenu}
+      canCreate={channels.canCreate}
+      onCreate={channels.startCreate}
+      onChannelMenu={channels.open}
     />
     {#if me}
       {#if lobby && voiceOn}

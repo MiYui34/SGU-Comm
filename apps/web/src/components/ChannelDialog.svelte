@@ -17,7 +17,7 @@
   let dialog: HTMLDialogElement | undefined = $state();
   // The fields start from the form; the dialog is made anew for each one.
   const start = untrack(() => form);
-  let kind = $state(start.kind);
+  const kind = start.kind;
   let name = $state(start.mode === "create" ? "" : start.name);
   let description = $state(start.mode === "edit" ? start.description : "");
   // Users who may only make temporary voice channels get one of those.
@@ -49,13 +49,6 @@
           : "Its messages are kept and come back if a channel of this name is made again."}
       </p>
     {:else}
-      {#if form.mode === "create" && form.canText}
-        <fieldset>
-          <legend>Channel type</legend>
-          <label class="radio"><input type="radio" bind:group={kind} value="text" /> Text</label>
-          <label class="radio"><input type="radio" bind:group={kind} value="voice" /> Voice</label>
-        </fieldset>
-      {/if}
       <label>
         Channel name
         <!-- svelte-ignore a11y_autofocus -->
@@ -116,34 +109,17 @@
     line-height: 1;
     color: var(--text-muted);
   }
-  label,
-  fieldset {
+  label {
     display: flex;
     flex-direction: column;
     gap: 6px;
     margin: 0 0 16px;
-    border: none;
-    padding: 0;
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
     color: var(--text-muted);
   }
-  legend {
-    padding: 0;
-    margin-bottom: 6px;
-  }
-  .radio {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-    font-size: 14px;
-    font-weight: normal;
-    text-transform: none;
-    color: var(--text);
-  }
-  input:not([type="radio"]),
+  input,
   textarea {
     padding: 10px;
     border: none;
