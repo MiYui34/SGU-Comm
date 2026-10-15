@@ -65,11 +65,10 @@ func run() error {
 	}
 	dial, upstream := murmurDialer(cfg)
 	if cfg.Builtin != nil {
-		mumble, err := startBuiltin(cfg.Builtin, db, hub.MumbleText)
+		mumble, err := startBuiltin(cfg.Builtin, db, hub, publicBase(cfg.AllowedOrigins))
 		if err != nil {
 			return err
 		}
-		hub.SetVoice(mumble.srv, publicBase(cfg.AllowedOrigins))
 		defer mumble.close()
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken

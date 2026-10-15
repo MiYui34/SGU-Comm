@@ -17,6 +17,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/password"
+	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -38,9 +39,9 @@ func accountExists(db *store.Store) func(name string) bool {
 	}
 }
 
-// startBuiltin starts the server. onText gets channel texts from Mumble
-// clients (for the stored voice channel chats).
-func startBuiltin(cfg *config.Builtin, db *store.Store, onText func(from uint32, name string, registered bool, channel uint32, text string)) (*builtin, error) {
+// startBuiltin starts the server. With a hub, voice channels get stored
+// chats (publicBase: the server's address, for upload links).
+func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, publicBase string) (*builtin, error) {
 	mdb, err := mumbled.OpenDB(db.DB())
 	if err != nil {
 		return nil, fmt.Errorf("Mumble tables: %w", err)
@@ -63,6 +64,10 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, onText func(from uint32,
 	if err != nil {
 		return nil, fmt.Errorf("server certificate in %s: %w", cfg.CertDir, err)
 	}
+	var onText func(from uint32, name string, registered bool, channel uint32, text string)
+	if hub != nil {
+		onText = hub.MumbleText
+	}
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
 		MaxUsers: cfg.MaxUsers, MaxPerIP: cfg.MaxPerIP,
@@ -71,6 +76,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, onText func(from uint32,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if hub != nil {
+		hub.SetVoice(srv, publicBase) // before anyone connects
 	}
 	ln, err := tls.Listen("tcp", cfg.Listen, mumbled.TLSConfig(cert))
 	if err != nil {
