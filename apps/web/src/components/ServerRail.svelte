@@ -11,11 +11,7 @@
       {initials(serverName)}
     </button>
   </div>
-  <hr />
-  <div class="item">
-    <span class="pill" aria-hidden="true"></span>
-    <button class="server add" title="Add a server (not yet)" disabled>+</button>
-  </div>
+  <!-- Adding other servers comes later (meta/issues/multiple-servers.md). -->
 </nav>
 
 <style>
@@ -71,19 +67,5 @@
   .server:hover:not(:disabled) {
     background: var(--accent-strong);
     color: white;
-  }
-  .add {
-    color: var(--online);
-    font-size: 22px;
-    font-weight: 400;
-  }
-  .item:has(.add:disabled):hover .pill {
-    opacity: 0;
-  }
-  hr {
-    width: 24px;
-    margin: 0;
-    border: none;
-    border-top: 2px solid var(--bg-active);
   }
 </style>
