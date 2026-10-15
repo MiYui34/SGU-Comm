@@ -24,6 +24,8 @@ export type ServerEvent =
   | { type: "ready"; channels: TextChannel[]; voiceChats?: boolean }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
+  // The text channels changed (an admin managed them).
+  | { type: "channels"; channels: TextChannel[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "error"; message: string }
@@ -90,6 +92,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "voice-chat":
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
+    case "channels":
+      return Array.isArray(v.channels) && v.channels.every(isChannel) ? { type: "channels", channels: v.channels } : null;
     case "history":
       return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
@@ -116,6 +120,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, available: true, channels: event.channels, voiceChats: event.voiceChats === true };
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
+    case "channels":
+      return { ...state, channels: event.channels };
     case "history":
       return {
         ...state,
@@ -146,6 +152,24 @@ export const sendRequest = (channel: number, text: string, upload?: string) =>
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
 
 export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice-chat", voice });
+
+// Text channel management (admins; the server checks).
+export type ManageAction =
+  | { create: string }
+  | { rename: number; name: string }
+  | { remove: number }
+  | { order: number[] };
+
+export const manageRequest = (a: ManageAction) =>
+  JSON.stringify(
+    "create" in a
+      ? { type: "create-channel", name: a.create }
+      : "rename" in a
+        ? { type: "rename-channel", channel: a.rename, name: a.name }
+        : "remove" in a
+          ? { type: "delete-channel", channel: a.remove }
+          : { type: "order-channels", channels: a.order },
+  );
 
 // The server's HTTP origin, from the bridge WebSocket URL.
 export const httpBase = (wsUrl: string) => {

@@ -3,6 +3,7 @@ import {
   historyRequest,
   initialTextState,
   linkify,
+  manageRequest,
   parseServerEvent,
   reduceText,
   sendRequest,
@@ -238,5 +239,20 @@ describe("voice channel chats", () => {
 
   it("asks for a voice channel's chat", () => {
     expect(JSON.parse(voiceChatRequest(5))).toEqual({ type: "voice-chat", voice: 5 });
+  });
+});
+
+describe("managing text channels", () => {
+  it("takes a new channel list", () => {
+    const ev = parseServerEvent('{"type":"channels","channels":[{"id":2,"name":"games"}]}');
+    expect(ev).toEqual({ type: "channels", channels: [{ id: 2, name: "games" }] });
+    expect(reduceText(initialTextState, ev!).channels).toEqual([{ id: 2, name: "games" }]);
+  });
+
+  it("makes the requests", () => {
+    expect(JSON.parse(manageRequest({ create: "games" }))).toEqual({ type: "create-channel", name: "games" });
+    expect(JSON.parse(manageRequest({ rename: 2, name: "x" }))).toEqual({ type: "rename-channel", channel: 2, name: "x" });
+    expect(JSON.parse(manageRequest({ remove: 2 }))).toEqual({ type: "delete-channel", channel: 2 });
+    expect(JSON.parse(manageRequest({ order: [3, 2] }))).toEqual({ type: "order-channels", channels: [3, 2] });
   });
 });
