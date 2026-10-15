@@ -22,7 +22,7 @@ func TestTypingGoesToOthersAtMostEveryFewSeconds(t *testing.T) {
 	alice.Handle([]byte(typing)) // too soon: dropped, no error
 	empty(t, bob)
 	empty(t, alice)
-	now = now.Add(typingEvery)
+	now = now.Add(1900 * time.Millisecond) // the client's 3 s, arriving a bit early
 	alice.Handle([]byte(typing))
 	if m := next(t, bob); m["type"] != "typing" {
 		t.Fatalf("bob got %v", m)
@@ -36,9 +36,8 @@ func TestTypingInVoiceChatsOnlyForReaders(t *testing.T) {
 	closed := strconv.FormatInt(int64(voiceChat(t, mod, 9)), 10) // session 2 may not read 9
 	mod.Handle([]byte(`{"type":"typing","channel":` + closed + `}`))
 	empty(t, other)
+	// Without write: dropped, without an error (the user only types).
 	other.Handle([]byte(`{"type":"typing","channel":` + closed + `}`))
-	if m := next(t, other); m["type"] != "error" {
-		t.Fatalf("other got %v", m)
-	}
+	empty(t, other)
 	empty(t, mod)
 }

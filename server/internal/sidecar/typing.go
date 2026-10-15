@@ -6,9 +6,10 @@ import (
 	"kallisti.chat/server/internal/mumble"
 )
 
-// Clients send "typing" while the user types; one per channel in this time
-// goes on to the others. Nothing is stored.
-const typingEvery = 3 * time.Second
+// Clients send "typing" every 3 s while the user types; one per channel in
+// this time goes on to the others (less than 3 s: late or early arrivals
+// pass). Nothing is stored.
+const typingEvery = 2500 * time.Millisecond
 
 func (c *Conn) typing(id mumble.Identity, channel int64, voice uint32, isVoice bool) {
 	now := c.hub.now()

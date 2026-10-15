@@ -360,6 +360,11 @@
   );
   const typingHere = $derived(chatId === null ? [] : typingNames(typers, chatId, typingNow, me?.name ?? ""));
   const anyoneTyping = $derived(typingHere.length > 0);
+  // Another channel opened: names that ran out meanwhile go at once.
+  $effect(() => {
+    void chatId;
+    typingNow = Date.now();
+  });
   $effect(() => {
     if (!anyoneTyping) return;
     const tick = setInterval(() => (typingNow = Date.now()), 1000);

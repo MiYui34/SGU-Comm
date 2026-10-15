@@ -558,7 +558,7 @@
         onpaste={onPaste}
         oninput={(e) => {
           updateCaret();
-          if (e.currentTarget.value.trim() && !editing) onTyping?.();
+          if (e.currentTarget.value.trim()) onTyping?.();
         }}
         onclick={updateCaret}
         onkeyup={(e) => {

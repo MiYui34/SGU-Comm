@@ -322,11 +322,15 @@ func (c *Conn) Handle(raw []byte) {
 	}
 	voice, isVoice, ok := c.hub.chatOf(req.Channel)
 	if !ok {
-		c.sendError("unknown channel")
+		if req.Type != "typing" { // a channel deleted while typing
+			c.sendError("unknown channel")
+		}
 		return
 	}
 	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type != "history") {
-		c.sendError("you may not use this channel's chat")
+		if req.Type != "typing" { // only typing: no error to show
+			c.sendError("you may not use this channel's chat")
+		}
 		return
 	}
 	switch req.Type {
