@@ -5,3 +5,6 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Several servers in one client](issues/multiple-servers.md)
+- [ ] [Connections drop in background tabs](issues/connection-keepalive.md)
+  - [ ] [Bridge keeps connections alive](issues/bridge-keepalive.md)
+  - [ ] [Reconnect automatically](issues/auto-reconnect.md)
