@@ -127,3 +127,17 @@ func TestTopics(t *testing.T) {
 		t.Fatalf("long topic: %v", m)
 	}
 }
+
+func TestMumbleClientsGetAReplyWithItsQuote(t *testing.T) {
+	h := newHub(t, "general")
+	v := &fakeVoice{}
+	h.SetVoice(v, "")
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	orig := say(t, h, alice, "question?")
+	general := strconv.FormatInt(h.channels[0].ID, 10)
+	alice.Handle([]byte(`{"type":"send","channel":` + general + `,"text":"answer","reply":` + strconv.FormatInt(orig, 10) + `}`))
+	next(t, alice)
+	if got := v.toChannel[100]; len(got) != 2 || got[1] != "> alice: question? — answer" {
+		t.Fatalf("to Mumble: %q", got)
+	}
+}
