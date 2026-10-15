@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 
@@ -188,8 +189,14 @@ func migrate(db *sql.DB) error {
 	if n == 0 {
 		// Full-text search over message texts, kept current by triggers;
 		// filled once from the messages there are.
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
 		for _, q := range []string{
-			`CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='id', tokenize='unicode61 remove_diacritics 2')`,
+			`CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='id',
+				tokenize='unicode61 remove_diacritics 2', prefix='2 3')`,
 			`CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
 				INSERT INTO messages_fts (rowid, text) VALUES (new.id, new.text); END`,
 			`CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
@@ -199,9 +206,12 @@ func migrate(db *sql.DB) error {
 				INSERT INTO messages_fts (rowid, text) VALUES (new.id, new.text); END`,
 			`INSERT INTO messages_fts (messages_fts) VALUES ('rebuild')`,
 		} {
-			if _, err := db.Exec(q); err != nil {
+			if _, err := tx.Exec(q); err != nil {
 				return fmt.Errorf("search index: %w", err)
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("search index: %w", err)
 		}
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('channels') WHERE name = 'topic'`).Scan(&n); err != nil {
@@ -579,15 +589,26 @@ func (s *Store) DeleteMessage(id int64) (Message, error) {
 const maxSearchTerms = 10
 
 // ftsQuery makes search text an FTS5 query: every word must appear, as a
-// prefix; each word is quoted, so FTS syntax in it is only text. Words
-// without letters or digits are left out.
+// prefix (one letter: exactly); each word is quoted, so FTS syntax in it
+// is only text. Words without letters or digits are left out.
 func ftsQuery(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1 // FTS5 refuses NUL in a string
+		}
+		return r
+	}, text)
 	var terms []string
 	for _, w := range strings.Fields(text) {
 		if !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
 			continue
 		}
-		terms = append(terms, `"`+strings.ReplaceAll(w, `"`, `""`)+`"*`)
+		term := `"` + strings.ReplaceAll(w, `"`, `""`) + `"`
+		// One letter as a prefix matches nearly everything (and slowly).
+		if utf8.RuneCountInString(w) > 1 {
+			term += "*"
+		}
+		terms = append(terms, term)
 		if len(terms) == maxSearchTerms {
 			break
 		}

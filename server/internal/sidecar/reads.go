@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/names"
@@ -53,11 +54,18 @@ func (h *Hub) readableChats(id mumble.Identity) []summaryEntry {
 	return chats
 }
 
-// Search results, at most.
-const searchResults = 25
+// Search results, at most; search text, at most.
+const (
+	searchResults   = 25
+	maxSearchLength = 200
+)
 
 // search finds messages in the chats the user may read.
 func (c *Conn) search(id mumble.Identity, req request) {
+	if utf8.RuneCountInString(req.Text) > maxSearchLength {
+		c.sendError("a search has at most 200 characters")
+		return
+	}
 	chats := c.hub.readableChats(id)
 	ids := make([]int64, len(chats))
 	for i, e := range chats {

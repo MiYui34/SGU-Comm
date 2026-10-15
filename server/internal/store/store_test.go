@@ -627,3 +627,17 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("empty query: %v", ids(got))
 	}
 }
+
+func TestFTSQuery(t *testing.T) {
+	for in, want := range map[string]string{
+		"pizza night": `"pizza"* "night"*`,
+		"a pizza":     `"a" "pizza"*`, // one letter: exact, not every word with a
+		"nul\x00byte": `"nulbyte"*`,
+		`say "hi"`:    `"say"* """hi"""*`,
+		"-- ** ??":    ``,
+	} {
+		if got := ftsQuery(in); got != want {
+			t.Errorf("%q: %s, want %s", in, got, want)
+		}
+	}
+}

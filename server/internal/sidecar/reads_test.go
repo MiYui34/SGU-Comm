@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"kallisti.chat/server/internal/mumble"
@@ -90,5 +91,14 @@ func TestSearch(t *testing.T) {
 	bob.Handle([]byte(`{"type":"search","text":"pizza","author":"carol"}`))
 	if m := next(t, bob); len(m["messages"].([]any)) != 0 {
 		t.Fatalf("by carol: %v", m)
+	}
+}
+
+func TestSearchTextHasALimit(t *testing.T) {
+	h := newHub(t, "general")
+	c := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	c.Handle([]byte(`{"type":"search","text":"` + strings.Repeat("x", 201) + `"}`))
+	if m := next(t, c); m["type"] != "error" {
+		t.Fatalf("long search: %v", m)
 	}
 }
