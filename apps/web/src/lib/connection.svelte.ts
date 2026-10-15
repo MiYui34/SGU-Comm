@@ -58,6 +58,8 @@ export type Connection = ReturnType<typeof connect>;
 export const connect = (url: string, credentials: Credentials, audio: AudioContext | null) => {
   let state = $state.raw<ServerState>(initialState);
   let closed = $state(false);
+  // It was in at some point (see shouldReconnect).
+  let wasSynced = $state(false);
   // The close frame's reason (the desktop bridge explains refusals there).
   let closeReason = $state("");
   // Text channels from the Kallisti server (unavailable on plain Mumble).
@@ -135,6 +137,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
       messages.forEach(routeAudio);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
+      if (state.status === "synced") wasSynced = true;
       fetchDescriptions();
       fetchTextures();
     } catch (err) {
@@ -149,8 +152,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
     capture?.close();
-    playback?.close();
-    void audio?.close();
+    playback?.close(); // the audio context stays: the app may reconnect with it
     closed = true;
   };
 
@@ -163,6 +165,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     get closeReason() {
       return closeReason;
+    },
+    get wasSynced() {
+      return wasSynced;
     },
     account: credentials.account === true,
     get text() {

@@ -33,6 +33,7 @@
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
+  import type { Place, View } from "../lib/place";
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { pingsMe } from "../lib/mentions";
@@ -54,7 +55,18 @@
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
 
-  let { connection, account }: { connection: Connection; account?: AccountActions } = $props();
+  let {
+    connection,
+    account,
+    resume = null,
+    onPlace,
+  }: {
+    connection: Connection;
+    account?: AccountActions;
+    // Reconnects: where to come back to, and where the user is now.
+    resume?: Place | null;
+    onPlace?: (place: Place) => void;
+  } = $props();
 
   const server = $derived(connection.state);
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
@@ -265,14 +277,23 @@
   });
   const localMuted = $derived(new Set(users.filter((u) => audioOf(u.name).muted).map((u) => u.session)));
 
-  // What the main pane shows. A direct message keeps the partner's name, so
-  // it still shows after they left.
-  type View =
-    | { kind: "voice" }
-    | { kind: "text"; id: number }
-    | { kind: "dm"; session: number; name: string };
-  let view = $state<View>({ kind: "voice" });
-  let navigated = false;
+  // After a reconnect: back where the user was (read once: this client
+  // reports its own place right away).
+  const back = untrack(() => resume);
+  let view = $state<View>(back?.view ?? { kind: "voice" });
+  let navigated = back !== null;
+  $effect(() =>
+    onPlace?.({ view, voice: voiceOn ? channelId : null, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+  );
+  let restored = false;
+  $effect(() => {
+    if (restored || !back || !me) return;
+    restored = true;
+    // Mute first, then into voice: no moment with a live microphone.
+    if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
+    if (back.voice !== null && server.channels[back.voice] && me.channelId !== back.voice)
+      connection.send(joinChannel(me.session, back.voice));
+  });
   const show = (next: View) => {
     jumpTarget = null; // a search result sets it again after this
     navigated = true;
