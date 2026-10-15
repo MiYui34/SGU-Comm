@@ -26,3 +26,12 @@ muted.
 - Root is the lobby: no voice there (Speak denied in root), shown as
   "online, not in voice"; a "General" voice channel is made on the first
   start. Same for native Mumble users.
+
+## Result
+
+- Done: root is a lobby on Kallisti servers; the web client starts in a
+  text channel, joins voice by click, leaves with the voice bar; the last
+  channel is not restored there. The microphone is open only in voice and
+  unmuted (or in the settings, without sending). Checked in Chrome with a
+  counting fake microphone: 0 tracks in the lobby, muted and after leaving
+  or a reload; 1 in voice.
