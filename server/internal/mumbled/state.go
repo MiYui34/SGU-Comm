@@ -19,6 +19,18 @@ type State struct {
 	Users       map[uint32]*User
 	nextChannel uint32
 	gen         uint64 // see Changed
+	// OnMove hears every change of a user's channel; NoChannel stands for
+	// joining or leaving the server. It runs under the server lock.
+	OnMove func(session, from, to uint32)
+}
+
+// NoChannel: not on the server (see State.OnMove).
+const NoChannel = ^uint32(0)
+
+func (s *State) moved(session, from, to uint32) {
+	if s.OnMove != nil && from != to {
+		s.OnMove(session, from, to)
+	}
 }
 
 type Channel struct {
@@ -256,6 +268,7 @@ func (s *State) RemoveChannel(id uint32) (moved map[uint32]uint32, removed []uin
 	moved = map[uint32]uint32{}
 	for _, u := range s.Users {
 		if gone[u.Channel] {
+			s.moved(u.Session, u.Channel, c.Parent)
 			u.Channel = c.Parent
 			moved[u.Session] = c.Parent
 		}
@@ -335,6 +348,7 @@ func (s *State) Tree() []*Channel {
 func (s *State) AddUser(u *User) {
 	s.Users[u.Session] = u
 	s.Changed()
+	s.moved(u.Session, NoChannel, u.Channel)
 }
 
 // RemoveUser returns temporary channels that became empty and were removed.
@@ -345,6 +359,7 @@ func (s *State) RemoveUser(session uint32) []uint32 {
 	}
 	delete(s.Users, session)
 	s.Changed()
+	s.moved(session, u.Channel, NoChannel)
 	return s.removeIfEmptyTemporary(u.Channel)
 }
 
@@ -357,6 +372,7 @@ func (s *State) MoveUser(session, channel uint32) []uint32 {
 	old := u.Channel
 	u.Channel = channel
 	s.Changed()
+	s.moved(session, old, channel)
 	return s.removeIfEmptyTemporary(old)
 }
 

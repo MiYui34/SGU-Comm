@@ -532,23 +532,35 @@ func (s *Server) channelRemoveMsg(c *client, m *pb.ChannelRemove) {
 		c.denyPerm(Write, ch.ID)
 		return
 	}
-	moved, removed, err := s.state.RemoveChannel(m.GetChannelId())
-	if err != nil {
+	if m.GetChannelId() == 0 {
 		s.mu.Unlock()
-		c.deny(err)
+		c.deny(deny(pb.PermissionDenied_Text, "cannot remove this channel"))
 		return
+	}
+	removed := s.removeChannelLocked(m.GetChannelId(), c.session)
+	s.mu.Unlock()
+	s.save(nil, removed, 0)
+}
+
+// removeChannelLocked removes a channel and its subchannels, moves their
+// users up and tells everyone (actor 0: the server). It returns the
+// removed channels.
+func (s *Server) removeChannelLocked(id, actor uint32) []uint32 {
+	moved, removed, err := s.state.RemoveChannel(id)
+	if err != nil {
+		return nil
 	}
 	for _, session := range slices.Sorted(maps.Keys(moved)) {
 		u := s.state.Users[session]
 		s.refreshLocked(u)
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(session), Actor: proto.Uint32(c.session), ChannelId: proto.Uint32(moved[session]),
-			Suppress: proto.Bool(u.Suppress),
-		}), nil)
+		m := &pb.UserState{Session: proto.Uint32(session), ChannelId: proto.Uint32(moved[session]), Suppress: proto.Bool(u.Suppress)}
+		if actor != 0 {
+			m.Actor = proto.Uint32(actor)
+		}
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, m), nil)
 	}
 	s.broadcastRemovedLocked(removed)
-	s.mu.Unlock()
-	s.save(nil, removed, 0)
+	return removed
 }
 
 func (s *Server) textMsg(c *client, m *pb.TextMessage) {

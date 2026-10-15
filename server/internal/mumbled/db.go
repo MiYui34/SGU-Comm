@@ -289,6 +289,22 @@ func (d *DB) DeleteChannels(ids []uint32) error {
 
 // NextChannel is the highest channel id given out, so ids of removed and
 // temporary channels are not reused.
+// TextParent is the parent of the text channel mirrors (0: none yet).
+func (d *DB) TextParent() (uint32, error) {
+	var n uint32
+	err := d.db.QueryRow(`SELECT value FROM mumble_meta WHERE key = 'text_parent'`).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return n, err
+}
+
+func (d *DB) SetTextParent(id uint32) error {
+	_, err := d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('text_parent', ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, id)
+	return err
+}
+
 func (d *DB) NextChannel() (uint32, error) {
 	var n uint32
 	err := d.db.QueryRow(`SELECT value FROM mumble_meta WHERE key = 'last_channel_id'`).Scan(&n)

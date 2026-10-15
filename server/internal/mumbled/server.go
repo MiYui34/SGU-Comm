@@ -36,7 +36,10 @@ type Config struct {
 	OnChannelText func(from uint32, name string, registered bool, channel uint32, text string)
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
-	DB             *DB // nil: nothing is saved
+	// OnUserMoved hears users join (from NoChannel), change channels and
+	// leave (to NoChannel), in order, outside the server lock.
+	OnUserMoved func(session, from, to uint32)
+	DB          *DB // nil: nothing is saved
 }
 
 const (
@@ -79,6 +82,10 @@ type Server struct {
 
 	sessions sync.WaitGroup // running connections, for Close
 	closing  atomic.Bool
+	// Hooks that must not run under mu go through this queue, in order.
+	events     chan func()
+	stopEvents chan struct{}
+	textParent uint32 // the text channel mirrors' parent, without a DB
 
 	// Read at every accept: not under mu, which the voice path uses.
 	bans atomic.Pointer[[]BanEntry]
@@ -149,6 +156,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	srv.bans.Store(&bans)
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
+	if cfg.OnUserMoved != nil {
+		srv.startEvents()
+		state.OnMove = func(session, from, to uint32) {
+			srv.queue(func() { cfg.OnUserMoved(session, from, to) })
+		}
+	}
 	return srv, nil
 }
 
@@ -193,6 +206,9 @@ func (s *Server) track() bool {
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closing.Store(true)
+	if s.stopEvents != nil {
+		close(s.stopEvents)
+	}
 	clients := make([]*client, 0, len(s.clients))
 	for _, c := range s.clients {
 		clients = append(clients, c)
