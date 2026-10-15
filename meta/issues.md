@@ -8,7 +8,6 @@
 - [ ] [Edit and delete messages](issues/message-edit-delete.md)
 - [ ] [Remember what was read](issues/read-state.md)
 - [ ] [Desktop notifications](issues/desktop-notifications.md)
-- [ ] [Automatic database backups](issues/database-backups.md)
 - [ ] [Bans and users in the web app](issues/web-moderation-view.md)
 - [ ] [Channel menu on phones](issues/mobile-channel-menu.md)
 - [ ] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)

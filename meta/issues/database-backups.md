@@ -15,3 +15,10 @@ last few.
 ## Acceptance Criteria
 
 - Tests for backup and pruning.
+
+## Result
+
+- BACKUP_DIR / BACKUP_KEEP; a VACUUM INTO copy at start and every 24
+  hours; old copies removed (only kallisti-*.db files). README explains
+  restoring; deploy/compose.yml turns it on in the data volume.
+- Tests: backup and pruning, settings.

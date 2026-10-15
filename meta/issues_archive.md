@@ -58,3 +58,4 @@
 - [x] [Image lightbox](issues/image-lightbox.md)
 - [x] [Mentions](issues/mentions.md)
 - [x] [Mention autocomplete](issues/mention-autocomplete.md)
+- [x] [Automatic database backups](issues/database-backups.md)
