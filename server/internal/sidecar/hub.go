@@ -409,10 +409,17 @@ func (h *Hub) broadcastVoice(voice uint32, v any) {
 	}
 }
 
-// roles: lists, never null in JSON.
-func (h *Hub) roles() map[string][]uint32 {
+// roles are the registered user ids of admins and moderators.
+type roles struct {
+	Type       string   `json:"type,omitempty"` // "roles" as an event of its own
+	Admins     []uint32 `json:"admins"`
+	Moderators []uint32 `json:"moderators"`
+}
+
+func (h *Hub) roles() roles {
 	admins, moderators := h.voice.Roles()
-	return map[string][]uint32{"admins": append([]uint32{}, admins...), "moderators": append([]uint32{}, moderators...)}
+	// Lists, never null in JSON.
+	return roles{Admins: append([]uint32{}, admins...), Moderators: append([]uint32{}, moderators...)}
 }
 
 // RolesChanged sends everyone the new admins and moderators.
@@ -421,7 +428,8 @@ func (h *Hub) RolesChanged() {
 		return
 	}
 	r := h.roles()
-	h.broadcast(map[string]any{"type": "roles", "admins": r["admins"], "moderators": r["moderators"]})
+	r.Type = "roles"
+	h.broadcast(r)
 }
 
 func (h *Hub) broadcast(v any) {
