@@ -24,12 +24,56 @@ const SIGNATURES: [string, (b: Uint8Array) => boolean][] = [
 
 export const imageType = (b: Uint8Array): string | null => SIGNATURES.find(([, ok]) => ok(b))?.[0] ?? null;
 
+// A picture's size from its header (null: unknown). Each viewer decodes
+// pictures in full, so very large ones are not shown.
+type Size = { width: number; height: number };
+const u16 = (b: Uint8Array, i: number, little = false) => (little ? b[i]! | (b[i + 1]! << 8) : (b[i]! << 8) | b[i + 1]!);
+const u24le = (b: Uint8Array, i: number) => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16);
+const jpegSize = (b: Uint8Array): Size | null => {
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) return null;
+    const marker = b[i + 1]!;
+    if (marker === 0xff) {
+      i++; // padding
+      continue;
+    }
+    // Start of frame (not DHT, JPG or DAC, which share the range).
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
+      return { height: u16(b, i + 5), width: u16(b, i + 7) };
+    i += 2 + u16(b, i + 2);
+  }
+  return null;
+};
+export const imageSize = (b: Uint8Array): Size | null => {
+  switch (imageType(b)) {
+    case "image/png":
+      return b.length >= 24 ? { width: u16(b, 16) * 65536 + u16(b, 18), height: u16(b, 20) * 65536 + u16(b, 22) } : null;
+    case "image/gif":
+      return b.length >= 10 ? { width: u16(b, 6, true), height: u16(b, 8, true) } : null;
+    case "image/jpeg":
+      return jpegSize(b);
+    case "image/webp": {
+      const chunk = ascii(b, 12, 16);
+      if (chunk === "VP8 " && b.length >= 30) return { width: u16(b, 26, true) & 0x3fff, height: u16(b, 28, true) & 0x3fff };
+      if (chunk === "VP8L" && b.length >= 25) {
+        const bits = (b[21]! | (b[22]! << 8) | (b[23]! << 16) | (b[24]! << 24)) >>> 0;
+        return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+      }
+      if (chunk === "VP8X" && b.length >= 30) return { width: u24le(b, 24) + 1, height: u24le(b, 27) + 1 };
+      return null;
+    }
+  }
+  return null;
+};
+const MAX_SIDE = 1024;
+
 // A data URL for a picture, made once per byte array (state keeps it).
 const urls = new WeakMap<Uint8Array, string | null>();
 export const pictureUrl = (b: Uint8Array | null): string | null => {
   if (!b) return null;
   if (!urls.has(b)) {
-    const type = imageType(b);
+    const size = imageSize(b);
+    const type = size && size.width <= MAX_SIDE && size.height <= MAX_SIDE ? imageType(b) : null;
     let bin = "";
     for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000));
     urls.set(b, type && `data:${type};base64,${btoa(bin)}`);
