@@ -470,8 +470,12 @@ func (s *Store) DeleteMessage(id int64) (Message, error) {
 		return Message{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM messages WHERE id = ?`, id); err != nil {
+	res, err := tx.Exec(`DELETE FROM messages WHERE id = ?`, id)
+	if err != nil {
 		return Message{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Message{}, ErrNotFound // deleted meanwhile
 	}
 	if m.Upload != nil {
 		if _, err := tx.Exec(`DELETE FROM uploads WHERE id = ?`, m.Upload.ID); err != nil {

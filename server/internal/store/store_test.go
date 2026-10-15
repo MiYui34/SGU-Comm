@@ -476,3 +476,16 @@ func TestEditAndDeleteMessages(t *testing.T) {
 		t.Fatalf("edit deleted: %v", err)
 	}
 }
+
+func TestDeletingTwiceFails(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	m, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "a", Text: "x", At: time.Now()})
+	if _, err := s.DeleteMessage(m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteMessage(m.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+}

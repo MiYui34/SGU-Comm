@@ -44,22 +44,19 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		return
 	}
 	voice, isVoice, ok := h.chatOf(m.ChannelID)
-	if !ok || (isVoice && !h.mayUse(id.Session, voice, false)) {
+	if !ok || (isVoice && !h.mayUse(id.Session, voice, req.Type == "edit-message")) {
 		c.sendError("unknown message")
 		return
 	}
-	send := h.broadcast
-	if isVoice {
-		send = func(v any) { h.broadcastVoice(voice, v) }
-	}
+	send := h.sendToChat(voice, isVoice)
 	own := h.wrote(id, m)
 	if req.Type == "edit-message" {
-		text := strings.TrimSpace(req.Text)
+		text, valid := validText(req.Text, m.Upload != nil)
 		switch {
 		case !own:
 			c.sendError("you may only edit your own messages")
-		case (text == "" && m.Upload == nil) || utf8.RuneCountInString(text) > MaxTextLength:
-			c.sendError("message must be 1 to 2000 characters")
+		case !valid:
+			c.sendError(textError)
 		default:
 			if m, err = h.store.EditMessage(m.ID, text, h.now()); err != nil {
 				c.sendError("cannot edit the message")
@@ -81,4 +78,22 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		h.OnUploadDeleted(m.Upload.Key)
 	}
 	send(map[string]any{"type": "message-deleted", "channel": m.ChannelID, "id": m.ID})
+}
+
+// A message has 1 to MaxTextLength characters; with an attachment it may
+// have none.
+const textError = "message must be 1 to 2000 characters"
+
+func validText(raw string, hasUpload bool) (string, bool) {
+	text := strings.TrimSpace(raw)
+	return text, (text != "" || hasUpload) && utf8.RuneCountInString(text) <= MaxTextLength
+}
+
+// sendToChat sends to the readers of a chat: everyone for text channels,
+// those who may read the voice channel for its chat.
+func (h *Hub) sendToChat(voice uint32, isVoice bool) func(any) {
+	if !isVoice {
+		return h.broadcast
+	}
+	return func(v any) { h.broadcastVoice(voice, v) }
 }

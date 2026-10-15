@@ -130,8 +130,19 @@ func (h *Hub) Connect() *Conn {
 func (c *Conn) Outbox() <-chan []byte { return c.out }
 
 func (c *Conn) Close() {
+	c.mu.Lock()
+	id := c.identity
+	c.mu.Unlock()
 	c.hub.mu.Lock()
 	delete(c.hub.conns, c)
+	// Murmur reuses session numbers: the next guest owns none of these.
+	if id != nil && !id.Registered {
+		for m, session := range c.hub.guestMessages {
+			if session == id.Session {
+				delete(c.hub.guestMessages, m)
+			}
+		}
+	}
 	c.hub.mu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -381,10 +392,9 @@ func (c *Conn) history(req request) {
 }
 
 func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool) {
-	text := strings.TrimSpace(req.Text)
-	// A message with an attachment may have no text.
-	if (text == "" && req.Upload == "") || utf8.RuneCountInString(text) > MaxTextLength {
-		c.sendError("message must be 1 to 2000 characters")
+	text, ok := validText(req.Text, req.Upload != "")
+	if !ok {
+		c.sendError(textError)
 		return
 	}
 	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, Text: text, At: c.hub.now()}

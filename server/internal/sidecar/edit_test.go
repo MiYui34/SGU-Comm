@@ -107,3 +107,29 @@ func TestModeratorsDeleteAnyMessage(t *testing.T) {
 		t.Fatalf("files removed: %v", removed)
 	}
 }
+
+func TestAReusedGuestSessionOwnsNothing(t *testing.T) {
+	h := newHub(t, "general")
+	first := joinAs(t, h, mumble.Identity{Session: 5, Name: "guest"})
+	id := strconv.FormatInt(say(t, h, first, "mine"), 10)
+	first.Close()
+	// Murmur gives the session number to the next guest.
+	next5 := joinAs(t, h, mumble.Identity{Session: 5, Name: "guest"})
+	next5.Handle([]byte(`{"type":"delete-message","message":` + id + `}`))
+	if m := next(t, next5); m["type"] != "error" {
+		t.Fatalf("reused session deleted: %v", m)
+	}
+}
+
+func TestEditingAVoiceChatNeedsWrite(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	// Session 2 may not write to (or read) channel 9 in the fake.
+	chat, _ := h.store.VoiceChat(9)
+	m, _ := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: "bob", Verified: true, Text: "x", At: clock})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	bob.Handle([]byte(`{"type":"edit-message","message":` + strconv.FormatInt(m.ID, 10) + `,"text":"y"}`))
+	if got := next(t, bob); got["type"] != "error" {
+		t.Fatalf("edited without write: %v", got)
+	}
+}
