@@ -1,0 +1,35 @@
+# Kallisti as a systemd service, without containers (see docs/install-binary.md).
+# Install: copy to /etc/systemd/system/, put the settings into
+# /etc/kallisti.env, then: systemctl enable --now kallisti
+[Unit]
+Description=Kallisti (web app, voice and text chat on Mumble)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=kallisti
+Group=kallisti
+EnvironmentFile=/etc/kallisti.env
+ExecStart=/opt/kallisti/kallisti
+WorkingDirectory=/var/lib/kallisti
+Restart=on-failure
+RestartSec=5
+# The database, uploads, backups and the Mumble certificate live here.
+StateDirectory=kallisti
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
