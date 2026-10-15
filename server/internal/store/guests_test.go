@@ -35,6 +35,13 @@ func TestTemporaryAccounts(t *testing.T) {
 	if got, _ := s.AccountByName("visitor"); got.Temporary || got.PasswordHash != "hash" {
 		t.Fatalf("%+v", got)
 	}
+	// Only while idle and temporary.
+	if deleted, _ := s.DeleteIdleTemporaryAccount(back.ID, now.Add(-24*time.Hour)); deleted {
+		t.Fatal("deleted an account seen lately")
+	}
+	if deleted, _ := s.DeleteIdleTemporaryAccount(kept.ID, now); deleted {
+		t.Fatal("deleted a normal account")
+	}
 	// Deleting takes the sessions too.
 	s.CreateSession("tok", old.ID, now.Add(time.Hour))
 	if err := s.DeleteAccount(old.ID); err != nil {

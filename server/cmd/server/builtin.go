@@ -81,7 +81,11 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
 		MaxUsers: cfg.MaxUsers, MaxPerIP: cfg.MaxPerIP,
-		ReservedName:   accountExists(db), // names of web accounts are theirs only
+		ReservedName: accountExists(db), // names of web accounts are theirs only
+		WebAccountExists: func(name, hash string) bool {
+			acc, err := db.AccountByName(name)
+			return err == nil && accountCertHash(acc) == hash
+		},
 		OnChannelText:  onText,
 		OnRolesChanged: onRoles,
 		OnUserMoved:    onMoved,

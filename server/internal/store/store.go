@@ -915,6 +915,18 @@ func (s *Store) MakePermanent(id int64, hash string) error {
 	return err
 }
 
+// DeleteIdleTemporaryAccount removes a temporary account not seen since
+// before, with its sessions; deleted is false if it was seen or got a
+// password meanwhile.
+func (s *Store) DeleteIdleTemporaryAccount(id int64, before time.Time) (deleted bool, err error) {
+	res, err := s.db.Exec(`DELETE FROM accounts WHERE id = ? AND temporary = 1 AND coalesce(last_seen, created_at) < ?`, id, before.UnixMilli())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // DeleteAccount removes an account and its sessions.
 func (s *Store) DeleteAccount(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM accounts WHERE id = ?`, id)

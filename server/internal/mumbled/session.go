@@ -195,9 +195,14 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 		slog.Error("registering a web account", "account", a.Name, "err", err)
 		return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "Please try again later.")
 	}
+	s.regMu.Lock()
+	defer s.regMu.Unlock()
 	r, err := db.UserByHash(a.CertHash)
 	if err != nil {
 		return fail(err)
+	}
+	if r == nil && s.cfg.WebAccountExists != nil && !s.cfg.WebAccountExists(a.Name, a.CertHash) {
+		return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "This guest account has expired. Please join again.")
 	}
 	if r == nil {
 		// A Mumble user with this name but another certificate: an account

@@ -235,3 +235,16 @@ func TestAccountRegistrationsKeepTheirName(t *testing.T) {
 		t.Fatalf("renamed to %q", r.Name)
 	}
 }
+
+// A web account deleted meanwhile (a guest account cleaned up while its
+// connection was on the way) is not registered again.
+func TestDeletedWebAccountsAreNotRegistered(t *testing.T) {
+	db := testDB(t)
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db, WebAccountExists: func(_, hash string) bool { return hash != "gone" }}, nil)
+	c := webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "ghost", CertHash: "gone"}}, "ghost")
+	var r pb.Reject
+	proto.Unmarshal(c.expect(mumble.TypeReject), &r)
+	if reg, _ := db.UserByHash("gone"); reg != nil || r.GetReason() == "" {
+		t.Fatalf("registered %+v, reject %v", reg, &r)
+	}
+}

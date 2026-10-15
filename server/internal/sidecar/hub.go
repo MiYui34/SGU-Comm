@@ -21,7 +21,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"kallisti.chat/server/internal/mumble"
-	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -584,21 +583,6 @@ func (h *Hub) readers(voice uint32, isVoice bool) []*Conn {
 		}
 	}
 	return out
-}
-
-// Online: a web client with this name is connected (names compare as
-// names.Key).
-func (h *Hub) Online(name string) bool {
-	key := names.Key(name)
-	for _, c := range h.readers(0, false) {
-		c.mu.Lock()
-		id := c.identity
-		c.mu.Unlock()
-		if id != nil && names.Key(id.Name) == key {
-			return true
-		}
-	}
-	return false
 }
 
 // broadcastVoice sends to the connections whose user may read the chat.

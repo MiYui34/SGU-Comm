@@ -31,6 +31,10 @@ type Config struct {
 	// ReservedName reports names (as names.Key) that belong to Kallisti
 	// accounts: nobody else may use them. Nil: none.
 	ReservedName func(key string) bool
+	// WebAccountExists: the Kallisti account with this name and certificate
+	// still exists (a guest account can be deleted while it connects).
+	// Nil: yes.
+	WebAccountExists func(name, certHash string) bool
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
 	OnChannelText func(from uint32, name string, registered bool, channel uint32, text string, images []Image)
@@ -75,6 +79,9 @@ type Server struct {
 	cfg Config
 	// Taken before mu by changes that are saved, so saves keep their order.
 	saveMu sync.Mutex
+	// Web account registrations and their removal take turns (see
+	// Unregister).
+	regMu sync.Mutex
 
 	logins logins
 	conns  conns

@@ -13,25 +13,28 @@ import (
 // Temporary (guest) accounts live this long after their last visit.
 const guestLifetime = 24 * time.Hour
 
-// cleanGuests deletes temporary accounts not seen for guestLifetime, with
-// their Mumble registration (the account stays if that fails, for the next
-// round). Online ones count as seen.
-func cleanGuests(db *store.Store, now time.Time, online func(name string) bool, unregister func(certHash string) error) {
-	idle, err := db.IdleTemporaryAccounts(now.Add(-guestLifetime))
+// cleanGuests deletes temporary accounts not seen for guestLifetime. Their
+// Mumble registration goes first; unregister keeps it (gone false) while the
+// user is online, and then the account counts as seen. The account is only
+// deleted if it is still idle and temporary (no visit or password since).
+func cleanGuests(db *store.Store, now time.Time, unregister func(certHash string) (gone bool, err error)) {
+	before := now.Add(-guestLifetime)
+	idle, err := db.IdleTemporaryAccounts(before)
 	if err != nil {
 		slog.Error("finding idle guest accounts", "err", err)
 		return
 	}
 	for _, acc := range idle {
-		if online(acc.Name) {
-			db.TouchAccount(acc.ID, now)
-			continue
-		}
-		if err := unregister(accountCertHash(acc)); err != nil {
+		gone, err := unregister(accountCertHash(acc))
+		if err != nil {
 			slog.Error("removing a guest's registration", "account", acc.Name, "err", err)
 			continue
 		}
-		if err := db.DeleteAccount(acc.ID); err != nil {
+		if !gone {
+			db.TouchAccount(acc.ID, now) // online
+			continue
+		}
+		if _, err := db.DeleteIdleTemporaryAccount(acc.ID, before); err != nil {
 			slog.Error("deleting a guest account", "account", acc.Name, "err", err)
 		}
 	}

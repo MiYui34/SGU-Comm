@@ -482,23 +482,31 @@ func (s *Server) registrationChangedLocked(id uint32, name *string, actor uint32
 }
 
 // Unregister removes the registration of a certificate (a temporary web
-// account that was cleaned up), as an admin's removal does. Unknown
-// certificates are fine.
-func (s *Server) Unregister(certHash string) error {
+// account that is cleaned up), as an admin's removal does, unless its user
+// is online. gone: no registration is left (also for unknown ones).
+func (s *Server) Unregister(certHash string) (gone bool, err error) {
 	db := s.cfg.DB
 	if db == nil {
-		return nil
+		return true, nil
 	}
+	s.regMu.Lock()
+	defer s.regMu.Unlock()
 	r, err := db.UserByHash(certHash)
 	if err != nil || r == nil {
-		return err
+		return err == nil, err
+	}
+	s.mu.Lock()
+	online := slices.ContainsFunc(slices.Collect(maps.Values(s.state.Users)), func(u *User) bool { return u.Registered && u.UserID == r.ID })
+	s.mu.Unlock()
+	if online {
+		return false, nil
 	}
 	if err := db.UnregisterUser(r.ID); err != nil {
-		return err
+		return false, err
 	}
 	s.mu.Lock()
 	s.registrationChangedLocked(r.ID, nil, 0)
 	s.mu.Unlock()
 	s.rolesChanged() // its group memberships are gone
-	return nil
+	return true, nil
 }

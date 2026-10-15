@@ -31,14 +31,17 @@ func TestCleanGuests(t *testing.T) {
 	add("fresh", true, now.Add(-time.Hour))
 	add("member", false, now.Add(-48*time.Hour))
 	var removed []string
-	unregister := func(hash string) error {
-		if hash == accountCertHash(stuck) {
-			return errors.New("database locked")
+	unregister := func(hash string) (bool, error) {
+		switch hash {
+		case accountCertHash(stuck):
+			return false, errors.New("database locked")
+		case accountCertHash(online):
+			return false, nil
 		}
 		removed = append(removed, hash)
-		return nil
+		return true, nil
 	}
-	cleanGuests(db, now, func(name string) bool { return name == "online" }, unregister)
+	cleanGuests(db, now, unregister)
 	if !slices.Equal(removed, []string{accountCertHash(old)}) {
 		t.Fatalf("unregistered %v", removed)
 	}
