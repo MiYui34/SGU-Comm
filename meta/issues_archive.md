@@ -69,3 +69,4 @@
 - [x] [Phones zoom in on text fields](issues/mobile-input-zoom.md)
 - [x] [Search messages](issues/message-search.md)
 - [x] [Bans and users in the web app](issues/web-moderation-view.md)
+- [x] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)

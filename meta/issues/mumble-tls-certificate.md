@@ -27,3 +27,9 @@ server uses a self-signed certificate.
   Let's Encrypt certificate).
 - Open: use it on a deployed server (copy the proxy's certificate where
   the server can read it), then check the official client gets no prompt.
+
+## Result
+
+- In use on a deployed server: the official client (1.5) connects without
+  the certificate prompt; openssl verifies the chain; the desktop app's
+  network test sees it as trusted.
