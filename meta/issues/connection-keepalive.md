@@ -10,7 +10,7 @@ connection to the server" after switching tabs.
 ## Requirements
 
 - Sub-issues:
-  - [ ] [Bridge keeps connections alive](bridge-keepalive.md)
+  - [x] [Bridge keeps connections alive](bridge-keepalive.md)
   - [ ] [Reconnect automatically](auto-reconnect.md)
 
 ## Acceptance Criteria
