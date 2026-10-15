@@ -55,6 +55,7 @@ export type ServerEvent =
   | { type: "message"; message: TextMessage }
   | { type: "message-edited"; message: TextMessage }
   | { type: "message-deleted"; channel: number; id: number }
+  | { type: "search-results"; text: string; messages: TextMessage[] }
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
   | { type: "upload-token"; token: string }
@@ -79,6 +80,8 @@ export type TextState = {
   // Errors about channel and role changes show as a notice (n counts them), not in
   // the chat.
   notice: { text: string; n: number } | null;
+  // The latest search answer.
+  search: { text: string; messages: TextMessage[] } | null;
   // Counts resync events, so views can reload.
   resyncs: number;
 };
@@ -96,6 +99,7 @@ export const initialTextState: TextState = {
   more: {},
   lastError: null,
   notice: null,
+  search: null,
   resyncs: 0,
 };
 
@@ -177,6 +181,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isMessage(v.message) ? { type: v.type, message: v.message } : null;
     case "message-deleted":
       return isNum(v.channel) && isNum(v.id) ? { type: "message-deleted", channel: v.channel, id: v.id } : null;
+    case "search-results":
+      return isStr(v.text) && Array.isArray(v.messages) && v.messages.every(isMessage)
+        ? { type: "search-results", text: v.text, messages: v.messages }
+        : null;
     case "error":
       if (!isStr(v.message)) return null;
       return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
@@ -191,6 +199,12 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
 
 const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
   [...new Map([...a, ...b].map((m) => [m.id, m])).values()].sort((x, y) => x.id - y.id);
+
+const patchSearch = (search: TextState["search"], f: (ms: TextMessage[]) => TextMessage[]) =>
+  search && { ...search, messages: f(search.messages) };
+
+// A search is on its way: the old results go.
+export const startSearch = (state: TextState): TextState => ({ ...state, search: null });
 
 export const reduceText = (state: TextState, event: ServerEvent): TextState => {
   switch (event.type) {
@@ -225,14 +239,18 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "message":
     case "message-edited": {
       const ch = event.message.channel;
+      const search = event.type === "message-edited" ? patchSearch(state.search, (ms) => ms.map((m) => (m.id === event.message.id ? event.message : m))) : state.search;
       // An edit of a message not loaded here stays unloaded.
-      if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return state;
-      return { ...state, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
+      if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return { ...state, search };
+      return { ...state, search, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
     }
+    case "search-results":
+      return { ...state, search: { text: event.text, messages: event.messages } };
     case "message-deleted": {
+      const search = patchSearch(state.search, (ms) => ms.filter((m) => m.id !== event.id));
       const msgs = state.messages[event.channel];
-      if (!msgs) return state;
-      return { ...state, messages: { ...state.messages, [event.channel]: msgs.filter((m) => m.id !== event.id) } };
+      if (!msgs) return { ...state, search };
+      return { ...state, search, messages: { ...state.messages, [event.channel]: msgs.filter((m) => m.id !== event.id) } };
     }
     case "error":
       return event.about === "manage"
@@ -279,6 +297,7 @@ export const manageRequest = (a: ManageAction) =>
               : { type: "order-channels", channels: a.order },
   );
 
+export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
 export const markReadRequest = (channel: number, message: number) =>
   JSON.stringify({ type: "mark-read", channel, message });
 export const editMessageRequest = (message: number, text: string) =>

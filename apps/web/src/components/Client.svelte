@@ -38,6 +38,7 @@
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
   import MemberList from "./MemberList.svelte";
+  import SearchPanel from "./SearchPanel.svelte";
   import ServerRail from "./ServerRail.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
   import Toast from "./Toast.svelte";
@@ -265,6 +266,7 @@
   let view = $state<View>({ kind: "voice" });
   let navigated = false;
   const show = (next: View) => {
+    jumpTarget = null; // a search result sets it again after this
     navigated = true;
     view = next;
     panel = "chat";
@@ -367,6 +369,9 @@
   const textChat = $derived(
     chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
+  // Search: the results panel, and a message to scroll to.
+  let searchOpen = $state(false);
+  let jumpTarget = $state<number | null>(null);
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Names "@" suggests: who is online, and who wrote in the open chat.
@@ -567,9 +572,37 @@
       mayDelete={(m) => mine(m) || canManageText(server, text)}
       onEdit={connection.editMessage}
       onDelete={connection.deleteMessage}
+      onSearch={text.available
+        ? (q) => {
+            connection.search(q);
+            searchOpen = true;
+          }
+        : undefined}
+      {jumpTarget}
+      onJumped={() => (jumpTarget = null)}
     />
   </div>
-  {#if membersOpen || phone}
+  {#if searchOpen}
+    <SearchPanel
+      text={text.search?.text ?? null}
+      messages={text.search?.messages ?? []}
+      where={(m) => {
+        const ch = text.channels.find((c) => c.id === m.channel);
+        if (ch) return `#${ch.name}`;
+        const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
+        return server.channels[Number(voice)]?.name ?? "a voice chat";
+      }}
+      canOpen={(m) => text.channels.some((c) => c.id === m.channel)}
+      onOpen={(m) => {
+        show({ kind: "text", id: m.channel });
+        jumpTarget = m.id;
+      }}
+      onClose={() => {
+        searchOpen = false;
+        document.querySelector<HTMLInputElement>('input[aria-label="Search messages"]')?.focus();
+      }}
+    />
+  {:else if membersOpen || phone}
     <MemberList
       inert={phone && panel !== "members"}
       {channelName}

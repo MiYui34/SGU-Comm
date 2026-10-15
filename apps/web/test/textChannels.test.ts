@@ -9,6 +9,7 @@ import {
   manageRequest,
   parseServerEvent,
   reduceText,
+  searchRequest,
   sendRequest,
   toChatMessage,
   unreadTextIds,
@@ -352,5 +353,24 @@ describe("read state from the server", () => {
 
   it("builds the mark-read request", () => {
     expect(JSON.parse(markReadRequest(1, 9))).toEqual({ type: "mark-read", channel: 1, message: 9 });
+  });
+});
+
+describe("search", () => {
+  it("keeps the latest results", () => {
+    const ev = parseServerEvent(JSON.stringify({ type: "search-results", text: "pizza", messages: [msg(3)] }));
+    expect(ev).toEqual({ type: "search-results", text: "pizza", messages: [msg(3)] });
+    const s = reduceText(initialTextState, ev!);
+    expect(s.search).toEqual({ text: "pizza", messages: [msg(3)] });
+    expect(JSON.parse(searchRequest("pizza"))).toEqual({ type: "search", text: "pizza" });
+  });
+});
+
+describe("search results follow edits and deletes", () => {
+  it("patches and drops them", () => {
+    let s = reduceText(initialTextState, { type: "search-results", text: "x", messages: [msg(1), msg(2)] });
+    s = reduceText(s, { type: "message-edited", message: { ...msg(1), text: "new" } });
+    s = reduceText(s, { type: "message-deleted", channel: 1, id: 2 });
+    expect(s.search?.messages.map((m) => [m.id, m.text])).toEqual([[1, "new"]]);
   });
 });

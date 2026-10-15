@@ -34,6 +34,9 @@
     onClose,
     me = "",
     people = [],
+    onSearch,
+    jumpTarget = null,
+    onJumped,
     mayEdit,
     mayDelete,
     onEdit,
@@ -67,6 +70,11 @@
     me?: string;
     // Names "@" suggests (online users, recent authors).
     people?: readonly string[];
+    // Searching stored messages; jumpTarget: a message to scroll to once
+    // it is loaded (then onJumped).
+    onSearch?: (text: string) => void;
+    jumpTarget?: number | null;
+    onJumped?: () => void;
     // Stored messages: who may change which (the server checks again).
     mayEdit?: (m: DisplayMessage) => boolean;
     mayDelete?: (m: DisplayMessage) => boolean;
@@ -289,10 +297,33 @@
   const jumpTo = (id: number) => {
     const line = list?.querySelector(`[data-message="${id}"]`);
     if (!line) return; // not loaded
-    line.scrollIntoView({ block: "center", behavior: "smooth" });
+    line.scrollIntoView({ block: "center" });
     flashed = id;
     setTimeout(() => (flashed = flashed === id ? null : flashed), 1500);
   };
+
+  let searchText = $state("");
+  // Jump to a search result: page back until it is loaded (a few pages at
+  // most), then scroll there.
+  const MAX_JUMP_PAGES = 10;
+  let jumpPages = 0;
+  $effect(() => {
+    void jumpTarget;
+    jumpPages = 0;
+  });
+  $effect(() => {
+    const id = jumpTarget;
+    if (id === null) return;
+    if (messages.some((m) => idOf(m) === id)) {
+      void tick().then(() => {
+        jumpTo(id);
+        onJumped?.();
+      });
+    } else if (more && onLoadOlder && !loadingOlder && jumpPages < MAX_JUMP_PAGES) {
+      jumpPages++;
+      onLoadOlder();
+    }
+  });
 </script>
 
 <main
@@ -328,6 +359,18 @@
       <span class="topic ellipsis" title={topic}>{topic}</span>
     {/if}
     <div class="tools">
+      {#if onSearch}
+        <form
+          class="search"
+          role="search"
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (searchText.trim()) onSearch(searchText.trim());
+          }}
+        >
+          <input bind:value={searchText} placeholder="Search" aria-label="Search messages" />
+        </form>
+      {/if}
       {#if kind !== "dm"}
         <button
           class:on={membersOpen}
@@ -639,6 +682,16 @@
     min-width: 0;
     min-height: 0;
     background: var(--bg-main);
+  }
+  .search input {
+    width: 160px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
   }
   header {
     display: flex;
