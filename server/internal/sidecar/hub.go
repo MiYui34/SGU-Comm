@@ -123,6 +123,8 @@ type Conn struct {
 	closed   bool
 	// Messages were dropped (full outbox): the client must reload.
 	lagged bool
+	// The last typing signal passed on, per channel (see typing).
+	typed map[int64]time.Time
 }
 
 func (h *Hub) Connect() *Conn {
@@ -314,7 +316,7 @@ func (c *Conn) Handle(raw []byte) {
 		}
 		return
 	}
-	if req.Type != "send" && req.Type != "history" {
+	if req.Type != "send" && req.Type != "history" && req.Type != "typing" {
 		c.sendError("unknown request type")
 		return
 	}
@@ -323,7 +325,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.sendError("unknown channel")
 		return
 	}
-	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type == "send") {
+	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type != "history") {
 		c.sendError("you may not use this channel's chat")
 		return
 	}
@@ -332,6 +334,8 @@ func (c *Conn) Handle(raw []byte) {
 		c.history(req)
 	case "send":
 		c.post(*id, req, voice, isVoice)
+	case "typing":
+		c.typing(*id, req.Channel, voice, isVoice)
 	}
 }
 
@@ -530,21 +534,34 @@ func (h *Hub) mumbleText(m store.Message) string {
 	return text
 }
 
-// broadcastVoice sends to the connections whose user may read the chat.
-func (h *Hub) broadcastVoice(voice uint32, v any) {
+// readers are the connections whose user may read a chat (a text
+// channel: everyone).
+func (h *Hub) readers(voice uint32, isVoice bool) []*Conn {
 	h.mu.Lock()
 	conns := make([]*Conn, 0, len(h.conns))
 	for c := range h.conns {
 		conns = append(conns, c)
 	}
 	h.mu.Unlock()
+	if !isVoice {
+		return conns
+	}
+	out := conns[:0]
 	for _, c := range conns {
 		c.mu.Lock()
 		id := c.identity
 		c.mu.Unlock()
 		if id != nil && h.voice.MayRead(id.Session, voice) {
-			c.send(v)
+			out = append(out, c)
 		}
+	}
+	return out
+}
+
+// broadcastVoice sends to the connections whose user may read the chat.
+func (h *Hub) broadcastVoice(voice uint32, v any) {
+	for _, c := range h.readers(voice, true) {
+		c.send(v)
 	}
 }
 
@@ -572,13 +589,7 @@ func (h *Hub) RolesChanged() {
 }
 
 func (h *Hub) broadcast(v any) {
-	h.mu.Lock()
-	conns := make([]*Conn, 0, len(h.conns))
-	for c := range h.conns {
-		conns = append(conns, c)
-	}
-	h.mu.Unlock()
-	for _, c := range conns {
+	for _, c := range h.readers(0, false) {
 		c.send(v)
 	}
 }
