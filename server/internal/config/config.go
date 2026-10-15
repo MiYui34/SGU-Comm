@@ -31,8 +31,9 @@ type Config struct {
 	// our IP, so one client must not use them all (its autoban would hit
 	// everyone).
 	MaxPerIP int
-	// Use the first X-Forwarded-For address as the client IP. Only behind a
-	// reverse proxy that sets it: clients can fake the header.
+	// Use the last X-Forwarded-For address (the one our proxy added) as the
+	// client IP (see clientip). Only behind one reverse proxy that sets it:
+	// clients can fake the header.
 	TrustForwardedFor bool
 	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
 	NoLinkPreviews bool

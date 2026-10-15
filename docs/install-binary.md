@@ -6,8 +6,8 @@ proxy for HTTPS in front of it (Caddy below; nginx works too).
 
 ## Build
 
-You need Node 24 with pnpm 11 and Go 1.26 (the `Dockerfile` shows the exact
-versions it builds with). On the build machine:
+You need Node 24 with pnpm 11 and Go 1.26.2 or newer (the `Dockerfile`
+shows the exact versions it builds with). On the build machine:
 
 ```sh
 git clone https://github.com/lambadalambda/kallisti.git
@@ -16,6 +16,7 @@ pnpm install --frozen-lockfile --filter @kallisti/web...
 pnpm --filter @kallisti/web build                       # -> apps/web/dist
 cd server
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../kallisti ./cmd/server
+cd ..
 ```
 
 The program has no other dependencies (no cgo), so you can build it on
@@ -23,7 +24,8 @@ another machine: add `GOOS=linux GOARCH=amd64` (or `arm64`) for the server.
 
 ## Install
 
-On the server, as root:
+On the server, as root, from the repository root (or a copy of `kallisti`,
+`apps/web/dist` and `deploy/kallisti.service`):
 
 ```sh
 useradd --system --home /var/lib/kallisti --shell /usr/sbin/nologin kallisti
@@ -48,8 +50,9 @@ MUMBLED_SUPERUSER_PASSWORD=choose-a-long-password
 ```
 
 All settings: [configuration](configuration.md). For an existing Murmur, add
-`MUMBLE_HOST` (and see [the Docker page](install-docker.md#in-front-of-an-existing-murmur)
-for what to set on Murmur).
+`MUMBLE_HOST`, and `MUMBLE_INSECURE_TLS=1` if Murmur has a self-signed
+certificate (most do); see [the Docker page](install-docker.md#in-front-of-an-existing-murmur)
+for what to set on Murmur.
 
 ```sh
 chmod 600 /etc/kallisti.env
@@ -60,7 +63,8 @@ journalctl -u kallisti -f      # "server running" when it is up
 
 The service file runs Kallisti as the `kallisti` user with its data in
 `/var/lib/kallisti` (systemd makes the folder) and keeps it from changing
-the rest of the system.
+the rest of the system: data paths elsewhere need `ReadWritePaths=` in the
+service file.
 
 ## HTTPS with Caddy
 
@@ -73,9 +77,44 @@ chat.example.org {
 ```
 
 Caddy gets the certificate by itself. WebSockets (the voice and chat
-connection) pass through without extra settings. Let Kallisti listen only
-on localhost if the proxy is on the same machine: a firewall rule for port
-8080, or put the proxy and Kallisti on a private network.
+connection) pass through without extra settings. Kallisti listens on all
+addresses: block port 8080 in the firewall, so only the proxy reaches it.
+
+Kallisti needs its own (sub)domain: it cannot run under a path such as
+`example.org/chat`.
+
+### nginx (or another proxy)
+
+```
+server {
+    listen 443 ssl;
+    server_name chat.example.org;
+    # ssl_certificate ...;
+    client_max_body_size 11m;        # uploads (UPLOAD_MAX_MB, 10) and a little more
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;      # WebSockets
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+The default read timeout (60 s) is enough: the server pings each connection
+every 10 seconds. Use one proxy only (see `TRUST_FORWARDED_FOR` in the
+[configuration](configuration.md)). With SELinux, a confined nginx needs
+`setsebool -P httpd_can_network_connect 1` to reach port 8080.
+
+## Ports
+
+- 80 and 443 (TCP): the proxy (80 for the certificate and the redirect).
+- 64738 (TCP and UDP): Mumble clients and the desktop app, with the
+  built-in server. Behind Cloudflare, the name for this port must be "DNS
+  only": Cloudflare does not pass it.
+- 8080: only for the proxy.
 
 ## The Mumble port
 
@@ -94,6 +133,9 @@ src=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-
 install -o kallisti -m 600 "$src/chat.example.org.crt" /var/lib/kallisti/mumble.crt
 install -o kallisti -m 600 "$src/chat.example.org.key" /var/lib/kallisti/mumble.key
 ```
+
+(If Caddy got the certificate from ZeroSSL, the folder is
+`acme.zerossl.com-v2-dv90`.)
 
 ## Updates and backups
 

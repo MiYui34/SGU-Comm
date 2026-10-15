@@ -1,8 +1,13 @@
 # Configuration
 
-Kallisti reads its settings from environment variables (in the compose
-files, in `/etc/kallisti.env` for the systemd service). Defaults are in
+Kallisti reads its settings from environment variables. Defaults are in
 brackets.
+
+- With the systemd service: `/etc/kallisti.env`.
+- With compose: only the variables in the `environment:` section of the
+  compose file reach Kallisti (some of them take their value from
+  `deploy/.env`). A setting that is only in `deploy/.env` does nothing: add
+  it to `environment:` too.
 
 ## Web and general
 
@@ -12,8 +17,12 @@ brackets.
 - `LISTEN_PORT` (8080): the web app and the web clients' connections.
 - `WEB_DIR` (none): the built web app (`apps/web/dist`). Without it the
   server only answers web clients' connections (development with Vite).
-- `TRUST_FORWARDED_FOR=1`: use the first `X-Forwarded-For` address as the
-  client's IP. Only behind a reverse proxy that sets it: clients can fake it.
+- `TRUST_FORWARDED_FOR=1`: use the last `X-Forwarded-For` address (the one
+  your reverse proxy adds) as the client's IP. Only with exactly one proxy
+  in front that sets it: clients can fake the header. Caddy replaces the
+  header and nginx with `$proxy_add_x_forwarded_for` adds to it; both work.
+  With two proxies (for example Cloudflare and nginx), all users would get
+  the first proxy's address.
 - `MAX_CONNECTIONS` (100) and `MAX_CONNECTIONS_PER_IP` (10): web connections.
 - `DB_PATH` (`kallisti.db`): the SQLite database.
 - `TEXT_CHANNELS` (`general`, comma-separated): with the built-in server
@@ -34,7 +43,8 @@ Used unless `MUMBLE_HOST` is set.
 - `MUMBLE_LISTEN` (`:64738`, TCP and UDP): Mumble clients and the desktop
   app.
 - `SERVER_NAME` (`Kallisti`), `MUMBLE_WELCOME` (the welcome text).
-- `MUMBLE_PASSWORD`: a server password for guests.
+- `MUMBLE_PASSWORD`: a server password for guests. With it, saved avatars
+  are not served to everyone (the server is private).
 - `MUMBLE_MAX_USERS` (100), `MUMBLE_MAX_PER_IP` (no limit).
 - `MUMBLED_SUPERUSER_PASSWORD`: sets SuperUser's password at the start
   (unset: the password from an earlier start stays).
@@ -50,9 +60,11 @@ Used unless `MUMBLE_HOST` is set.
 
 - `MUMBLE_HOST`: the Murmur server (this turns the built-in server off).
 - `MUMBLE_PORT` (64738).
-- `MUMBLE_INSECURE_TLS=1`: accept Murmur's self-signed certificate (set 0 if
-  it has a real one).
+- `MUMBLE_INSECURE_TLS=1`: accept Murmur's self-signed certificate. Off by
+  default (the certificate is checked); `compose.murmur.yml` sets 1. Most
+  Murmur servers have a self-signed certificate.
 
 ## Development
 
-- `VITE_PROXY_URL` (web client, build time): another server to connect to.
+- `VITE_PROXY_URL` (web client, build time): the WebSocket address of another
+  server (`wss://host/ws`); the API address comes from it.
