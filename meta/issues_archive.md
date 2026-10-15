@@ -45,3 +45,4 @@
 - [x] [Web: the upload button's (+) is not centered](issues/web-upload-button-centered.md)
 - [x] [Web: join voice channels explicitly](issues/web-join-voice-explicitly.md)
 - [x] [Voice channel chat with uploads](issues/voice-channel-chat-uploads.md)
+- [x] [Channel management](issues/channel-management.md)
