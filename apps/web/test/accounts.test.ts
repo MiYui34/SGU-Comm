@@ -58,6 +58,15 @@ describe("accounts API", () => {
     expect(await none.guest("visitor")).toBeNull();
     const taken = createAccountsApi("http://srv", fakeFetch(409, { error: "this name is already taken" }, []));
     await expect(taken.guest("visitor")).rejects.toThrow("this name is already taken");
+    // Too many guests, or no answer: a classic guest still works.
+    for (const status of [429, 503]) {
+      const busy = createAccountsApi("http://srv", fakeFetch(status, { error: "busy" }, []));
+      expect(await busy.guest("visitor")).toBeNull();
+    }
+    const offline = createAccountsApi("http://srv", (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch);
+    expect(await offline.guest("visitor")).toBeNull();
   });
 
   it("treats a server without accounts as not logged in", async () => {

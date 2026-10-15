@@ -243,7 +243,7 @@
     <div class="account">
       <span class="label">Log out</span>
       {#if account.temporary}
-        <p class="hint">Without a password you cannot come back to this account from another browser.</p>
+        <p class="hint">Logging out ends this guest account (set a password above to keep it).</p>
       {:else}
         <p class="hint">"Everywhere" also logs out your other browsers and devices, for example after you used a shared computer.</p>
       {/if}

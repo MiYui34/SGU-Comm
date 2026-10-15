@@ -38,14 +38,15 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
     },
     create: async (name: string, password: string) =>
       (await call("/api/accounts", { name, password })).name ?? name,
-    // A temporary account for a guest; null: the server has none (an
-    // external Murmur), join as a classic guest.
+    // A temporary account for a guest; null: join as a classic guest (the
+    // server has no guest accounts, too many right now, or no answer).
+    // Name problems are errors.
     guest: async (name: string): Promise<Account | null> => {
       try {
         return { name: (await call("/api/guest", { name: name.trim() })).name ?? name.trim(), temporary: true };
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
-        throw err;
+        if (err instanceof ApiError && (err.status === 400 || err.status === 409)) throw err;
+        return null;
       }
     },
     // false: the server did not confirm (the session cookie may remain).
