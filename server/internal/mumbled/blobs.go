@@ -53,8 +53,12 @@ func setUserBlobs(m *pb.UserState, u *User) {
 }
 
 // contentChange checks a comment or avatar change as Murmur: anyone for
-// itself; for others only clearing, with ResetUserContent in root.
+// itself; for others only clearing, with ResetUserContent in root. Not as
+// Murmur: guests may not set an avatar (they would lose it when they leave).
 func (s *Server) contentChange(actor, u *User, m *pb.UserState) (Perm, error) {
+	if u == actor && !u.Registered && len(m.Texture) > 0 {
+		return 0, deny(pb.PermissionDenied_Text, "Register to set a profile picture.")
+	}
 	if u != actor {
 		if !s.state.Has(actor, 0, ResetUserContent) {
 			return ResetUserContent, nil

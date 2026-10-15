@@ -36,8 +36,8 @@ func TestShortCommentsGoOutAsTheyAre(t *testing.T) {
 }
 
 func TestLongCommentsAndAvatarsGoOutAsHashes(t *testing.T) {
-	addr := startOpen(t)
-	alice := dial(t, addr, "alice")
+	addr, _ := adminServer(t)
+	alice, _ := registered(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	comment := strings.Repeat("long comment ", 20)
 	texture := bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 100)
@@ -144,8 +144,8 @@ func TestRegisteredUsersKeepCommentAndAvatar(t *testing.T) {
 }
 
 func TestRequestBlobAnswersEachIDOnce(t *testing.T) {
-	addr := startOpen(t)
-	alice := dial(t, addr, "alice")
+	addr, _ := adminServer(t)
+	alice, _ := registered(t, addr, "alice")
 	bob := dial(t, addr, "bob")
 	texture := bytes.Repeat([]byte{1}, 500)
 	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), Texture: texture})
@@ -160,10 +160,20 @@ func TestRequestBlobAnswersEachIDOnce(t *testing.T) {
 }
 
 func TestTooLargeAvatarsAreRefused(t *testing.T) {
-	addr := startOpen(t)
-	alice := dial(t, addr, "alice")
+	addr, _ := adminServer(t)
+	alice, _ := registered(t, addr, "alice")
 	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), Texture: make([]byte, maxTexture+1)})
 	alice.expectDenied(pb.PermissionDenied_TextTooLong)
+}
+
+func TestGuestsCannotSetAnAvatar(t *testing.T) {
+	addr := startOpen(t)
+	guest := dial(t, addr, "guest")
+	guest.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(guest.session), Texture: []byte{1, 2, 3}})
+	guest.expectDenied(pb.PermissionDenied_Text)
+	// Clearing is no change, and allowed.
+	guest.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(guest.session), Texture: []byte{}})
+	guest.expectNone(mumble.TypePermissionDenied)
 }
 
 func TestACommentSetBeforeRegisteringIsKept(t *testing.T) {
