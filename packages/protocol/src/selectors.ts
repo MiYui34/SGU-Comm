@@ -83,6 +83,9 @@ export const Perm = {
   Speak: 0x8,
   MakeChannel: 0x40,
   MakeTempChannel: 0x400,
+  Kick: 0x10000,
+  Ban: 0x20000,
+  Register: 0x40000,
 } as const;
 
 const SPEAK = Perm.Speak;
