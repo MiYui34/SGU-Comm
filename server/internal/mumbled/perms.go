@@ -51,12 +51,20 @@ func (s *Server) refreshLocked(u *User) bool {
 }
 
 // flushPermissionsLocked makes a client drop its cached permissions, with
-// those of its channel.
+// those of its channel, and of root (what clients show for the server,
+// for example who may manage it).
 func (s *Server) flushPermissionsLocked(u *User) {
-	if c := s.clients[u.Session]; c != nil {
+	c := s.clients[u.Session]
+	if c == nil {
+		return
+	}
+	c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
+		ChannelId: proto.Uint32(u.Channel), Permissions: proto.Uint32(uint32(s.state.Permissions(u, u.Channel))),
+		Flush: proto.Bool(true),
+	})
+	if u.Channel != 0 {
 		c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
-			ChannelId: proto.Uint32(u.Channel), Permissions: proto.Uint32(uint32(s.state.Permissions(u, u.Channel))),
-			Flush: proto.Bool(true),
+			ChannelId: proto.Uint32(0), Permissions: proto.Uint32(uint32(s.state.Permissions(u, 0))),
 		})
 	}
 }

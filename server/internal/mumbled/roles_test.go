@@ -117,3 +117,21 @@ func TestInitRolesAddsTheModeratorGroupOnce(t *testing.T) {
 		t.Fatalf("root after InitRoles: %+v", got)
 	}
 }
+
+func TestNewModeratorsLearnTheirRootPermissions(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	games := su.createChannel(0, "Games", false)
+	alice, aliceID := registered(t, addr, "alice")
+	alice.move(alice.session, games)
+	alice.waitForMove(alice.session, games)
+	s.SetModerator(su.session, aliceID, true)
+	for {
+		var m pb.PermissionQuery
+		proto.Unmarshal(alice.expect(mumble.TypePermissionQuery), &m)
+		// The move sent root's permissions before too (without Kick).
+		if m.GetChannelId() == 0 && Perm(m.GetPermissions())&Kick != 0 {
+			return
+		}
+	}
+}
