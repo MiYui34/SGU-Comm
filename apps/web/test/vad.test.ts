@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { levelDb, shouldTransmit, vadStep, type VadState } from "../src/lib/voice/vad";
+import { levelDb, shouldTransmit, vadStep, type VadState, voiceLevel } from "../src/lib/voice/vad";
 
 describe("levelDb", () => {
   it("is 0 dBFS for a full-scale square wave", () => {
@@ -54,5 +54,13 @@ describe("shouldTransmit", () => {
   it("never transmits when muted", () => {
     expect(shouldTransmit({ ...base, muted: true })).toBe(false);
     expect(shouldTransmit({ ...base, mode: "ptt", pttDown: true, muted: true })).toBe(false);
+  });
+});
+
+describe("voiceLevel", () => {
+  it("counts a loud frame only if RNNoise hears voice in it", () => {
+    expect(voiceLevel(-20, undefined)).toBe(-20); // no RNNoise: the level alone
+    expect(voiceLevel(-20, 0.9)).toBe(-20);
+    expect(voiceLevel(-20, 0.1)).toBe(-100); // typing, a click: not voice
   });
 });

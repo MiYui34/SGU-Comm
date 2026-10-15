@@ -1,7 +1,8 @@
 import type { OutgoingAudio } from "@kallisti/protocol";
 import { createEncoderRotation } from "./encoderRotation";
 import { shouldFallBack } from "./fallback";
-import { levelDb, shouldTransmit, vadStep, type TransmitMode, type VadState } from "./vad";
+import { levelDb, shouldTransmit, vadStep, voiceLevel, type TransmitMode, type VadState } from "./vad";
+import rnnoiseUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
 
 const SAMPLE_RATE = 48_000;
 const FRAME_SIZE = 960; // 20 ms
@@ -31,6 +32,14 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let stream: MediaStream | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
   let node: AudioWorkletNode | null = null;
+  // Noise suppression: the browser's, or RNNoise in the worklet (then the
+  // browser's is off). The echo test plays the worklet's frames.
+  let strong = false;
+  let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
+  let noiseError = $state<string | null>(null);
+  let denoising = $state(false); // RNNoise runs (the worklet said so)
+  let device: string | null = null; // the one asked for last (see start)
+  const echo = new GainNode(ctx, { gain: 0 });
   // Timestamps of frames that end a transmission. Keyed by timestamp, so a
   // dropped or merged frame cannot shift the flag to another packet.
   const terminators = new Set<number>();
@@ -88,10 +97,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     // number. Chrome gives one output per input, so nothing is held back.
   };
 
-  const onFrame = (samples: Float32Array<ArrayBuffer>) => {
+  const onFrame = (samples: Float32Array<ArrayBuffer>, voiceProbability: number | undefined) => {
     if (!source) return; // a frame still on its way after stop()
     level = levelDb(samples);
-    vad = vadStep(vad, level, FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
+    vad = vadStep(vad, voiceLevel(level, voiceProbability), FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
     const next = shouldTransmit({ mode, vadTalking: vad.talking, pttDown, muted });
     if (next && !transmitting) encoders.startSpurt();
     // The first quiet frame after talking ends the transmission.
@@ -112,12 +121,38 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         processorOptions: { frameSize: FRAME_SIZE },
       });
       // Some browsers (Safari) only run nodes that lead to the speakers. The
-      // output is silent anyway; the gain of 0 keeps it that way.
-      node.connect(new GainNode(ctx, { gain: 0 })).connect(ctx.destination);
-      node.port.onmessage = (event: MessageEvent<Float32Array<ArrayBuffer>>) =>
-        onFrame(event.data);
+      // output is the echo test's: silent (gain 0) unless it is on.
+      node.connect(echo).connect(ctx.destination);
+      node.port.onmessage = (
+        event: MessageEvent<{ samples?: Float32Array<ArrayBuffer>; vad?: number; denoising?: boolean; denoiseError?: string }>,
+      ) => {
+        const d = event.data;
+        if (d.samples) onFrame(d.samples, d.vad);
+        else if (d.denoising !== undefined) denoising = d.denoising;
+        else if (d.denoiseError) denoiseFailed(d.denoiseError);
+      };
+      void applyDenoise();
       return node;
     })());
+
+  // Tells the worklet to run RNNoise or not (the module loads once, when
+  // first used). A change while it loads wins.
+  const applyDenoise = async () => {
+    if (!node) return; // the node applies it when it is made
+    try {
+      const bytes = strong ? await (rnnoise ??= fetch(rnnoiseUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText))))) : null;
+      if (strong === (bytes !== null)) node.port.postMessage({ denoise: bytes }); // copied: kept for next time
+    } catch (err) {
+      rnnoise = null;
+      denoiseFailed(err instanceof Error ? err.message : String(err));
+    }
+  };
+  // Back to the browser's filter (it was off for RNNoise): reopen.
+  const denoiseFailed = (why: string) => {
+    strong = false;
+    noiseError = `Strong noise suppression could not start (${why}). The standard one is on.`;
+    if (stream) void start(device);
+  };
 
   const stopStream = () => {
     source?.disconnect();
@@ -128,13 +163,14 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // Opens the microphone (null: the default device). Also used to switch.
   const start = async (deviceId: string | null = null) => {
     const mine = ++generation;
+    device = deviceId;
     const stale = () => closed || mine !== generation;
     try {
       const next = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation: true,
-          noiseSuppression: true,
+          noiseSuppression: !strong, // RNNoise does it, not twice
           autoGainControl: true,
         },
       });
@@ -181,6 +217,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     get fellBack() {
       return fellBack;
     },
+    get noiseError() {
+      return noiseError;
+    },
+    get denoising() {
+      return denoising;
+    },
     start,
     // Closes the microphone (the browser stops showing it as recording);
     // start opens it again.
@@ -204,6 +246,17 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     },
     setThreshold: (db: number) => {
       thresholdDb = db;
+    },
+    // Strong: RNNoise. Takes effect for the filter at once; the browser's
+    // own filter changes when the microphone opens again (start).
+    setStrongNoiseSuppression: (on: boolean) => {
+      strong = on;
+      noiseError = null;
+      void applyDenoise();
+    },
+    // The echo test: what the microphone sends, after the filters.
+    setEcho: (on: boolean) => {
+      echo.gain.value = on ? 1 : 0;
     },
     close: () => {
       closed = true;

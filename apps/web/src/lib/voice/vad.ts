@@ -7,6 +7,12 @@ export const levelDb = (samples: Float32Array): number => {
   return rms > 0 ? Math.max(FLOOR_DB, 20 * Math.log10(rms)) : FLOOR_DB;
 };
 
+// With RNNoise, a frame counts for voice activity only if RNNoise hears
+// voice in it (probability from 0 to 1): typing alone does not send.
+const VOICE_PROBABILITY = 0.5;
+export const voiceLevel = (db: number, voiceProbability: number | undefined): number =>
+  voiceProbability === undefined || voiceProbability >= VOICE_PROBABILITY ? db : FLOOR_DB;
+
 export type VadState = { talking: boolean; silentMs: number };
 export type VadConfig = { thresholdDb: number; holdMs: number };
 
