@@ -34,8 +34,11 @@ export const createPlayback = (ctx: AudioContext) => {
   const play = (speaker: Speaker, data: AudioData) => {
     const start = nextStart(speaker.end, ctx.currentTime * SAMPLE_RATE, PLAYOUT);
     if (start === null) return data.close();
-    const buffer = ctx.createBuffer(1, data.numberOfFrames, data.sampleRate);
-    data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
+    // Stereo streams (music bots) keep both channels; voice is mono in
+    // both.
+    const buffer = ctx.createBuffer(data.numberOfChannels, data.numberOfFrames, data.sampleRate);
+    for (let ch = 0; ch < data.numberOfChannels; ch++)
+      data.copyTo(buffer.getChannelData(ch), { planeIndex: ch, format: "f32-planar" });
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(speaker.gain);
@@ -69,7 +72,9 @@ export const createPlayback = (ctx: AudioContext) => {
         error: (err) => (console.warn("decoder error", session, err), remove(session)),
       }),
     };
-    speaker.decoder.configure({ codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+    // Two channels: stereo packets keep their image, mono ones come out the
+    // same on both sides.
+    speaker.decoder.configure({ codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 });
     speakers.set(session, speaker);
     return speaker;
   };
