@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func me(a *Service, c *http.Cookie) string {
@@ -68,6 +69,13 @@ func TestGuestAccounts(t *testing.T) {
 func TestGuestAccountLimits(t *testing.T) {
 	a, srv := setup(t)
 	a.GuestAccounts = true
+	post(t, srv, "/api/accounts", map[string]string{"name": "taken", "password": "a long password"}, nil)
+	// Names that are taken use no guest token (but count as attempts).
+	for range 3 {
+		if resp, _ := post(t, srv, "/api/guest", map[string]string{"name": "taken"}, nil); resp.StatusCode != http.StatusConflict {
+			t.Fatalf("taken: %d", resp.StatusCode)
+		}
+	}
 	for i := range guestBurst {
 		if resp, v := post(t, srv, "/api/guest", map[string]string{"name": "g" + string(rune('a'+i))}, nil); resp.StatusCode != http.StatusCreated {
 			t.Fatalf("guest %d: %d %v", i, resp.StatusCode, v)
@@ -81,5 +89,18 @@ func TestGuestAccountLimits(t *testing.T) {
 	post(t, srv2, "/api/guest", map[string]string{"name": "first"}, nil)
 	if resp, _ := post(t, srv2, "/api/guest", map[string]string{"name": "second"}, nil); resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("over the limit of guests: %d", resp.StatusCode)
+	}
+}
+
+func TestLoggingOutEndsAGuestAccount(t *testing.T) {
+	a, srv := setup(t)
+	a.GuestAccounts = true
+	resp, _ := post(t, srv, "/api/guest", map[string]string{"name": "brief"}, nil)
+	c := sessionCookie(resp)
+	post(t, srv, "/api/logout", nil, c)
+	// The cleanup takes it at its next round (when the user is offline).
+	idle, _ := a.Store.IdleTemporaryAccounts(time.Now().Add(-time.Hour))
+	if len(idle) != 1 || idle[0].Name != "brief" {
+		t.Fatalf("idle %+v", idle)
 	}
 }

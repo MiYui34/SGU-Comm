@@ -883,6 +883,13 @@ func (s *Store) TouchAccount(id int64, at time.Time) error {
 	return err
 }
 
+// ExpireAccount makes a temporary account idle at once (its owner logged
+// out): the next cleanup removes it.
+func (s *Store) ExpireAccount(id int64) error {
+	_, err := s.db.Exec(`UPDATE accounts SET last_seen = 0 WHERE id = ? AND temporary = 1`, id)
+	return err
+}
+
 // IdleTemporaryAccounts are temporary accounts not seen since before.
 func (s *Store) IdleTemporaryAccounts(before time.Time) ([]Account, error) {
 	rows, err := s.db.Query(`SELECT `+accountColumns+` FROM accounts a

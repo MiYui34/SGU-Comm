@@ -71,7 +71,7 @@ type limiter struct {
 	m  map[string]*rate.Limiter
 }
 
-func (l *limiter) allow(ip string, every rate.Limit, burst int) bool {
+func (l *limiter) allow(ip string, limit rate.Limit, burst int) bool {
 	key := limiterKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -88,7 +88,7 @@ func (l *limiter) allow(ip string, every rate.Limit, burst int) bool {
 				}
 			}
 		}
-		lim = rate.NewLimiter(every, burst)
+		lim = rate.NewLimiter(limit, burst)
 		l.m[key] = lim
 	}
 	return lim.Allow()
@@ -185,9 +185,8 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 // guest makes a temporary account: no password, kept by its session
 // cookie, deleted after a day without a visit.
 func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
-	ip := clientip.Of(r, a.TrustForwardedFor)
-	if !a.allow(r) || !a.guests.allow(ip, rate.Every(guestEvery), guestBurst) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many guests from your address, try again later"})
+	if !a.allow(r) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts, try again later"})
 		return
 	}
 	var c credentials
@@ -203,6 +202,11 @@ func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "too many guests right now, please create an account"})
 		return
 	}
+	// Only now (a name that can be used): taken names do not use it up.
+	if !a.guests.allow(clientip.Of(r, a.TrustForwardedFor), rate.Every(guestEvery), guestBurst) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many guests from your address, try again later"})
+		return
+	}
 	if acc, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}); ok {
 		writeJSON(w, http.StatusCreated, map[string]any{"name": acc.Name, "temporary": true})
 	}
@@ -215,7 +219,8 @@ func (a *Service) checkName(w http.ResponseWriter, raw string) (string, bool) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return "", false
 	}
-	if a.NameTaken != nil && a.NameTaken(names.Key(name)) {
+	_, err := a.Store.AccountByName(name)
+	if err == nil || a.NameTaken != nil && a.NameTaken(names.Key(name)) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
 		return "", false
 	}
@@ -288,7 +293,15 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"name": acc.Name})
 }
 
+// logout ends this session. A guest account cannot be reached again
+// without it: it ends too (the cleanup removes it at its next round), so
+// its name is free soon.
 func (a *Service) logout(w http.ResponseWriter, r *http.Request) {
+	if acc, ok := a.AccountFor(r); ok && acc.Temporary {
+		if err := a.Store.ExpireAccount(acc.ID); err != nil {
+			slog.Error("ending a guest account", "account", acc.Name, "err", err)
+		}
+	}
 	clearSession(w, r, a.Store)
 	w.WriteHeader(http.StatusNoContent)
 }
