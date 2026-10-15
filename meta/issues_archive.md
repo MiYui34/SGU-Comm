@@ -47,3 +47,4 @@
 - [x] [Voice channel chat with uploads](issues/voice-channel-chat-uploads.md)
 - [x] [Channel management](issues/channel-management.md)
 - [x] [Deploy chat.kallisti.chat](issues/deploy-chat-kallisti-chat.md)
+- [x] [Log in with a Mumble registration](issues/login-with-mumble-registration.md)
