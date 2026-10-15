@@ -79,3 +79,5 @@
 - [x] [Web: keep the microphone open while muted](issues/web-keep-the-microphone-open-while-muted.md)
 - [x] [Markdown formatting in messages](issues/web-markdown.md)
 - [x] [Mute a channel](issues/web-mute-a-channel.md)
+- [x] [Reactions on messages](issues/web-reactions.md)
+- [x] [Typing indicator](issues/typing-indicator.md)
