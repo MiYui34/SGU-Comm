@@ -422,3 +422,21 @@ func TestTextChannelNamesCannotLookLikeVoiceChats(t *testing.T) {
 		t.Fatal("voice chat lost")
 	}
 }
+
+func TestTextChannelsRememberTheirMumbleChannel(t *testing.T) {
+	s := open(t)
+	if err := s.EnsureChannels([]string{"general"}); err != nil {
+		t.Fatal(err)
+	}
+	chans, _ := s.Channels()
+	if chans[0].Mumble != 0 {
+		t.Fatalf("new channel: %+v", chans[0])
+	}
+	if err := s.SetMumbleChannel(chans[0].ID, 42); err != nil {
+		t.Fatal(err)
+	}
+	chans, _ = s.Channels()
+	if chans[0].Mumble != 42 {
+		t.Fatalf("after set: %+v", chans[0])
+	}
+}
