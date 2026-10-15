@@ -555,6 +555,13 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	if text == "" {
 		return
 	}
+	// Runs after the unlock below (defers run last-in, first-out).
+	var hooks []func()
+	defer func() {
+		for _, h := range hooks {
+			h()
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	actor := s.state.Users[c.session]
@@ -608,6 +615,14 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	for session := range to {
 		if o := s.clients[session]; o != nil {
 			o.send(frame, false)
+		}
+	}
+	if hook := s.cfg.OnChannelText; hook != nil {
+		for _, id := range m.ChannelId {
+			if s.state.Channels[id] != nil {
+				from, name, registered := c.session, actor.Name, actor.Registered
+				hooks = append(hooks, func() { hook(from, name, registered, id, text) })
+			}
 		}
 	}
 }

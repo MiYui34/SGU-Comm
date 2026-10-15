@@ -31,7 +31,10 @@ type Config struct {
 	// ReservedName reports names (as names.Key) that belong to Kallisti
 	// accounts: nobody else may use them. Nil: none.
 	ReservedName func(key string) bool
-	DB           *DB // nil: nothing is saved
+	// OnChannelText gets every text a client sends to a channel (as plain
+	// text), for example to store it. It runs outside the server's lock.
+	OnChannelText func(from uint32, name string, registered bool, channel uint32, text string)
+	DB            *DB // nil: nothing is saved
 }
 
 const (
