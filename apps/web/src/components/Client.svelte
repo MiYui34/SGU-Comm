@@ -49,7 +49,8 @@
   });
 
   $effect(() => connection.playback?.setDeaf(me?.selfDeaf ?? false));
-  $effect(() => capture?.setMuted(me?.selfMute ?? false));
+  // Outside voice nothing is sent, also while the settings test the mic.
+  $effect(() => capture?.setMuted((me?.selfMute ?? false) || !voiceOn));
 
   let showSettings = $state(false);
   let membersOpen = $state(true);
@@ -166,7 +167,7 @@
     },
     onMenu: phone ? () => (panel = "channels") : undefined,
     // Phones have no PTT key: a hold button instead.
-    onHoldTalk: phone && prefs.mode === "ptt" ? (down: boolean) => capture?.setPttDown(down) : undefined,
+    onHoldTalk: phone && prefs.mode === "ptt" && voiceOn ? (down: boolean) => capture?.setPttDown(down) : undefined,
   });
   const pane = $derived.by(() => {
     if (view.kind === "text")
@@ -391,6 +392,7 @@
       <UserPanel
         {me}
         status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
+        active={voiceOn && !lobby}
         micError={micOn ? (capture?.micError ?? null) : null}
         onSelfState={updateSelf}
         onSettings={() => (showSettings = true)}

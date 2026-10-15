@@ -7,6 +7,7 @@
   let {
     me,
     status = "Voice connected",
+    active = true,
     micError,
     onSelfState,
     onSettings,
@@ -14,6 +15,8 @@
     me: User;
     // "Voice connected", "Not in voice", ...
     status?: string;
+    // The status in the accent colour (voice is on here).
+    active?: boolean;
     micError: string | null;
     onSelfState: (s: SelfState) => void;
     onSettings: () => void;
@@ -27,7 +30,7 @@
     {#if micError}
       <div class="status error ellipsis" title={micError}>No microphone</div>
     {:else}
-      <div class="status ellipsis" class:idle={status !== "Voice connected"}>{status}</div>
+      <div class="status ellipsis" class:idle={!active}>{status}</div>
     {/if}
   </div>
   <button
