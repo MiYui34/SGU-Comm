@@ -240,3 +240,29 @@ func TestRemoveDeletesOnlyAnUploadFile(t *testing.T) {
 		t.Fatal("removed a file outside the upload folder")
 	}
 }
+
+func TestSaveStoresBytesAsAnUpload(t *testing.T) {
+	s, _ := store.Open(":memory:")
+	defer s.Close()
+	dir := t.TempDir()
+	h := &Handler{Store: s, Dir: dir, Now: time.Now, QuotaBytes: 1 << 20}
+	u, err := h.Save("Jukebox", "cover.jpg", "image/jpeg", []byte("\xff\xd8\xffjpeg"))
+	if err != nil || u.Type != "image/jpeg" || u.Author != "Jukebox" || u.Size != 7 {
+		t.Fatalf("upload %+v %v", u, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, u.Key)); err != nil || string(data) != "\xff\xd8\xffjpeg" {
+		t.Fatalf("file %q %v", data, err)
+	}
+}
+
+func TestSaveKeepsTheDailyQuota(t *testing.T) {
+	s, _ := store.Open(":memory:")
+	defer s.Close()
+	h := &Handler{Store: s, Dir: t.TempDir(), Now: time.Now, QuotaBytes: 10}
+	if _, err := h.Save("bob", "a.png", "image/png", make([]byte, 8)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Save("bob", "b.png", "image/png", make([]byte, 8)); err == nil {
+		t.Fatal("over the quota")
+	}
+}

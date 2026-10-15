@@ -37,7 +37,7 @@ func TestMirrorsCarryMessagesBothWays(t *testing.T) {
 	web := readyAs(t, h, 2, "web")
 	general := int64(h.channels[0].ID)
 	// From a Mumble client in #general to the web.
-	h.MumbleText(9, "bob", true, 100, "hi from mumble")
+	h.MumbleText(9, "bob", true, 100, "hi from mumble", nil)
 	if m := next(t, web); m["type"] != "message" || m["message"].(map[string]any)["channel"] != float64(general) {
 		t.Fatalf("web got %v", m)
 	}
@@ -54,7 +54,7 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 	v := &fakeVoice{}
 	h.SetVoice(v, "")
 	for i := range 25 {
-		h.MumbleText(9, "bob", false, 100, fmt.Sprintf("m%d", i))
+		h.MumbleText(9, "bob", false, 100, fmt.Sprintf("m%d", i), nil)
 	}
 	// First visit in this connection: the last 20, under a heading.
 	h.UserMoved(7, noChannel, 0)
@@ -65,7 +65,7 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 	}
 	// Back later: only what came while away.
 	h.UserMoved(7, 100, 0)
-	h.MumbleText(9, "bob", false, 100, "while away")
+	h.MumbleText(9, "bob", false, 100, "while away", nil)
 	h.UserMoved(7, 0, 100)
 	if got := v.userTexts(7); len(got) != 2 || strings.Count(got[1], "<br>") != 1 || !strings.Contains(got[1], "while away") {
 		t.Fatalf("second visit: %q", got)

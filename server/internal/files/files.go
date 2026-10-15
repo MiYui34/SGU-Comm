@@ -247,3 +247,26 @@ func (h *Handler) Remove(key string) {
 		slog.Warn("delete upload file", "key", key, "err", err)
 	}
 }
+
+// Save stores bytes as an upload (for example a picture from a Mumble
+// message); attach it to a message to keep it.
+// It counts toward the author's daily quota, as uploads from browsers.
+func (h *Handler) Save(author, name, ctype string, data []byte) (store.Upload, error) {
+	used, err := h.Store.UploadedBytesSince(author, h.Now().Add(-24*time.Hour))
+	if err != nil {
+		return store.Upload{}, err
+	}
+	if used+int64(len(data)) > h.QuotaBytes {
+		return store.Upload{}, errors.New("daily upload quota reached")
+	}
+	key := randomKey()
+	dst := filepath.Join(h.Dir, key)
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return store.Upload{}, err
+	}
+	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: int64(len(data)), Author: author}, h.Now())
+	if err != nil {
+		os.Remove(dst)
+	}
+	return u, err
+}

@@ -67,11 +67,18 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if err != nil {
 		return nil, err
 	}
-	var onText func(from uint32, name string, registered bool, channel uint32, text string)
+	var onText func(from uint32, name string, registered bool, channel uint32, text string, images []mumbled.Image)
 	var onRoles func()
 	var onMoved func(session, from, to uint32)
 	if hub != nil {
-		onText, onRoles, onMoved = hub.MumbleText, hub.RolesChanged, hub.UserMoved
+		onRoles, onMoved = hub.RolesChanged, hub.UserMoved
+		onText = func(from uint32, name string, registered bool, channel uint32, text string, images []mumbled.Image) {
+			imgs := make([]sidecar.Image, len(images))
+			for i, img := range images {
+				imgs[i] = sidecar.Image{Type: img.Type, Data: img.Data}
+			}
+			hub.MumbleText(from, name, registered, channel, text, imgs)
+		}
 	}
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,

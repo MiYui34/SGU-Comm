@@ -152,7 +152,7 @@ func TestServerTextsGoToOneUser(t *testing.T) {
 func TestTreeTextsSkipMirrors(t *testing.T) {
 	var mu sync.Mutex
 	var got []uint32
-	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, channel uint32, _ string) {
+	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, channel uint32, _ string, _ []Image) {
 		mu.Lock()
 		got = append(got, channel)
 		mu.Unlock()

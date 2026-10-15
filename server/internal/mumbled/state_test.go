@@ -221,7 +221,7 @@ func TestSavedRootKeepsTheConfiguredName(t *testing.T) {
 func TestPlainText(t *testing.T) {
 	for in, want := range map[string]string{
 		"<b>hi</b> all": "hi all",
-		"a < b > c":     "a < b > c",
+		"a < b > c":     "a &lt; b > c", // shown as HTML: a lone < is escaped
 		"x <img src=a":  "x",
 		"<!-- c -->ok":  "ok",
 		"  spaced  ":    "spaced",

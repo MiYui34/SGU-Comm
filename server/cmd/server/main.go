@@ -70,6 +70,21 @@ func run() error {
 		AllowedOrigins:    cfg.AllowedOrigins,
 		TrustForwardedFor: cfg.TrustForwardedFor,
 	}
+	// Before the built-in server listens: Mumble messages may bring images.
+	if err := os.MkdirAll(cfg.UploadDir, 0o700); err != nil {
+		return fmt.Errorf("create upload directory: %w", err)
+	}
+	fileHandler := &files.Handler{
+		Store:          db,
+		Dir:            cfg.UploadDir,
+		MaxBytes:       cfg.UploadMaxBytes,
+		QuotaBytes:     cfg.UploadQuotaBytes,
+		AllowedOrigins: cfg.AllowedOrigins,
+		Now:            time.Now,
+		Redeem:         hub.RedeemUploadToken,
+	}
+	hub.OnUploadDeleted = fileHandler.Remove
+	hub.SaveFile = fileHandler.Save
 	dial, upstream := murmurDialer(cfg)
 	if cfg.Builtin != nil {
 		mumble, err := startBuiltin(cfg.Builtin, db, hub, publicBase(cfg.AllowedOrigins))
@@ -106,19 +121,6 @@ func run() error {
 		IsAccountName: accountExists(db),
 	})
 
-	if err := os.MkdirAll(cfg.UploadDir, 0o700); err != nil {
-		return fmt.Errorf("create upload directory: %w", err)
-	}
-	fileHandler := &files.Handler{
-		Store:          db,
-		Dir:            cfg.UploadDir,
-		MaxBytes:       cfg.UploadMaxBytes,
-		QuotaBytes:     cfg.UploadQuotaBytes,
-		AllowedOrigins: cfg.AllowedOrigins,
-		Now:            time.Now,
-		Redeem:         hub.RedeemUploadToken,
-	}
-	hub.OnUploadDeleted = fileHandler.Remove
 	if cfg.BackupDir != "" {
 		go backup.Daily(db.DB(), cfg.BackupDir, cfg.BackupKeep)
 	}

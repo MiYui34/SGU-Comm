@@ -77,9 +77,18 @@ func (s *Server) moderatePermission(actor, u *User, m *pb.UserState) (Perm, uint
 var htmlTag = regexp.MustCompile(`<[a-zA-Z/!][^>]*(>|$)`)
 
 // plainText removes HTML tags: the server does not allow HTML (as Murmur
-// with allowhtml off), and Mumble clients would render it.
+// with allowhtml off), and Mumble clients would render it. Until nothing
+// changes ("<<b>img ...>" leaves a tag after one pass), and a "<" that is
+// left is escaped, so no tag can form.
 func plainText(s string) string {
-	return strings.TrimSpace(htmlTag.ReplaceAllString(s, ""))
+	for {
+		next := htmlTag.ReplaceAllString(s, "")
+		if next == s {
+			break
+		}
+		s = next
+	}
+	return strings.TrimSpace(strings.ReplaceAll(s, "<", "&lt;"))
 }
 
 func optionalPlainText(s *string) *string {
@@ -171,7 +180,9 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		}
 	case mumble.TypeTextMessage:
 		var m pb.TextMessage
-		if proto.Unmarshal(body, &m) == nil && len(m.GetMessage()) <= maxTextLength && c.limiter.Allow() {
+		// Text up to maxTextLength; with images up to maxImageMessage.
+		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() &&
+			(len(m.GetMessage()) <= maxTextLength || len(m.GetMessage()) <= maxImageMessage && strings.Contains(m.GetMessage(), "<img")) {
 			s.textMsg(c, &m)
 		}
 	case mumble.TypeCryptSetup:
@@ -564,9 +575,17 @@ func (s *Server) removeChannelLocked(id, actor uint32) []uint32 {
 }
 
 func (s *Server) textMsg(c *client, m *pb.TextMessage) {
-	text := plainText(m.GetMessage())
-	if text == "" {
+	rest, images := extractImages(m.GetMessage())
+	text := plainText(rest)
+	if (text == "" && len(images) == 0) || len(text) > maxTextLength {
 		return
+	}
+	out := text
+	if len(images) > 0 {
+		if out != "" {
+			out += "<br>"
+		}
+		out += imagesHTML(images)
 	}
 	// Runs after the unlock below (defers run last-in, first-out).
 	var hooks []func()
@@ -623,7 +642,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	}
 	delete(to, c.session)
 	frame := mumble.MessageFrame(mumble.TypeTextMessage, &pb.TextMessage{
-		Actor: proto.Uint32(c.session), Session: m.Session, ChannelId: m.ChannelId, TreeId: m.TreeId, Message: proto.String(text),
+		Actor: proto.Uint32(c.session), Session: m.Session, ChannelId: m.ChannelId, TreeId: m.TreeId, Message: proto.String(out),
 	})
 	for session := range to {
 		if o := s.clients[session]; o != nil {
@@ -637,11 +656,18 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		from, name, registered := c.session, actor.Name, actor.Registered
 		for _, id := range slices.Sorted(maps.Keys(channels)) {
 			// Text channel mirrors only count when written to directly.
-			if s.isMirrorLocked(id) && !slices.Contains(m.ChannelId, id) {
+			direct := slices.Contains(m.ChannelId, id)
+			if s.isMirrorLocked(id) && !direct {
 				continue
 			}
+			// Images only where written to directly: a tree message would
+			// store them once per channel.
+			imgs := images
+			if !direct {
+				imgs = nil
+			}
 			if s.state.Channels[id] != nil {
-				hooks = append(hooks, func() { hook(from, name, registered, id, plain) })
+				hooks = append(hooks, func() { hook(from, name, registered, id, plain, imgs) })
 			}
 		}
 	}

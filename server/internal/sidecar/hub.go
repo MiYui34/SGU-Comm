@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -71,6 +72,8 @@ type Hub struct {
 	guestMessages map[int64]uint32
 	// OnUploadDeleted removes the file of a deleted message's attachment.
 	OnUploadDeleted func(key string)
+	// SaveFile stores a picture from a Mumble message as an upload.
+	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
 	// Per voice server session: the last message seen in each mirror.
 	visitsMu sync.Mutex
 	visits   map[uint32]map[int64]int64
@@ -372,7 +375,9 @@ func (c *Conn) voiceChat(id mumble.Identity, voice uint32) {
 // MumbleText stores a text a Mumble client sent to a channel, and shows it
 // to the web clients that may read it (see mumbled.Config.OnChannelText).
 // In a text channel's mirror, it goes to the text channel (all web users).
-func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint32, text string) {
+// Images become attachments: the first on the text, others on messages of
+// their own.
+func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint32, text string, images []Image) {
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		text = string([]rune(text)[:MaxTextLength])
 	}
@@ -387,12 +392,54 @@ func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint
 		}
 		broadcast = func(v any) { h.broadcastVoice(channel, v) }
 	}
-	m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: name, Verified: registered, Text: text, At: h.now()})
-	if err != nil {
-		slog.Error("store a Mumble message", "err", err)
+	store1 := func(text string, upload int64) {
+		m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: name, Verified: registered, Text: text, At: h.now(), UploadID: upload})
+		if err != nil {
+			slog.Error("store a Mumble message", "err", err)
+			return
+		}
+		broadcast(map[string]any{"type": "message", "message": toWire(m)})
+	}
+	// Only registered users' images are kept (with their upload quota):
+	// guests can use any name. Mumble clients see them live anyway.
+	if len(images) == 0 || h.SaveFile == nil || !registered {
+		if text != "" {
+			store1(text, 0)
+		}
 		return
 	}
-	broadcast(map[string]any{"type": "message", "message": toWire(m)})
+	for i, img := range images {
+		u, err := h.SaveFile(name, fmt.Sprintf("image-%d%s", i+1, imageExt(img.Type)), img.Type, img.Data)
+		if err != nil {
+			slog.Error("store a Mumble image", "err", err)
+			continue
+		}
+		// If storing the message fails, the upload has no message: the
+		// cleanup of unused uploads removes it.
+		store1(text, u.ID)
+		text = ""
+	}
+	if text != "" { // no image could be stored
+		store1(text, 0)
+	}
+}
+
+// Image is a picture from a Mumble message (see mumbled.Image).
+type Image struct {
+	Type string
+	Data []byte
+}
+
+func imageExt(typ string) string {
+	switch typ {
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	}
+	return ".jpg"
 }
 
 func (h *Hub) channelExists(id int64) bool {

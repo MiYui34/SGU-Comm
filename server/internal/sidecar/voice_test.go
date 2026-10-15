@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/store"
 )
 
 // fakeVoice: session 1 may use every channel; session 2 not channel 9.
@@ -116,7 +117,7 @@ func TestVoiceChannelChats(t *testing.T) {
 	}
 	v.mu.Unlock()
 	// Text from Mumble clients is stored and shown.
-	h.MumbleText(3, "native", true, 5, "from mumble")
+	h.MumbleText(3, "native", true, 5, "from mumble", nil)
 	if m := next(t, bob); m["type"] != "message" || m["message"].(map[string]any)["author"] != "native" {
 		t.Fatalf("bob got %v", m)
 	}
@@ -271,5 +272,41 @@ func TestModerators(t *testing.T) {
 		if m := next(t, c); m["type"] != "roles" || len(m["moderators"].([]any)) != 1 {
 			t.Fatalf("got %v", m)
 		}
+	}
+}
+
+func TestMumbleImagesBecomeAttachments(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	var saved []string
+	h.SaveFile = func(author, name, ctype string, data []byte) (store.Upload, error) {
+		saved = append(saved, author+":"+name+":"+ctype)
+		return h.store.AddUpload(store.Upload{Key: "k" + strconv.Itoa(len(saved)), Name: name, Type: ctype, Size: int64(len(data)), Author: author}, clock)
+	}
+	web := readyAs(t, h, 2, "web")
+	// In the #general mirror (Mumble channel 100 in the fake).
+	h.MumbleText(9, "Jukebox", true, 100, "Now playing: x", []Image{{Type: "image/jpeg", Data: []byte("a")}, {Type: "image/png", Data: []byte("b")}})
+	first := next(t, web)["message"].(map[string]any)
+	second := next(t, web)["message"].(map[string]any)
+	if first["text"] != "Now playing: x" || first["upload"].(map[string]any)["type"] != "image/jpeg" ||
+		second["text"] != "" || second["upload"].(map[string]any)["type"] != "image/png" {
+		t.Fatalf("messages %v %v", first, second)
+	}
+	if len(saved) != 2 || saved[0] != "Jukebox:image-1.jpg:image/jpeg" {
+		t.Fatalf("saved %v", saved)
+	}
+}
+
+func TestGuestsImagesAreNotStored(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	h.SaveFile = func(string, string, string, []byte) (store.Upload, error) {
+		t.Fatal("stored a guest's image")
+		return store.Upload{}, nil
+	}
+	web := readyAs(t, h, 2, "web")
+	h.MumbleText(9, "guest", false, 100, "look", []Image{{Type: "image/png", Data: []byte("a")}})
+	if m := next(t, web)["message"].(map[string]any); m["text"] != "look" || m["upload"] != nil {
+		t.Fatalf("message %v", m)
 	}
 }
