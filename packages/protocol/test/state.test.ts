@@ -377,15 +377,32 @@ describe("avatars (textures)", () => {
     let s = run([userState({ session: 2, name: "a", textureHash: new Uint8Array([0xab, 0xcd]) })]);
     expect(s.users[2]?.textureHash).toBe("abcd");
     expect(s.users[2]?.texture).toBeNull();
-    s = run([userState({ session: 2, texture: png })], s);
-    expect(s.users[2]?.texture).toEqual(png);
+    const long = new Uint8Array(200).fill(7); // blob answers are long
+    s = run([userState({ session: 2, texture: long })], s);
+    expect(s.users[2]?.texture).toEqual(long);
     expect(s.users[2]?.textureHash).toBe("abcd");
     // The same hash again (another state change) keeps the data.
     s = run([userState({ session: 2, textureHash: new Uint8Array([0xab, 0xcd]) })], s);
-    expect(s.users[2]?.texture).toEqual(png);
+    expect(s.users[2]?.texture).toEqual(long);
     // A new picture: the old data goes.
     s = run([userState({ session: 2, textureHash: new Uint8Array([0x01]) })], s);
     expect(s.users[2]?.texture).toBeNull();
+  });
+
+  it("forgets the old hash when a short picture comes inline", () => {
+    let s = run([userState({ session: 2, name: "a", textureHash: new Uint8Array([0xab]) })]);
+    s = run([userState({ session: 2, texture: new Uint8Array(200) })], s); // blob answer
+    s = run([userState({ session: 2, texture: png })], s); // a new short picture
+    expect(s.users[2]?.textureHash).toBeNull();
+    // The long one again: its hash is new to us, so it loads again.
+    s = run([userState({ session: 2, textureHash: new Uint8Array([0xab]) })], s);
+    expect(s.users[2]?.texture).toBeNull();
+  });
+
+  it("keeps its own copy of the bytes", () => {
+    const frame = new Uint8Array([9, 0x89, 0x50, 0x4e, 0x47, 9]);
+    const s = run([userState({ session: 2, name: "a", texture: frame.subarray(1, 5) })]);
+    expect(s.users[2]?.texture?.buffer.byteLength).toBe(4);
   });
 
   it("forgets a removed picture (empty texture)", () => {

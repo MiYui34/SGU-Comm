@@ -141,6 +141,9 @@ const without = <V>(record: Readonly<Record<number, V>>, key: number) => {
   return rest;
 };
 
+// As Murmur: from this size, data comes as a hash first.
+const BLOB_HASH_MIN = 128;
+
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 
 const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerState => {
@@ -185,9 +188,10 @@ const applyUserState = (state: ServerState, msg: pb.UserState): ServerState => {
     next.textureHash = hash;
   }
   if (isFieldSet(msg, pb.UserStateSchema.field.texture)) {
-    // Empty: the picture was removed.
-    next.texture = msg.texture.length ? msg.texture : null;
-    if (!msg.texture.length) next.textureHash = null;
+    // Empty: the picture was removed. Short ones always come inline, so
+    // any earlier hash is out of date; long ones answer our RequestBlob.
+    next.texture = msg.texture.length ? msg.texture.slice() : null;
+    if (msg.texture.length < BLOB_HASH_MIN) next.textureHash = null;
   }
   return { ...state, users: { ...state.users, [msg.session]: next } };
 };
