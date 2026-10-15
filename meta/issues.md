@@ -5,3 +5,4 @@
 - [ ] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Several servers in one client](issues/multiple-servers.md)
+- [ ] [Deploy chat.kallisti.chat](issues/deploy-chat-kallisti-chat.md)
