@@ -3,6 +3,7 @@ import { createEncoderRotation } from "./encoderRotation";
 import { shouldFallBack } from "./fallback";
 import { levelDb, shouldTransmit, vadStep, voiceLevel, type TransmitMode, type VadState } from "./vad";
 import rnnoiseUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
+import { fallbackMode, noiseLabel, type NoiseMode } from "./noise";
 
 const SAMPLE_RATE = 48_000;
 const FRAME_SIZE = 960; // 20 ms
@@ -32,12 +33,16 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let stream: MediaStream | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
   let node: AudioWorkletNode | null = null;
-  // Noise suppression: the browser's, or RNNoise in the worklet (then the
-  // browser's is off). The echo test plays the worklet's frames.
-  let strong = false;
-  let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
+  // Noise suppression (see noise.ts): the browser's, RNNoise in our worklet,
+  // or DeepFilterNet3 in a worklet before it. With either of ours the
+  // browser's is off. running: the one that really runs. The echo test
+  // plays our worklet's frames.
+  let noise: NoiseMode = "browser";
+  let running = $state<NoiseMode | null>(null);
   let noiseError = $state<string | null>(null);
-  let denoising = $state(false); // RNNoise runs (the worklet said so)
+  let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
+  let dfn: { node: AudioWorkletNode; dispose: () => void } | null = null;
+  let dfnLoading = false;
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
   const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
@@ -129,10 +134,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       ) => {
         const d = event.data;
         if (d.samples) onFrame(d.samples, d.vad);
-        else if (d.denoising !== undefined) denoising = d.denoising;
-        else if (d.denoiseError) denoiseFailed(d.denoiseError);
+        else if (d.denoising !== undefined) running = d.denoising ? "strong" : running === "strong" ? null : running;
+        else if (d.denoiseError) noiseFailed("strong", d.denoiseError);
       };
-      void applyDenoise();
+      void applyNoise();
       return node;
     })());
 
@@ -140,28 +145,60 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   const loadRnnoise = () =>
     (rnnoise ??= fetch(rnnoiseUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText)))));
 
-  // Tells the worklet to run RNNoise or not. A change while it loads wins.
-  const applyDenoise = async () => {
+  // Runs the chosen filter: RNNoise in our worklet, DeepFilterNet3 before
+  // it (its code and model load when first chosen). A change while one
+  // loads wins.
+  const applyNoise = async () => {
     if (!node) return; // the node applies it when it is made
-    if (!strong) {
-      node.port.postMessage({ denoise: null });
-      return;
+    if (noise !== "strongest" && dfn) {
+      dfn.dispose();
+      dfn = null;
+      if (running === "strongest") running = null;
+      route();
     }
+    if (noise !== "strong") node.port.postMessage({ denoise: null });
     try {
-      const bytes = await loadRnnoise();
-      if (strong) node.port.postMessage({ denoise: bytes }); // copied: kept for next time
+      if (noise === "strong") {
+        const bytes = await loadRnnoise();
+        if (noise === "strong") node.port.postMessage({ denoise: bytes }); // copied: kept for next time
+      } else if (noise === "strongest" && !dfn && !dfnLoading) {
+        dfnLoading = true;
+        try {
+          const { createDeepFilterNetAudioWorklet } = await import("@workadventure/noise-suppression/deepfilternet");
+          const w = await createDeepFilterNetAudioWorklet(ctx, {
+            onOverload: () => noiseFailed("strongest", "this computer is too slow for it"),
+          });
+          if (noise !== "strongest") return w.dispose();
+          dfn = w;
+          w.node.connect(node);
+          route();
+          await w.ready;
+          if (dfn === w) running = "strongest";
+        } finally {
+          dfnLoading = false;
+        }
+        if (noise !== "strongest") void applyNoise(); // changed while it loaded
+      }
     } catch (err) {
-      rnnoise = null;
-      denoiseFailed(err instanceof Error ? err.message : String(err));
+      if (noise === "strong") rnnoise = null;
+      noiseFailed(noise, err instanceof Error ? err.message : String(err));
     }
   };
-  // Back to the browser's filter (it was off for RNNoise): reopen. Not if
-  // the user went back to it meanwhile.
-  const denoiseFailed = (why: string) => {
-    if (!strong) return;
-    strong = false;
-    noiseError = `Strong noise suppression could not start (${why}). The standard one is on.`;
-    if (stream) void start(device);
+  // A filter that failed (or is too slow): the next lighter one, with a
+  // note. Not if the user chose another meanwhile. The browser's filter
+  // needs the microphone opened again.
+  const noiseFailed = (from: NoiseMode, why: string) => {
+    if (noise !== from || from === "browser") return;
+    noise = fallbackMode(from);
+    noiseError = `${noiseLabel(from)} could not run (${why}). Now on: ${noiseLabel(noise)}.`;
+    void applyNoise();
+    if (noise === "browser" && stream) void start(device);
+  };
+  // The microphone goes through DeepFilterNet3 when it runs.
+  const route = () => {
+    if (!source || !node) return;
+    source.disconnect();
+    source.connect(dfn?.node ?? node);
   };
 
   const stopStream = () => {
@@ -180,18 +217,18 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation: true,
-          noiseSuppression: !strong, // RNNoise does it, not twice
+          noiseSuppression: noise === "browser", // ours do it, not twice
           autoGainControl: true,
         },
       });
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return next.getTracks().forEach((t) => t.stop());
-      const target = await workletNode();
+      await workletNode();
       if (stale()) return next.getTracks().forEach((t) => t.stop());
       stopStream();
       stream = next;
       source = ctx.createMediaStreamSource(next);
-      source.connect(target);
+      route();
       micError = null;
       const track = next.getAudioTracks()[0];
       deviceLabel = track?.label ?? "";
@@ -230,8 +267,8 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     get noiseError() {
       return noiseError;
     },
-    get denoising() {
-      return denoising;
+    get running() {
+      return running;
     },
     start,
     // Closes the microphone (the browser stops showing it as recording);
@@ -257,14 +294,15 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     setThreshold: (db: number) => {
       thresholdDb = db;
     },
-    // Strong: RNNoise. The microphone opens again: the browser's own
-    // filter (off with RNNoise) is set when it opens.
-    setStrongNoiseSuppression: (on: boolean) => {
-      if (on === strong) return;
-      strong = on;
+    // The microphone opens again when the browser's own filter goes on or
+    // off: it is set when it opens.
+    setNoiseSuppression: (m: NoiseMode) => {
+      if (m === noise) return;
+      const reopen = (m === "browser") !== (noise === "browser");
+      noise = m;
       noiseError = null;
-      void applyDenoise();
-      if (stream) void start(device);
+      void applyNoise();
+      if (stream && reopen) void start(device);
     },
     // The echo test: what the microphone sends, after the filters.
     setEcho: (on: boolean) => {
@@ -273,6 +311,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     close: () => {
       closed = true;
       stopStream();
+      dfn?.dispose();
       // The node can still be on its way: disconnect it when it arrives.
       void nodePromise?.then((n) => n.disconnect()).catch(() => {});
       encoders.closeAll();

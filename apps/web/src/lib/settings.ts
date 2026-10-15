@@ -1,3 +1,4 @@
+import type { NoiseMode } from "./voice/noise";
 import type { TransmitMode } from "./voice/vad";
 
 export type Settings = {
@@ -11,8 +12,8 @@ export type Settings = {
   // Close the microphone while muted (the browser stops showing it as
   // recording, but opening it again interrupts the sound for a moment).
   closeMicWhenMuted: boolean;
-  // browser: the browser's own filter; strong: RNNoise (see capture).
-  noiseSuppression: "browser" | "strong";
+  // See voice/noise.ts.
+  noiseSuppression: NoiseMode;
 };
 
 export const METER_MIN_DB = -80;
@@ -53,7 +54,7 @@ export const parseSettings = (raw: string | null): Settings => {
     outputDeviceId: str(d.outputDeviceId),
     notifications: d.notifications === true,
     closeMicWhenMuted: d.closeMicWhenMuted === true,
-    noiseSuppression: d.noiseSuppression === "strong" ? "strong" : "browser",
+    noiseSuppression: d.noiseSuppression === "strong" || d.noiseSuppression === "strongest" ? d.noiseSuppression : "browser",
   };
 };
 

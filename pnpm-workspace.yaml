@@ -1,3 +1,5 @@
 packages:
   - "packages/*"
   - "apps/*"
+allowBuilds:
+  protobufjs: false # not needed (it comes with the noise package's voice detection)

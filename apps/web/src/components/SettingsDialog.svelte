@@ -6,6 +6,7 @@
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
+  import { noiseLabel, type NoiseMode } from "../lib/voice/noise";
 
   let {
     settings,
@@ -13,7 +14,7 @@
     deviceLabel = "",
     fellBack = false,
     noiseError = null,
-    denoising = false,
+    noiseRunning = null,
     onChange,
     onClose,
     onEcho,
@@ -27,8 +28,8 @@
     fellBack?: boolean;
     // Strong noise suppression failed to load (the standard one is on).
     noiseError?: string | null;
-    // RNNoise runs now.
-    denoising?: boolean;
+    // Our filter that runs now (null: the browser's, or still loading).
+    noiseRunning?: NoiseMode | null;
     onChange: (patch: Partial<Settings>) => void;
     onClose: () => void;
     // The echo test: hear the microphone as others would (after filters).
@@ -132,18 +133,22 @@
     Noise suppression
     <select
       value={settings.noiseSuppression}
-      onchange={(e) => onChange({ noiseSuppression: e.currentTarget.value === "strong" ? "strong" : "browser" })}
+      onchange={(e) => onChange({ noiseSuppression: e.currentTarget.value as NoiseMode })}
     >
       <option value="browser">Standard (the browser's)</option>
       <option value="strong">Strong (RNNoise)</option>
+      <option value="strongest">Strongest (DeepFilterNet3)</option>
     </select>
     {#if noiseError}
       <span class="hint warn" role="status">{noiseError}</span>
-    {:else if settings.noiseSuppression === "strong" && denoising}
-      <span class="hint" role="status">RNNoise is running.</span>
+    {:else if noiseRunning && noiseRunning === settings.noiseSuppression}
+      <span class="hint" role="status">{noiseLabel(noiseRunning)} is running.</span>
+    {:else if settings.noiseSuppression === "strongest"}
+      <span class="hint" role="status">Loading DeepFilterNet3 (about 20 MB, once)…</span>
     {:else}
       <span class="hint">
-        Strong removes more typing and fan noise, and typing alone does not start sending. It uses a little more CPU.
+        Strong removes fan and other steady noise; typing alone does not start sending. Strongest also removes most
+        typing, but loads about 20 MB, uses more CPU and adds a little delay.
       </span>
     {/if}
   </label>

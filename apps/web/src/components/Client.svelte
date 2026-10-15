@@ -107,8 +107,8 @@
     capture?.setPttDown(false);
   });
   $effect(() => capture?.setThreshold(prefs.vadThresholdDb));
-  const strongNoise = $derived(prefs.noiseSuppression === "strong");
-  $effect(() => capture?.setStrongNoiseSuppression(strongNoise));
+  const noiseMode = $derived(prefs.noiseSuppression);
+  $effect(() => capture?.setNoiseSuppression(noiseMode));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
@@ -613,7 +613,7 @@
     deviceLabel={capture?.deviceLabel ?? ""}
     fellBack={capture?.fellBack ?? false}
     noiseError={capture?.noiseError ?? null}
-    denoising={capture?.denoising ?? false}
+    noiseRunning={capture?.running ?? null}
     onChange={settings.update}
     onEcho={capture ? (on) => capture?.setEcho(on) : undefined}
     {account}
