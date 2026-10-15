@@ -13,3 +13,10 @@ Text channels have no topic or description.
 ## Acceptance Criteria
 
 - Store, sidecar and web tests.
+
+## Result
+
+- Admins and moderators set a topic (200 characters) in the edit dialog;
+  the chat header shows it; the Mumble mirror gets it as description.
+  Tested: store, sidecar, mumbled and web tests; browser (SuperUser sets
+  it, a guest sees it).
