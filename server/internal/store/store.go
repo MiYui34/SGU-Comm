@@ -160,25 +160,38 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// addColumns adds the columns (name, definition) a table does not have yet.
+func addColumns(db *sql.DB, table string, cols [][2]string) error {
+	for _, col := range cols {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, table, col[0]).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col[0] + ` ` + col[1]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // migrate brings databases from older versions up to the current schema:
 // columns added later are added if missing.
 func migrate(db *sql.DB) error {
-	for _, col := range []struct{ name, def string }{
+	if err := addColumns(db, "messages", [][2]string{
 		{"upload_id", "INTEGER REFERENCES uploads(id)"},
 		{"verified", "INTEGER NOT NULL DEFAULT 0"},
 		{"edited_at", "INTEGER"},
 		{"reply_to", "INTEGER"},
-	} {
-		var n int
-		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name = ?`, col.name).Scan(&n)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			if _, err := db.Exec(`ALTER TABLE messages ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
-				return err
-			}
-		}
+	}); err != nil {
+		return err
+	}
+	if err := addColumns(db, "accounts", [][2]string{
+		{"temporary", "INTEGER NOT NULL DEFAULT 0"},
+		{"last_seen", "INTEGER"}, // Unix milliseconds
+	}); err != nil {
+		return err
 	}
 	var n int
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('channels') WHERE name = 'voice_channel'`).Scan(&n); err != nil {
@@ -765,15 +778,18 @@ var (
 type Account struct {
 	ID           int64
 	Name         string
-	PasswordHash string
+	PasswordHash string // empty for temporary accounts
 	CertPEM      []byte
 	KeyPEM       []byte
 	CreatedAt    time.Time
+	// Temporary: a guest's account without a password, deleted after a
+	// day without a visit (see IdleTemporaryAccounts).
+	Temporary bool
 }
 
 func (s *Store) CreateAccount(a Account, at time.Time) (Account, error) {
-	res, err := s.db.Exec(`INSERT INTO accounts (name, name_key, password_hash, cert_pem, key_pem, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		a.Name, names.Key(a.Name), a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli())
+	res, err := s.db.Exec(`INSERT INTO accounts (name, name_key, password_hash, cert_pem, key_pem, created_at, temporary) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		a.Name, names.Key(a.Name), a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli(), a.Temporary)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return Account{}, ErrNameTaken
@@ -785,12 +801,12 @@ func (s *Store) CreateAccount(a Account, at time.Time) (Account, error) {
 	return a, err
 }
 
-const accountColumns = `a.id, a.name, a.password_hash, a.cert_pem, a.key_pem, a.created_at`
+const accountColumns = `a.id, a.name, a.password_hash, a.cert_pem, a.key_pem, a.created_at, a.temporary`
 
-func scanAccount(row *sql.Row) (Account, error) {
+func scanAccount(row interface{ Scan(...any) error }) (Account, error) {
 	var a Account
 	var at int64
-	err := row.Scan(&a.ID, &a.Name, &a.PasswordHash, &a.CertPEM, &a.KeyPEM, &at)
+	err := row.Scan(&a.ID, &a.Name, &a.PasswordHash, &a.CertPEM, &a.KeyPEM, &at, &a.Temporary)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
@@ -826,6 +842,50 @@ func (s *Store) DeleteExpiredSessions(now time.Time) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// TouchAccount notes a visit (temporary accounts live a day from it).
+func (s *Store) TouchAccount(id int64, at time.Time) error {
+	_, err := s.db.Exec(`UPDATE accounts SET last_seen = ? WHERE id = ?`, at.UnixMilli(), id)
+	return err
+}
+
+// IdleTemporaryAccounts are temporary accounts not seen since before.
+func (s *Store) IdleTemporaryAccounts(before time.Time) ([]Account, error) {
+	rows, err := s.db.Query(`SELECT `+accountColumns+` FROM accounts a
+		WHERE a.temporary = 1 AND coalesce(a.last_seen, a.created_at) < ?`, before.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Account
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// TemporaryAccounts counts them (there is a limit).
+func (s *Store) TemporaryAccounts() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM accounts WHERE temporary = 1`).Scan(&n)
+	return n, err
+}
+
+// MakePermanent gives a temporary account its password.
+func (s *Store) MakePermanent(id int64, hash string) error {
+	_, err := s.db.Exec(`UPDATE accounts SET password_hash = ?, temporary = 0 WHERE id = ?`, hash, id)
+	return err
+}
+
+// DeleteAccount removes an account and its sessions.
+func (s *Store) DeleteAccount(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
+	return err
 }
 
 func (s *Store) SetPassword(accountID int64, hash string) error {
