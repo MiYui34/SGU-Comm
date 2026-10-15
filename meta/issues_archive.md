@@ -74,3 +74,5 @@
   - [x] [Bridge keeps connections alive](issues/bridge-keepalive.md)
   - [x] [Reconnect automatically](issues/auto-reconnect.md)
 - [x] [Images in Mumble messages](issues/mumble-images.md)
+- [x] [Guests cannot set a profile picture](issues/guests-cannot-set-a-profile-picture.md)
+- [x] [Show pictures of offline users](issues/show-pictures-of-offline-users.md)
