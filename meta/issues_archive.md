@@ -73,3 +73,4 @@
 - [x] [Connections drop in background tabs](issues/connection-keepalive.md)
   - [x] [Bridge keeps connections alive](issues/bridge-keepalive.md)
   - [x] [Reconnect automatically](issues/auto-reconnect.md)
+- [x] [Images in Mumble messages](issues/mumble-images.md)

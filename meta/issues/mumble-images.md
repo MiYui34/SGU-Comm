@@ -19,3 +19,14 @@ allows 128 KiB for such messages). The built-in server drops messages over
 
 - mumbled, sidecar and files tests; a Mumble message with an image shows
   as an image attachment in the web app.
+
+## Result
+
+- Messages with images up to 128 KiB; images checked by their bytes and
+  sent to Mumble clients in server-built tags; other HTML removed until
+  nothing is left (a nested tag got through one pass before).
+- Images in messages written directly to a stored chat are kept as
+  attachments, for registered users only and within their daily upload
+  quota (guests can use any name); tree messages keep only the text.
+- Tested: mumbled, files and sidecar tests, the official client suite; a
+  music bot's covers show as images in the web app.
