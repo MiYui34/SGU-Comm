@@ -539,6 +539,16 @@ func (d *DB) UserContent(id uint32) (comment string, texture []byte, err error) 
 	return comment, texture, err
 }
 
+// textureByName is a registered user's avatar (nil: none, or no such user).
+func (d *DB) textureByName(name string) ([]byte, error) {
+	var texture []byte
+	err := d.db.QueryRow(`SELECT texture FROM mumble_users WHERE name_key = ?`, names.Key(name)).Scan(&texture)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return texture, err
+}
+
 func (d *DB) SetUserContent(id uint32, comment string, texture []byte) error {
 	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ? WHERE id = ?`, comment, texture, id)
 	return err

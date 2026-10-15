@@ -24,6 +24,7 @@ import (
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/files"
+	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
@@ -86,6 +87,7 @@ func run() error {
 	hub.OnUploadDeleted = fileHandler.Remove
 	hub.SaveFile = fileHandler.Save
 	dial, upstream := murmurDialer(cfg)
+	var avatars http.Handler = mumbled.NoAvatars // Murmur's avatars are not ours to read
 	if cfg.Builtin != nil {
 		mumble, err := startBuiltin(cfg.Builtin, db, hub, publicBase(cfg.AllowedOrigins))
 		if err != nil {
@@ -95,6 +97,9 @@ func run() error {
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken
 		accounts.MumbleLogin = mumble.srv.CheckPassword
+		if cfg.Builtin.Password == "" { // a private server keeps them private
+			avatars = mumble.db.Avatars()
+		}
 	}
 	b := bridge.New(bridge.Options{
 		Sidecar: hub,
@@ -138,6 +143,7 @@ func run() error {
 		mux.Handle(path, accounts)
 	}
 	mux.Handle("/files/", fileHandler)
+	mux.Handle("/api/avatars/", avatars)
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
 	// else to the web app.
 	mux.Handle("/", site.New(b, cfg.WebDir))
