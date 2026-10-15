@@ -15,13 +15,12 @@ server password field, which nobody finds.
 
 ## Acceptance Criteria
 
-- SuperUser logs in through the "Log in" tab on chat.kallisti.chat and has
-  admin rights.
+- SuperUser logs in through the "Log in" tab and has admin rights.
 
 ## Result
 
 - /api/login falls back to Mumble registrations with a password (no web
   account of that name), with the Mumble server's per-IP lockout. No
   session: the client connects with the name and password.
-- Tested locally in the browser (admin rights after login) and with the
-  login API on chat.kallisti.chat.
+- Tested in the browser (admin rights after login) and with the login
+  API on a deployed server.

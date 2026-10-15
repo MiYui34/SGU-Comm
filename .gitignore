@@ -11,3 +11,4 @@ packages/devtools/mumble-client/out/
 server/*.pem
 .env
 .claude/
+ops/
