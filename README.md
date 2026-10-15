@@ -53,6 +53,40 @@ docker compose -f deploy/compose.yml up -d --remove-orphans
 | Guest accounts; reactions for guests | ✓ | – |
 | Log in as SuperUser with the "Log in" tab | ✓ | – |
 
+### For people with Mumble clients
+
+A Kallisti server is a normal Mumble server for them: they keep their
+client (Mumble 1.3 or newer; older clients have no Opus).
+
+**With the built-in server**
+
+- What they know works: voice channels, temporary and linked channels,
+  whispering and shouting, listening to other channels, positional audio,
+  comments and avatars, registering with their certificate, private and
+  channel messages, rights (ACLs and groups), and for admins bans and the
+  list of registered users.
+- Web and desktop users are normal users for them, with their avatars.
+- Text channels appear as channels under "Text channels". Entering one
+  shows the messages they missed (up to 20); what they write there goes
+  into the text channel. Nobody can talk there.
+- The top channel is a lobby: to talk, they join a voice channel.
+- What they write in a voice channel is stored, so web users see it later
+  in that channel's chat (and in search). Pictures that registered users
+  send are kept as attachments; files from web users arrive as links, and
+  replies with a short quote in front.
+- The names of Kallisti accounts are theirs only: a Mumble guest cannot use
+  them. Moderators that admins make in the web app have their rights in
+  Mumble too (kick, ban, move, change channels).
+- What they do not see: reactions, later edits and deletions, typing,
+  link previews, formatting (they get the plain text) and read state.
+- Not there: plugin data between clients (for example game positions
+  shared by Mumble plugins) and menu entries that server scripts add
+  through Murmur's Ice interface.
+
+**In front of an existing Murmur**, nothing changes for them: Murmur stays
+their server. Web users are normal Mumble users there (accounts are
+registered users); text channels and their history are for web users only.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri app around the same web client. A small bridge in
