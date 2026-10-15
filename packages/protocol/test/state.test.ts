@@ -349,3 +349,17 @@ describe("root permissions, later", () => {
     expect(t.rootPermissions).toBe(0xe);
   });
 });
+
+describe("channel permissions", () => {
+  const pq = (channelId: number, permissions: number, flush = false): MumbleMessage => ({
+    type: "PermissionQuery",
+    message: create(pb.PermissionQuerySchema, { channelId, permissions, flush }),
+  });
+
+  it("keeps the answers per channel; a flush forgets the others", () => {
+    let s = run([pq(5, 0x41), pq(6, 0x1)]);
+    expect(s.channelPermissions).toEqual({ 5: 0x41, 6: 0x1 });
+    s = run([pq(5, 0x4, true)], s);
+    expect(s.channelPermissions).toEqual({ 5: 0x4 });
+  });
+});

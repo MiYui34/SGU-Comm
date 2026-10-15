@@ -61,12 +61,15 @@ export type ServerState = {
   notice: { text: string; at: number } | null;
   // What we may do in the root channel (ServerSync), null before it.
   rootPermissions: number | null;
+  // What we may do in other channels, from PermissionQuery answers.
+  channelPermissions: Readonly<Record<number, number>>;
 };
 
 export const MAX_MESSAGES = 1000;
 
 export const initialState: ServerState = {
   rootPermissions: null,
+  channelPermissions: {},
   serverVersion: null,
   status: "connecting",
   session: null,
@@ -222,11 +225,17 @@ export const reduce = (
           ? Number(msg.message.permissions)
           : null,
       };
-    case "PermissionQuery":
-      // The server flushes cached permissions after ACL changes.
-      return msg.message.channelId === 0 && isFieldSet(msg.message, pb.PermissionQuerySchema.field.permissions)
-        ? { ...state, rootPermissions: msg.message.permissions }
-        : state;
+    case "PermissionQuery": {
+      if (!isFieldSet(msg.message, pb.PermissionQuerySchema.field.permissions)) return state;
+      const { channelId, permissions, flush } = msg.message;
+      // After ACL changes the server flushes: older answers are stale.
+      const known = flush ? {} : state.channelPermissions;
+      return {
+        ...state,
+        channelPermissions: { ...known, [channelId]: permissions },
+        rootPermissions: channelId === 0 ? permissions : state.rootPermissions,
+      };
+    }
     case "Reject":
       return {
         ...state,

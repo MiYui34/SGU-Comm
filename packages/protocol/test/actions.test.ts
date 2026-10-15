@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { decodeFrames } from "../src/framing";
 import { decodeMessage } from "../src/messages";
-import { escapeHtml, joinChannel, registerSelf, requestDescriptions, sendText, setSelfState } from "../src/actions";
+import {
+  createChannel,
+  editChannel,
+  escapeHtml,
+  joinChannel,
+  queryPermissions,
+  registerSelf,
+  removeChannel,
+  requestDescriptions,
+  sendText,
+  setSelfState,
+} from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
   const { frames } = decodeFrames(bytes);
@@ -63,5 +74,32 @@ describe("registerSelf", () => {
     const msg = decodeOne(registerSelf(12));
     if (msg.type !== "UserState") throw new Error();
     expect(msg.message).toMatchObject({ session: 12, userId: 0 });
+  });
+});
+
+describe("channel management", () => {
+  it("creates a channel below a parent", () => {
+    const msg = decodeOne(createChannel(0, "Games", { temporary: true }));
+    if (msg.type !== "ChannelState") throw new Error();
+    expect(msg.message.parent).toBe(0);
+    expect(msg.message.name).toBe("Games");
+    expect(msg.message.temporary).toBe(true);
+    expect(msg.message.channelId).toBe(0); // not set: a new channel
+  });
+
+  it("edits only the given fields", () => {
+    const msg = decodeOne(editChannel(5, { name: "Lounge", position: 2 }));
+    if (msg.type !== "ChannelState") throw new Error();
+    expect(msg.message.channelId).toBe(5);
+    expect(msg.message.name).toBe("Lounge");
+    expect(msg.message.position).toBe(2);
+    expect(msg.message.description).toBe("");
+  });
+
+  it("removes a channel and asks for permissions", () => {
+    const rm = decodeOne(removeChannel(5));
+    expect(rm.type === "ChannelRemove" && rm.message.channelId).toBe(5);
+    const q = decodeOne(queryPermissions(5));
+    expect(q.type === "PermissionQuery" && q.message.channelId).toBe(5);
   });
 });

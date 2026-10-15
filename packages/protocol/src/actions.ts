@@ -36,3 +36,17 @@ export const requestDescriptions = (channelIds: number[]) =>
 // Registers the own user on the server (needs a client certificate; the
 // Kallisti server provides one for accounts).
 export const registerSelf = (session: number) => encodeMessage("UserState", { session, userId: 0 });
+
+// Channel management (the server checks the permissions).
+export const createChannel = (parent: number, name: string, opts: { temporary?: boolean } = {}) =>
+  encodeMessage("ChannelState", { parent, name, temporary: opts.temporary ?? false });
+
+export const editChannel = (
+  channelId: number,
+  fields: { name?: string; description?: string; position?: number },
+) => encodeMessage("ChannelState", { channelId, ...fields });
+
+export const removeChannel = (channelId: number) => encodeMessage("ChannelRemove", { channelId });
+
+// What the own user may do in a channel; the answer is a PermissionQuery.
+export const queryPermissions = (channelId: number) => encodeMessage("PermissionQuery", { channelId });

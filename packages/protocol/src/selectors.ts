@@ -60,7 +60,23 @@ export const missingDescriptions = (state: ServerState): number[] =>
     .filter((c) => c.descriptionHash !== null && c.description === "")
     .map((c) => c.id);
 
-const SPEAK = 0x8;
+// Mumble's permission bits (the ones the client looks at).
+export const Perm = {
+  Write: 0x1,
+  Enter: 0x4,
+  Speak: 0x8,
+  MakeChannel: 0x40,
+  MakeTempChannel: 0x400,
+} as const;
+
+const SPEAK = Perm.Speak;
+
+// Whether we may do something in a channel, from the server's answers
+// (false while unknown; ask with queryPermissions).
+export const may = (state: ServerState, channelId: number, perm: number): boolean => {
+  const known = state.channelPermissions[channelId] ?? (channelId === 0 ? state.rootPermissions : null);
+  return known !== null && known !== undefined && (known & perm) === perm;
+};
 
 // Kallisti servers keep the root channel as a lobby without voice: users
 // arrive there and join voice channels on purpose. Plain Mumble servers

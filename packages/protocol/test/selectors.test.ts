@@ -4,7 +4,9 @@ import {
   channelTree,
   inVoice,
   isLobby,
+  may,
   messagesIn,
+  Perm,
   missingDescriptions,
   privateMessagesWith,
   usersIn,
@@ -180,5 +182,14 @@ describe("lobby and voice", () => {
     expect(inVoice(base(0x6, 1))).toBe(true);
     expect(inVoice(base(0x6 | SPEAK, 0))).toBe(true); // root is a voice channel there
     expect(inVoice({ ...base(0x6, 1), session: null })).toBe(false);
+  });
+});
+
+describe("may", () => {
+  it("answers from the known permissions, false when unknown", () => {
+    const s = { ...initialState, rootPermissions: Perm.MakeChannel | Perm.Write, channelPermissions: { 5: Perm.Enter } };
+    expect(may(s, 0, Perm.MakeChannel)).toBe(true);
+    expect(may(s, 5, Perm.Write)).toBe(false);
+    expect(may(s, 6, Perm.Enter)).toBe(false);
   });
 });
