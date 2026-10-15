@@ -12,8 +12,11 @@
     level,
     deviceLabel = "",
     fellBack = false,
+    noiseError = null,
+    denoising = false,
     onChange,
     onClose,
+    onEcho,
     account,
     profile,
   }: {
@@ -22,8 +25,14 @@
     // The microphone really in use, and whether the chosen one failed.
     deviceLabel?: string;
     fellBack?: boolean;
+    // Strong noise suppression failed to load (the standard one is on).
+    noiseError?: string | null;
+    // RNNoise runs now.
+    denoising?: boolean;
     onChange: (patch: Partial<Settings>) => void;
     onClose: () => void;
+    // The echo test: hear the microphone as others would (after filters).
+    onEcho?: (on: boolean) => void;
     // Logged in to an account: log out, password.
     account?: AccountActions;
     // Our avatar picture.
@@ -31,6 +40,11 @@
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
+  let echo = $state(false);
+  $effect(() => {
+    onEcho?.(echo);
+  });
+  $effect(() => () => onEcho?.(false)); // off when the settings close
   let devices = $state<MediaDeviceInfo[]>([]);
   let recordingKey = $state(false);
   const outputSupported = outputDeviceSupported();
@@ -113,6 +127,37 @@
       <span class="hint">In use: {deviceLabel}</span>
     {/if}
   </label>
+
+  <label>
+    Noise suppression
+    <select
+      value={settings.noiseSuppression}
+      onchange={(e) => onChange({ noiseSuppression: e.currentTarget.value === "strong" ? "strong" : "browser" })}
+    >
+      <option value="browser">Standard (the browser's)</option>
+      <option value="strong">Strong (RNNoise)</option>
+    </select>
+    {#if noiseError}
+      <span class="hint warn" role="status">{noiseError}</span>
+    {:else if settings.noiseSuppression === "strong" && denoising}
+      <span class="hint" role="status">RNNoise is running.</span>
+    {:else}
+      <span class="hint">
+        Strong removes more typing and fan noise, and typing alone does not start sending. It uses a little more CPU.
+      </span>
+    {/if}
+  </label>
+  {#if onEcho}
+    <div class="row">
+      <span class="label">Hear yourself</span>
+      <div class="buttons">
+        <button type="button" class="secondary" aria-pressed={echo} onclick={() => (echo = !echo)}>
+          {echo ? "Stop" : "Start echo test"}
+        </button>
+      </div>
+      <p class="hint">Plays your microphone as the others hear it, after noise suppression. Use headphones.</p>
+    </div>
+  {/if}
 
   {#if outputSupported}
     <label>

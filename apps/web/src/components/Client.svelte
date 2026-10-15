@@ -107,6 +107,8 @@
     capture?.setPttDown(false);
   });
   $effect(() => capture?.setThreshold(prefs.vadThresholdDb));
+  const strongNoise = $derived(prefs.noiseSuppression === "strong");
+  $effect(() => capture?.setStrongNoiseSuppression(strongNoise));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
@@ -116,8 +118,11 @@
   const micOn = $derived(
     micWanted({ inVoice: voiceOn, selfMute: me?.selfMute ?? false, settingsOpen: showSettings, closeWhenMuted }),
   );
+  // The noise setting reopens it too: the browser's own filter is set when
+  // the microphone opens.
   $effect(() => {
     const [target, deviceId, on] = [capture, inputDeviceId, micOn];
+    void strongNoise;
     untrack(() => (on ? void target?.start(deviceId) : target?.stop()));
   });
 
@@ -610,7 +615,10 @@
     level={capture?.level ?? -100}
     deviceLabel={capture?.deviceLabel ?? ""}
     fellBack={capture?.fellBack ?? false}
+    noiseError={capture?.noiseError ?? null}
+    denoising={capture?.denoising ?? false}
     onChange={settings.update}
+    onEcho={capture ? (on) => capture?.setEcho(on) : undefined}
     {account}
     profile={me && {
       name: me.name,
