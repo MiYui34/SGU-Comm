@@ -88,7 +88,7 @@ type Hub struct {
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
 	// Per voice server session: the last message seen in each mirror.
 	visitsMu sync.Mutex
-	visits   map[uint32]map[int64]int64
+	visits   map[uint32]*visit
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
 }

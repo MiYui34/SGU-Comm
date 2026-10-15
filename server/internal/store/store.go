@@ -852,6 +852,15 @@ func (s *Store) SetReadMark(userID uint32, channel, message int64) error {
 	return err
 }
 
+// ReadMark is a user's read mark in one channel (ok false: none).
+func (s *Store) ReadMark(userID uint32, channel int64) (message int64, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT message_id FROM read_marks_by_user WHERE user_id = ? AND channel_id = ?`, userID, channel).Scan(&message)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return message, err == nil, err
+}
+
 // ReadMarks are a user's read marks by channel.
 func (s *Store) ReadMarks(userID uint32) (map[int64]int64, error) {
 	rows, err := s.db.Query(`SELECT channel_id, message_id FROM read_marks_by_user WHERE user_id = ?`, userID)

@@ -24,16 +24,20 @@ type fakeVoice struct {
 	mirrors   map[string]uint32
 	toChannel map[uint32][]string
 	toUser    map[uint32][]string
-	// Who sessions are: users (others are guests), web (web clients).
+	// Who sessions are: users (others are guests), web (web clients), gone
+	// (disconnected: the voice server forgets them before their leave event).
 	users map[uint32]MumbleUser
 	web   map[uint32]bool
+	gone  map[uint32]bool
 }
 
 func (f *fakeVoice) MumbleClient(session uint32) (MumbleUser, bool) {
-	return f.users[session], !f.web[session]
+	return f.users[session], !f.web[session] && !f.gone[session]
 }
 
-func (f *fakeVoice) MayRead(session, channel uint32) bool  { return session == 1 || channel != 9 }
+func (f *fakeVoice) MayRead(session, channel uint32) bool {
+	return !f.gone[session] && (session == 1 || channel != 9)
+}
 func (f *fakeVoice) MayWrite(session, channel uint32) bool { return session == 1 || channel != 9 }
 func (f *fakeVoice) SendChannelText(from, channel uint32, text string) {
 	f.mu.Lock()

@@ -92,24 +92,33 @@ func (h *Hub) mirrorOf(text int64) uint32 {
 func (h *Hub) UserMoved(session, from, to uint32) {
 	h.visitsMu.Lock()
 	defer h.visitsMu.Unlock()
-	if from == noChannel { // a new connection
+	if h.visits == nil {
+		h.visits = map[uint32]*visit{}
+	}
+	if from == noChannel { // a new connection: who it is, now (see visit)
+		v := &visit{seen: map[int64]int64{}}
+		v.user, v.native = h.voice.MumbleClient(session)
+		h.visits[session] = v
+	}
+	v := h.visits[session]
+	if to == noChannel {
 		delete(h.visits, session)
 	}
-	if to == noChannel {
-		defer delete(h.visits, session)
-	}
-	user, native := h.voice.MumbleClient(session)
-	if !native {
+	if v == nil || !v.native {
 		return
 	}
-	if chat, _, ok := h.chatAt(session, from); ok {
-		last := h.lastMessage(chat)
-		h.seen(session)[chat] = last
-		if user.Registered && last > 0 {
-			if err := h.store.SetReadMark(user.UserID, chat, last); err != nil {
+	if u, ok := h.voice.MumbleClient(session); ok {
+		v.user = u // registered meanwhile
+	}
+	if v.in != 0 { // left the chat it was in
+		last := h.lastMessage(v.in)
+		v.seen[v.in] = last
+		if v.user.Registered && last > 0 {
+			if err := h.store.SetReadMark(v.user.UserID, v.in, last); err != nil {
 				slog.Error("read mark", "err", err)
 			}
 		}
+		v.in = 0
 	}
 	if to == noChannel {
 		return
@@ -118,16 +127,27 @@ func (h *Hub) UserMoved(session, from, to uint32) {
 	if !ok {
 		return
 	}
-	since, visited := h.seen(session)[chat]
-	if user.Registered {
-		marks, err := h.store.ReadMarks(user.UserID)
-		if err != nil {
-			slog.Error("read marks", "err", err)
+	v.in = chat
+	since, visited := v.seen[chat]
+	if v.user.Registered {
+		var err error
+		if since, visited, err = h.store.ReadMark(v.user.UserID, chat); err != nil {
+			slog.Error("read mark", "err", err)
 			return
 		}
-		since, visited = marks[chat]
 	}
 	h.sendMissed(session, chat, place, since, visited)
+}
+
+// visit is what the hub knows about a connected user: who it is (asked
+// when it connects: the voice server forgets a session before its leave
+// arrives), the chat it is in, and per chat the last message it saw in
+// this connection (for guests).
+type visit struct {
+	user   MumbleUser
+	native bool // a Mumble client, not a web client
+	in     int64
+	seen   map[int64]int64
 }
 
 // chatAt is the stored chat of a Mumble channel: a text channel's mirror,
@@ -148,16 +168,6 @@ func (h *Hub) chatAt(session, channel uint32) (chat int64, place string, ok bool
 		slog.Error("voice channel chat", "err", err)
 	}
 	return chat, "this channel", ok
-}
-
-func (h *Hub) seen(session uint32) map[int64]int64 {
-	if h.visits == nil {
-		h.visits = map[uint32]map[int64]int64{}
-	}
-	if h.visits[session] == nil {
-		h.visits[session] = map[int64]int64{}
-	}
-	return h.visits[session]
 }
 
 func (h *Hub) lastMessage(channel int64) int64 {
