@@ -6,5 +6,4 @@
 - [ ] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
-- [ ] [Voice: better noise suppression](issues/voice-noise-suppression.md)
 - [ ] [Pinned messages](issues/web-pinned-messages.md)

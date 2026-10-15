@@ -87,3 +87,4 @@
   - [x] [Temporary guest accounts](issues/temporary-guest-accounts.md)
   - [x] [Reactions by user id](issues/reactions-by-user-id.md)
   - [x] [Messages and read marks by user id](issues/messages-and-read-marks-by-user-id.md)
+- [x] [Voice: better noise suppression](issues/voice-noise-suppression.md)
