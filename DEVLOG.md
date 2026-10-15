@@ -259,3 +259,16 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
 - Cleanup and registration of web accounts take turns on one lock; the
   server does not register a web account whose account is gone, and does
   not remove the registration of a user who is online.
+
+## 2026-10-15: RNNoise
+
+- RNNoise is the Jitsi build (@jitsi/rnnoise-wasm, 112 KB .wasm) with our
+  own 30-line wrapper in the capture worklet: the module only imports
+  memory grow and memcpy, so the 1.9 MB Emscripten loaders are not needed.
+- Chrome does not post a compiled WebAssembly.Module to an AudioWorklet
+  (messageerror on the worklet side, nothing on the main thread). The main
+  thread posts the bytes; the worklet compiles them itself.
+- The CSP needs script-src 'wasm-unsafe-eval' (only WebAssembly, not
+  eval). Found only with the built app: Vite sends no CSP.
+- An AudioContext in a headless test tab only runs after a click; worklet
+  experiments must come after one.
