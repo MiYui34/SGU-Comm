@@ -82,3 +82,8 @@
 - [x] [Reactions on messages](issues/web-reactions.md)
 - [x] [Typing indicator](issues/typing-indicator.md)
 - [x] [Link previews](issues/link-previews.md)
+- [x] [Guest accounts and user ids](issues/guest-accounts-and-user-ids.md)
+  - [x] [Sidecar: the Mumble user id in the identity](issues/sidecar-mumble-user-id.md)
+  - [x] [Temporary guest accounts](issues/temporary-guest-accounts.md)
+  - [x] [Reactions by user id](issues/reactions-by-user-id.md)
+  - [x] [Messages and read marks by user id](issues/messages-and-read-marks-by-user-id.md)
