@@ -42,3 +42,4 @@
 - [x] [Mumble server: limits and server list ping](issues/mumble-server-limits.md)
 - [x] [Mumble server: integration into the Kallisti server](issues/mumble-server-integration.md)
 - [x] [Built-in Mumble server (replace Murmur)](issues/built-in-mumble-server.md)
+- [x] [Web: the upload button's (+) is not centered](issues/web-upload-button-centered.md)

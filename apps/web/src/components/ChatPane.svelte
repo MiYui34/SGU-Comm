@@ -693,6 +693,7 @@
     display: grid;
     width: 24px;
     height: 24px;
+    padding: 0; /* the browser's button padding would push the icon aside */
     margin: 10px 8px 10px 8px;
     place-items: center;
     border-radius: 50%;
