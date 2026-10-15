@@ -146,6 +146,11 @@ func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
 	return v.Server.SyncTextChannels(mirrors)
 }
 
+func (v voiceServer) MumbleClient(session uint32) (sidecar.MumbleUser, bool) {
+	u, ok := v.Server.MumbleClient(session)
+	return sidecar.MumbleUser{Registered: u.Registered, UserID: u.UserID}, ok
+}
+
 // dial makes an in-process session for a web client.
 func (b *builtin) dial(_ context.Context, up bridge.Upstream) (net.Conn, error) {
 	client, server := net.Pipe()

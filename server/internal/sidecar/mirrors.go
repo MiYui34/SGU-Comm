@@ -1,9 +1,13 @@
 package sidecar
 
 import (
+	"fmt"
 	"html"
 	"log/slog"
+	"slices"
 	"strings"
+
+	"kallisti.chat/server/internal/store"
 )
 
 // Text channel mirrors: each text channel has a Mumble channel where
@@ -74,26 +78,76 @@ func (h *Hub) mirrorOf(text int64) uint32 {
 }
 
 // UserMoved hears the voice server's users change channels (see
-// mumbled.Config.OnUserMoved). Per connection it keeps the last message
-// a user saw in each mirror: Mumble clients keep their chat log until
-// they disconnect. Moves arrive a little late: a message written just
-// then may come twice (live and in the history) or count as seen.
+// mumble.Config.OnUserMoved). A Mumble client (not a web client) that
+// enters a channel with a stored chat (a text channel's mirror, or a voice
+// channel it may read) gets what was said there, as one server text:
+//   - registered users what they missed since they last left it (read
+//     marks by user id, also across connections);
+//   - guests, per connection, the newest messages on the first visit and
+//     what they missed on later ones (Mumble clients keep their chat log
+//     until they disconnect).
+//
+// Moves arrive a little late: a message written just then may come twice
+// (live and in the history) or count as seen.
 func (h *Hub) UserMoved(session, from, to uint32) {
 	h.visitsMu.Lock()
 	defer h.visitsMu.Unlock()
-	if from == noChannel || to == noChannel {
+	if from == noChannel { // a new connection
 		delete(h.visits, session)
+	}
+	if to == noChannel {
+		defer delete(h.visits, session)
+	}
+	user, native := h.voice.MumbleClient(session)
+	if !native {
+		return
+	}
+	if chat, _, ok := h.chatAt(session, from); ok {
+		last := h.lastMessage(chat)
+		h.seen(session)[chat] = last
+		if user.Registered && last > 0 {
+			if err := h.store.SetReadMark(user.UserID, chat, last); err != nil {
+				slog.Error("read mark", "err", err)
+			}
+		}
 	}
 	if to == noChannel {
 		return
 	}
-	if c, ok := h.textOf(from); ok {
-		h.seen(session)[c.ID] = h.lastMessage(c.ID)
+	chat, place, ok := h.chatAt(session, to)
+	if !ok {
+		return
 	}
-	if c, ok := h.textOf(to); ok {
-		since, visited := h.seen(session)[c.ID]
-		h.sendMissed(session, c, since, visited)
+	since, visited := h.seen(session)[chat]
+	if user.Registered {
+		marks, err := h.store.ReadMarks(user.UserID)
+		if err != nil {
+			slog.Error("read marks", "err", err)
+			return
+		}
+		since, visited = marks[chat]
 	}
+	h.sendMissed(session, chat, place, since, visited)
+}
+
+// chatAt is the stored chat of a Mumble channel: a text channel's mirror,
+// or a voice channel's chat that the user may read and that exists. place
+// names it in the heading.
+func (h *Hub) chatAt(session, channel uint32) (chat int64, place string, ok bool) {
+	if channel == noChannel {
+		return 0, "", false
+	}
+	if c, ok := h.textOf(channel); ok {
+		return c.ID, "#" + c.Name, true
+	}
+	if !h.voice.MayRead(session, channel) {
+		return 0, "", false
+	}
+	chat, ok, err := h.store.FindVoiceChat(channel)
+	if err != nil {
+		slog.Error("voice channel chat", "err", err)
+	}
+	return chat, "this channel", ok
 }
 
 func (h *Hub) seen(session uint32) map[int64]int64 {
@@ -114,31 +168,39 @@ func (h *Hub) lastMessage(channel int64) int64 {
 	return msgs[0].ID
 }
 
-// sendMissed sends the recent messages of a text channel to a Mumble
-// user, as one text: all of the last historySize on a first visit, else
-// those after since.
-func (h *Hub) sendMissed(session uint32, c wireChannel, since int64, visited bool) {
-	msgs, err := h.store.History(c.ID, 0, historySize)
+// sendMissed sends a chat's messages to a Mumble user, as one text: on a
+// first visit the newest historySize, else those after since (the newest
+// historySize of them, with how many came before).
+func (h *Hub) sendMissed(session uint32, chat int64, place string, since int64, visited bool) {
+	msgs, err := h.store.History(chat, 0, historySize+1)
 	if err != nil {
-		slog.Error("text channel history for Mumble", "err", err)
+		slog.Error("chat history for Mumble", "err", err)
+		return
+	}
+	if visited {
+		msgs = slices.DeleteFunc(msgs, func(m store.Message) bool { return m.ID <= since })
+	}
+	more := len(msgs) > historySize
+	if more {
+		msgs = msgs[len(msgs)-historySize:]
+	}
+	if len(msgs) == 0 {
 		return
 	}
 	var b strings.Builder
-	n := 0
 	for _, m := range msgs {
-		if visited && m.ID <= since {
-			continue
-		}
 		at := m.CreatedAt.UTC().Format("Jan 2 15:04")
 		b.WriteString("<br><b>" + html.EscapeString(m.Author) + "</b> <i>" + at + " UTC</i>: " + html.EscapeString(h.mumbleText(m)))
-		n++
 	}
-	if n == 0 {
-		return
-	}
-	head := "Earlier in #"
+	head := "Earlier in "
 	if visited {
-		head = "While you were away in #"
+		head = "While you were away in "
 	}
-	h.voice.SendServerText(session, "<b>"+head+html.EscapeString(c.Name)+":</b>"+b.String())
+	head += html.EscapeString(place)
+	if more && visited {
+		if n, err := h.store.CountAfter(chat, since); err == nil {
+			head += fmt.Sprintf(" (the newest %d; %d earlier in the web app)", historySize, n-historySize)
+		}
+	}
+	h.voice.SendServerText(session, "<b>"+head+":</b>"+b.String())
 }

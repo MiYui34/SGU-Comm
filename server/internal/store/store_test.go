@@ -641,3 +641,30 @@ func TestFTSQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestFindVoiceChatDoesNotMakeOne(t *testing.T) {
+	s := open(t)
+	if _, ok, err := s.FindVoiceChat(5); ok || err != nil {
+		t.Fatalf("found one: %v %v", ok, err)
+	}
+	made, _ := s.VoiceChat(5)
+	if id, ok, err := s.FindVoiceChat(5); !ok || err != nil || id != made {
+		t.Fatalf("got %d %v %v, want %d", id, ok, err, made)
+	}
+	if chats, _ := s.VoiceChats(); len(chats) != 1 {
+		t.Fatalf("chats %v", chats)
+	}
+}
+
+func TestCountAfter(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	var ids []int64
+	for range 4 {
+		m, _ := s.AddMessage(NewMessage{ChannelID: 1, Author: "a", Text: "x", At: time.Now()})
+		ids = append(ids, m.ID)
+	}
+	if n, err := s.CountAfter(1, ids[1]); err != nil || n != 2 {
+		t.Fatalf("%d %v", n, err)
+	}
+}

@@ -153,6 +153,24 @@ func (s *Server) storeTextParent(id uint32) error {
 }
 
 // SendServerText sends HTML to one user, from the server (no actor).
+// MumbleUser is who a Mumble client is (see MumbleClient).
+type MumbleUser struct {
+	Registered bool
+	UserID     uint32 // with Registered
+}
+
+// MumbleClient: the session is a Mumble client (not a web client through
+// the bridge), and who it is.
+func (s *Server) MumbleClient(session uint32) (MumbleUser, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, u := s.clients[session], s.state.Users[session]
+	if c == nil || c.web || u == nil {
+		return MumbleUser{}, false
+	}
+	return MumbleUser{Registered: u.Registered, UserID: u.UserID}, true
+}
+
 func (s *Server) SendServerText(session uint32, text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

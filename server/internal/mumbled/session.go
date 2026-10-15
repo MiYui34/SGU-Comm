@@ -283,6 +283,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		crypt:     cryptstate.New(key, serverNonce, clientNonce),
 		lastGood:  time.Now(),
 		host:      host,
+		web:       !counted,
 		legacy:    h.legacy,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}

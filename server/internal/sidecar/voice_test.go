@@ -24,6 +24,13 @@ type fakeVoice struct {
 	mirrors   map[string]uint32
 	toChannel map[uint32][]string
 	toUser    map[uint32][]string
+	// Who sessions are: users (others are guests), web (web clients).
+	users map[uint32]MumbleUser
+	web   map[uint32]bool
+}
+
+func (f *fakeVoice) MumbleClient(session uint32) (MumbleUser, bool) {
+	return f.users[session], !f.web[session]
 }
 
 func (f *fakeVoice) MayRead(session, channel uint32) bool  { return session == 1 || channel != 9 }

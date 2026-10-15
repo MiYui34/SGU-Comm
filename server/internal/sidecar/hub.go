@@ -54,6 +54,15 @@ type Voice interface {
 	SyncTextChannels(want []Mirror) ([]uint32, error)
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
+	// MumbleClient: the session is a Mumble client (not a web client), and
+	// who it is.
+	MumbleClient(session uint32) (MumbleUser, bool)
+}
+
+// MumbleUser is who a Mumble client is (see Voice.MumbleClient).
+type MumbleUser struct {
+	Registered bool
+	UserID     uint32 // with Registered
 }
 
 type Hub struct {

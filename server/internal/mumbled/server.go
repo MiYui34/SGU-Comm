@@ -127,6 +127,7 @@ type client struct {
 	name      string
 	host      netip.Addr
 	legacy    bool // a client before 1.5: legacy UDP format
+	web       bool // a web client through the bridge (ServeConn), not a Mumble client
 	limiter   *rate.Limiter
 	bandwidth *rate.Limiter // voice bytes per second
 

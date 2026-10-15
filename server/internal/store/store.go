@@ -413,6 +413,24 @@ func (s *Store) VoiceChat(voice uint32) (int64, error) {
 	return id, err
 }
 
+// CountAfter counts a channel's messages after one.
+func (s *Store) CountAfter(channelID, afterID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM messages WHERE channel_id = ? AND id > ?`, channelID, afterID).Scan(&n)
+	return n, err
+}
+
+// FindVoiceChat is a voice channel's chat if it has one (VoiceChat makes
+// one).
+func (s *Store) FindVoiceChat(voice uint32) (int64, bool, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM channels WHERE voice_channel = ?`, voice).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return id, err == nil, err
+}
+
 // VoiceChats are the voice channel chats: store channel -> voice channel.
 func (s *Store) VoiceChats() (map[int64]uint32, error) {
 	rows, err := s.db.Query(`SELECT id, voice_channel FROM channels WHERE voice_channel IS NOT NULL`)

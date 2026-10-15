@@ -248,3 +248,19 @@ func TestDeletedWebAccountsAreNotRegistered(t *testing.T) {
 		t.Fatalf("registered %+v, reject %v", reg, &r)
 	}
 }
+
+func TestMumbleClientsAndWebSessionsAreToldApart(t *testing.T) {
+	db := testDB(t)
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	native, nativeID := registered(t, addr, "native")
+	web := joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "webby", CertHash: "w1"}}, "webby"))
+	if u, ok := s.MumbleClient(native.session); !ok || !u.Registered || u.UserID != nativeID {
+		t.Fatalf("native: %+v %v", u, ok)
+	}
+	if _, ok := s.MumbleClient(web.session); ok {
+		t.Fatal("a web session counted as a Mumble client")
+	}
+	if _, ok := s.MumbleClient(9999); ok {
+		t.Fatal("unknown session")
+	}
+}
