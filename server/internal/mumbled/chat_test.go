@@ -8,6 +8,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/password"
 )
 
 type heardText struct {
@@ -62,4 +63,16 @@ func TestTheSidecarAsksAndDelivers(t *testing.T) {
 		t.Fatalf("bob got %v", &m)
 	}
 	alice.expectNone(mumble.TypeTextMessage)
+}
+
+func TestOnlyAdminsManageTextChannels(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	guest := dial(t, addr, "guest")
+	su := superUser(t, addr)
+	if s.MayManage(guest.session) || !s.MayManage(su.session) {
+		t.Fatal("MayManage")
+	}
 }

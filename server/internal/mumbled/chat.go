@@ -44,3 +44,12 @@ func (s *Server) SendChannelText(from, channel uint32, text string) {
 		}
 	}
 }
+
+// MayManage: a user may manage the Kallisti server's text channels (Write
+// in root: admins).
+func (s *Server) MayManage(session uint32) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.state.Users[session]
+	return u != nil && s.state.Has(u, 0, Write)
+}
