@@ -46,6 +46,10 @@ type Service struct {
 	// NameTaken reports names (as names.Key) used elsewhere, for example by
 	// users registered on the Mumble server. Nil: none.
 	NameTaken func(key string) bool
+	// MumbleLogin checks a Mumble registration's password (built-in server)
+	// for names without a web account. Such logins get no session: the
+	// client connects with the name and password. Nil: none.
+	MumbleLogin func(host netip.Addr, name, password string) (string, bool)
 
 	mu     sync.Mutex
 	limits map[string]*rate.Limiter
@@ -176,6 +180,21 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 	release := password.Limit()
 	ok := password.Check(hash, c.Password)
 	release()
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		slog.Error("login", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "please try again later"})
+		return
+	}
+	if err != nil && a.MumbleLogin != nil {
+		host, _ := netip.ParseAddr(clientip.Of(r, a.TrustForwardedFor))
+		if name, ok := a.MumbleLogin(host.Unmap(), c.Name, c.Password); ok {
+			// Not a web account: end a web session of this browser, or the
+			// bridge would connect with that account instead.
+			clearSession(w, r, a.Store)
+			writeJSON(w, http.StatusOK, map[string]any{"name": name, "mumble": true})
+			return
+		}
+	}
 	if !ok || err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
 		return
@@ -187,11 +206,15 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Service) logout(w http.ResponseWriter, r *http.Request) {
+	clearSession(w, r, a.Store)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func clearSession(w http.ResponseWriter, r *http.Request, s *store.Store) {
 	if c, err := r.Cookie(CookieName); err == nil {
-		a.Store.DeleteSession(tokenHash(c.Value))
+		s.DeleteSession(tokenHash(c.Value))
 	}
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // logoutAll ends every session of the account, this one too.

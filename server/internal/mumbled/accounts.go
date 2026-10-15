@@ -109,3 +109,16 @@ func (l *logins) failed(ip netip.Addr) {
 	}
 	f.Allow()
 }
+
+// CheckPassword logs in a registration that has a password (the web login
+// form), with the same per-IP lockout as Mumble logins.
+func (s *Server) CheckPassword(host netip.Addr, name, pw string) (string, bool) {
+	if s.cfg.DB == nil || s.logins.blocked(host) {
+		return "", false
+	}
+	n, ok := s.cfg.DB.CheckPassword(name, pw)
+	if !ok {
+		s.logins.failed(host)
+	}
+	return n, ok
+}

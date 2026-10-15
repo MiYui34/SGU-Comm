@@ -324,6 +324,16 @@ func (d *DB) UserByName(name string) (*Registered, error) {
 	return d.userWhere(`name_key = ?`, names.Key(name))
 }
 
+// CheckPassword logs in a registration that has a password (SuperUser,
+// for example) and returns its name.
+func (d *DB) CheckPassword(name, pw string) (string, bool) {
+	r, err := d.UserByName(name)
+	if err != nil || r == nil || r.PasswordHash == "" {
+		return "", false
+	}
+	return r.Name, checkPassword(r.PasswordHash, pw)
+}
+
 func (d *DB) UserByHash(hash string) (*Registered, error) {
 	if hash == "" {
 		return nil, nil

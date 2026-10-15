@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -237,5 +238,29 @@ func TestNamesTakenElsewhereAreRefused(t *testing.T) {
 	resp, body := post(t, srv, "/api/accounts", map[string]string{"name": "Bob", "password": "long enough"}, nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status %d %v", resp.StatusCode, body)
+	}
+}
+
+func TestLoginWithAMumbleRegistration(t *testing.T) {
+	a, srv := setup(t)
+	a.MumbleLogin = func(_ netip.Addr, name, pw string) (string, bool) { return "SuperUser", name == "superuser" && pw == "adminpw" }
+	resp, v := post(t, srv, "/api/login", map[string]string{"name": "superuser", "password": "adminpw"}, nil)
+	if resp.StatusCode != http.StatusOK || v["name"] != "SuperUser" || v["mumble"] != true || sessionCookie(resp) != nil && sessionCookie(resp).Value != "" {
+		t.Fatalf("mumble login: %d %v", resp.StatusCode, v)
+	}
+	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "superuser", "password": "nope"}, nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d", resp.StatusCode)
+	}
+	// A web account comes first, also with a wrong password.
+	resp, _ = post(t, srv, "/api/accounts", map[string]string{"name": "bob", "password": "longpassword"}, nil)
+	// bob's session in this browser ends with a Mumble login.
+	bob := sessionCookie(resp)
+	post(t, srv, "/api/login", map[string]string{"name": "superuser", "password": "adminpw"}, bob)
+	if _, ok := a.AccountFor(requestWith(bob)); ok {
+		t.Fatal("web session kept")
+	}
+	a.MumbleLogin = func(netip.Addr, string, string) (string, bool) { return "bob", true }
+	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "bob", "password": "wrong password"}, nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("web account: %d", resp.StatusCode)
 	}
 }

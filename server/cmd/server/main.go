@@ -78,6 +78,7 @@ func run() error {
 		defer mumble.close()
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken
+		accounts.MumbleLogin = mumble.srv.CheckPassword
 	}
 	b := bridge.New(bridge.Options{
 		Sidecar: hub,

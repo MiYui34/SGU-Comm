@@ -7,6 +7,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"kallisti.chat/server/internal/password"
 )
 
 func testDB(t *testing.T) *DB {
@@ -286,5 +288,44 @@ func TestAnOldServerKeepsItsChannels(t *testing.T) {
 		if c.Name == "General" {
 			t.Fatal("made General although channels exist")
 		}
+	}
+}
+
+func TestCheckPassword(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("adminpw")
+	db.SetPassword(0, hash)
+	if name, ok := db.CheckPassword("superuser", "adminpw"); !ok || name != "SuperUser" {
+		t.Fatalf("superuser: %q %v", name, ok)
+	}
+	if _, ok := db.CheckPassword("SuperUser", "wrong"); ok {
+		t.Fatal("wrong password accepted")
+	}
+	// Registrations without a password (certificate only) and unknown names.
+	db.RegisterUser("alice", "aaa")
+	for _, n := range []string{"alice", "nobody"} {
+		if _, ok := db.CheckPassword(n, ""); ok {
+			t.Fatalf("%s accepted", n)
+		}
+	}
+}
+
+func TestWebPasswordChecksShareTheLockout(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("adminpw")
+	db.SetPassword(0, hash)
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	ip, other := netip.MustParseAddr("203.0.113.5"), netip.MustParseAddr("203.0.113.6")
+	for range maxLoginFailures {
+		s.CheckPassword(ip, "SuperUser", "guess")
+	}
+	if _, ok := s.CheckPassword(ip, "SuperUser", "adminpw"); ok {
+		t.Fatal("not locked out")
+	}
+	if !s.logins.blocked(ip) {
+		t.Fatal("native logins not blocked")
+	}
+	if name, ok := s.CheckPassword(other, "superuser", "adminpw"); !ok || name != "SuperUser" {
+		t.Fatalf("other IP: %q %v", name, ok)
 	}
 }
