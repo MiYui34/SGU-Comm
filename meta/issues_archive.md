@@ -56,3 +56,4 @@
   - [x] [sidecar: sync mirrors, bridge messages, history](issues/text-channels-sidecar.md)
   - [x] [web: hide mirrors from the voice list](issues/text-channels-web.md)
 - [x] [Image lightbox](issues/image-lightbox.md)
+- [x] [Mentions](issues/mentions.md)
