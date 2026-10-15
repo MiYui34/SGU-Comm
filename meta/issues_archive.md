@@ -61,3 +61,4 @@
 - [x] [Automatic database backups](issues/database-backups.md)
 - [x] [Edit and delete messages](issues/message-edit-delete.md)
 - [x] [Remember what was read](issues/read-state.md)
+- [x] [Channel menu on phones](issues/mobile-channel-menu.md)
