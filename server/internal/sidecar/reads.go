@@ -13,12 +13,14 @@ import (
 // unread marks and mention badges survive reloads and other devices.
 // Guests keep theirs in the browser only.
 
-// mentionsName is the web client's rule (lib/mentions.ts) on plain text:
-// "@" plus the whole name, any case, after a space or an opening mark.
-func mentionsName(text, name string) bool {
-	re := regexp.MustCompile(`(?i)(?:^|[\s(\[{,:])@` + regexp.QuoteMeta(name) + `(?:$|[^\p{L}\p{N}_-])`)
-	return re.MatchString(text)
+// mentionPattern is the web client's rule (lib/mentions.ts) on plain text:
+// "@" plus the whole name, any case, after a space (as JavaScript's \s) or
+// an opening mark.
+func mentionPattern(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:^|[\s\v\p{Z}\x{FEFF}(\[{,:])@` + regexp.QuoteMeta(name) + `(?:$|[^\p{L}\p{N}_-])`)
 }
+
+func mentionsName(text, name string) bool { return mentionPattern(name).MatchString(text) }
 
 type summaryEntry struct {
 	Channel  int64  `json:"channel"`
@@ -53,6 +55,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 			}
 		}
 	}
+	mention := mentionPattern(id.Name)
 	out := chats[:0]
 	for _, e := range chats {
 		latest, msgs, err := h.store.MessagesAfter(e.Channel, marks[e.Channel], "@")
@@ -62,7 +65,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		}
 		e.Latest = latest
 		for _, m := range msgs {
-			if names.Key(m.Author) != user && mentionsName(m.Text, id.Name) {
+			if names.Key(m.Author) != user && mention.MatchString(m.Text) {
 				e.Mentions++
 			}
 		}

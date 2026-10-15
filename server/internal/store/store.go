@@ -200,8 +200,6 @@ func (s *Store) VoiceChat(voice uint32) (int64, error) {
 	return id, err
 }
 
-// VoiceOf is the voice channel whose chat a channel is (ok false for text
-// channels).
 // VoiceChats are the voice channel chats: store channel -> voice channel.
 func (s *Store) VoiceChats() (map[int64]uint32, error) {
 	rows, err := s.db.Query(`SELECT id, voice_channel FROM channels WHERE voice_channel IS NOT NULL`)
@@ -221,6 +219,8 @@ func (s *Store) VoiceChats() (map[int64]uint32, error) {
 	return out, rows.Err()
 }
 
+// VoiceOf is the voice channel whose chat a channel is (ok false for text
+// channels).
 func (s *Store) VoiceOf(channel int64) (voice uint32, ok bool, err error) {
 	var v sql.NullInt64
 	err = s.db.QueryRow(`SELECT voice_channel FROM channels WHERE id = ?`, channel).Scan(&v)
@@ -548,8 +548,10 @@ func (s *Store) MessagesAfter(channel, after int64, contains string) (int64, []M
 	if err := s.db.QueryRow(`SELECT coalesce(max(id), 0) FROM messages WHERE channel_id = ?`, channel).Scan(&latest); err != nil {
 		return 0, nil, err
 	}
-	rows, err := s.db.Query(`SELECT id, author, verified, text FROM messages
-		WHERE channel_id = ? AND id > ? AND instr(text, ?) > 0 ORDER BY id DESC LIMIT ?`, channel, after, contains, maxMessagesAfter)
+	// Only the newest maxMessagesAfter messages are looked at.
+	rows, err := s.db.Query(`SELECT id, author, verified, text FROM messages WHERE id IN (
+			SELECT id FROM messages WHERE channel_id = ? AND id > ? ORDER BY id DESC LIMIT ?)
+		AND instr(text, ?) > 0 ORDER BY id DESC`, channel, after, maxMessagesAfter, contains)
 	if err != nil {
 		return 0, nil, err
 	}

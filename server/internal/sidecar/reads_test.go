@@ -66,3 +66,9 @@ func TestMarkRead(t *testing.T) {
 		t.Fatalf("guest marks %v", m)
 	}
 }
+
+func TestMentionRuleKnowsUnicodeSpaces(t *testing.T) {
+	if !mentionsName("hi @lain", "lain") || !mentionsName("　@lain", "lain") {
+		t.Fatal("no mention after a no-break or wide space")
+	}
+}
