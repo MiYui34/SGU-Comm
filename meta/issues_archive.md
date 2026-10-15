@@ -50,3 +50,8 @@
 - [x] [Moderator role](issues/moderator-role.md)
 - [x] [User avatars](issues/user-avatars.md)
 - [x] [Avatars broken: CSP blocks data: images](issues/avatar-csp.md)
+- [x] [Text channels for Mumble clients](issues/text-channels-for-mumble.md)
+  - [x] [mumbled: text channel mirrors and user moves](issues/text-channels-mumbled.md)
+  - [x] [store: Mumble channel per text channel](issues/text-channels-store.md)
+  - [x] [sidecar: sync mirrors, bridge messages, history](issues/text-channels-sidecar.md)
+  - [x] [web: hide mirrors from the voice list](issues/text-channels-web.md)

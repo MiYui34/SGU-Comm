@@ -9,10 +9,10 @@ channels" parent; bridge messages both ways.
 ## Requirements
 
 - Sub-issues:
-  - [ ] [mumbled: text channel mirrors and user moves](text-channels-mumbled.md)
-  - [ ] [store: Mumble channel per text channel](text-channels-store.md)
-  - [ ] [sidecar: sync mirrors, bridge messages, history](text-channels-sidecar.md)
-  - [ ] [web: hide mirrors from the voice list](text-channels-web.md)
+  - [x] [mumbled: text channel mirrors and user moves](text-channels-mumbled.md)
+  - [x] [store: Mumble channel per text channel](text-channels-store.md)
+  - [x] [sidecar: sync mirrors, bridge messages, history](text-channels-sidecar.md)
+  - [x] [web: hide mirrors from the voice list](text-channels-web.md)
 
 ## Acceptance Criteria
 
@@ -30,3 +30,15 @@ channels" parent; bridge messages both ways.
   takes a Mumble user out of voice. Channel listening carries no text.
 - The Mumble client keeps its chat log per connection, so "seen" is
   tracked per connection.
+
+## Result
+
+- Done. Tested: mumbled, store, sidecar and web tests; the official
+  client (1.5) joins "Text channels/#general", cannot speak, gets the
+  history on a new connection and web messages live; the web client hides
+  the mirrors.
+- Known limits: moves reach the sidecar a little late, so a message
+  written at that moment may come twice or count as seen; a user whose
+  saved channel is a mirror may get the history before the client is
+  ready (only without the lobby); an empty "Text channels" parent shows
+  in the web voice list when there are no text channels.
