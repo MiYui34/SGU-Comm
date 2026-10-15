@@ -109,7 +109,10 @@
   // when the device setting changes. Own deriveds: `prefs` is a new object
   // on every settings change, and only a device change may reopen it.
   const inputDeviceId = $derived(prefs.inputDeviceId);
-  const micOn = $derived(micWanted({ inVoice: voiceOn, selfMute: me?.selfMute ?? false, settingsOpen: showSettings }));
+  const closeWhenMuted = $derived(prefs.closeMicWhenMuted);
+  const micOn = $derived(
+    micWanted({ inVoice: voiceOn, selfMute: me?.selfMute ?? false, settingsOpen: showSettings, closeWhenMuted }),
+  );
   $effect(() => {
     const [target, deviceId, on] = [capture, inputDeviceId, micOn];
     untrack(() => (on ? void target?.start(deviceId) : target?.stop()));

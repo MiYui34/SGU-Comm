@@ -16,13 +16,14 @@ describe("parseSettings", () => {
       inputDeviceId: "mic-2",
       outputDeviceId: "speakers-1",
       notifications: true,
+      closeMicWhenMuted: true,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
 
   it("replaces invalid values one by one", () => {
     const parsed = parseSettings(
-      JSON.stringify({ mode: "shout", pttKey: 5, vadThresholdDb: -300, inputDeviceId: "mic-2", notifications: "yes" }),
+      JSON.stringify({ mode: "shout", pttKey: 5, vadThresholdDb: -300, inputDeviceId: "mic-2", notifications: "yes", closeMicWhenMuted: 1 }),
     );
     expect(parsed).toEqual({ ...DEFAULT_SETTINGS, inputDeviceId: "mic-2" });
   });

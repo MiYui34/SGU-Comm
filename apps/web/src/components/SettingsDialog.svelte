@@ -197,6 +197,15 @@
   <label class="check">
     <input
       type="checkbox"
+      checked={settings.closeMicWhenMuted}
+      onchange={(e) => onChange({ closeMicWhenMuted: e.currentTarget.checked })}
+    />
+    Close the microphone when muted
+  </label>
+  <p class="hint">The browser then stops showing it as recording, but the sound stops for a moment when you mute or unmute.</p>
+  <label class="check">
+    <input
+      type="checkbox"
       checked={settings.notifications}
       onchange={async (e) => {
         const box = e.currentTarget;

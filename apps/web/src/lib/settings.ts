@@ -8,6 +8,9 @@ export type Settings = {
   outputDeviceId: string | null;
   // Desktop notifications for mentions and private messages.
   notifications: boolean;
+  // Close the microphone while muted (the browser stops showing it as
+  // recording, but opening it again interrupts the sound for a moment).
+  closeMicWhenMuted: boolean;
 };
 
 export const METER_MIN_DB = -80;
@@ -19,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inputDeviceId: null,
   outputDeviceId: null,
   notifications: false,
+  closeMicWhenMuted: false,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -45,6 +49,7 @@ export const parseSettings = (raw: string | null): Settings => {
     inputDeviceId: str(d.inputDeviceId),
     outputDeviceId: str(d.outputDeviceId),
     notifications: d.notifications === true,
+    closeMicWhenMuted: d.closeMicWhenMuted === true,
   };
 };
 
