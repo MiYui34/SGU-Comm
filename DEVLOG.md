@@ -211,3 +211,12 @@ folder keep the old name "mumble-discord".
     not after a ping, and back to TCP on a UDPTunnel over TCP.
 - Murmur's source (Messages.cpp, Server.cpp, ACL.cpp, Group.cpp) is the
   reference for every rule; reviews compared against it each step.
+
+## 2026-10-15: Vite hides the CSP
+
+Avatars (data: URLs) worked in every browser test and broke in
+production: the Go server sends a CSP (`img-src 'self' blob:`), Vite
+sends none. Browser tests of anything that loads resources (images,
+media, workers, connections) must also run against the built app on the
+Go server (`pnpm --filter @kallisti/web build`, then the server with
+`WEB_DIR=apps/web/dist`).
