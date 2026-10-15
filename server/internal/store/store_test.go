@@ -578,3 +578,52 @@ func TestReplies(t *testing.T) {
 		t.Fatalf("after delete %+v", hist[0].Reply)
 	}
 }
+
+func TestSearch(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general", "random"})
+	chans, _ := s.Channels()
+	g, r := chans[0].ID, chans[1].ID
+	at := time.Now()
+	add := func(ch int64, author, text string) Message {
+		m, _ := s.AddMessage(NewMessage{ChannelID: ch, Author: author, Text: text, At: at})
+		return m
+	}
+	add(g, "alice", "Pizza tonight at eight")
+	add(g, "bob", "I prefer pasta")
+	pizza := add(r, "bob", "pizzas are great")
+	add(g, "carol", `quotes "and" stars* (parens) AND OR`)
+	ids := func(ms []Message) (out []int64) {
+		for _, m := range ms {
+			out = append(out, m.ID)
+		}
+		return out
+	}
+	got, err := s.Search("pizz", []int64{g, r}, "", 10)
+	if err != nil || len(got) != 2 || got[0].ID != pizza.ID {
+		t.Fatalf("pizz: %v %v", ids(got), err) // prefix match, newest first
+	}
+	if got, _ := s.Search("pizza", []int64{g}, "", 10); len(got) != 1 {
+		t.Fatalf("only general: %v", ids(got))
+	}
+	if got, _ := s.Search("pizza", []int64{g, r}, "BOB", 10); len(got) != 1 || got[0].Author != "bob" {
+		t.Fatalf("by bob: %v", ids(got))
+	}
+	// FTS syntax in the query is just text.
+	if got, err := s.Search(`"and" stars* (parens`, []int64{g}, "", 10); err != nil || len(got) != 1 {
+		t.Fatalf("syntax: %v %v", ids(got), err)
+	}
+	// Edits and deletes reach the index.
+	s.EditMessage(pizza.ID, "burgers", at)
+	if got, _ := s.Search("pizzas", []int64{r}, "", 10); len(got) != 0 {
+		t.Fatalf("after edit: %v", ids(got))
+	}
+	m := add(g, "dave", "unique words")
+	s.DeleteMessage(m.ID)
+	if got, _ := s.Search("unique", []int64{g}, "", 10); len(got) != 0 {
+		t.Fatalf("after delete: %v", ids(got))
+	}
+	if got, _ := s.Search("   ", []int64{g}, "", 10); len(got) != 0 {
+		t.Fatalf("empty query: %v", ids(got))
+	}
+}

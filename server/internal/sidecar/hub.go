@@ -258,6 +258,7 @@ type request struct {
 	Upload    string  `json:"upload"`    // key of an upload to attach
 	Message   int64   `json:"message"`   // edit-message, delete-message
 	Reply     int64   `json:"reply"`     // send: the message it answers
+	Author    string  `json:"author"`    // search: only this author
 	User      uint32  `json:"user"`      // set-moderator: registered user id
 	Moderator bool    `json:"moderator"` // set-moderator
 }
@@ -294,6 +295,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "mark-read":
 		c.markRead(*id, req)
+		return
+	case "search":
+		c.search(*id, req)
 		return
 	case "edit-message", "delete-message":
 		c.changeMessage(*id, req)

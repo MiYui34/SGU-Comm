@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	_ "modernc.org/sqlite"
 
@@ -179,6 +180,28 @@ func migrate(db *sql.DB) error {
 		}
 		if _, err := db.Exec(`CREATE UNIQUE INDEX channels_voice ON channels (voice_channel) WHERE voice_channel IS NOT NULL`); err != nil {
 			return err
+		}
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'messages_fts'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		// Full-text search over message texts, kept current by triggers;
+		// filled once from the messages there are.
+		for _, q := range []string{
+			`CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='id', tokenize='unicode61 remove_diacritics 2')`,
+			`CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
+				INSERT INTO messages_fts (rowid, text) VALUES (new.id, new.text); END`,
+			`CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+				INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.id, old.text); END`,
+			`CREATE TRIGGER messages_fts_update AFTER UPDATE OF text ON messages BEGIN
+				INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+				INSERT INTO messages_fts (rowid, text) VALUES (new.id, new.text); END`,
+			`INSERT INTO messages_fts (messages_fts) VALUES ('rebuild')`,
+		} {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("search index: %w", err)
+			}
 		}
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('channels') WHERE name = 'topic'`).Scan(&n); err != nil {
@@ -550,6 +573,57 @@ func (s *Store) DeleteMessage(id int64) (Message, error) {
 		}
 	}
 	return m, tx.Commit()
+}
+
+// At most this many words of a search are used.
+const maxSearchTerms = 10
+
+// ftsQuery makes search text an FTS5 query: every word must appear, as a
+// prefix; each word is quoted, so FTS syntax in it is only text. Words
+// without letters or digits are left out.
+func ftsQuery(text string) string {
+	var terms []string
+	for _, w := range strings.Fields(text) {
+		if !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
+			continue
+		}
+		terms = append(terms, `"`+strings.ReplaceAll(w, `"`, `""`)+`"*`)
+		if len(terms) == maxSearchTerms {
+			break
+		}
+	}
+	return strings.Join(terms, " ")
+}
+
+// Search finds messages in the given channels whose text has all words of
+// text (as prefixes), optionally by one author (any case); newest first.
+func (s *Store) Search(text string, channels []int64, author string, limit int) ([]Message, error) {
+	q := ftsQuery(text)
+	if q == "" || len(channels) == 0 {
+		return nil, nil
+	}
+	args := []any{q}
+	marks := make([]string, len(channels))
+	for i, c := range channels {
+		marks[i], args = "?", append(args, c)
+	}
+	args = append(args, author, author, limit)
+	rows, err := s.db.Query(messageSelect+`WHERE m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
+		AND m.channel_id IN (`+strings.Join(marks, ",")+`)
+		AND (? = '' OR lower(m.author) = lower(?)) ORDER BY m.id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // SetReadMark notes that a user read a channel up to a message; marks never

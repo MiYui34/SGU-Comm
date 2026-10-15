@@ -72,3 +72,23 @@ func TestMentionRuleKnowsUnicodeSpaces(t *testing.T) {
 		t.Fatal("no mention after a no-break or wide space")
 	}
 }
+
+func TestSearch(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	general := h.channels[0].ID
+	h.store.AddMessage(store.NewMessage{ChannelID: general, Author: "alice", Text: "pizza tonight", At: clock})
+	secret, _ := h.store.VoiceChat(9) // session 2 may not read channel 9 in the fake
+	h.store.AddMessage(store.NewMessage{ChannelID: secret, Author: "alice", Text: "pizza secret", At: clock})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	bob.Handle([]byte(`{"type":"search","text":"pizza"}`))
+	m := next(t, bob)
+	msgs := m["messages"].([]any)
+	if m["type"] != "search-results" || m["text"] != "pizza" || len(msgs) != 1 || msgs[0].(map[string]any)["text"] != "pizza tonight" {
+		t.Fatalf("results %v", m)
+	}
+	bob.Handle([]byte(`{"type":"search","text":"pizza","author":"carol"}`))
+	if m := next(t, bob); len(m["messages"].([]any)) != 0 {
+		t.Fatalf("by carol: %v", m)
+	}
+}

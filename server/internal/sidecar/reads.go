@@ -3,6 +3,7 @@ package sidecar
 import (
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/names"
@@ -29,6 +30,52 @@ type summaryEntry struct {
 	Mentions int    `json:"mentions"`
 }
 
+// readableChats are the text channels and the voice chats a user may read.
+func (h *Hub) readableChats(id mumble.Identity) []summaryEntry {
+	var chats []summaryEntry
+	h.mu.Lock()
+	for _, c := range h.channels {
+		chats = append(chats, summaryEntry{Channel: c.ID})
+	}
+	h.mu.Unlock()
+	if h.voice == nil {
+		return chats
+	}
+	voiceChats, err := h.store.VoiceChats()
+	if err != nil {
+		slog.Error("voice chats", "err", err)
+	}
+	for chat, voice := range voiceChats {
+		if h.voice.MayRead(id.Session, voice) {
+			chats = append(chats, summaryEntry{Channel: chat, Voice: voice})
+		}
+	}
+	return chats
+}
+
+// Search results, at most.
+const searchResults = 25
+
+// search finds messages in the chats the user may read.
+func (c *Conn) search(id mumble.Identity, req request) {
+	chats := c.hub.readableChats(id)
+	ids := make([]int64, len(chats))
+	for i, e := range chats {
+		ids[i] = e.Channel
+	}
+	msgs, err := c.hub.store.Search(req.Text, ids, strings.TrimSpace(req.Author), searchResults)
+	if err != nil {
+		slog.Error("search", "err", err)
+		c.sendError("cannot search")
+		return
+	}
+	wire := make([]wireMessage, len(msgs))
+	for i, m := range msgs {
+		wire[i] = toWire(m)
+	}
+	c.send(map[string]any{"type": "search-results", "text": req.Text, "messages": wire})
+}
+
 // readState is what ready carries for a registered user: read marks and a
 // summary of the text channels and the voice chats it may read.
 func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
@@ -38,23 +85,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		slog.Error("read marks", "err", err)
 		return nil, nil
 	}
-	var chats []summaryEntry
-	h.mu.Lock()
-	for _, c := range h.channels {
-		chats = append(chats, summaryEntry{Channel: c.ID})
-	}
-	h.mu.Unlock()
-	if h.voice != nil {
-		voiceChats, err := h.store.VoiceChats()
-		if err != nil {
-			slog.Error("voice chats", "err", err)
-		}
-		for chat, voice := range voiceChats {
-			if h.voice.MayRead(id.Session, voice) {
-				chats = append(chats, summaryEntry{Channel: chat, Voice: voice})
-			}
-		}
-	}
+	chats := h.readableChats(id)
 	mention := mentionPattern(id.Name)
 	out := chats[:0]
 	for _, e := range chats {
