@@ -14,3 +14,15 @@ through the official Mumble client. Add a small view in the web app.
 ## Acceptance Criteria
 
 - Protocol and web tests; browser check as admin and moderator.
+
+## Result
+
+- "Server settings" (gear next to the server name, for Ban or Register in
+  root): ban list (admins remove entries; moderators read) and registered
+  users (rename, unregister with confirmation). Protocol: BanList and
+  UserList in the state, actions, readable ban addresses.
+- Found and fixed on the way: renaming a web account's registration locked
+  the account out; the server refuses it now and says why.
+- Tested: protocol, mumbled and web tests; browser as SuperUser (rename
+  refused for an account, rename and unregister of a plain registration).
+  Removing a ban is not tested in the browser (no ban in the test data).
