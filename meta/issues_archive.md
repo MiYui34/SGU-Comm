@@ -57,3 +57,4 @@
   - [x] [web: hide mirrors from the voice list](issues/text-channels-web.md)
 - [x] [Image lightbox](issues/image-lightbox.md)
 - [x] [Mentions](issues/mentions.md)
+- [x] [Mention autocomplete](issues/mention-autocomplete.md)
