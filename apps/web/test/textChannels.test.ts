@@ -270,6 +270,12 @@ describe("managing text channels", () => {
     expect(JSON.parse(manageRequest({ remove: 2 }))).toEqual({ type: "delete-channel", channel: 2 });
     expect(JSON.parse(manageRequest({ order: [3, 2] }))).toEqual({ type: "order-channels", channels: [3, 2] });
     expect(JSON.parse(manageRequest({ moderator: 5, on: true }))).toEqual({ type: "set-moderator", user: 5, moderator: true });
+    expect(JSON.parse(manageRequest({ topic: 2, text: "hi" }))).toEqual({ type: "set-topic", channel: 2, text: "hi" });
+  });
+
+  it("reads topics", () => {
+    const ev = parseServerEvent('{"type":"channels","channels":[{"id":2,"name":"games","topic":"Play"}]}');
+    expect(ev).toEqual({ type: "channels", channels: [{ id: 2, name: "games", topic: "Play" }] });
   });
 });
 

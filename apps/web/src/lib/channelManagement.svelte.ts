@@ -51,7 +51,13 @@ export const createChannelManagement = (current: () => Connection) => {
       (form = { form: { mode: "create", kind, temporaryOnly: kind === "voice" && !canMakeVoice }, id: 0 }),
     startEdit: (kind: ChannelKind, id: number) =>
       (form = {
-        form: { mode: "edit", kind, name: nameOf(kind, id), description: kind === "voice" ? (server.channels[id]?.description ?? "") : "" },
+        form: {
+          mode: "edit",
+          kind,
+          name: nameOf(kind, id),
+          // Text channels: the topic (plain text).
+          description: kind === "voice" ? (server.channels[id]?.description ?? "") : (text.channels.find((c) => c.id === id)?.topic ?? ""),
+        },
         id,
       }),
     startDelete: (kind: ChannelKind, id: number) => (form = { form: { mode: "delete", kind, name: nameOf(kind, id) }, id }),
@@ -67,8 +73,10 @@ export const createChannelManagement = (current: () => Connection) => {
         if (v.kind === "text") connection.manage({ create: v.name });
         else connection.send(createChannel(0, v.name, { temporary: v.temporary }));
       } else if (f.mode === "edit") {
-        if (v.kind === "text") connection.manage({ rename: id, name: v.name });
-        else {
+        if (v.kind === "text") {
+          if (v.name !== f.name) connection.manage({ rename: id, name: v.name });
+          if (v.description.trim() !== f.description) connection.manage({ topic: id, text: v.description.trim() });
+        } else {
           const changes = {
             ...(v.name !== f.name ? { name: v.name } : {}),
             ...(v.description !== f.description ? { description: v.description } : {}),

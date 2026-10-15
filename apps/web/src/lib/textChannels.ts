@@ -5,7 +5,7 @@ import type { Roles } from "./roles";
 // frames). Against a plain Mumble server, the state stays unavailable.
 
 // mumble: the Mumble channel that mirrors it for Mumble clients.
-export type TextChannel = { id: number; name: string; mumble?: number };
+export type TextChannel = { id: number; name: string; mumble?: number; topic?: string };
 export type Attachment = { url: string; name: string; type: string; size: number };
 export type TextMessage = {
   id: number;
@@ -113,7 +113,11 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 
 const isChannel = (v: unknown): v is TextChannel =>
-  isObj(v) && isNum(v.id) && isStr(v.name) && (v.mumble === undefined || isNum(v.mumble));
+  isObj(v) &&
+  isNum(v.id) &&
+  isStr(v.name) &&
+  (v.mumble === undefined || isNum(v.mumble)) &&
+  (v.topic === undefined || typeof v.topic === "string");
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
 const isMessage = (v: unknown): v is TextMessage =>
@@ -252,7 +256,8 @@ export type ManageAction =
   | { rename: number; name: string }
   | { remove: number }
   | { order: number[] }
-  | { moderator: number; on: boolean };
+  | { moderator: number; on: boolean }
+  | { topic: number; text: string };
 
 export const manageRequest = (a: ManageAction) =>
   JSON.stringify(
@@ -264,7 +269,9 @@ export const manageRequest = (a: ManageAction) =>
           ? { type: "delete-channel", channel: a.remove }
           : "moderator" in a
             ? { type: "set-moderator", user: a.moderator, moderator: a.on }
-            : { type: "order-channels", channels: a.order },
+            : "topic" in a
+              ? { type: "set-topic", channel: a.topic, text: a.text }
+              : { type: "order-channels", channels: a.order },
   );
 
 export const markReadRequest = (channel: number, message: number) =>

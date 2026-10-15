@@ -55,10 +55,10 @@
         <input bind:value={name} maxlength={kind === "text" ? 32 : 100} required autofocus
           placeholder={kind === "text" ? "new-channel" : "New channel"} />
       </label>
-      {#if kind === "voice" && form.mode === "edit"}
+      {#if form.mode === "edit"}
         <label>
-          Description
-          <textarea bind:value={description} rows="3"></textarea>
+          {kind === "text" ? "Topic" : "Description"}
+          <textarea bind:value={description} rows="3" maxlength={kind === "text" ? 200 : undefined}></textarea>
         </label>
       {/if}
       {#if temporary}

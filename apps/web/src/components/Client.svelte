@@ -189,6 +189,7 @@
     if (view.kind === "text")
       return {
         title: textChannel?.name ?? "",
+        topic: textChannel?.topic ?? "",
         kind: "text" as const,
         messages: textChat,
         welcomeText: "",
