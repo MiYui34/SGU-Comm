@@ -1,5 +1,6 @@
 <script lang="ts">
   import { opensLightbox } from "../lib/lightbox";
+  import { highlightMentions, mentionsMe } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import type { ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
@@ -31,6 +32,7 @@
     talking = false,
     onSend,
     onClose,
+    me = "",
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -56,6 +58,8 @@
     onHoldTalk?: (down: boolean) => void;
     // Really sending (also false after a window blur released the key).
     talking?: boolean;
+    // Our name: messages that mention us stand out.
+    me?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -278,7 +282,7 @@
         {:else}
           {@const group = item.group}
           {#each group.messages as m, i (m)}
-            <li class="line" class:first={i === 0}>
+            <li class="line" class:first={i === 0} class:mentioned={mentionsMe(m.text, group.actorName, me)}>
               {#if i === 0}
                 <div class="gutter">
                   {#if group.actorName}
@@ -295,7 +299,7 @@
                     {/if}
                     <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
                   </div>
-                  {#if m.text}<div class="text">{@html safe(m.text)}</div>{/if}
+                  {#if m.text}<div class="text">{@html safe(highlightMentions(m.text, me))}</div>{/if}
                   {@render attachment(m)}
                 </div>
               {:else}
@@ -303,7 +307,7 @@
                   <time class="hover-time" datetime={new Date(m.at).toISOString()}>{formatTime(m.at)}</time>
                 </div>
                 <div class="body">
-                  {#if m.text}<div class="text">{@html safe(m.text)}</div>{/if}
+                  {#if m.text}<div class="text">{@html safe(highlightMentions(m.text, me))}</div>{/if}
                   {@render attachment(m)}
                 </div>
               {/if}
@@ -651,6 +655,16 @@
   .chat.dragging .scroller {
     outline: 2px dashed var(--accent);
     outline-offset: -8px;
+  }
+  .line.mentioned {
+    background: rgb(240 178 50 / 0.1);
+    box-shadow: inset 2px 0 0 rgb(240 178 50);
+  }
+  .text :global(.mention) {
+    padding: 0 2px;
+    border-radius: 3px;
+    background: rgb(240 178 50 / 0.25);
+    font-weight: 600;
   }
   .image {
     display: inline-block;

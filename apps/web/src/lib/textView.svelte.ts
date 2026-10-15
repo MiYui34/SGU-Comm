@@ -1,11 +1,13 @@
 import { untrack } from "svelte";
 import type { Connection } from "./connection.svelte";
+import { mentionCounts } from "./mentions";
 import { unreadTextIds } from "./textChannels";
 
 // Text channel behaviour of the client view: load history once per channel,
 // page back, track what was seen. Call during component setup (it uses
 // effects). `currentId` is the open text channel, or null.
-export const createTextView = (connection: () => Connection, currentId: () => number | null) => {
+// `me` is our name, for mentions.
+export const createTextView = (connection: () => Connection, currentId: () => number | null, me: () => string) => {
   const text = $derived(connection().text);
   const requested = new Set<number>();
   let seen = $state<Record<number, number>>({});
@@ -49,10 +51,15 @@ export const createTextView = (connection: () => Connection, currentId: () => nu
   });
 
   const unread = $derived(unreadTextIds(text, seen));
+  // Unseen mentions of us per channel (text channels and voice chats).
+  const mentions = $derived(mentionCounts(text, seen, me()));
 
   return {
     get unread() {
       return unread;
+    },
+    get mentions() {
+      return mentions;
     },
     get loadingOlder() {
       return loadingOlder;

@@ -1,10 +1,10 @@
 <script lang="ts">
   // Shows nothing for 0 or a missing count.
-  let { count }: { count: number | undefined } = $props();
+  let { count, label = "unread" }: { count: number | undefined; label?: string } = $props();
 </script>
 
 {#if count}
-  <span class="badge" title="{count} unread">{count}</span>
+  <span class="badge" title="{count} {label}">{count}</span>
 {/if}
 
 <style>

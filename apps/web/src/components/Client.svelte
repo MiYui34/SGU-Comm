@@ -23,6 +23,7 @@
   import { toChatMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { createTextView } from "../lib/textView.svelte";
+  import { playPing } from "../lib/ping";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -298,7 +299,23 @@
     const first = text.channels[0];
     view = first ? { kind: "text", id: first.id } : { kind: "voice" };
   });
-  const textView = createTextView(() => connection, () => chatId);
+  const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "");
+  // Mentions in voice channel chats, by voice channel.
+  const mentionVoice = $derived(
+    Object.fromEntries(
+      Object.entries(text.voiceChannels)
+        .map(([voice, chat]) => [voice, textView.mentions[chat] ?? 0])
+        .filter(([, n]) => n),
+    ),
+  );
+  // A short sound for new mentions outside the open channel (not while
+  // deafened).
+  let mentionTotal = 0;
+  $effect(() => {
+    const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (Number(id) === chatId ? a : a + n), 0);
+    if (total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
+    mentionTotal = total;
+  });
   const textChat = $derived(
     chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
@@ -457,6 +474,8 @@
       textChannels={text.channels}
       currentText={textId}
       unreadText={textView.unread}
+      mentionText={textView.mentions}
+      {mentionVoice}
       onOpenText={(id) => show({ kind: "text", id })}
       currentChannel={view.kind === "voice" ? channelId : null}
       {lobby}
@@ -485,7 +504,7 @@
     <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
   <div class="main" inert={phone && panel !== "chat"}>
-    <ChatPane {...paneCommon} {...pane} />
+    <ChatPane {...paneCommon} {...pane} me={me?.name ?? ""} />
   </div>
   {#if membersOpen || phone}
     <MemberList

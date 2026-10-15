@@ -18,6 +18,8 @@
     textChannels,
     currentText,
     unreadText,
+    mentionText = {},
+    mentionVoice = {},
     onOpenText,
     onJoin,
     onUserMenu,
@@ -37,6 +39,9 @@
     textChannels: TextChannel[];
     currentText: number | null;
     unreadText: ReadonlySet<number>;
+    // Unseen mentions of us, by text channel and by voice channel.
+    mentionText?: Record<number, number>;
+    mentionVoice?: Record<number, number>;
     onOpenText: (id: number) => void;
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
@@ -73,6 +78,7 @@
     >
       <Icon name="speaker" size={20} />
       <span class="name ellipsis">{node.channel.name}</span>
+      {#if node.channel.id !== currentChannel}<Badge count={mentionVoice[node.channel.id]} label="mentions" />{/if}
     </button>
     {#if users.length}
       <ul class="users">
@@ -159,6 +165,7 @@
               {#if unreadText.has(ch.id) && ch.id !== currentText}
                 <span class="sr-only">unread</span>
               {/if}
+              {#if ch.id !== currentText}<Badge count={mentionText[ch.id]} label="mentions" />{/if}
             </button>
           </li>
         {/each}
