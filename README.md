@@ -55,37 +55,50 @@ docker compose -f deploy/compose.yml up -d --remove-orphans
 
 ### For people with Mumble clients
 
-A Kallisti server is a normal Mumble server for them: they keep their
-client (Mumble 1.3 or newer; older clients have no Opus).
+With the built-in server, Kallisti is a full Mumble server: people keep
+their client (Mumble 1.3 or newer) and everything they know works. That is
+voice channels, temporary and linked channels, whispering and shouting,
+listening to other channels, positional audio, comments and avatars,
+registering with their certificate, private messages, rights (ACLs and
+groups), bans and, for admins, the list of registered users.
 
-**With the built-in server**
+On top of that, they get these things, without installing anything:
 
-- What they know works: voice channels, temporary and linked channels,
-  whispering and shouting, listening to other channels, positional audio,
-  comments and avatars, registering with their certificate, private and
-  channel messages, rights (ACLs and groups), and for admins bans and the
-  list of registered users.
-- Web and desktop users are normal users for them, with their avatars.
-- Text channels appear as channels under "Text channels". Entering one
-  shows the messages they missed (up to 20); what they write there goes
-  into the text channel. Nobody can talk there.
-- The top channel is a lobby: to talk, they join a voice channel.
-- What they write in a voice channel is stored, so web users see it later
-  in that channel's chat (and in search). Pictures that registered users
-  send are kept as attachments; files from web users arrive as links, and
-  replies with a short quote in front.
-- The names of Kallisti accounts are theirs only: a Mumble guest cannot use
-  them. Moderators that admins make in the web app have their rights in
-  Mumble too (kick, ban, move, change channels).
-- What they do not see: reactions, later edits and deletions, typing,
-  link previews, formatting (they get the plain text) and read state.
-- Not there: plugin data between clients (for example game positions
-  shared by Mumble plugins) and menu entries that server scripts add
-  through Murmur's Ice interface.
+- **Friends without Mumble in the same channels.** Anyone can join from a
+  browser by opening the site (or with the desktop app), and talks with them like any
+  Mumble user, with their avatar.
+- **Text channels.** The web app's text channels appear as channels under
+  "Text channels". What they write there reaches web users, and web users'
+  messages arrive live. When they enter one, the server sends what was said
+  before (the newest 20 messages; later visits in the same connection, what
+  they missed).
+- **Chat that stays.** What they write in a voice channel is kept, so people
+  who come later read it in the web app, and it can be searched.
+- **Pictures and files.** Pictures that registered users send are kept with
+  the message; files from web users arrive as links, and replies with a
+  short quote in front.
+- **A lobby.** The top channel is for meeting; to talk, people join a voice
+  channel on purpose (no surprise microphone in the root channel).
+- **Protected names.** Names of Kallisti accounts are theirs only: nobody
+  can join with them as a Mumble guest.
+- **Moderators.** Admins make moderators with one click in the web app, and
+  moderators can kick, ban, move and change channels from their Mumble
+  client too.
+- **A real certificate.** With `MUMBLE_CERT_FILE`, the Mumble port uses the
+  site's certificate, so clients connect without a trust question.
+- **An admin page in the browser.** SuperUser logs in on the web and manages
+  bans, registered users and channels there.
 
-**In front of an existing Murmur**, nothing changes for them: Murmur stays
-their server. Web users are normal Mumble users there (accounts are
-registered users); text channels and their history are for web users only.
+What Mumble clients do not see: reactions, later edits and deletions,
+typing, link previews and formatting (they get the plain text). Not there
+compared with Murmur: plugin data between clients (for example game
+positions shared by Mumble plugins), menu entries that server scripts add
+through Murmur's Ice interface, and clients older than 1.3 (no Opus).
+
+**In front of an existing Murmur**, nothing changes for Mumble users:
+Murmur stays their server. Web users join them as normal Mumble users
+(accounts as registered users); text channels and their history are for
+web users only.
 
 ## Desktop app
 
