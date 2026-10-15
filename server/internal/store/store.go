@@ -34,8 +34,9 @@ type Message struct {
 	EditedAt  time.Time // zero: never edited
 	// The author was registered on the Mumble server (a verified name).
 	Verified bool
-	Upload   *Upload // optional attachment
-	Reply    *Quote  // the message it answers
+	Upload    *Upload // optional attachment
+	Reply     *Quote  // the message it answers
+	Reactions []Reaction
 }
 
 // Quote is the message a reply answers (Author empty: deleted since).
@@ -108,6 +109,15 @@ CREATE TABLE IF NOT EXISTS read_marks (
 	channel_id INTEGER NOT NULL,
 	message_id INTEGER NOT NULL,
 	PRIMARY KEY (user, channel_id)
+);
+-- Who reacted to a message with which emoji (user_key: names.Key).
+CREATE TABLE IF NOT EXISTS reactions (
+	message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+	emoji      TEXT NOT NULL,
+	user_key   TEXT NOT NULL,
+	user       TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY (message_id, emoji, user_key)
 );
 CREATE TABLE IF NOT EXISTS accounts (
 	id            INTEGER PRIMARY KEY,
@@ -535,7 +545,10 @@ func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error)
 		out = append(out, m)
 	}
 	slices.Reverse(out)
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, s.withReactions(out)
 }
 
 func (s *Store) MessageByID(id int64) (Message, error) {
@@ -543,7 +556,14 @@ func (s *Store) MessageByID(id int64) (Message, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
-	return m, err
+	if err != nil {
+		return Message{}, err
+	}
+	msgs := []Message{m}
+	if err := s.withReactions(msgs); err != nil {
+		return Message{}, err
+	}
+	return msgs[0], nil
 }
 
 // EditMessage replaces a message's text and returns it.
@@ -734,6 +754,8 @@ func (s *Store) UploadedBytesSince(author string, since time.Time) (int64, error
 
 var (
 	ErrNotFound  = errors.New("not found")
+	// A message has reactions with maxReactionKinds different emoji.
+	ErrTooManyReactions = errors.New("too many different reactions")
 	ErrNameTaken = errors.New("name taken")
 	// Text channel names cannot have ":" (voice channel chats use it).
 	ErrInvalidName = errors.New("invalid channel name")
