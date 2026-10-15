@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -222,5 +223,20 @@ func TestTokenInQueryIsNotAccepted(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestRemoveDeletesOnlyAnUploadFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "abc123"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(filepath.Dir(dir), "outside"), []byte("x"), 0o600)
+	h := &Handler{Dir: dir}
+	h.Remove("abc123")
+	h.Remove("../outside")
+	if _, err := os.Stat(filepath.Join(dir, "abc123")); !os.IsNotExist(err) {
+		t.Fatal("file still there")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "outside")); err != nil {
+		t.Fatal("removed a file outside the upload folder")
 	}
 }

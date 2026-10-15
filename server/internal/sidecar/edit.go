@@ -1,0 +1,84 @@
+package sidecar
+
+import (
+	"strings"
+	"unicode/utf8"
+
+	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/names"
+	"kallisti.chat/server/internal/store"
+)
+
+// Editing and deleting messages. Registered users own the messages with
+// their verified name; guests (whose names are free) only those they wrote
+// in their current connection. Moderators and admins delete any message.
+
+// Guest messages remembered, at most (oldest forgotten first is not
+// needed: a full map starts over).
+const maxGuestMessages = 10_000
+
+func (h *Hub) rememberGuest(message int64, session uint32) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.guestMessages == nil || len(h.guestMessages) >= maxGuestMessages {
+		h.guestMessages = map[int64]uint32{}
+	}
+	h.guestMessages[message] = session
+}
+
+func (h *Hub) wrote(id mumble.Identity, m store.Message) bool {
+	if m.Verified {
+		return id.Registered && names.Key(id.Name) == names.Key(m.Author)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session, ok := h.guestMessages[m.ID]
+	return ok && !id.Registered && session == id.Session
+}
+
+func (c *Conn) changeMessage(id mumble.Identity, req request) {
+	h := c.hub
+	m, err := h.store.MessageByID(req.Message)
+	if err != nil {
+		c.sendError("unknown message")
+		return
+	}
+	voice, isVoice, ok := h.chatOf(m.ChannelID)
+	if !ok || (isVoice && !h.mayUse(id.Session, voice, false)) {
+		c.sendError("unknown message")
+		return
+	}
+	send := h.broadcast
+	if isVoice {
+		send = func(v any) { h.broadcastVoice(voice, v) }
+	}
+	own := h.wrote(id, m)
+	if req.Type == "edit-message" {
+		text := strings.TrimSpace(req.Text)
+		switch {
+		case !own:
+			c.sendError("you may only edit your own messages")
+		case (text == "" && m.Upload == nil) || utf8.RuneCountInString(text) > MaxTextLength:
+			c.sendError("message must be 1 to 2000 characters")
+		default:
+			if m, err = h.store.EditMessage(m.ID, text, h.now()); err != nil {
+				c.sendError("cannot edit the message")
+				return
+			}
+			send(map[string]any{"type": "message-edited", "message": toWire(m)})
+		}
+		return
+	}
+	if !own && (h.voice == nil || !h.voice.MayManage(id.Session)) {
+		c.sendError("you may only delete your own messages")
+		return
+	}
+	if m, err = h.store.DeleteMessage(m.ID); err != nil {
+		c.sendError("cannot delete the message")
+		return
+	}
+	if m.Upload != nil && h.OnUploadDeleted != nil {
+		h.OnUploadDeleted(m.Upload.Key)
+	}
+	send(map[string]any{"type": "message-deleted", "channel": m.ChannelID, "id": m.ID})
+}

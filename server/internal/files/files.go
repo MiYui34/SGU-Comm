@@ -236,3 +236,14 @@ func (h *Handler) DeleteUnused() {
 		}
 	}
 }
+
+// Remove deletes an upload's file (its message was deleted). Keys are
+// plain names: anything with a path is ignored.
+func (h *Handler) Remove(key string) {
+	if key == "" || key != filepath.Base(key) || strings.HasPrefix(key, ".") {
+		return
+	}
+	if err := os.Remove(filepath.Join(h.Dir, key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("delete upload file", "key", key, "err", err)
+	}
+}

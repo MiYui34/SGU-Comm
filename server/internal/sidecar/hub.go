@@ -66,6 +66,11 @@ type Hub struct {
 	mu       sync.Mutex
 	// One channel change at a time: store, reload and broadcast in order.
 	manageMu sync.Mutex
+	// Guest messages of this run: message id -> voice server session (see
+	// wrote).
+	guestMessages map[int64]uint32
+	// OnUploadDeleted removes the file of a deleted message's attachment.
+	OnUploadDeleted func(key string)
 	// Per voice server session: the last message seen in each mirror.
 	visitsMu sync.Mutex
 	visits   map[uint32]map[int64]int64
@@ -180,6 +185,7 @@ type wireMessage struct {
 	At       int64       `json:"at"` // Unix milliseconds
 	Verified bool        `json:"verified"`
 	Upload   *wireUpload `json:"upload,omitempty"`
+	Edited   int64       `json:"edited,omitempty"` // Unix milliseconds
 }
 
 type wireUpload struct {
@@ -196,6 +202,9 @@ func FileURL(u store.Upload) string {
 
 func toWire(m store.Message) wireMessage {
 	w := wireMessage{ID: m.ID, Channel: m.ChannelID, Author: m.Author, Text: m.Text, At: m.CreatedAt.UnixMilli(), Verified: m.Verified}
+	if !m.EditedAt.IsZero() {
+		w.Edited = m.EditedAt.UnixMilli()
+	}
 	if u := m.Upload; u != nil {
 		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
 	}
@@ -211,6 +220,7 @@ type request struct {
 	Before    int64   `json:"before"`
 	Text      string  `json:"text"`
 	Upload    string  `json:"upload"`    // key of an upload to attach
+	Message   int64   `json:"message"`   // edit-message, delete-message
 	User      uint32  `json:"user"`      // set-moderator: registered user id
 	Moderator bool    `json:"moderator"` // set-moderator
 }
@@ -244,6 +254,9 @@ func (c *Conn) Handle(raw []byte) {
 	switch req.Type {
 	case "create-channel", "rename-channel", "delete-channel", "order-channels":
 		c.manage(*id, req)
+		return
+	case "edit-message", "delete-message":
+		c.changeMessage(*id, req)
 		return
 	case "set-moderator":
 		// The voice server reports the change (RolesChanged).
@@ -387,6 +400,9 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 	if err != nil {
 		c.sendError("cannot store message")
 		return
+	}
+	if !id.Registered {
+		c.hub.rememberGuest(m.ID, id.Session)
 	}
 	event := map[string]any{"type": "message", "message": toWire(m)}
 	if !isVoice {

@@ -117,6 +117,7 @@ func run() error {
 		Now:            time.Now,
 		Redeem:         hub.RedeemUploadToken,
 	}
+	hub.OnUploadDeleted = fileHandler.Remove
 	go func() {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()
