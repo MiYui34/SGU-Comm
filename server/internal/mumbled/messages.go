@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"errors"
+	"html"
 	"log/slog"
 	"maps"
 	"regexp"
@@ -618,10 +619,13 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		}
 	}
 	if hook := s.cfg.OnChannelText; hook != nil {
-		for _, id := range m.ChannelId {
+		// Every channel it went to (trees included), as plain text: Mumble
+		// clients send HTML.
+		plain := html.UnescapeString(text)
+		from, name, registered := c.session, actor.Name, actor.Registered
+		for _, id := range slices.Sorted(maps.Keys(channels)) {
 			if s.state.Channels[id] != nil {
-				from, name, registered := c.session, actor.Name, actor.Registered
-				hooks = append(hooks, func() { hook(from, name, registered, id, text) })
+				hooks = append(hooks, func() { hook(from, name, registered, id, plain) })
 			}
 		}
 	}

@@ -1,6 +1,8 @@
 package mumbled
 
 import (
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 
@@ -74,5 +76,37 @@ func TestOnlyAdminsManageTextChannels(t *testing.T) {
 	su := superUser(t, addr)
 	if s.MayManage(guest.session) || !s.MayManage(su.session) {
 		t.Fatal("MayManage")
+	}
+}
+
+func TestChatTextIsPlainBothWays(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	cfg := Config{OnChannelText: func(_ uint32, _ string, _ bool, channel uint32, text string) {
+		mu.Lock()
+		got = append(got, fmt.Sprint(channel, ":", text))
+		mu.Unlock()
+	}}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, openACL)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	a := alice.createChannel(0, "A", false)
+	b := alice.createChannel(a, "B", false)
+	// Mumble clients send HTML: the hook gets plain text. A tree message
+	// counts for every channel in the tree.
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{TreeId: []uint32{a}, Message: proto.String("Tom &amp; Jerry &lt;3")})
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(got) == 2 })
+	mu.Lock()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{fmt.Sprint(a, ":Tom & Jerry <3"), fmt.Sprint(b, ":Tom & Jerry <3")}) {
+		t.Fatalf("hook got %v", got)
+	}
+	mu.Unlock()
+	// Web text goes to Mumble clients escaped, not cut at "<".
+	s.SendChannelText(alice.session, 0, "if a<b & c")
+	var m pb.TextMessage
+	proto.Unmarshal(bob.expect(mumble.TypeTextMessage), &m)
+	if m.GetMessage() != "if a&lt;b &amp; c" {
+		t.Fatalf("bob got %q", m.GetMessage())
 	}
 }

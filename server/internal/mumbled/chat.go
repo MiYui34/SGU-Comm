@@ -1,6 +1,9 @@
 package mumbled
 
 import (
+	"html"
+	"strings"
+
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/mumble"
@@ -24,10 +27,11 @@ func (s *Server) MayWrite(session, channel uint32) bool {
 	return u != nil && s.state.Channels[channel] != nil && s.state.Has(u, channel, TextMessage)
 }
 
-// SendChannelText delivers a text from a user to the others in a channel,
-// as if the user had sent it (for messages written in the web client).
+// SendChannelText delivers a plain text from a user to the others in a
+// channel, as if the user had sent it (for messages written in the web
+// client). Mumble clients read HTML, so it goes out escaped.
 func (s *Server) SendChannelText(from, channel uint32, text string) {
-	text = plainText(text)
+	text = html.EscapeString(strings.TrimSpace(text))
 	if text == "" {
 		return
 	}
