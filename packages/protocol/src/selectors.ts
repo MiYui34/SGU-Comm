@@ -59,3 +59,16 @@ export const missingDescriptions = (state: ServerState): number[] =>
   Object.values(state.channels)
     .filter((c) => c.descriptionHash !== null && c.description === "")
     .map((c) => c.id);
+
+const SPEAK = 0x8;
+
+// Kallisti servers keep the root channel as a lobby without voice: users
+// arrive there and join voice channels on purpose. Plain Mumble servers
+// use root as a voice channel.
+export const isLobby = (state: ServerState): boolean =>
+  state.rootPermissions !== null && (state.rootPermissions & SPEAK) === 0;
+
+export const inVoice = (state: ServerState): boolean => {
+  const me = state.session === null ? undefined : state.users[state.session];
+  return me !== undefined && !(isLobby(state) && me.channelId === 0);
+};

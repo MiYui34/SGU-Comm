@@ -15,3 +15,8 @@ uploads. Discord's voice channels have a full text chat.
 
 - A file can be uploaded in a voice channel's chat and is still there after
   a reload.
+
+## Decision
+
+- Stored, with uploads: each voice channel gets a chat like a text channel;
+  native Mumble users still see the text, uploads as links.

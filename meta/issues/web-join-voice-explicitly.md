@@ -20,3 +20,9 @@ muted.
 
 - A new web session does not open the microphone and is not heard.
 - Joining a voice channel opens the microphone; muting or leaving closes it.
+
+## Decision
+
+- Root is the lobby: no voice there (Speak denied in root), shown as
+  "online, not in voice"; a "General" voice channel is made on the first
+  start. Same for native Mumble users.

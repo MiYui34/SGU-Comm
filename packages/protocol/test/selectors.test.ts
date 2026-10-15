@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   audioFormat,
   channelTree,
+  inVoice,
+  isLobby,
   messagesIn,
   missingDescriptions,
   privateMessagesWith,
@@ -158,3 +160,25 @@ describe("privateMessagesWith", () => {
   });
 });
 
+
+describe("lobby and voice", () => {
+  const SPEAK = 0x8;
+  const base = (rootPermissions: number | null, channelId: number) => ({
+    ...withData([ch(0, null, "Root"), ch(1, 0, "General")], [user(5, "me", channelId)]),
+    session: 5,
+    rootPermissions,
+  });
+
+  it("treats root as a lobby when nobody may speak there", () => {
+    expect(isLobby(base(0x6, 0))).toBe(true);
+    expect(isLobby(base(0x6 | SPEAK, 0))).toBe(false); // a plain Mumble server
+    expect(isLobby(base(null, 0))).toBe(false); // not synced yet
+  });
+
+  it("is in voice outside the lobby only", () => {
+    expect(inVoice(base(0x6, 0))).toBe(false);
+    expect(inVoice(base(0x6, 1))).toBe(true);
+    expect(inVoice(base(0x6 | SPEAK, 0))).toBe(true); // root is a voice channel there
+    expect(inVoice({ ...base(0x6, 1), session: null })).toBe(false);
+  });
+});

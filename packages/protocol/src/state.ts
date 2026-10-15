@@ -59,11 +59,14 @@ export type ServerState = {
   privateCounts: Readonly<Record<string, number>>;
   // The last thing the server refused (PermissionDenied), for a short notice.
   notice: { text: string; at: number } | null;
+  // What we may do in the root channel (ServerSync), null before it.
+  rootPermissions: number | null;
 };
 
 export const MAX_MESSAGES = 1000;
 
 export const initialState: ServerState = {
+  rootPermissions: null,
   serverVersion: null,
   status: "connecting",
   session: null,
@@ -214,6 +217,7 @@ export const reduce = (
         status: "synced",
         session: msg.message.session,
         welcomeText: msg.message.welcomeText,
+        rootPermissions: Number(msg.message.permissions),
       };
     case "Reject":
       return {

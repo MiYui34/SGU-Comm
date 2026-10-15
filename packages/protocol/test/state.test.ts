@@ -317,3 +317,16 @@ describe("permission denied", () => {
     expect(s.notice?.text).toBe("No self-registration here");
   });
 });
+
+describe("root permissions", () => {
+  it("keeps the permissions from ServerSync, unknown before it", () => {
+    expect(initialState.rootPermissions).toBeNull();
+    const s = run([
+      {
+        type: "ServerSync",
+        message: create(pb.ServerSyncSchema, { session: 3, permissions: 0x2n | 0x4n }),
+      },
+    ]);
+    expect(s.rootPermissions).toBe(0x6);
+  });
+});
