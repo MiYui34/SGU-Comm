@@ -44,3 +44,4 @@
 - [x] [Built-in Mumble server (replace Murmur)](issues/built-in-mumble-server.md)
 - [x] [Web: the upload button's (+) is not centered](issues/web-upload-button-centered.md)
 - [x] [Web: join voice channels explicitly](issues/web-join-voice-explicitly.md)
+- [x] [Voice channel chat with uploads](issues/voice-channel-chat-uploads.md)

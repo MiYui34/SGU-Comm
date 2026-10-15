@@ -20,3 +20,16 @@ uploads. Discord's voice channels have a full text chat.
 
 - Stored, with uploads: each voice channel gets a chat like a text channel;
   native Mumble users still see the text, uploads as links.
+
+## Result
+
+- Done: each voice channel has a stored chat (hidden channel keyed by the
+  Mumble channel id) with history and uploads; Enter to read, TextMessage
+  to write, live messages filtered per receiver. Web messages reach Mumble
+  clients as text (uploads as links); Mumble clients' texts (also to
+  trees) are stored. Tested with the official client in podman: both
+  directions, upload link, history after a reload.
+- Open, small: voice chats have no unread marks; every reader gets all
+  live voice chat messages (default ACLs); broadcastVoice asks the Mumble
+  server once per connection; upload links use the first allowed origin
+  and stay valid like text channel links.
