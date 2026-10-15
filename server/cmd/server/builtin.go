@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -150,8 +148,7 @@ func (b *builtin) dial(_ context.Context, up bridge.Upstream) (net.Conn, error) 
 		o.Host = ip.Unmap()
 	}
 	if up.Cert != nil && up.AccountName != "" {
-		sum := sha1.Sum(up.Cert.Certificate[0])
-		o.Account = &mumbled.WebAccount{Name: up.AccountName, CertHash: hex.EncodeToString(sum[:])}
+		o.Account = &mumbled.WebAccount{Name: up.AccountName, CertHash: certHash(up.Cert.Certificate[0])}
 	}
 	go b.srv.ServeConn(server, o)
 	return client, nil

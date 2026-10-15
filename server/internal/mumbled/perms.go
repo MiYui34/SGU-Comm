@@ -480,3 +480,25 @@ func (s *Server) registrationChangedLocked(id uint32, name *string, actor uint32
 		s.permissionsChangedLocked(nil)
 	}
 }
+
+// Unregister removes the registration of a certificate (a temporary web
+// account that was cleaned up), as an admin's removal does. Unknown
+// certificates are fine.
+func (s *Server) Unregister(certHash string) error {
+	db := s.cfg.DB
+	if db == nil {
+		return nil
+	}
+	r, err := db.UserByHash(certHash)
+	if err != nil || r == nil {
+		return err
+	}
+	if err := db.UnregisterUser(r.ID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.registrationChangedLocked(r.ID, nil, 0)
+	s.mu.Unlock()
+	s.rolesChanged() // its group memberships are gone
+	return nil
+}

@@ -322,3 +322,15 @@ func TestFail(t *testing.T) {
 		t.Fatalf("got %v", m)
 	}
 }
+
+func TestOnline(t *testing.T) {
+	h := newHub(t, "general")
+	c := ready(t, h, "Alice")
+	if !h.Online("alice") || h.Online("bob") {
+		t.Fatal("online")
+	}
+	c.Close()
+	if h.Online("alice") {
+		t.Fatal("still online after close")
+	}
+}

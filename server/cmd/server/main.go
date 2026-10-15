@@ -93,6 +93,7 @@ func run() error {
 	hub.OnUploadDeleted = fileHandler.Remove
 	hub.SaveFile = fileHandler.Save
 	dial, upstream := murmurDialer(cfg)
+	cleanup := func(time.Time) {}                // guest accounts (built-in server)
 	var avatars http.Handler = mumbled.NoAvatars // Murmur's avatars are not ours to read
 	if cfg.Builtin != nil {
 		mumble, err := startBuiltin(cfg.Builtin, db, hub, publicBase(cfg.AllowedOrigins))
@@ -103,6 +104,8 @@ func run() error {
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken
 		accounts.MumbleLogin = mumble.srv.CheckPassword
+		accounts.GuestAccounts = true // the built-in server can remove their registrations
+		cleanup = func(now time.Time) { cleanGuests(db, now, hub.Online, mumble.srv.Unregister) }
 		if cfg.Builtin.Password == "" { // a private server keeps them private
 			avatars = mumble.db.Avatars()
 		}
@@ -122,6 +125,7 @@ func run() error {
 			if !ok {
 				return "", nil, false
 			}
+			db.TouchAccount(acc.ID, time.Now()) // a visit (guest accounts live a day from it)
 			cert, err := certs.Load(acc.CertPEM, acc.KeyPEM)
 			if err != nil {
 				slog.Error("load account certificate", "account", acc.Name, "err", err)
@@ -138,6 +142,7 @@ func run() error {
 	go func() {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()
+			cleanup(time.Now())
 			if _, err := db.DeleteExpiredSessions(time.Now()); err != nil {
 				slog.Error("delete expired sessions", "err", err)
 			}
