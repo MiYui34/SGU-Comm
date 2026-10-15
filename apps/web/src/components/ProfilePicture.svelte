@@ -3,14 +3,14 @@
   import Avatar from "./Avatar.svelte";
 
   // Choose or remove our avatar picture.
-  // saved: the server keeps the picture (registered users); guests lose it
-  // when they leave.
+  // Only registered users may set one (the server keeps it); guests would
+  // lose it when they leave.
   let {
     name,
     hasPicture,
-    saved,
+    registered,
     onSet,
-  }: { name: string; hasPicture: boolean; saved: boolean; onSet: (texture: Uint8Array) => void } = $props();
+  }: { name: string; hasPicture: boolean; registered: boolean; onSet: (texture: Uint8Array) => void } = $props();
 
   let input: HTMLInputElement | undefined = $state();
   let error = $state<string | null>(null);
@@ -33,15 +33,17 @@
   <div class="actions">
     <span class="label">Profile picture</span>
     <div class="buttons">
-      <button type="button" class="secondary" onclick={() => input?.click()}>
-        {hasPicture ? "Change picture" : "Choose picture"}
-      </button>
+      {#if registered}
+        <button type="button" class="secondary" onclick={() => input?.click()}>
+          {hasPicture ? "Change picture" : "Choose picture"}
+        </button>
+      {/if}
       {#if hasPicture}
         <button type="button" class="secondary" onclick={() => onSet(new Uint8Array())}>Remove</button>
       {/if}
     </div>
     {#if error}<p class="hint warn" role="status">{error}</p>{/if}
-    {#if !saved}<p class="hint">Guests keep their picture only until they leave.</p>{/if}
+    {#if !registered}<p class="hint">Register an account to set a profile picture.</p>{/if}
   </div>
   <input
     bind:this={input}

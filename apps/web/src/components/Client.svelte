@@ -563,7 +563,7 @@
     profile={me && {
       name: me.name,
       hasPicture: me.texture !== null || me.textureHash !== null,
-      saved: me.userId !== null,
+      registered: me.userId !== null,
       onSet: connection.setTexture,
     }}
     onClose={() => (showSettings = false)}
