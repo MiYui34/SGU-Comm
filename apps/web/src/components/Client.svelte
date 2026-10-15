@@ -5,6 +5,7 @@
     isLobby,
     joinChannel,
     messagesIn,
+    escapeHtml,
     privateMessagesWith,
     registerSelf,
     setSelfState,
@@ -27,6 +28,8 @@
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
+  import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
+  import { mentionsMe } from "../lib/mentions";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -311,6 +314,43 @@
         .filter(([, n]) => n),
     ),
   );
+  // Desktop notifications (see shouldNotify): mentions in stored chats, and
+  // private messages.
+  const notify = (title: string, body: string, open: boolean, onOpen: () => void) => {
+    const visible = document.visibilityState === "visible";
+    const enabled = prefs.notifications;
+    if (shouldNotify({ enabled, permission: notificationPermission(), visible, deaf: me?.selfDeaf ?? false, open }))
+      showNotification(title, body, onOpen);
+  };
+  $effect(() =>
+    connection.onTextEvent((ev) => {
+      if (ev.type !== "message" || !me) return;
+      const m = ev.message;
+      if (!mentionsMe(escapeHtml(m.text), m.author, me.name)) return;
+      const textChannel = text.channels.find((c) => c.id === m.channel);
+      const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
+      const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
+      notify(`${m.author || "Server"} in ${where}`, m.text.trim().slice(0, 140), chatId === m.channel, () => {
+        if (textChannel) show({ kind: "text", id: textChannel.id });
+      });
+    }),
+  );
+  let privateSeen: Record<string, number> = untrack(() => ({ ...server.privateCounts })); // counts so far
+  $effect(() => {
+    const counts = server.privateCounts;
+    untrack(() => {
+      for (const [peer, n] of Object.entries(counts)) {
+        if (n <= (privateSeen[peer] ?? 0)) continue;
+        const last = privateMessagesWith(server, peer).at(-1);
+        const user = Object.values(server.users).find((u) => u.name === peer);
+        if (last)
+          notify(peer, notificationBody(last.text), dm?.name === peer, () => {
+            if (user) show({ kind: "dm", session: user.session, name: peer });
+          });
+      }
+      privateSeen = { ...counts };
+    });
+  });
   // A short sound for new mentions outside the open channel (not while
   // deafened).
   let mentionTotal = 0;

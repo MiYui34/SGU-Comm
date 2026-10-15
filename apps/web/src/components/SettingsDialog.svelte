@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
   import ProfilePicture from "./ProfilePicture.svelte";
+  import { notificationPermission } from "../lib/notify";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
@@ -71,6 +72,13 @@
     if (event.code !== "Escape") onChange({ pttKey: event.code });
     recordingKey = false;
   };
+  const blockedNote =
+    typeof Notification === "undefined"
+      ? "This browser has no desktop notifications."
+      : "The browser blocks notifications for this site.";
+  let notificationNote = $state<string | null>(
+    typeof Notification === "undefined" || Notification.permission === "denied" ? blockedNote : null,
+  );
 </script>
 
 <svelte:window onkeydowncapture={recordKey} />
@@ -186,6 +194,24 @@
       </p>
     </div>
   {/if}
+  <label class="check">
+    <input
+      type="checkbox"
+      checked={settings.notifications}
+      onchange={async (e) => {
+        const box = e.currentTarget;
+        let on = box.checked;
+        if (on && notificationPermission() !== "granted" && typeof Notification !== "undefined") {
+          on = (await Notification.requestPermission()) === "granted";
+        }
+        notificationNote = on || !box.checked ? null : blockedNote;
+        box.checked = on;
+        onChange({ notifications: on });
+      }}
+    />
+    Desktop notifications for mentions and private messages
+  </label>
+  {#if notificationNote}<p class="hint warn" role="status">{notificationNote}</p>{/if}
   {#if account}
     <form class="account" onsubmit={changePassword}>
       <span class="label">Change password</span>
@@ -299,6 +325,13 @@
   }
   .hint.warn {
     color: var(--danger);
+  }
+  .check {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    text-transform: none;
+    font-weight: normal;
   }
   .account {
     display: flex;

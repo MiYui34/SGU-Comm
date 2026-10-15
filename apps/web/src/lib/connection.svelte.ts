@@ -34,6 +34,7 @@ import {
   uploadTokenRequest,
   voiceChatRequest,
   type ManageAction,
+  type ServerEvent,
   type TextState,
 } from "./textChannels";
 import { texturesToFetch } from "./avatar";
@@ -60,6 +61,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // Text channels from the Kallisti server (unavailable on plain Mumble).
   let text = $state.raw<TextState>(initialTextState);
   // One upload token request at a time (the UI uploads one file at a time).
+  // Live text events for the UI (notifications), after the state took them.
+  const textListeners = new Set<(ev: ServerEvent) => void>();
   let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void } | null = null;
   const base = httpBase(url);
   const push = createMessageStream();
@@ -117,6 +120,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const ev = parseServerEvent(event.data);
       if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
       else if (ev) text = reduceText(text, ev);
+      if (ev) textListeners.forEach((fn) => fn(ev));
       return;
     }
     try {
@@ -218,6 +222,11 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     sendText: (target: TextTarget, text: string) => {
       send(sendText(target, text));
       state = addOwnMessage(state, target, text, Date.now());
+    },
+    // Calls fn for each text event from the server; returns the way out.
+    onTextEvent: (fn: (ev: ServerEvent) => void) => {
+      textListeners.add(fn);
+      return () => textListeners.delete(fn);
     },
     // Our avatar (empty: remove it).
     setTexture: (texture: Uint8Array) => {

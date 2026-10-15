@@ -6,6 +6,8 @@ export type Settings = {
   vadThresholdDb: number;
   inputDeviceId: string | null;
   outputDeviceId: string | null;
+  // Desktop notifications for mentions and private messages.
+  notifications: boolean;
 };
 
 export const METER_MIN_DB = -80;
@@ -16,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vadThresholdDb: -45,
   inputDeviceId: null,
   outputDeviceId: null,
+  notifications: false,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -41,6 +44,7 @@ export const parseSettings = (raw: string | null): Settings => {
         : DEFAULT_SETTINGS.vadThresholdDb,
     inputDeviceId: str(d.inputDeviceId),
     outputDeviceId: str(d.outputDeviceId),
+    notifications: d.notifications === true,
   };
 };
 
