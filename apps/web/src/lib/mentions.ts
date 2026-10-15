@@ -49,3 +49,30 @@ export const mentionCounts = (state: TextState, seen: Record<number, number>, me
   }
   return out;
 };
+
+// Autocomplete: the "@word" being typed before the caret (null: none).
+export const mentionQuery = (text: string, caret: number): { start: number; query: string } | null => {
+  const m = /(?:^|[\s(\[{,:])@([^\s@]*)$/u.exec(text.slice(0, caret));
+  return m ? { start: caret - m[1]!.length - 1, query: m[1]! } : null;
+};
+
+const SUGGESTIONS = 8;
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
+
+// Names to offer: those starting with the query first, then those that
+// contain it; never me, each once.
+export const suggestNames = (names: readonly string[], query: string, me: string): string[] => {
+  const q = query.toLowerCase();
+  const unique = [...new Map(names.map((n) => [n.toLowerCase(), n])).entries()].filter(([low]) => low !== me.toLowerCase());
+  const starts = unique.filter(([low]) => low.startsWith(q)).map(([, n]) => n).sort(byName);
+  const contains = unique.filter(([low]) => !low.startsWith(q) && low.includes(q)).map(([, n]) => n).sort(byName);
+  return [...starts, ...contains].slice(0, SUGGESTIONS);
+};
+
+// Puts "@name " in place of the typed "@word"; the caret goes after the
+// space (a space already there is kept, not doubled).
+export const insertMention = (text: string, start: number, caret: number, name: string) => {
+  const rest = text.slice(caret);
+  const mention = /^\s/u.test(rest) ? `@${name}` : `@${name} `;
+  return { text: text.slice(0, start) + mention + rest, caret: start + name.length + 2 };
+};

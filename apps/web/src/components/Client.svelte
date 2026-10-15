@@ -319,6 +319,10 @@
   const textChat = $derived(
     chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
+  // Names "@" suggests: who is online, and who wrote in the open chat.
+  const people = $derived([
+    ...new Set([...users.map((u) => u.name), ...textChat.flatMap((m) => (m.actorName ? [m.actorName] : []))]),
+  ]);
   // One upload at a time. Errors show where server errors show.
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
@@ -504,7 +508,7 @@
     <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
   <div class="main" inert={phone && panel !== "chat"}>
-    <ChatPane {...paneCommon} {...pane} me={me?.name ?? ""} />
+    <ChatPane {...paneCommon} {...pane} me={me?.name ?? ""} {people} />
   </div>
   {#if membersOpen || phone}
     <MemberList

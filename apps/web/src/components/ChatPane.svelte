@@ -1,12 +1,12 @@
 <script lang="ts">
   import { opensLightbox } from "../lib/lightbox";
-  import { highlightMentions, mentionsMe } from "../lib/mentions";
+  import { highlightMentions, insertMention, mentionQuery, mentionsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import type { ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
@@ -33,6 +33,7 @@
     onSend,
     onClose,
     me = "",
+    people = [],
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -60,6 +61,8 @@
     talking?: boolean;
     // Our name: messages that mention us stand out.
     me?: string;
+    // Names "@" suggests (online users, recent authors).
+    people?: readonly string[];
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -189,6 +192,41 @@
 
   // The image shown large (see Lightbox).
   let lightbox = $state<{ url: string; name: string } | null>(null);
+
+  // "@" autocomplete (see mentionQuery). Escape hides the list until the
+  // "@word" changes.
+  let messageInput: HTMLInputElement | undefined = $state();
+  let caret = $state(0);
+  let selected = $state(0);
+  let dismissed = $state<number | null>(null);
+  const listId = $props.id();
+  const query = $derived(mentionQuery(draft, caret));
+  const suggestions = $derived(query && query.start !== dismissed ? suggestNames(people, query.query, me) : []);
+  const active = $derived(Math.min(selected, suggestions.length - 1));
+  const updateCaret = () => {
+    caret = messageInput?.selectionStart ?? draft.length;
+    selected = 0;
+    if (!query || query.start !== dismissed) dismissed = null;
+  };
+  const pick = async (name: string) => {
+    if (!query) return;
+    const next = insertMention(draft, query.start, caret, name);
+    draft = next.text;
+    caret = next.caret;
+    await tick();
+    messageInput?.focus();
+    messageInput?.setSelectionRange(next.caret, next.caret);
+  };
+  // Keys while the list is open; true: handled.
+  const onSuggestionKey = (e: KeyboardEvent) => {
+    const n = suggestions.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") selected = (active + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+    else if (e.key === "Enter" || e.key === "Tab") void pick(suggestions[active]!);
+    else if (e.key === "Escape") dismissed = query?.start ?? null;
+    else return false;
+    e.preventDefault();
+    return true;
+  };
 </script>
 
 <main
@@ -372,11 +410,44 @@
         }}
       />
       {#if uploading}<span class="uploading">Uploading…</span>{/if}
+      {#if suggestions.length}
+        <ul class="suggestions" id={listId} role="listbox" aria-label="People to mention">
+          {#each suggestions as name, i (name)}
+            <!-- The keyboard works through the message box (a combobox). -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <li
+              id="{listId}-{i}"
+              role="option"
+              aria-selected={i === active}
+              class:selected={i === active}
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => pick(name)}
+            >
+              <Avatar {name} size={20} />
+              <span class="ellipsis">{name}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
       <input
+        bind:this={messageInput}
         onpaste={onPaste}
+        oninput={updateCaret}
+        onclick={updateCaret}
+        onkeyup={(e) => {
+          // Up and Down move in the open list; other keys may move the caret.
+          if (!(suggestions.length && (e.key === "ArrowUp" || e.key === "ArrowDown"))) updateCaret();
+        }}
         onkeydown={(e) => {
+          if (e.isComposing) return; // Enter picks a word in an input method
+          if (suggestions.length && onSuggestionKey(e)) return;
           if (e.key === "Escape" && pending) cancelPending();
         }}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={suggestions.length > 0}
+        aria-controls={suggestions.length ? listId : undefined}
+        aria-activedescendant={suggestions.length ? `${listId}-${active}` : undefined}
         bind:value={draft}
         placeholder={pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`}
         disabled={!onSend}
@@ -645,6 +716,7 @@
     font-size: 14px;
   }
   .composer {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -655,6 +727,32 @@
   .chat.dragging .scroller {
     outline: 2px dashed var(--accent);
     outline-offset: -8px;
+  }
+  .suggestions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    border-radius: 8px;
+    background: var(--bg-rail);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+    z-index: 5;
+  }
+  .suggestions li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    --avatar-cutout: var(--bg-rail);
+  }
+  .suggestions li.selected,
+  .suggestions li:hover {
+    background: var(--bg-active);
   }
   .line.mentioned {
     background: rgb(240 178 50 / 0.1);
