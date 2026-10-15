@@ -198,15 +198,16 @@ type wireChannel struct {
 }
 
 type wireMessage struct {
-	ID       int64       `json:"id"`
-	Channel  int64       `json:"channel"`
-	Author   string      `json:"author"`
-	Text     string      `json:"text"`
-	At       int64       `json:"at"` // Unix milliseconds
-	Verified bool        `json:"verified"`
-	Upload   *wireUpload `json:"upload,omitempty"`
-	Edited   int64       `json:"edited,omitempty"` // Unix milliseconds
-	Reply    *wireQuote  `json:"reply,omitempty"`
+	ID        int64          `json:"id"`
+	Channel   int64          `json:"channel"`
+	Author    string         `json:"author"`
+	Text      string         `json:"text"`
+	At        int64          `json:"at"` // Unix milliseconds
+	Verified  bool           `json:"verified"`
+	Upload    *wireUpload    `json:"upload,omitempty"`
+	Edited    int64          `json:"edited,omitempty"` // Unix milliseconds
+	Reply     *wireQuote     `json:"reply,omitempty"`
+	Reactions []wireReaction `json:"reactions,omitempty"`
 }
 
 // wireQuote is the start of the message a reply answers (author empty:
@@ -249,6 +250,9 @@ func toWire(m store.Message) wireMessage {
 	if u := m.Upload; u != nil {
 		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
 	}
+	if len(m.Reactions) > 0 {
+		w.Reactions = toWireReactions(m.Reactions)
+	}
 	return w
 }
 
@@ -266,6 +270,8 @@ type request struct {
 	Author    string  `json:"author"`    // search: only this author
 	User      uint32  `json:"user"`      // set-moderator: registered user id
 	Moderator bool    `json:"moderator"` // set-moderator
+	Emoji     string  `json:"emoji"`     // react
+	On        bool    `json:"on"`        // react: add (or remove)
 }
 
 // Handle answers one request from the browser.
@@ -306,6 +312,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "edit-message", "delete-message":
 		c.changeMessage(*id, req)
+		return
+	case "react":
+		c.react(*id, req)
 		return
 	case "set-moderator":
 		// The voice server reports the change (RolesChanged).
