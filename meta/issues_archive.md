@@ -63,3 +63,4 @@
 - [x] [Remember what was read](issues/read-state.md)
 - [x] [Channel menu on phones](issues/mobile-channel-menu.md)
 - [x] [Desktop notifications](issues/desktop-notifications.md)
+- [x] [Avatar size check](issues/avatar-size-check.md)

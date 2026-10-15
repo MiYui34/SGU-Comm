@@ -7,7 +7,6 @@
 - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Bans and users in the web app](issues/web-moderation-view.md)
 - [ ] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)
-- [ ] [Avatar size check](issues/avatar-size-check.md)
 - [ ] [Text channel topic](issues/text-channel-topic.md)
 - [ ] [Replies](issues/message-replies.md)
 - [ ] [Search messages](issues/message-search.md)
