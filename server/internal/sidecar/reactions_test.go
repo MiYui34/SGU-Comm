@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/time/rate"
@@ -52,13 +53,13 @@ func TestOnlyEmojiAreReactions(t *testing.T) {
 	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
 	alice.limit = rate.NewLimiter(rate.Inf, 0) // many requests in a row
 	id := say(t, h, alice, "hi")
-	for _, bad := range []string{"", "lol", "<b>", "👍👍👍👍👍👍👍👍👍", " 👍", "​"} {
+	for _, bad := range []string{"", "lol", "<b>", " 👍", "\u200b", "★ПРИВЕТ", "ＦＵＣＫ★", "👍\u0489\u0489", "👍\u200d", "\u200d★", "👍\u200d\u200d👍", strings.Repeat("👍", 17)} {
 		react(alice, id, bad, true)
 		if m := next(t, alice); m["type"] != "error" {
 			t.Fatalf("%q: %v", bad, m)
 		}
 	}
-	for _, good := range []string{"❤️", "👍🏽", "👨‍👩‍👧", "🇩🇪"} {
+	for _, good := range []string{"❤️", "👍🏽", "👨‍👩‍👧", "🇩🇪", "🧑🏻‍❤️‍💋‍🧑🏼", "🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"} {
 		react(alice, id, good, true)
 		if m := next(t, alice); m["type"] != "reactions" {
 			t.Fatalf("%q: %v", good, m)
@@ -80,4 +81,27 @@ func TestReactingInAVoiceChatNeedsWrite(t *testing.T) {
 	if got := next(t, other); got["type"] != "error" {
 		t.Fatalf("reacted without write: %v", got)
 	}
+}
+
+func TestSameEmojiInOtherFormsIsOne(t *testing.T) {
+	for in, want := range map[string]string{"❤": "❤\ufe0f", "❤\ufe0f": "❤\ufe0f", "👍\ufe0f": "👍", "✅": "✅\ufe0f"} {
+		if got := normalEmoji(in); got != want {
+			t.Errorf("%q: %q", in, got)
+		}
+	}
+}
+
+func TestNoEventWithoutAChange(t *testing.T) {
+	h := newHub(t, "general")
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	id := say(t, h, alice, "hi")
+	next(t, bob)
+	react(alice, id, "👍", true)
+	next(t, alice)
+	next(t, bob)
+	react(alice, id, "👍", true)  // already there
+	react(alice, id, "🎉", false) // never there
+	empty(t, alice)
+	empty(t, bob)
 }

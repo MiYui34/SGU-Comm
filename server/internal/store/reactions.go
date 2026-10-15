@@ -16,16 +16,21 @@ type Reaction struct {
 	Users []string
 }
 
-// SetReaction adds (on) or removes a user's reaction to a message.
-func (s *Store) SetReaction(messageID int64, emoji, user string, on bool, at time.Time) error {
+// SetReaction adds (on) or removes a user's reaction to a message;
+// changed is false when it was already so.
+func (s *Store) SetReaction(messageID int64, emoji, user string, on bool, at time.Time) (changed bool, err error) {
 	key := names.Key(user)
 	if !on {
-		_, err := s.db.Exec(`DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_key = ?`, messageID, emoji, key)
-		return err
+		res, err := s.db.Exec(`DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_key = ?`, messageID, emoji, key)
+		if err != nil {
+			return false, err
+		}
+		n, err := res.RowsAffected()
+		return n > 0, err
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	var exists, known, kinds int
@@ -35,17 +40,22 @@ func (s *Store) SetReaction(messageID int64, emoji, user string, on bool, at tim
 		messageID, messageID, emoji, messageID).Scan(&exists, &known, &kinds)
 	switch {
 	case err != nil:
-		return err
+		return false, err
 	case exists == 0:
-		return ErrNotFound
+		return false, ErrNotFound
 	case known == 0 && kinds >= maxReactionKinds:
-		return ErrTooManyReactions
+		return false, ErrTooManyReactions
 	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO reactions (message_id, emoji, user_key, user, created_at) VALUES (?, ?, ?, ?, ?)`,
-		messageID, emoji, key, user, at.UnixMilli()); err != nil {
-		return err
+	res, err := tx.Exec(`INSERT OR IGNORE INTO reactions (message_id, emoji, user_key, user, created_at) VALUES (?, ?, ?, ?, ?)`,
+		messageID, emoji, key, user, at.UnixMilli())
+	if err != nil {
+		return false, err
 	}
-	return tx.Commit()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, tx.Commit()
 }
 
 // withReactions fills in the reactions of messages, in the order they

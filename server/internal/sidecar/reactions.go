@@ -24,30 +24,59 @@ func toWireReactions(rs []store.Reaction) []wireReaction {
 	return out
 }
 
-const maxEmojiRunes = 8 // long enough for sequences (families, flags, skin tones)
+const maxEmojiRunes = 16 // enough for sequences (couples with skin tones, flags)
 
-// validEmoji: short, with a symbol, and nothing a person could read as
-// text (no ASCII, spaces or invisible characters except the joiner).
+// validEmoji (on a normalEmoji): symbols, with only what emoji sequences
+// add to them: skin tones, the emoji variation selector, tags (flags of
+// regions), and joiners between parts. No letters, marks or invisible text.
 func validEmoji(s string) bool {
-	if n := utf8.RuneCountInString(s); n == 0 || n > maxEmojiRunes || !utf8.ValidString(s) {
+	rs := []rune(s)
+	if len(rs) == 0 || len(rs) > maxEmojiRunes || !utf8.ValidString(s) {
 		return false
 	}
-	for _, r := range s {
-		if r == 0x200D { // zero-width joiner, in sequences
-			continue
-		}
-		if r < 0x80 || unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) || !unicode.IsPrint(r) {
+	symbol := false
+	for i, r := range rs {
+		switch {
+		case r == 0x200D: // zero-width joiner
+			if i == 0 || i == len(rs)-1 || rs[i-1] == 0x200D {
+				return false
+			}
+		case r == 0xFE0F, r >= 0x1F3FB && r <= 0x1F3FF, r >= 0xE0020 && r <= 0xE007F:
+			if i == 0 {
+				return false
+			}
+		case r >= 0x80 && unicode.Is(unicode.So, r):
+			symbol = true
+		default:
 			return false
 		}
 	}
-	return strings.ContainsFunc(s, func(r rune) bool { return unicode.Is(unicode.So, r) })
+	return symbol
+}
+
+// normalEmoji: one form per emoji (with or without the variation selector
+// they look the same): the selector after each symbol of the older,
+// shorter range, and nowhere else.
+func normalEmoji(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == 0xFE0F || r == 0xFE0E {
+			continue
+		}
+		b.WriteRune(r)
+		if r >= 0x80 && r < 0x1F000 && unicode.Is(unicode.So, r) {
+			b.WriteRune(0xFE0F)
+		}
+	}
+	return b.String()
 }
 
 // react adds or removes the user's reaction, as writing does: everyone in
 // text channels, in voice chats those who may write. All readers get the
 // message's reactions.
 func (c *Conn) react(id mumble.Identity, req request) {
-	if !validEmoji(req.Emoji) {
+	emoji := normalEmoji(req.Emoji)
+	if !validEmoji(emoji) {
 		c.sendError("not an emoji")
 		return
 	}
@@ -57,11 +86,11 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		return
 	}
 	voice, isVoice, ok := c.hub.chatOf(m.ChannelID)
-	if !ok || isVoice && !c.hub.voice.MayWrite(id.Session, voice) {
-		c.sendError("you may not use this channel's chat")
+	if !ok || isVoice && !c.hub.mayUse(id.Session, voice, true) {
+		c.sendError("unknown message") // as for messages that do not exist
 		return
 	}
-	err = c.hub.store.SetReaction(m.ID, req.Emoji, id.Name, req.On, c.hub.now())
+	changed, err := c.hub.store.SetReaction(m.ID, emoji, id.Name, req.On, c.hub.now())
 	if errors.Is(err, store.ErrTooManyReactions) {
 		c.sendError("this message has too many different reactions")
 		return
@@ -70,11 +99,11 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		c.sendError("cannot store the reaction")
 		return
 	}
+	if !changed {
+		return
+	}
 	if m, err = c.hub.store.MessageByID(m.ID); err != nil {
 		return // deleted meanwhile
 	}
-	event := map[string]any{"type": "reactions", "channel": m.ChannelID, "message": m.ID, "reactions": toWireReactions(m.Reactions)}
-	for _, r := range c.hub.readers(voice, isVoice) {
-		r.send(event)
-	}
+	c.hub.sendToChat(voice, isVoice)(map[string]any{"type": "reactions", "channel": m.ChannelID, "message": m.ID, "reactions": toWireReactions(m.Reactions)})
 }
