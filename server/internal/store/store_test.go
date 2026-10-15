@@ -440,3 +440,39 @@ func TestTextChannelsRememberTheirMumbleChannel(t *testing.T) {
 		t.Fatalf("after set: %+v", chans[0])
 	}
 }
+
+func TestEditAndDeleteMessages(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	at := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	m, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "alice", Verified: true, Text: "helo", At: at})
+	edited, err := s.EditMessage(m.ID, "hello", at.Add(time.Minute))
+	if err != nil || edited.Text != "hello" || !edited.EditedAt.Equal(at.Add(time.Minute)) || edited.Author != "alice" {
+		t.Fatalf("edit: %+v %v", edited, err)
+	}
+	hist, _ := s.History(chans[0].ID, 0, 10)
+	if hist[0].Text != "hello" || hist[0].EditedAt.IsZero() {
+		t.Fatalf("history: %+v", hist[0])
+	}
+	got, err := s.MessageByID(m.ID)
+	if err != nil || got.Text != "hello" {
+		t.Fatalf("by id: %+v %v", got, err)
+	}
+	// Deleting a message with an attachment deletes the upload too.
+	u, _ := s.AddUpload(Upload{Key: "k9", Name: "a.png", Type: "image/png", Size: 1, Author: "alice"}, at)
+	withFile, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "alice", Text: "", At: at, UploadID: u.ID})
+	gone, err := s.DeleteMessage(withFile.ID)
+	if err != nil || gone.Upload == nil || gone.Upload.Key != "k9" {
+		t.Fatalf("delete: %+v %v", gone, err)
+	}
+	if _, err := s.UploadByKey("k9"); err == nil {
+		t.Fatal("upload still there")
+	}
+	if _, err := s.MessageByID(withFile.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted message: %v", err)
+	}
+	if _, err := s.EditMessage(withFile.ID, "x", at); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("edit deleted: %v", err)
+	}
+}

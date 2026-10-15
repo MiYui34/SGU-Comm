@@ -28,6 +28,7 @@ type Message struct {
 	Author    string
 	Text      string
 	CreatedAt time.Time
+	EditedAt  time.Time // zero: never edited
 	// The author was registered on the Mumble server (a verified name).
 	Verified bool
 	Upload   *Upload // optional attachment
@@ -136,6 +137,7 @@ func migrate(db *sql.DB) error {
 	for _, col := range []struct{ name, def string }{
 		{"upload_id", "INTEGER REFERENCES uploads(id)"},
 		{"verified", "INTEGER NOT NULL DEFAULT 0"},
+		{"edited_at", "INTEGER"},
 	} {
 		var n int
 		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name = ?`, col.name).Scan(&n)
@@ -387,13 +389,38 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 	return u, err
 }
 
+const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.text, m.created_at, m.edited_at,
+		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used
+	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id `
+
+func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
+	var m Message
+	var at int64
+	var edited sql.NullInt64
+	var u struct {
+		id, size, at        sql.NullInt64
+		key, name, typ, who sql.NullString
+		used                sql.NullBool
+	}
+	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &m.Text, &at, &edited,
+		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used); err != nil {
+		return Message{}, err
+	}
+	m.CreatedAt = time.UnixMilli(at).UTC()
+	if edited.Valid {
+		m.EditedAt = time.UnixMilli(edited.Int64).UTC()
+	}
+	if u.id.Valid {
+		m.Upload = &Upload{ID: u.id.Int64, Key: u.key.String, Name: u.name.String, Type: u.typ.String,
+			Size: u.size.Int64, Author: u.who.String, CreatedAt: time.UnixMilli(u.at.Int64).UTC(), Used: u.used.Bool}
+	}
+	return m, nil
+}
+
 // History returns up to limit messages before beforeID (0: the newest),
 // oldest first, with their attachments.
 func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT m.id, m.channel_id, m.author, m.verified, m.text, m.created_at,
-			u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used
-		FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id
-		WHERE m.channel_id = ? AND (? = 0 OR m.id < ?) ORDER BY m.id DESC LIMIT ?`,
+	rows, err := s.db.Query(messageSelect+`WHERE m.channel_id = ? AND (? = 0 OR m.id < ?) ORDER BY m.id DESC LIMIT ?`,
 		channelID, beforeID, beforeID, limit)
 	if err != nil {
 		return nil, err
@@ -401,26 +428,57 @@ func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error)
 	defer rows.Close()
 	out := []Message{}
 	for rows.Next() {
-		var m Message
-		var at int64
-		var u struct {
-			id, size, at        sql.NullInt64
-			key, name, typ, who sql.NullString
-			used                sql.NullBool
-		}
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &m.Text, &at,
-			&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used); err != nil {
+		m, err := scanMessage(rows)
+		if err != nil {
 			return nil, err
-		}
-		m.CreatedAt = time.UnixMilli(at).UTC()
-		if u.id.Valid {
-			m.Upload = &Upload{ID: u.id.Int64, Key: u.key.String, Name: u.name.String, Type: u.typ.String,
-				Size: u.size.Int64, Author: u.who.String, CreatedAt: time.UnixMilli(u.at.Int64).UTC(), Used: u.used.Bool}
 		}
 		out = append(out, m)
 	}
 	slices.Reverse(out)
 	return out, rows.Err()
+}
+
+func (s *Store) MessageByID(id int64) (Message, error) {
+	m, err := scanMessage(s.db.QueryRow(messageSelect+`WHERE m.id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Message{}, ErrNotFound
+	}
+	return m, err
+}
+
+// EditMessage replaces a message's text and returns it.
+func (s *Store) EditMessage(id int64, text string, at time.Time) (Message, error) {
+	res, err := s.db.Exec(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ?`, text, at.UnixMilli(), id)
+	if err != nil {
+		return Message{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Message{}, ErrNotFound
+	}
+	return s.MessageByID(id)
+}
+
+// DeleteMessage removes a message and its attachment, and returns it (the
+// caller deletes the attachment's file).
+func (s *Store) DeleteMessage(id int64) (Message, error) {
+	m, err := s.MessageByID(id)
+	if err != nil {
+		return Message{}, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Message{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM messages WHERE id = ?`, id); err != nil {
+		return Message{}, err
+	}
+	if m.Upload != nil {
+		if _, err := tx.Exec(`DELETE FROM uploads WHERE id = ?`, m.Upload.ID); err != nil {
+			return Message{}, err
+		}
+	}
+	return m, tx.Commit()
 }
 
 // DeleteUnusedUploads removes uploads created before `before` that were
