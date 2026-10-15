@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    type ChatMessage,
     inVoice,
     isLobby,
     joinChannel,
@@ -12,6 +13,7 @@
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
   import { createChannelManagement } from "../lib/channelManagement.svelte";
+  import { canManageText } from "../lib/channelManagement";
   import type { Connection } from "../lib/connection.svelte";
   import { pictureUrl, setAvatarPictures } from "../lib/avatar";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
@@ -24,6 +26,7 @@
   import { moderatorAction, roleOf } from "../lib/roles";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
+  import { ownsMessage } from "../lib/messages";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -319,6 +322,8 @@
   const textChat = $derived(
     chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
+  const joinedAt = Date.now() - 60_000; // allows for clock differences
+  const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Names "@" suggests: who is online, and who wrote in the open chat.
   const people = $derived([
     ...new Set([...users.map((u) => u.name), ...textChat.flatMap((m) => (m.actorName ? [m.actorName] : []))]),
@@ -508,7 +513,16 @@
     <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
   <div class="main" inert={phone && panel !== "chat"}>
-    <ChatPane {...paneCommon} {...pane} me={me?.name ?? ""} {people} />
+    <ChatPane
+      {...paneCommon}
+      {...pane}
+      me={me?.name ?? ""}
+      {people}
+      mayEdit={mine}
+      mayDelete={(m) => mine(m) || canManageText(server, text)}
+      onEdit={connection.editMessage}
+      onDelete={connection.deleteMessage}
+    />
   </div>
   {#if membersOpen || phone}
     <MemberList

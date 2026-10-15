@@ -21,6 +21,8 @@ import {
   type TextTarget,
 } from "@kallisti/protocol";
 import {
+  deleteMessageRequest,
+  editMessageRequest,
   historyRequest,
   httpBase,
   initialTextState,
@@ -162,6 +164,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
+    },
+    editMessage: (message: number, text: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(editMessageRequest(message, text));
+    },
+    deleteMessage: (message: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(deleteMessageRequest(message));
     },
     sendToTextChannel: (channel: number, message: string, upload?: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message, upload));

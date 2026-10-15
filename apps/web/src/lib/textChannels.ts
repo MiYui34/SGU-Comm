@@ -16,10 +16,17 @@ export type TextMessage = {
   // The author was registered on the Mumble server (a verified name).
   verified?: boolean;
   upload?: Attachment;
+  edited?: number; // Unix milliseconds
 };
 // A chat line for display: a text channel message can carry an attachment
 // and a verified mark.
-export type DisplayMessage = ChatMessage & { upload?: Attachment; verified?: boolean };
+// source: the stored message (id and plain text), for editing.
+export type DisplayMessage = ChatMessage & {
+  upload?: Attachment;
+  verified?: boolean;
+  edited?: number;
+  source?: { id: number; text: string };
+};
 
 export type ServerEvent =
   // voiceChats: voice channels have stored chats (the built-in server).
@@ -31,6 +38,8 @@ export type ServerEvent =
   | { type: "channels"; channels: TextChannel[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
+  | { type: "message-edited"; message: TextMessage }
+  | { type: "message-deleted"; channel: number; id: number }
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
   | { type: "upload-token"; token: string }
@@ -91,6 +100,7 @@ const isMessage = (v: unknown): v is TextMessage =>
   isStr(v.text) &&
   isNum(v.at) &&
   (v.verified === undefined || typeof v.verified === "boolean") &&
+  (v.edited === undefined || isNum(v.edited)) &&
   (v.upload === undefined || isAttachment(v.upload));
 
 // Network input: anything unexpected is dropped.
@@ -126,7 +136,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
         : null;
     case "message":
-      return isMessage(v.message) ? { type: "message", message: v.message } : null;
+    case "message-edited":
+      return isMessage(v.message) ? { type: v.type, message: v.message } : null;
+    case "message-deleted":
+      return isNum(v.channel) && isNum(v.id) ? { type: "message-deleted", channel: v.channel, id: v.id } : null;
     case "error":
       if (!isStr(v.message)) return null;
       return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
@@ -166,9 +179,17 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         loaded: { ...state.loaded, [event.channel]: true },
         more: { ...state.more, [event.channel]: event.more },
       };
-    case "message": {
+    case "message":
+    case "message-edited": {
       const ch = event.message.channel;
+      // An edit of a message not loaded here stays unloaded.
+      if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return state;
       return { ...state, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
+    }
+    case "message-deleted": {
+      const msgs = state.messages[event.channel];
+      if (!msgs) return state;
+      return { ...state, messages: { ...state.messages, [event.channel]: msgs.filter((m) => m.id !== event.id) } };
     }
     case "error":
       return event.about === "manage"
@@ -211,6 +232,10 @@ export const manageRequest = (a: ManageAction) =>
             ? { type: "set-moderator", user: a.moderator, moderator: a.on }
             : { type: "order-channels", channels: a.order },
   );
+
+export const editMessageRequest = (message: number, text: string) =>
+  JSON.stringify({ type: "edit-message", message, text });
+export const deleteMessageRequest = (message: number) => JSON.stringify({ type: "delete-message", message });
 
 // The server's HTTP origin, from the bridge WebSocket URL.
 export const httpBase = (wsUrl: string) => {
@@ -262,6 +287,8 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       at: m.at,
       peer: null,
       verified: m.verified === true,
+      source: { id: m.id, text: m.text },
+      ...(m.edited !== undefined && { edited: m.edited }),
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  deleteMessageRequest,
+  editMessageRequest,
   historyRequest,
   initialTextState,
   linkify,
@@ -280,4 +282,31 @@ describe("roles", () => {
     expect(parseServerEvent('{"type":"roles","admins":"x","moderators":[]}')).toBeNull();
   });
 
+});
+
+describe("edited and deleted messages", () => {
+  const ready = reduceText(initialTextState, { type: "ready", channels: [{ id: 1, name: "general" }] });
+  it("replaces and removes them", () => {
+    let s = reduceText(ready, { type: "message", message: msg(1) });
+    s = reduceText(s, { type: "message", message: msg(2) });
+    const edited = parseServerEvent(JSON.stringify({ type: "message-edited", message: { ...msg(1), text: "new", edited: 5 } }));
+    s = reduceText(s, edited!);
+    expect(s.messages[1]?.map((m) => [m.id, m.text, m.edited])).toEqual([
+      [1, "new", 5],
+      [2, msg(2).text, undefined],
+    ]);
+    const deleted = parseServerEvent('{"type":"message-deleted","channel":1,"id":2}');
+    expect(reduceText(s, deleted!).messages[1]?.map((m) => m.id)).toEqual([1]);
+  });
+
+  it("builds the requests", () => {
+    expect(JSON.parse(editMessageRequest(4, "x"))).toEqual({ type: "edit-message", message: 4, text: "x" });
+    expect(JSON.parse(deleteMessageRequest(4))).toEqual({ type: "delete-message", message: 4 });
+  });
+
+  it("keeps the source for editing in the chat line", () => {
+    const line = toChatMessage({ ...msg(7), text: "a <b>", edited: 9 });
+    expect(line.source).toEqual({ id: 7, text: "a <b>" });
+    expect(line.edited).toBe(9);
+  });
 });

@@ -34,6 +34,10 @@
     onClose,
     me = "",
     people = [],
+    mayEdit,
+    mayDelete,
+    onEdit,
+    onDelete,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -63,6 +67,11 @@
     me?: string;
     // Names "@" suggests (online users, recent authors).
     people?: readonly string[];
+    // Stored messages: who may change which (the server checks again).
+    mayEdit?: (m: DisplayMessage) => boolean;
+    mayDelete?: (m: DisplayMessage) => boolean;
+    onEdit?: (id: number, text: string) => void;
+    onDelete?: (id: number) => void;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -227,6 +236,42 @@
     e.preventDefault();
     return true;
   };
+
+  // Editing and deleting stored messages.
+  let editing = $state<{ id: number; text: string; old: string; upload: boolean } | null>(null);
+  let confirming = $state<number | null>(null);
+  let editInput: HTMLInputElement | undefined = $state();
+  let cancelButton: HTMLButtonElement | undefined = $state();
+  const startEdit = async (m: ChatMessage | DisplayMessage) => {
+    if (!("source" in m) || !m.source) return;
+    editing = { id: m.source.id, text: m.source.text, old: m.source.text, upload: !!("upload" in m && m.upload) };
+    await tick();
+    editInput?.focus();
+  };
+  const saveEdit = () => {
+    if (!editing) return;
+    const text = editing.text.trim();
+    // A message with an attachment may lose its caption.
+    if (text !== editing.old && (text || editing.upload)) onEdit?.(editing.id, text);
+    editing = null;
+    messageInput?.focus();
+  };
+  const startConfirm = async (id: number) => {
+    confirming = id;
+    await tick();
+    cancelButton?.focus();
+  };
+  const endConfirm = () => {
+    confirming = null;
+    messageInput?.focus();
+  };
+  // Up in an empty message box edits our last message.
+  const editLast = () => {
+    const last = messages.findLast((m) => "source" in m && m.source && mayEdit?.(m));
+    if (!last || !onEdit) return false;
+    void startEdit(last);
+    return true;
+  };
 </script>
 
 <main
@@ -337,18 +382,17 @@
                     {/if}
                     <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
                   </div>
-                  {#if m.text}<div class="text">{@html safe(highlightMentions(m.text, me))}</div>{/if}
-                  {@render attachment(m)}
+                  {@render body(m)}
                 </div>
               {:else}
                 <div class="gutter">
                   <time class="hover-time" datetime={new Date(m.at).toISOString()}>{formatTime(m.at)}</time>
                 </div>
                 <div class="body">
-                  {#if m.text}<div class="text">{@html safe(highlightMentions(m.text, me))}</div>{/if}
-                  {@render attachment(m)}
+                  {@render body(m)}
                 </div>
               {/if}
+              {@render actions(m)}
             </li>
           {/each}
         {/if}
@@ -441,6 +485,10 @@
         onkeydown={(e) => {
           if (e.isComposing) return; // Enter picks a word in an input method
           if (suggestions.length && onSuggestionKey(e)) return;
+          if (e.key === "ArrowUp" && draft === "" && !pending && editLast()) {
+            e.preventDefault();
+            return;
+          }
           if (e.key === "Escape" && pending) cancelPending();
         }}
         role="combobox"
@@ -460,6 +508,61 @@
 {#if lightbox}
   <Lightbox url={lightbox.url} name={lightbox.name} onClose={() => (lightbox = null)} />
 {/if}
+
+{#snippet body(m: ChatMessage | DisplayMessage)}
+  {#if "source" in m && m.source && editing?.id === m.source.id}
+    <form class="edit" onsubmit={(e) => (e.preventDefault(), saveEdit())}>
+      <input
+        bind:this={editInput}
+        bind:value={editing.text}
+        aria-label="Edit message"
+        onkeydown={(e) => {
+          if (e.key !== "Escape") return;
+          editing = null;
+          messageInput?.focus();
+        }}
+      />
+      <span class="hint">Escape to cancel, Enter to save</span>
+    </form>
+  {:else if m.text}
+    <div class="text">
+      {@html safe(highlightMentions(m.text, me))}
+      {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
+    </div>
+  {/if}
+  {@render attachment(m)}
+{/snippet}
+
+{#snippet actions(m: ChatMessage | DisplayMessage)}
+  {#if "source" in m && m.source && editing?.id !== m.source.id}
+    {@const id = m.source.id}
+    {@const canEdit = mayEdit?.(m) && onEdit}
+    {@const canDelete = mayDelete?.(m) && onDelete}
+    {#if canEdit || canDelete}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="actions"
+        class:confirming={confirming === id}
+        onkeydown={(e) => {
+          if (e.key === "Escape" && confirming === id) endConfirm();
+        }}
+      >
+        {#if confirming === id}
+          <span>Delete this message?</span>
+          <button type="button" class="danger" onclick={() => (onDelete?.(id), endConfirm())}>Delete</button>
+          <button type="button" bind:this={cancelButton} onclick={endConfirm}>Cancel</button>
+        {:else}
+          {#if canEdit}
+            <button type="button" aria-label="Edit message" title="Edit" onclick={() => startEdit(m)}>Edit</button>
+          {/if}
+          {#if canDelete}
+            <button type="button" aria-label="Delete message" title="Delete" onclick={() => startConfirm(id)}>Delete</button>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+  {/if}
+{/snippet}
 
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
@@ -753,6 +856,75 @@
   .suggestions li.selected,
   .suggestions li:hover {
     background: var(--bg-active);
+  }
+  .line {
+    position: relative;
+  }
+  .actions {
+    position: absolute;
+    top: -12px;
+    right: 16px;
+    display: flex;
+    opacity: 0;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 6px;
+    background: var(--bg-rail);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+    font-size: 12px;
+    z-index: 2;
+  }
+  .line:hover .actions,
+  .line:focus-within .actions,
+  .actions.confirming {
+    opacity: 1;
+  }
+  /* Phones: no hover, so the actions always show. */
+  @media (hover: none) {
+    .actions {
+      position: static;
+      opacity: 1;
+      box-shadow: none;
+      background: none;
+      justify-content: flex-end;
+    }
+  }
+  .actions span {
+    padding: 0 6px;
+  }
+  .actions button {
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .actions button:hover {
+    background: var(--bg-active);
+  }
+  .actions .danger {
+    color: var(--danger);
+  }
+  .edited {
+    margin-left: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .edit {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .edit input {
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text);
+    font: inherit;
+  }
+  .edit .hint {
+    font-size: 11px;
+    color: var(--text-muted);
   }
   .line.mentioned {
     background: rgb(240 178 50 / 0.1);
