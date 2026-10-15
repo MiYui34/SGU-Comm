@@ -173,6 +173,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		if c.hub.voice != nil {
 			ready["roles"] = c.hub.roles()
 		}
+		if id.Registered {
+			ready["reads"], ready["summary"] = c.hub.readState(id)
+		}
 		c.send(ready)
 	}
 }
@@ -265,6 +268,9 @@ func (c *Conn) Handle(raw []byte) {
 	switch req.Type {
 	case "create-channel", "rename-channel", "delete-channel", "order-channels":
 		c.manage(*id, req)
+		return
+	case "mark-read":
+		c.markRead(*id, req)
 		return
 	case "edit-message", "delete-message":
 		c.changeMessage(*id, req)

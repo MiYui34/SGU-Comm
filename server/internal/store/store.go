@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS messages (
 	verified   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
+-- The newest message a registered user read in a channel (name: names.Key).
+CREATE TABLE IF NOT EXISTS read_marks (
+	user       TEXT NOT NULL,
+	channel_id INTEGER NOT NULL,
+	message_id INTEGER NOT NULL,
+	PRIMARY KEY (user, channel_id)
+);
 CREATE TABLE IF NOT EXISTS accounts (
 	id            INTEGER PRIMARY KEY,
 	name          TEXT NOT NULL,
@@ -195,6 +202,25 @@ func (s *Store) VoiceChat(voice uint32) (int64, error) {
 
 // VoiceOf is the voice channel whose chat a channel is (ok false for text
 // channels).
+// VoiceChats are the voice channel chats: store channel -> voice channel.
+func (s *Store) VoiceChats() (map[int64]uint32, error) {
+	rows, err := s.db.Query(`SELECT id, voice_channel FROM channels WHERE voice_channel IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]uint32{}
+	for rows.Next() {
+		var id int64
+		var voice uint32
+		if err := rows.Scan(&id, &voice); err != nil {
+			return nil, err
+		}
+		out[id] = voice
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) VoiceOf(channel int64) (voice uint32, ok bool, err error) {
 	var v sql.NullInt64
 	err = s.db.QueryRow(`SELECT voice_channel FROM channels WHERE id = ?`, channel).Scan(&v)
@@ -483,6 +509,60 @@ func (s *Store) DeleteMessage(id int64) (Message, error) {
 		}
 	}
 	return m, tx.Commit()
+}
+
+// SetReadMark notes that a user read a channel up to a message; marks never
+// go back.
+func (s *Store) SetReadMark(user string, channel, message int64) error {
+	_, err := s.db.Exec(`INSERT INTO read_marks (user, channel_id, message_id) VALUES (?, ?, ?)
+		ON CONFLICT (user, channel_id) DO UPDATE SET message_id = max(message_id, excluded.message_id)`, user, channel, message)
+	return err
+}
+
+// ReadMarks are a user's read marks by channel.
+func (s *Store) ReadMarks(user string) (map[int64]int64, error) {
+	rows, err := s.db.Query(`SELECT channel_id, message_id FROM read_marks WHERE user = ?`, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int64{}
+	for rows.Next() {
+		var c, m int64
+		if err := rows.Scan(&c, &m); err != nil {
+			return nil, err
+		}
+		out[c] = m
+	}
+	return out, rows.Err()
+}
+
+// At most this many messages are looked at for MessagesAfter.
+const maxMessagesAfter = 500
+
+// MessagesAfter is a channel's newest message id (0: none), and its
+// messages after `after` whose text contains `contains` (newest first, at
+// most maxMessagesAfter): for unread marks and mention counts.
+func (s *Store) MessagesAfter(channel, after int64, contains string) (int64, []Message, error) {
+	var latest int64
+	if err := s.db.QueryRow(`SELECT coalesce(max(id), 0) FROM messages WHERE channel_id = ?`, channel).Scan(&latest); err != nil {
+		return 0, nil, err
+	}
+	rows, err := s.db.Query(`SELECT id, author, verified, text FROM messages
+		WHERE channel_id = ? AND id > ? AND instr(text, ?) > 0 ORDER BY id DESC LIMIT ?`, channel, after, contains, maxMessagesAfter)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m := Message{ChannelID: channel}
+		if err := rows.Scan(&m.ID, &m.Author, &m.Verified, &m.Text); err != nil {
+			return 0, nil, err
+		}
+		out = append(out, m)
+	}
+	return latest, out, rows.Err()
 }
 
 // DeleteUnusedUploads removes uploads created before `before` that were

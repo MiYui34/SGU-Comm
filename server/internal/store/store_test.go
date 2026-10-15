@@ -489,3 +489,47 @@ func TestDeletingTwiceFails(t *testing.T) {
 		t.Fatalf("second delete: %v", err)
 	}
 }
+
+func TestReadMarks(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general", "random"})
+	chans, _ := s.Channels()
+	if err := s.SetReadMark("alice", chans[0].ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	s.SetReadMark("alice", chans[0].ID, 3) // never back
+	s.SetReadMark("alice", chans[1].ID, 2)
+	s.SetReadMark("bob", chans[0].ID, 9)
+	got, err := s.ReadMarks("alice")
+	if err != nil || got[chans[0].ID] != 5 || got[chans[1].ID] != 2 || len(got) != 2 {
+		t.Fatalf("marks %v %v", got, err)
+	}
+}
+
+func TestMessagesAfter(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	var ids []int64
+	for _, text := range []string{"a", "@alice hi", "b", "@ALICE again"} {
+		m, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "bob", Text: text, At: time.Now()})
+		ids = append(ids, m.ID)
+	}
+	latest, texts, err := s.MessagesAfter(chans[0].ID, ids[1], "@")
+	if err != nil || latest != ids[3] || len(texts) != 1 || texts[0].Text != "@ALICE again" {
+		t.Fatalf("after: %v %+v %v", latest, texts, err)
+	}
+	if latest, _, _ := s.MessagesAfter(chans[0].ID, 0, "@"); latest != ids[3] {
+		t.Fatalf("latest %v", latest)
+	}
+}
+
+func TestVoiceChatsList(t *testing.T) {
+	s := open(t)
+	a, _ := s.VoiceChat(7)
+	b, _ := s.VoiceChat(9)
+	got, err := s.VoiceChats()
+	if err != nil || got[a] != 7 || got[b] != 9 || len(got) != 2 {
+		t.Fatalf("voice chats %v %v", got, err)
+	}
+}
