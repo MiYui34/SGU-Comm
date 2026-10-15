@@ -65,10 +65,11 @@ func run() error {
 	}
 	dial, upstream := murmurDialer(cfg)
 	if cfg.Builtin != nil {
-		mumble, err := startBuiltin(cfg.Builtin, db)
+		mumble, err := startBuiltin(cfg.Builtin, db, hub.MumbleText)
 		if err != nil {
 			return err
 		}
+		hub.SetVoice(mumble.srv, publicBase(cfg.AllowedOrigins))
 		defer mumble.close()
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken
@@ -176,4 +177,15 @@ func murmurDialer(cfg config.Config) (func(context.Context, bridge.Upstream) (ne
 		d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: conf}
 		return d.DialContext(ctx, "tcp", upstream)
 	}, upstream
+}
+
+// publicBase is the server's public address (for upload links that Mumble
+// clients get): the first allowed origin, unless that is "*".
+func publicBase(origins []string) string {
+	for _, o := range origins {
+		if o != "*" {
+			return o
+		}
+	}
+	return ""
 }

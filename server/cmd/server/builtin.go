@@ -38,7 +38,9 @@ func accountExists(db *store.Store) func(name string) bool {
 	}
 }
 
-func startBuiltin(cfg *config.Builtin, db *store.Store) (*builtin, error) {
+// startBuiltin starts the server. onText gets channel texts from Mumble
+// clients (for the stored voice channel chats).
+func startBuiltin(cfg *config.Builtin, db *store.Store, onText func(from uint32, name string, registered bool, channel uint32, text string)) (*builtin, error) {
 	mdb, err := mumbled.OpenDB(db.DB())
 	if err != nil {
 		return nil, fmt.Errorf("Mumble tables: %w", err)
@@ -64,7 +66,8 @@ func startBuiltin(cfg *config.Builtin, db *store.Store) (*builtin, error) {
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
 		MaxUsers: cfg.MaxUsers, MaxPerIP: cfg.MaxPerIP,
-		ReservedName: accountExists(db), // names of web accounts are theirs only
+		ReservedName:  accountExists(db), // names of web accounts are theirs only
+		OnChannelText: onText,
 	})
 	if err != nil {
 		return nil, err
