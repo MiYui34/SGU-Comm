@@ -48,3 +48,4 @@
 - [x] [Channel management](issues/channel-management.md)
 - [x] [Log in with a Mumble registration](issues/login-with-mumble-registration.md)
 - [x] [Moderator role](issues/moderator-role.md)
+- [x] [User avatars](issues/user-avatars.md)
