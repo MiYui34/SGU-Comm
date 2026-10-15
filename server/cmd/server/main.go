@@ -25,6 +25,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/mumbled"
+	"kallisti.chat/server/internal/preview"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
@@ -83,6 +84,11 @@ func run() error {
 		AllowedOrigins: cfg.AllowedOrigins,
 		Now:            time.Now,
 		Redeem:         hub.RedeemUploadToken,
+	}
+	var linkImages http.Handler = http.NotFoundHandler()
+	if !cfg.NoLinkPreviews {
+		previews := preview.New()
+		hub.Previews, linkImages = previews, previews
 	}
 	hub.OnUploadDeleted = fileHandler.Remove
 	hub.SaveFile = fileHandler.Save
@@ -144,6 +150,7 @@ func run() error {
 	}
 	mux.Handle("/files/", fileHandler)
 	mux.Handle("/api/avatars/", avatars)
+	mux.Handle("/api/link-image/", linkImages)
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
 	// else to the web app.
 	mux.Handle("/", site.New(b, cfg.WebDir))

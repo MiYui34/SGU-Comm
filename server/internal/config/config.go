@@ -34,6 +34,8 @@ type Config struct {
 	// Use the first X-Forwarded-For address as the client IP. Only behind a
 	// reverse proxy that sets it: clients can fake the header.
 	TrustForwardedFor bool
+	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
+	NoLinkPreviews bool
 	// Uploaded files, and the size limit per file.
 	UploadDir string
 	// BackupDir: daily database backups go here (empty: none); the newest
@@ -139,6 +141,7 @@ func Parse(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("MAX_CONNECTIONS_PER_IP must be a positive integer")
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
+	c.NoLinkPreviews = getenv("LINK_PREVIEWS") == "0"
 	c.UploadDir = cmp.Or(getenv("UPLOAD_DIR"), "uploads")
 	mb, ok := positive(getenv("UPLOAD_MAX_MB"), 10)
 	if !ok {

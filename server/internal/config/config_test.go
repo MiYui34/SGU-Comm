@@ -51,6 +51,7 @@ func TestAllOptions(t *testing.T) {
 		"WEB_DIR":                "/app/web",
 		"BACKUP_DIR":             "/data/backups",
 		"BACKUP_KEEP":            "3",
+		"LINK_PREVIEWS":          "0",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +73,7 @@ func TestAllOptions(t *testing.T) {
 		WebDir:             "/app/web",
 		BackupDir:          "/data/backups",
 		BackupKeep:         3,
+		NoLinkPreviews:     true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

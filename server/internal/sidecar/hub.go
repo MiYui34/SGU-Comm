@@ -72,6 +72,8 @@ type Hub struct {
 	guestMessages map[int64]uint32
 	// OnUploadDeleted removes the file of a deleted message's attachment.
 	OnUploadDeleted func(key string)
+	// Previews makes link previews (nil: none).
+	Previews Previewer
 	// SaveFile stores a picture from a Mumble message as an upload.
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
 	// Per voice server session: the last message seen in each mirror.
@@ -270,6 +272,7 @@ type request struct {
 	Author    string  `json:"author"`    // search: only this author
 	User      uint32  `json:"user"`      // set-moderator: registered user id
 	Moderator bool    `json:"moderator"` // set-moderator
+	Messages  []int64 `json:"messages"`  // previews
 	Emoji     string  `json:"emoji"`     // react
 	On        bool    `json:"on"`        // react: add (or remove)
 }
@@ -315,6 +318,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "react":
 		c.react(*id, req)
+		return
+	case "previews":
+		c.previews(*id, req)
 		return
 	case "set-moderator":
 		// The voice server reports the change (RolesChanged).
