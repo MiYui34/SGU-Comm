@@ -213,6 +213,70 @@ func (s *Store) EnsureChannels(names []string) error {
 	return tx.Commit()
 }
 
+// SeedChannels makes the first text channels of a new server (later they
+// are managed in the client).
+func (s *Store) SeedChannels(names []string) error {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE voice_channel IS NULL`).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	return s.EnsureChannels(names)
+}
+
+// CreateChannel adds a text channel at the end. A deleted channel of that
+// name comes back, with its history.
+func (s *Store) CreateChannel(name string) (Channel, error) {
+	c := Channel{Name: name}
+	err := s.db.QueryRow(`INSERT INTO channels (name, position)
+		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0))
+		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position
+		WHERE hidden = 1 AND voice_channel IS NULL
+		RETURNING id, position`, name).Scan(&c.ID, &c.Position)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, ErrNameTaken // a visible channel has the name
+	}
+	return c, err
+}
+
+// textChannel runs a change on a text channel (not a voice channel chat).
+func (s *Store) textChannel(query string, args ...any) error {
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return ErrNameTaken
+		}
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) RenameChannel(id int64, name string) error {
+	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND voice_channel IS NULL`, name, id)
+}
+
+// HideChannel removes a text channel from the list; its history stays.
+func (s *Store) HideChannel(id int64) error {
+	return s.textChannel(`UPDATE channels SET hidden = 1 WHERE id = ? AND voice_channel IS NULL`, id)
+}
+
+// SetPositions puts the given text channels in this order.
+func (s *Store) SetPositions(ids []int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE channels SET position = ? WHERE id = ? AND voice_channel IS NULL`, i, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Channels returns the visible channels in order.
 func (s *Store) Channels() ([]Channel, error) {
 	rows, err := s.db.Query(`SELECT id, name, position FROM channels WHERE hidden = 0 ORDER BY position`)

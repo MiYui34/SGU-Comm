@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -340,5 +342,60 @@ func TestVoiceChannelChats(t *testing.T) {
 	}
 	if msgs, _ := s.History(id, 0, 10); len(msgs) != 1 {
 		t.Fatalf("history %+v", msgs)
+	}
+}
+
+func TestManagingTextChannels(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// The configured channels only seed a new server.
+	if err := s.SeedChannels([]string{"general", "links"}); err != nil {
+		t.Fatal(err)
+	}
+	s.SeedChannels([]string{"other"})
+	names := func() []string {
+		chans, _ := s.Channels()
+		out := []string{}
+		for _, c := range chans {
+			out = append(out, c.Name)
+		}
+		return out
+	}
+	if got := names(); !slices.Equal(got, []string{"general", "links"}) {
+		t.Fatalf("seeded %v", got)
+	}
+	games, err := s.CreateChannel("games")
+	if err != nil || games.Name != "games" {
+		t.Fatalf("create %+v %v", games, err)
+	}
+	if _, err := s.CreateChannel("games"); !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if err := s.RenameChannel(games.ID, "gaming"); err != nil {
+		t.Fatal(err)
+	}
+	chans, _ := s.Channels()
+	if err := s.SetPositions([]int64{games.ID, chans[0].ID, chans[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(); !slices.Equal(got, []string{"gaming", "general", "links"}) {
+		t.Fatalf("after moves %v", got)
+	}
+	if err := s.HideChannel(games.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(); !slices.Equal(got, []string{"general", "links"}) {
+		t.Fatalf("after delete %v", got)
+	}
+	if back, err := s.CreateChannel("gaming"); err != nil || back.ID != games.ID {
+		t.Fatalf("made again: %+v %v (want the old channel back)", back, err)
+	}
+	// Voice channel chats cannot be renamed or hidden as text channels.
+	voice, _ := s.VoiceChat(3)
+	if err := s.RenameChannel(voice, "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("renamed a voice chat: %v", err)
 	}
 }
