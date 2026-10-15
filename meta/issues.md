@@ -8,3 +8,8 @@
 - [ ] [Web Push notifications](issues/web-push.md)
 - [ ] [Voice: better noise suppression](issues/voice-noise-suppression.md)
 - [ ] [Pinned messages](issues/web-pinned-messages.md)
+- [ ] [Guest accounts and user ids](issues/guest-accounts-and-user-ids.md)
+  - [ ] [Sidecar: the Mumble user id in the identity](issues/sidecar-mumble-user-id.md)
+  - [ ] [Temporary guest accounts](issues/temporary-guest-accounts.md)
+  - [ ] [Reactions by user id](issues/reactions-by-user-id.md)
+  - [ ] [Messages and read marks by user id](issues/messages-and-read-marks-by-user-id.md)
