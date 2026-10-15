@@ -11,26 +11,89 @@ https://kallisti.chat
 
 ## Deployment
 
-`deploy/compose.yml` runs the Kallisti server (web app, voice, text channels,
-uploads) and Caddy for HTTPS with an automatic certificate:
+Kallisti runs in one of two ways:
+
+- **Built-in server** (recommended): Kallisti is the Mumble server. Web users,
+  the desktop app and normal Mumble clients all connect to it, and every
+  feature works.
+- **In front of an existing Murmur**: Kallisti adds the web app, accounts and
+  text channels; voice stays on your Murmur server and its Mumble users keep
+  everything they have. Some features need the built-in server (see below).
+
+Both need a domain with HTTPS: browsers allow the microphone only on secure
+pages. The compose files use Caddy, which gets a certificate by itself.
+
+### Built-in server
+
+`deploy/compose.yml` runs Kallisti (web app, voice, text channels, uploads)
+and Caddy:
 
 ```sh
 printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/.env
 docker compose -f deploy/compose.yml up -d --remove-orphans
 ```
 
-Open `https://chat.example.org`. Mumble clients and the desktop app connect to
-the same host on port 64738 (TCP and UDP). Kallisti accounts are Mumble
-registrations; `SuperUser` (with `SUPERUSER_PASSWORD`) is the admin, for
-example to edit permissions with a Mumble client.
+- Open `https://chat.example.org`. Mumble clients and the desktop app
+  connect to the same host on port 64738 (TCP and UDP): open it in your
+  firewall.
+- `SuperUser` is the admin: log in with the "Log in" tab (or a Mumble client)
+  and `SUPERUSER_PASSWORD`. Admins make moderators in a user's menu.
+- Kallisti accounts are Mumble registrations, so their names are protected
+  for Mumble clients too.
+- Mumble clients warn about the self-signed certificate once. To avoid that,
+  give the server your web certificate (`MUMBLE_CERT_FILE`, see the server
+  settings below).
+- Behind a reverse proxy that already runs in Docker, use
+  `deploy/compose.behind-proxy.yml`: set `PROXY_NETWORK` to the proxy's
+  Docker network and point the proxy at `kallisti:8080`.
+- Coming from Murmur: `--remove-orphans` stops an old Murmur container (it
+  would keep port 64738). Murmur's registrations, channels and ACLs are not
+  taken over.
 
-Upgrading from a setup with Murmur: `--remove-orphans` stops the old Murmur
-container (it would keep port 64738). Murmur's registrations, channels and
-ACLs are not taken over.
+### In front of an existing Murmur
 
-Bans and limits use the client's IP. Rootless podman rewrites the source
-address of native clients (all of them then share one IP); Docker, or
-podman with a root network, keeps it.
+`deploy/compose.murmur.yml` runs Kallisti and Caddy, without a Mumble port:
+
+```sh
+printf 'DOMAIN=chat.example.org\nMUMBLE_HOST=voice.example.org\n' > deploy/.env
+docker compose -f deploy/compose.murmur.yml up -d
+```
+
+- Each web user gets their own Mumble session on your Murmur, made by the
+  Kallisti server. Murmur therefore sees all web users at the Kallisti
+  server's address: set `autobanAttempts=0` in `murmur.ini`, or Murmur may
+  ban Kallisti after a few reconnects.
+- Accounts register themselves on Murmur with their own certificate (Murmur
+  allows that by default). The admin stays Murmur's SuperUser: join with the
+  "Guest" tab, the name `SuperUser` and the SuperUser password as the server
+  password.
+- `TEXT_CHANNELS` is the list of text channels; it is read at each start.
+- `MUMBLE_PORT` (64738) and `MUMBLE_INSECURE_TLS` (1: accept Murmur's
+  self-signed certificate; set 0 if Murmur has a real one).
+
+### What works where
+
+| | Built-in | Murmur |
+|---|:-:|:-:|
+| Voice in the browser and the desktop app, avatars, private messages | ✓ | ✓ |
+| Text channels with history, uploads, mentions, replies, search | ✓ | ✓ |
+| Edit and delete your own messages; remembered read state | ✓ | ✓ |
+| Ban list and registered users in the web app (with Mumble rights) | ✓ | ✓ |
+| Lobby: users join voice channels on purpose | ✓ | – |
+| Manage text channels and topics in the app (admins, moderators) | ✓ | – (env) |
+| Moderator role; moderators delete others' messages | ✓ | – |
+| Stored voice channel chats | ✓ | – |
+| Text channels for Mumble clients (mirrors) | ✓ | – |
+| Log in as SuperUser with the "Log in" tab | ✓ | – |
+
+### Both ways
+
+- Data lives in the `kallisti-data` volume: the database, uploads and
+  (built-in) the server certificate. Daily database backups go to
+  `/data/backups`; back up the uploads separately.
+- Bans and limits use the client's IP. Rootless podman rewrites the source
+  address of native clients (all of them then share one IP); Docker, or
+  podman with a root network, keeps it.
 
 ## Desktop app
 
