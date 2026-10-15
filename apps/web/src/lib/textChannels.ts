@@ -28,7 +28,7 @@ export type ServerEvent =
   | { type: "channels"; channels: TextChannel[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; about?: "channels" }
   | { type: "upload-token"; token: string }
   // The server dropped messages for us: reload what is shown.
   | { type: "resync" };
@@ -43,6 +43,9 @@ export type TextState = {
   loaded: Readonly<Record<number, boolean>>;
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
+  // Errors about channel changes show as a notice (n counts them), not in
+  // the chat.
+  notice: { text: string; n: number } | null;
   // Counts resync events, so views can reload.
   resyncs: number;
 };
@@ -56,6 +59,7 @@ export const initialTextState: TextState = {
   loaded: {},
   more: {},
   lastError: null,
+  notice: null,
   resyncs: 0,
 };
 
@@ -101,7 +105,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     case "message":
       return isMessage(v.message) ? { type: "message", message: v.message } : null;
     case "error":
-      return isStr(v.message) ? { type: "error", message: v.message } : null;
+      if (!isStr(v.message)) return null;
+      return v.about === "channels" ? { type: "error", message: v.message, about: "channels" } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
     case "resync":
@@ -135,7 +140,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
     }
     case "error":
-      return { ...state, lastError: event.message };
+      return event.about === "channels"
+        ? { ...state, notice: { text: event.message, n: (state.notice?.n ?? 0) + 1 } }
+        : { ...state, lastError: event.message };
     case "upload-token": // answered by the connection, not state
       return state;
     case "resync":

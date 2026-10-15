@@ -71,6 +71,18 @@ describe("reduceText", () => {
   it("stores the last error", () => {
     expect(reduceText(ready, { type: "error", message: "nope" }).lastError).toBe("nope");
   });
+
+  it("shows errors about channel changes as a notice, not in the chat", () => {
+    const failed = reduceText(ready, { type: "error", message: "name in use", about: "channels" });
+    expect(failed.lastError).toBeNull();
+    expect(failed.notice).toEqual({ text: "name in use", n: 1 });
+    expect(reduceText(failed, { type: "error", message: "x", about: "channels" }).notice?.n).toBe(2);
+  });
+
+  it("reads the topic of an error", () => {
+    expect(parseServerEvent('{"type":"error","message":"m","about":"channels"}')).toEqual({ type: "error", message: "m", about: "channels" });
+    expect(parseServerEvent('{"type":"error","message":"m","about":"other"}')).toEqual({ type: "error", message: "m" });
+  });
 });
 
 describe("requests", () => {
