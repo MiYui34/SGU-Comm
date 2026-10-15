@@ -220,11 +220,13 @@ func TestSavedRootKeepsTheConfiguredName(t *testing.T) {
 
 func TestPlainText(t *testing.T) {
 	for in, want := range map[string]string{
-		"<b>hi</b> all": "hi all",
-		"a < b > c":     "a &lt; b > c", // shown as HTML: a lone < is escaped
-		"x <img src=a":  "x",
-		"<!-- c -->ok":  "ok",
-		"  spaced  ":    "spaced",
+		"<b>hi</b> all":                       "hi all",
+		"a < b > c":                           "a &lt; b > c", // shown as HTML: a lone < is escaped
+		"x <img src=a":                        "x",
+		"<!-- c -->ok":                        "ok",
+		"  spaced  ":                          "spaced",
+		"Up next:<br>1. a<BR/>2. b<br />3. c": "Up next:\n1. a\n2. b\n3. c",
+		"<p>one</p><p>two</p>":                "one\ntwo",
 	} {
 		if got := plainText(in); got != want {
 			t.Errorf("plainText(%q) = %q, want %q", in, got, want)

@@ -74,13 +74,17 @@ func (s *Server) moderatePermission(actor, u *User, m *pb.UserState) (Perm, uint
 
 // Tags start with a letter, "/" or "!"; "a < b" is not a tag. An unclosed
 // tag at the end is removed too.
-var htmlTag = regexp.MustCompile(`<[a-zA-Z/!][^>]*(>|$)`)
+var (
+	htmlTag   = regexp.MustCompile(`<[a-zA-Z/!][^>]*(>|$)`)
+	lineBreak = regexp.MustCompile(`(?i)<br\s*/?>|</p\s*>`)
+)
 
 // plainText removes HTML tags: the server does not allow HTML (as Murmur
 // with allowhtml off), and Mumble clients would render it. Until nothing
 // changes ("<<b>img ...>" leaves a tag after one pass), and a "<" that is
-// left is escaped, so no tag can form.
+// left is escaped, so no tag can form. Line breaks stay (as "\n").
 func plainText(s string) string {
+	s = lineBreak.ReplaceAllString(s, "\n")
 	for {
 		next := htmlTag.ReplaceAllString(s, "")
 		if next == s {
