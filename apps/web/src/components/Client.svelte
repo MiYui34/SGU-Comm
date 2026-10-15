@@ -29,7 +29,7 @@
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
-  import { mentionsMe } from "../lib/mentions";
+  import { pingsMe } from "../lib/mentions";
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -327,7 +327,7 @@
     connection.onTextEvent((ev) => {
       if (ev.type !== "message" || !me) return;
       const m = ev.message;
-      if (!mentionsMe(escapeHtml(m.text), m.author, me.name)) return;
+      if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name)) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
       const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
@@ -423,9 +423,9 @@
     void view;
     uploadError = null;
   });
-  const send = (message: string) => {
+  const send = (message: string, reply?: number) => {
     uploadError = null;
-    if (chatId !== null) connection.sendToTextChannel(chatId, message);
+    if (chatId !== null) connection.sendToTextChannel(chatId, message, undefined, reply);
     else connection.sendText(dm === null ? { channelId } : { session: dm.session }, message);
   };
   const join = (id: number) => {

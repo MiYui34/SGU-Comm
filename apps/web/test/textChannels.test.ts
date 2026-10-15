@@ -93,6 +93,7 @@ describe("requests", () => {
     expect(JSON.parse(historyRequest(1))).toEqual({ type: "history", channel: 1 });
     expect(JSON.parse(historyRequest(1, 40))).toEqual({ type: "history", channel: 1, before: 40 });
     expect(JSON.parse(sendRequest(2, "hi"))).toEqual({ type: "send", channel: 2, text: "hi" });
+    expect(JSON.parse(sendRequest(2, "yes", undefined, 7))).toEqual({ type: "send", channel: 2, text: "yes", reply: 7 });
   });
 });
 
@@ -315,6 +316,12 @@ describe("edited and deleted messages", () => {
     const line = toChatMessage({ ...msg(7), text: "a <b>", edited: 9 });
     expect(line.source).toEqual({ id: 7, text: "a <b>" });
     expect(line.edited).toBe(9);
+  });
+
+  it("reads replies and keeps their quote", () => {
+    const raw = { ...msg(8), reply: { id: 7, author: "bob", text: "q" } };
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: raw }))).toEqual({ type: "message", message: raw });
+    expect(toChatMessage(raw).reply).toEqual({ id: 7, author: "bob", text: "q" });
   });
 });
 

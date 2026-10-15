@@ -28,6 +28,10 @@ const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export const mentionsMe = (html: string, author: string | null, me: string): boolean =>
   (author === null || !sameName(author, me)) && mentions(html, me);
 
+// A message that pings me: it mentions me, or answers a message of mine.
+export const pingsMe = (html: string, author: string | null, replyTo: string | undefined, me: string): boolean =>
+  mentionsMe(html, author, me) || (replyTo !== undefined && sameName(replyTo, me) && !(author !== null && sameName(author, me)));
+
 export const highlightMentions = (html: string, name: string): string =>
   name === ""
     ? html
@@ -49,7 +53,7 @@ export const mentionCounts = (state: TextState, seen: Record<number, number>, me
     const after = Math.max(read, summary?.latest ?? 0);
     const msgs = state.messages[channel] ?? [];
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
-      if (mentionsMe(escapeHtml(msgs[i]!.text), msgs[i]!.author, me)) n++;
+      if (pingsMe(escapeHtml(msgs[i]!.text), msgs[i]!.author, msgs[i]!.reply?.author, me)) n++;
     }
     if (n) out[channel] = n;
   }

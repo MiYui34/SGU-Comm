@@ -1,6 +1,6 @@
 <script lang="ts">
   import { opensLightbox } from "../lib/lightbox";
-  import { highlightMentions, insertMention, mentionQuery, mentionsMe, suggestNames } from "../lib/mentions";
+  import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import type { ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
@@ -76,7 +76,8 @@
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
-    onSend?: (text: string) => void;
+    // reply: the stored message it answers (stored chats only).
+    onSend?: (text: string, reply?: number) => void;
     onClose?: () => void;
   } = $props();
 
@@ -195,7 +196,8 @@
       return;
     }
     if (!text || !onSend) return;
-    onSend(text);
+    onSend(text, replying?.id);
+    replying = null;
     draft = "";
   };
 
@@ -271,6 +273,25 @@
     if (!last || !onEdit) return false;
     void startEdit(last);
     return true;
+  };
+
+  // Stored messages carry their id and the message they answer.
+  const idOf = (m: ChatMessage | DisplayMessage) => ("source" in m ? m.source?.id : undefined);
+  const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
+  // Replies: the message we answer, and jumping to an original.
+  let replying = $state<{ id: number; author: string } | null>(null);
+  let flashed = $state<number | null>(null);
+  const startReply = (m: ChatMessage | DisplayMessage) => {
+    if (!("source" in m) || !m.source) return;
+    replying = { id: m.source.id, author: m.actorName ?? "" };
+    messageInput?.focus();
+  };
+  const jumpTo = (id: number) => {
+    const line = list?.querySelector(`[data-message="${id}"]`);
+    if (!line) return; // not loaded
+    line.scrollIntoView({ block: "center", behavior: "smooth" });
+    flashed = id;
+    setTimeout(() => (flashed = flashed === id ? null : flashed), 1500);
   };
 </script>
 
@@ -365,7 +386,9 @@
         {:else}
           {@const group = item.group}
           {#each group.messages as m, i (m)}
-            <li class="line" class:first={i === 0} class:mentioned={mentionsMe(m.text, group.actorName, me)}>
+            <li class="line" class:first={i === 0} class:mentioned={pingsMe(m.text, group.actorName, replyOf(m)?.author, me)}
+              class:flash={idOf(m) !== undefined && idOf(m) === flashed}
+              data-message={idOf(m)}>
               {#if i === 0}
                 <div class="gutter">
                   {#if group.actorName}
@@ -432,6 +455,12 @@
         <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>
       </div>
     {/if}
+    {#if replying}
+      <div class="replying">
+        <span class="ellipsis">Replying to <strong>{replying.author}</strong></span>
+        <button type="button" aria-label="Cancel reply" onclick={() => (replying = null)}>×</button>
+      </div>
+    {/if}
     <div class="composer" class:disabled={!onSend}>
       <button
         type="button"
@@ -489,7 +518,8 @@
             e.preventDefault();
             return;
           }
-          if (e.key === "Escape" && pending) cancelPending();
+          if (e.key === "Escape" && replying) replying = null;
+          else if (e.key === "Escape" && pending) cancelPending();
         }}
         role="combobox"
         aria-autocomplete="list"
@@ -510,6 +540,13 @@
 {/if}
 
 {#snippet body(m: ChatMessage | DisplayMessage)}
+  {#if "reply" in m && m.reply}
+    {@const quote = m.reply}
+    <button type="button" class="quote" onclick={() => jumpTo(quote.id)}>
+      {#if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{quote.text}</span>
+      {:else}<em>The original message was deleted.</em>{/if}
+    </button>
+  {/if}
   {#if "source" in m && m.source && editing?.id === m.source.id}
     <form class="edit" onsubmit={(e) => (e.preventDefault(), saveEdit())}>
       <input
@@ -538,7 +575,8 @@
     {@const id = m.source.id}
     {@const canEdit = mayEdit?.(m) && onEdit}
     {@const canDelete = mayDelete?.(m) && onDelete}
-    {#if canEdit || canDelete}
+    {@const canReply = (stored || kind === "text") && !!onSend}
+    {#if canEdit || canDelete || canReply}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="actions"
@@ -552,6 +590,9 @@
           <button type="button" class="danger" onclick={() => (onDelete?.(id), endConfirm())}>Delete</button>
           <button type="button" bind:this={cancelButton} onclick={endConfirm}>Cancel</button>
         {:else}
+          {#if canReply}
+            <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
+          {/if}
           {#if canEdit}
             <button type="button" aria-label="Edit message" title="Edit" onclick={() => startEdit(m)}>Edit</button>
           {/if}
@@ -925,6 +966,43 @@
   .edit .hint {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .replying {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    margin: 0 0 4px;
+    border-radius: 8px 8px 0 0;
+    background: var(--bg-rail);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .replying button {
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text-muted);
+  }
+  .quote {
+    display: flex;
+    gap: 6px;
+    max-width: 100%;
+    margin-bottom: 2px;
+    padding: 0 0 0 8px;
+    border-left: 2px solid var(--border-subtle);
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+  }
+  .quote strong {
+    color: var(--text);
+    flex: none;
+  }
+  .line.flash {
+    background: rgb(88 101 242 / 0.2);
+    transition: background 0.3s;
   }
   .line.mentioned {
     background: rgb(240 178 50 / 0.1);

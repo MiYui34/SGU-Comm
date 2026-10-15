@@ -6,6 +6,7 @@ import {
   mentionQuery,
   mentions,
   mentionsMe,
+  pingsMe,
   suggestNames,
 } from "../src/lib/mentions";
 import { initialTextState, type TextMessage, type TextState } from "../src/lib/textChannels";
@@ -95,5 +96,23 @@ describe("mentionCounts with the server's summary", () => {
     // Read past the summary: only what is newer than what was read.
     expect(mentionCounts(state, { 1: 5 }, "lain")).toEqual({ 1: 1 });
     expect(mentionCounts(state, { 1: 6 }, "lain")).toEqual({});
+  });
+});
+
+describe("replies ping", () => {
+  it("counts a reply to me like a mention", () => {
+    expect(pingsMe("no at here", "bob", "lain", "Lain")).toBe(true);
+    expect(pingsMe("no at here", "bob", "carol", "lain")).toBe(false);
+    expect(pingsMe("@lain", "bob", undefined, "lain")).toBe(true);
+    expect(pingsMe("reply to myself", "lain", "lain", "lain")).toBe(false);
+  });
+
+  it("is in the counts", () => {
+    const state: TextState = {
+      ...initialTextState,
+      channels: [{ id: 1, name: "a" }],
+      messages: { 1: [{ id: 3, channel: 1, author: "bob", text: "sure", at: 0, reply: { id: 2, author: "lain", text: "q" } }] },
+    };
+    expect(mentionCounts(state, {}, "lain")).toEqual({ 1: 1 });
   });
 });

@@ -179,8 +179,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     deleteMessage: (message: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(deleteMessageRequest(message));
     },
-    sendToTextChannel: (channel: number, message: string, upload?: string) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message, upload));
+    sendToTextChannel: (channel: number, message: string, upload?: string, reply?: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message, upload, reply));
     },
     // The server's HTTP origin (uploads and files).
     httpBase: base,

@@ -17,7 +17,10 @@ export type TextMessage = {
   verified?: boolean;
   upload?: Attachment;
   edited?: number; // Unix milliseconds
+  // The message it answers (author empty: deleted since).
+  reply?: Quote;
 };
+export type Quote = { id: number; author: string; text: string };
 // A chat line for display: a text channel message can carry an attachment
 // and a verified mark.
 // source: the stored message (id and plain text), for editing.
@@ -26,6 +29,7 @@ export type DisplayMessage = ChatMessage & {
   verified?: boolean;
   edited?: number;
   source?: { id: number; text: string };
+  reply?: Quote;
 };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
@@ -129,6 +133,7 @@ const isMessage = (v: unknown): v is TextMessage =>
   isNum(v.at) &&
   (v.verified === undefined || typeof v.verified === "boolean") &&
   (v.edited === undefined || isNum(v.edited)) &&
+  (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
   (v.upload === undefined || isAttachment(v.upload));
 
 // Network input: anything unexpected is dropped.
@@ -243,8 +248,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
 export const historyRequest = (channel: number, before?: number) =>
   JSON.stringify(before === undefined ? { type: "history", channel } : { type: "history", channel, before });
 
-export const sendRequest = (channel: number, text: string, upload?: string) =>
-  JSON.stringify(upload ? { type: "send", channel, text, upload } : { type: "send", channel, text });
+export const sendRequest = (channel: number, text: string, upload?: string, reply?: number) =>
+  JSON.stringify({ type: "send", channel, text, ...(upload ? { upload } : {}), ...(reply ? { reply } : {}) });
 
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
 
@@ -332,6 +337,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       verified: m.verified === true,
       source: { id: m.id, text: m.text },
       ...(m.edited !== undefined && { edited: m.edited }),
+      ...(m.reply && { reply: m.reply }),
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);
