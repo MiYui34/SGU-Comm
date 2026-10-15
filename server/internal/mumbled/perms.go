@@ -164,17 +164,10 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		s.sendUserNames(c, ids)
 		return
 	}
-	// Changes need Write in root: moderators have Write below root, but
-	// must not hand out rights or roles.
-	if !s.state.Has(u, 0, Write) {
-		s.mu.Unlock()
-		c.denyPerm(Write, 0)
-		return
-	}
 	s.mu.Unlock()
 	known := s.registeredIDs(aclUserIDs(m)) // DB lookups outside the lock
 	if m.GetChannelId() == 0 {
-		defer s.rolesChanged() // after the unlock below
+		defer s.rolesChanged() // roles live in root's groups; runs after the unlock
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -413,7 +406,7 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 	for _, e := range m.Users {
 		id := e.GetUserId()
 		s.mu.Lock()
-		protected := s.state.isStaff(id) && !s.state.Has(u, 0, Write)
+		protected := s.state.isStaff(&User{Registered: true, UserID: id}) && !s.state.Has(u, 0, Write)
 		s.mu.Unlock()
 		if protected {
 			c.denyPerm(Write, 0)
@@ -434,6 +427,9 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 		s.mu.Lock()
 		s.registrationChangedLocked(id, e.Name, c.session)
 		s.mu.Unlock()
+		if e.Name == nil {
+			s.rolesChanged() // its group memberships are gone
+		}
 	}
 }
 

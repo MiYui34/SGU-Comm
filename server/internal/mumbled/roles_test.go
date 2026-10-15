@@ -53,13 +53,12 @@ func TestModeratorsDoAlmostAllThatAdminsDo(t *testing.T) {
 func TestModeratorsCannotHandOutRightsOrActOnStaff(t *testing.T) {
 	s, addr := rolesServer(t)
 	su := superUser(t, addr)
-	games := su.createChannel(0, "Games", false)
 	alice, aliceID := registered(t, addr, "alice")
 	s.SetModerator(su.session, aliceID, true)
-	// No ACL changes, in root or below, and no new moderators.
+	// No changes to root's ACL (roles live there) and to the ban list.
 	alice.setACL(0, true, nil, nil)
 	alice.expectDenied(pb.PermissionDenied_Permission)
-	alice.setACL(games, true, nil, nil)
+	alice.send(mumble.TypeBanList, &pb.BanList{Bans: []*pb.BanList_BanEntry{{Address: make([]byte, 16), Mask: proto.Uint32(0)}}})
 	alice.expectDenied(pb.PermissionDenied_Permission)
 	_, bobID := registered(t, addr, "bob")
 	if err := s.SetModerator(alice.session, bobID, true); err == nil {
@@ -134,4 +133,37 @@ func TestNewModeratorsLearnTheirRootPermissions(t *testing.T) {
 			return
 		}
 	}
+}
+
+func TestModeratorsReadBansAndEditSubchannelACLs(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	games := su.createChannel(0, "Games", false)
+	alice, aliceID := registered(t, addr, "alice")
+	s.SetModerator(su.session, aliceID, true)
+	alice.send(mumble.TypeBanList, &pb.BanList{Query: proto.Bool(true)})
+	alice.expect(mumble.TypeBanList)
+	// As in Murmur: Write in a channel allows its ACL (not root's).
+	alice.setACL(games, true, []*pb.ACL_ChanACL{chanACL("all", true, true, 0, Enter)}, nil)
+	for {
+		var m pb.ChannelState
+		proto.Unmarshal(alice.expect(mumble.TypeChannelState), &m)
+		if m.GetChannelId() == games && m.GetIsEnterRestricted() {
+			break
+		}
+	}
+}
+
+func TestUsersWithWriteInRootAreStaff(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	dave, daveID := registered(t, addr, "dave")
+	s.mu.Lock()
+	root := s.state.Channels[0]
+	root.ACLs = append(root.ACLs, ACL{ApplyHere: true, ApplySubs: true, HasUser: true, UserID: daveID, Allow: Write})
+	s.mu.Unlock()
+	alice, aliceID := registered(t, addr, "alice")
+	s.SetModerator(su.session, aliceID, true)
+	alice.send(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(dave.session)})
+	alice.expectDenied(pb.PermissionDenied_Permission)
 }

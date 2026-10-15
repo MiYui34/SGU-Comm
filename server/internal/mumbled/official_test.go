@@ -202,7 +202,7 @@ func TestOfficialClientEditsACL(t *testing.T) {
 	official.screenshot("acl-3")
 	official.xdo("xdotool", "mousemove", "220", "26", "click", "1") // ACL tab
 	time.Sleep(time.Second)
-	official.xdo("xdotool", "mousemove", "60", "163", "click", "1") // VIP's own @all entry
+	official.xdo("xdotool", "mousemove", "60", "209", "click", "1") // VIP's own @all entry (after root's six)
 	time.Sleep(time.Second)
 	official.xdo("xdotool", "mousemove", "749", "159", "click", "1") // clear "Deny Enter"
 	time.Sleep(time.Second)

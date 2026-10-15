@@ -75,7 +75,7 @@ func (s *Server) userRemoveMsg(c *client, m *pb.UserRemove) {
 	if m.GetBan() {
 		need = Ban
 	}
-	staff := u.Registered && s.state.isStaff(u.UserID) && !s.state.Has(actor, 0, Write)
+	staff := s.state.isStaff(u) && !s.state.Has(actor, 0, Write)
 	if isSuperUser(u) || staff || s.state.Permissions(actor, 0)&need == 0 {
 		s.mu.Unlock()
 		c.denyPerm(need, 0)
@@ -130,16 +130,21 @@ func (s *Server) setBans(bans []BanEntry) {
 // maxBans limits the list a client can set.
 const maxBans = 5000
 
-// banListMsg shows or replaces the ban list (Ban in root).
+// banListMsg shows the ban list (Ban in root) or replaces it (Write in
+// root too: moderators must not ban admins or everyone at once).
 func (s *Server) banListMsg(c *client, m *pb.BanList) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	need := Ban
+	if !m.GetQuery() {
+		need |= Write
+	}
 	s.mu.Lock()
 	actor := s.state.Users[c.session]
-	allowed := actor != nil && s.state.Has(actor, 0, Ban)
+	allowed := actor != nil && s.state.Has(actor, 0, need)
 	s.mu.Unlock()
 	if !allowed {
-		c.denyPerm(Ban, 0)
+		c.denyPerm(need, 0)
 		return
 	}
 	if m.GetQuery() {
