@@ -1,5 +1,6 @@
 import { channelSiblings, may, Perm, type ServerState } from "@kallisti/protocol";
 import type { ChannelKind } from "./channelForm";
+import { mirrorIds } from "./mirrors";
 import type { TextState } from "./textChannels";
 
 export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: boolean; canMoveDown: boolean };
@@ -8,6 +9,13 @@ export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: bool
 // built-in server.
 export const canManageText = (server: ServerState, text: TextState): boolean =>
   text.voiceChats && may(server, 0, Perm.MakeChannel);
+
+// A voice channel and its siblings, without text channel mirrors (they
+// keep their place; nobody but SuperUser may edit them).
+export const voiceSiblings = (server: ServerState, text: TextState, id: number) => {
+  const hidden = mirrorIds(server, text.channels);
+  return channelSiblings(server, id).filter((c) => !hidden.has(c.id));
+};
 
 // What a channel's menu offers (null: no menu). Voice channels follow
 // Mumble's permissions, known after a queryPermissions. A move renumbers
@@ -22,7 +30,7 @@ export const menuRights = (server: ServerState, text: TextState, kind: ChannelKi
     return rights(true, true, text.channels.map((c) => c.id), true);
   }
   if (!server.channels[id]) return null;
-  const siblings = channelSiblings(server, id);
+  const siblings = voiceSiblings(server, text, id);
   const canEdit = may(server, id, Perm.Write);
   return rights(canEdit, canEdit && id !== 0, siblings.map((c) => c.id), siblings.every((c) => may(server, c.id, Perm.Write)));
 };

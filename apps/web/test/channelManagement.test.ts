@@ -42,3 +42,20 @@ describe("menuRights", () => {
     expect(menuRights(server({}, Perm.MakeChannel), text, "text", 99)).toBeNull();
   });
 });
+
+describe("menuRights with text channel mirrors", () => {
+  it("ignores the mirrors' parent among the siblings", () => {
+    const base = server({ 1: W, 2: W, 3: W });
+    const mirror = (id: number, parent: number, name: string, position: number): Channel => ({
+      ...ch(id, parent, position),
+      name,
+    });
+    const s: ServerState = {
+      ...base,
+      channels: { ...base.channels, 5: mirror(5, 0, "Text channels", 1000), 6: mirror(6, 5, "#x", 0) },
+    };
+    const t: TextState = { ...text, channels: [...text.channels, { id: 12, name: "x", mumble: 6 }] };
+    expect(menuRights(s, t, "voice", 3)?.canMoveDown).toBe(false);
+    expect(menuRights(s, t, "voice", 3)?.canMoveUp).toBe(true);
+  });
+});

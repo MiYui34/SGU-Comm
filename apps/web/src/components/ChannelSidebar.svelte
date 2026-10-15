@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
+  import { mirrorIds, withoutMirrors } from "../lib/mirrors";
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
   import type { TextChannel } from "../lib/textChannels";
@@ -46,7 +47,8 @@
     onChannelMenu?: (kind: ChannelKind, id: number, event: MouseEvent) => void;
   } = $props();
 
-  const tree = $derived(channelTree(server));
+  // Text channel mirrors (for Mumble clients) are not voice channels here.
+  const tree = $derived(withoutMirrors(channelTree(server), mirrorIds(server, textChannels)));
   let collapsed = $state(false);
   let textCollapsed = $state(false);
   const INDENT = 16;

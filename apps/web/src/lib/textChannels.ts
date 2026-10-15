@@ -4,7 +4,8 @@ import type { Roles } from "./roles";
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
 
-export type TextChannel = { id: number; name: string };
+// mumble: the Mumble channel that mirrors it for Mumble clients.
+export type TextChannel = { id: number; name: string; mumble?: number };
 export type Attachment = { url: string; name: string; type: string; size: number };
 export type TextMessage = {
   id: number;
@@ -78,7 +79,8 @@ const parseRoles = (v: unknown): Roles | null =>
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 
-const isChannel = (v: unknown): v is TextChannel => isObj(v) && isNum(v.id) && isStr(v.name);
+const isChannel = (v: unknown): v is TextChannel =>
+  isObj(v) && isNum(v.id) && isStr(v.name) && (v.mumble === undefined || isNum(v.mumble));
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
 const isMessage = (v: unknown): v is TextMessage =>

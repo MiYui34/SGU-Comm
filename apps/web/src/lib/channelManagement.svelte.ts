@@ -1,6 +1,6 @@
-import { channelSiblings, createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
+import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
-import { canManageText, menuRights } from "./channelManagement";
+import { canManageText, menuRights, voiceSiblings } from "./channelManagement";
 import { moveInList, moveVoiceChannel } from "./channelOrder";
 import type { Connection } from "./connection.svelte";
 import { menuAnchor } from "./menu";
@@ -41,7 +41,7 @@ export const createChannelManagement = (current: () => Connection) => {
       // Ask what we may do here and with the siblings (for moves). Root
       // has no siblings.
       if (kind === "voice") {
-        const ids = channelSiblings(server, id).map((c) => c.id);
+        const ids = voiceSiblings(server, text, id).map((c) => c.id);
         for (const c of ids.length ? ids : [id]) connection.send(queryPermissions(c));
       }
       opened = { kind, id, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
@@ -58,7 +58,7 @@ export const createChannelManagement = (current: () => Connection) => {
     closeForm: () => (form = null),
     move: (kind: ChannelKind, id: number, step: -1 | 1) => {
       if (kind === "text") connection.manage({ order: moveInList(text.channels.map((c) => c.id), id, step) });
-      else for (const c of moveVoiceChannel(channelSiblings(server, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
+      else for (const c of moveVoiceChannel(voiceSiblings(server, text, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
     },
     submit: (v: ChannelValues) => {
       if (!form) return;
