@@ -119,7 +119,7 @@ async fn serve(
     let mut ws = tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::accept_hdr_async(tcp, check)).await??;
     let (host, port) = target.ok_or("no target")?;
 
-    let (upstream, fp, peer) = match connect_upstream(&host, port).await {
+    let (upstream, fp, trusted_ca, peer) = match connect_upstream(&host, port).await {
         Ok(u) => u,
         Err(err) => {
             // Tell the client why, instead of just dropping the socket.
@@ -130,11 +130,7 @@ async fn serve(
     // Trust on first use: nothing from the client reaches an unknown or
     // changed server. The client asks the user and trusts via the app.
     let server = format!("{host}:{port}");
-    let refused = match pins.check(&server, &fp) {
-        Check::Trusted => None,
-        Check::Unknown => Some(format!("certificate-unknown {fp}")),
-        Check::Changed => Some(format!("certificate-changed {fp}")),
-    };
+    let refused = refusal(trusted_ca, pins.check(&server, &fp), &fp);
     if refused.is_some() {
         pins.offer(&server, &fp);
     }
@@ -286,12 +282,42 @@ async fn close_with(ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>, code
     .await;
 }
 
-/// Connects with TLS. Returns the server certificate's fingerprint and the
-/// server address (for UDP).
+/// What to refuse a server for: nothing when the web PKI trusts its
+/// certificate for the name (renewals need no new pin), else trust on
+/// first use with the pins.
+fn refusal(ca_valid: bool, check: Check, fp: &str) -> Option<String> {
+    match (ca_valid, check) {
+        (true, _) | (false, Check::Trusted) => None,
+        (false, Check::Unknown) => Some(format!("certificate-unknown {fp}")),
+        (false, Check::Changed) => Some(format!("certificate-changed {fp}")),
+    }
+}
+
+/// Whether the web PKI (the usual certificate authorities) trusts the
+/// certificate for the name, for example one from Let's Encrypt.
+fn ca_valid(
+    end_entity: &rustls::pki_types::CertificateDer<'_>,
+    intermediates: &[rustls::pki_types::CertificateDer<'_>],
+    name: &rustls::pki_types::ServerName<'_>,
+    now: rustls::pki_types::UnixTime,
+) -> bool {
+    use rustls::client::danger::ServerCertVerifier;
+    static VERIFIER: std::sync::OnceLock<Option<Arc<rustls::client::WebPkiServerVerifier>>> = std::sync::OnceLock::new();
+    let verifier = VERIFIER.get_or_init(|| {
+        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+        rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(roots), Arc::new(rustls::crypto::ring::default_provider()))
+            .build()
+            .ok()
+    });
+    verifier.as_ref().is_some_and(|v| v.verify_server_cert(end_entity, intermediates, name, &[], now).is_ok())
+}
+
+/// Connects with TLS. Returns the server certificate's fingerprint, whether
+/// the web PKI trusts it, and the server address (for UDP).
 async fn connect_upstream(
     host: &str,
     port: u16,
-) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String, bool, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
     let tcp = tokio::time::timeout(HANDSHAKE_TIMEOUT, TcpStream::connect((host, port))).await??;
     tcp.set_nodelay(true)?;
     let peer = tcp.peer_addr()?;
@@ -299,14 +325,15 @@ async fn connect_upstream(
     let seen = Arc::new(Mutex::new(None));
     let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(seen.clone())));
     let stream = tls.connect(name, tcp).await?;
-    let fp = seen.lock().unwrap().take().ok_or("no server certificate")?;
-    Ok((stream, fp, peer))
+    let (fp, trusted) = seen.lock().unwrap().take().ok_or("no server certificate")?;
+    Ok((stream, fp, trusted, peer))
 }
 
-/// Mumble servers usually have self-signed certificates, so the CA check is
-/// replaced by trust on first use: the verifier records the certificate's
-/// fingerprint, and the bridge checks it against the pins.
-fn tls_config(seen: Arc<Mutex<Option<String>>>) -> rustls::ClientConfig {
+/// Mumble servers usually have self-signed certificates, so the CA check
+/// does not decide alone: the verifier records the certificate's
+/// fingerprint and whether the web PKI trusts it, and the bridge decides
+/// (see refusal).
+fn tls_config(seen: Arc<Mutex<Option<(String, bool)>>>) -> rustls::ClientConfig {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
@@ -319,19 +346,20 @@ fn tls_config(seen: Arc<Mutex<Option<String>>>) -> rustls::ClientConfig {
 #[derive(Debug)]
 struct Recording {
     provider: Arc<rustls::crypto::CryptoProvider>,
-    seen: Arc<Mutex<Option<String>>>,
+    seen: Arc<Mutex<Option<(String, bool)>>>,
 }
 
 impl rustls::client::danger::ServerCertVerifier for Recording {
     fn verify_server_cert(
         &self,
         end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        server_name: &rustls::pki_types::ServerName<'_>,
         _ocsp: &[u8],
-        _now: rustls::pki_types::UnixTime,
+        now: rustls::pki_types::UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        *self.seen.lock().unwrap() = Some(pins::fingerprint(end_entity));
+        let trusted = ca_valid(end_entity, intermediates, server_name, now);
+        *self.seen.lock().unwrap() = Some((pins::fingerprint(end_entity), trusted));
         Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
 
@@ -363,6 +391,33 @@ impl rustls::client::danger::ServerCertVerifier for Recording {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn certificates_valid_for_the_name_need_no_pin() {
+        assert_eq!(refusal(true, Check::Unknown, "ab"), None);
+        assert_eq!(refusal(true, Check::Changed, "ab"), None);
+        assert_eq!(refusal(false, Check::Trusted, "ab"), None);
+        assert_eq!(refusal(false, Check::Unknown, "ab"), Some("certificate-unknown ab".into()));
+        assert_eq!(refusal(false, Check::Changed, "ab"), Some("certificate-changed ab".into()));
+    }
+
+    // Needs the network: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn a_lets_encrypt_certificate_is_ca_valid() {
+        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 443).await.unwrap();
+        assert!(trusted);
+        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 64738).await.unwrap();
+        assert!(!trusted); // self-signed until the server uses the web certificate
+    }
+
+    #[test]
+    fn self_signed_is_not_ca_valid() {
+        let cert = rcgen::generate_simple_self_signed(vec!["chat.example".into()]).unwrap();
+        let der = rustls::pki_types::CertificateDer::from(cert.cert.der().to_vec());
+        let name = rustls::pki_types::ServerName::try_from("chat.example").unwrap();
+        assert!(!ca_valid(&der, &[], &name, rustls::pki_types::UnixTime::now()));
+    }
 
     #[test]
     fn needs_the_right_secret() {
