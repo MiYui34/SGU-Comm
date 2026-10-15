@@ -280,7 +280,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       const search = event.type === "message-edited" ? patchSearch(state.search, (ms) => ms.map((m) => (m.id === event.message.id ? event.message : m))) : state.search;
       // An edit of a message not loaded here stays unloaded.
       if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return { ...state, search };
-      return { ...state, search, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
+      // An edit may change the link: its preview is asked again.
+      const { [event.message.id]: _, ...previews } = state.previews;
+      return { ...state, search, previews, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
     }
     case "search-results":
       return { ...state, search: { text: event.text, messages: event.messages } };

@@ -9,11 +9,14 @@ const LINK = /https?:\/\/[^\s<>"]+[^\s<>".,:;!?)\]'*_~]/;
 
 export const firstLink = (text: string): string | null => LINK.exec(text)?.[0] ?? null;
 
+// A message's preview is asked once per link (an edit can change it).
+export const previewKey = (m: TextMessage) => `${m.id} ${firstLink(m.text)}`;
+
 // Messages with a link whose preview is neither known nor asked for.
 export const previewsToAsk = (
   msgs: readonly TextMessage[],
   known: Readonly<Record<number, LinkPreview | null>>,
-  asked: ReadonlySet<number>,
-): number[] => msgs.filter((m) => !(m.id in known) && !asked.has(m.id) && firstLink(m.text)).map((m) => m.id);
+  asked: ReadonlySet<string>,
+): TextMessage[] => msgs.filter((m) => !(m.id in known) && firstLink(m.text) && !asked.has(previewKey(m)));
 
 export const previewsRequest = (messages: number[]) => JSON.stringify({ type: "previews", messages });

@@ -39,7 +39,7 @@
   import { pingsMe } from "../lib/mentions";
   import { mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
-  import { previewsToAsk } from "../lib/linkPreview";
+  import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -348,11 +348,12 @@
   // Muted text channels show no unread marker (mentions still count).
   const mutedText = $derived(mutedOn(mutedChannels.value, connection.httpBase));
   // Link previews of the open chat's messages: asked once per message.
-  const previewsAsked = new Set<number>();
+  const previewsAsked = new Set<string>();
   $effect(() => {
     if (chatId === null) return;
-    const ids = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked);
-    for (const id of ids) previewsAsked.add(id);
+    const asks = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked);
+    for (const m of asks) previewsAsked.add(previewKey(m));
+    const ids = asks.map((m) => m.id);
     for (let i = 0; i < ids.length; i += 30) connection.previews(ids.slice(i, i + 30));
   });
   // Who types where (see lib/typing). typingNow ticks while someone types,

@@ -659,7 +659,8 @@
         <span class="preview-title">{p.title}</span>
         {#if p.description}<span class="preview-description">{p.description}</span>{/if}
       </span>
-      {#if p.image}<img src={httpBase + p.image} alt="" loading="lazy" />{/if}
+      <!-- The server may have let the image go (its cache): then none. -->
+      {#if p.image}<img src={httpBase + p.image} alt="" loading="lazy" onerror={(e) => e.currentTarget.remove()} />{/if}
     </a>
   {/if}
   {#if "reactions" in m && m.reactions?.length && "source" in m && m.source}

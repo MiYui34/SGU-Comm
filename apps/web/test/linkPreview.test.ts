@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstLink, previewsToAsk } from "../src/lib/linkPreview";
+import { firstLink, previewKey, previewsToAsk } from "../src/lib/linkPreview";
 import { initialTextState, parseServerEvent, reduceText, type TextMessage } from "../src/lib/textChannels";
 
 const msg = (id: number, text: string): TextMessage => ({ id, channel: 1, author: "a", text, at: 1 });
@@ -12,9 +12,19 @@ describe("link previews", () => {
     expect(firstLink("javascript:alert(1)")).toBeNull();
   });
 
-  it("asks once for messages with a link and no answer yet", () => {
+  it("asks once per message and link, for messages with no answer yet", () => {
     const msgs = [msg(1, "https://a.org"), msg(2, "plain"), msg(3, "https://b.org"), msg(4, "https://c.org")];
-    expect(previewsToAsk(msgs, { 3: null }, new Set([4]))).toEqual([1]);
+    const asked = new Set([previewKey(msgs[3]!)]);
+    expect(previewsToAsk(msgs, { 3: null }, asked)).toEqual([msgs[0]]);
+    // Edited to another link: asked again.
+    expect(previewsToAsk([msg(4, "now https://d.org")], {}, asked)).toEqual([msg(4, "now https://d.org")]);
+  });
+
+  it("an edit drops the old preview", () => {
+    let state = reduceText(initialTextState, { type: "history", channel: 1, messages: [msg(5, "https://a.org")], more: false });
+    state = reduceText(state, { type: "preview", message: 5, preview: { url: "https://a.org", title: "A" } });
+    state = reduceText(state, { type: "message-edited", message: msg(5, "https://b.org") });
+    expect(5 in state.previews).toBe(false);
   });
 
   it("keeps the server's answers", () => {
