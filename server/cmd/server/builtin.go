@@ -69,8 +69,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	var onText func(from uint32, name string, registered bool, channel uint32, text string)
 	var onRoles func()
+	var onMoved func(session, from, to uint32)
 	if hub != nil {
-		onText, onRoles = hub.MumbleText, hub.RolesChanged
+		onText, onRoles, onMoved = hub.MumbleText, hub.RolesChanged, hub.UserMoved
 	}
 	srv, err := mumbled.New(mumbled.Config{
 		Welcome: cfg.Welcome, RootName: cfg.ServerName, Password: cfg.Password, DB: mdb,
@@ -78,12 +79,13 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		ReservedName:   accountExists(db), // names of web accounts are theirs only
 		OnChannelText:  onText,
 		OnRolesChanged: onRoles,
+		OnUserMoved:    onMoved,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if hub != nil {
-		hub.SetVoice(srv, publicBase) // before anyone connects
+		hub.SetVoice(voiceServer{srv}, publicBase) // before anyone connects
 	}
 	ln, err := tls.Listen("tcp", cfg.Listen, mumbled.TLSConfig(cert))
 	if err != nil {
@@ -102,6 +104,17 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	go srv.Serve(ln)
 	go srv.ServeUDP(udp)
 	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp}, nil
+}
+
+// voiceServer is the built-in server as the sidecar's Voice.
+type voiceServer struct{ *mumbled.Server }
+
+func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
+	mirrors := make([]mumbled.TextMirror, len(want))
+	for i, w := range want {
+		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name}
+	}
+	return v.Server.SyncTextChannels(mirrors)
 }
 
 // dial makes an in-process session for a web client.

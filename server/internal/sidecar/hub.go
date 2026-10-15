@@ -47,6 +47,11 @@ type Voice interface {
 	SetModerator(session, user uint32, on bool) error
 	// Roles: registered user ids of admins and moderators.
 	Roles() (admins, moderators []uint32)
+	// SyncTextChannels keeps a Mumble channel per text channel (in order)
+	// and returns them.
+	SyncTextChannels(want []Mirror) ([]uint32, error)
+	// SendServerText sends HTML to one Mumble user, from the server.
+	SendServerText(session uint32, html string)
 }
 
 type Hub struct {
@@ -61,6 +66,9 @@ type Hub struct {
 	mu       sync.Mutex
 	// One channel change at a time: store, reload and broadcast in order.
 	manageMu sync.Mutex
+	// Per voice server session: the last message seen in each mirror.
+	visitsMu sync.Mutex
+	visits   map[uint32]map[int64]int64
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
 }
@@ -75,17 +83,18 @@ func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
 	if err != nil {
 		return nil, err
 	}
-	wire := make([]wireChannel, len(channels))
-	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
-	}
-	return &Hub{store: s, now: now, channels: wire, conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
+	return &Hub{store: s, now: now, channels: toWireChannels(channels), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
 }
 
 // SetVoice turns on stored voice channel chats. Call it before clients
 // connect.
 func (h *Hub) SetVoice(v Voice, publicBase string) {
 	h.voice, h.publicBase = v, strings.TrimSuffix(publicBase, "/")
+	h.manageMu.Lock()
+	defer h.manageMu.Unlock()
+	if err := h.syncMirrors(); err != nil {
+		slog.Error("text channel mirrors", "err", err)
+	}
 }
 
 func (h *Hub) count() int {
@@ -158,6 +167,9 @@ func (c *Conn) Fail(reason string) { c.sendError(reason) }
 type wireChannel struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+	// The Mumble channel that mirrors it (the web client hides it from
+	// the voice channels).
+	Mumble uint32 `json:"mumble,omitempty"`
 }
 
 type wireMessage struct {
@@ -302,21 +314,31 @@ func (c *Conn) voiceChat(id mumble.Identity, voice uint32) {
 
 // MumbleText stores a text a Mumble client sent to a channel, and shows it
 // to the web clients that may read it (see mumbled.Config.OnChannelText).
-func (h *Hub) MumbleText(from uint32, name string, registered bool, voice uint32, text string) {
-	channel, err := h.store.VoiceChat(voice)
-	if err != nil {
-		slog.Error("voice channel chat", "channel", voice, "err", err)
-		return
-	}
+// In a text channel's mirror, it goes to the text channel (all web users).
+func (h *Hub) MumbleText(from uint32, name string, registered bool, channel uint32, text string) {
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		text = string([]rune(text)[:MaxTextLength])
 	}
-	m, err := h.store.AddMessage(store.NewMessage{ChannelID: channel, Author: name, Verified: registered, Text: text, At: h.now()})
+	if c, ok := h.textOf(channel); ok {
+		m, err := h.store.AddMessage(store.NewMessage{ChannelID: c.ID, Author: name, Verified: registered, Text: text, At: h.now()})
+		if err != nil {
+			slog.Error("store a text channel message", "err", err)
+			return
+		}
+		h.broadcast(map[string]any{"type": "message", "message": toWire(m)})
+		return
+	}
+	chat, err := h.store.VoiceChat(channel)
+	if err != nil {
+		slog.Error("voice channel chat", "channel", channel, "err", err)
+		return
+	}
+	m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: name, Verified: registered, Text: text, At: h.now()})
 	if err != nil {
 		slog.Error("store a voice channel message", "err", err)
 		return
 	}
-	h.broadcastVoice(voice, map[string]any{"type": "message", "message": toWire(m)})
+	h.broadcastVoice(channel, map[string]any{"type": "message", "message": toWire(m)})
 }
 
 func (h *Hub) channelExists(id int64) bool {
@@ -372,6 +394,9 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 	event := map[string]any{"type": "message", "message": toWire(m)}
 	if !isVoice {
 		c.hub.broadcast(event)
+		if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {
+			c.hub.voice.SendChannelText(id.Session, mirror, c.hub.mumbleText(m))
+		}
 		return
 	}
 	c.hub.broadcastVoice(voice, event)
@@ -558,9 +583,12 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		c.manageError("cannot change the channel")
 		return
 	}
-	if err := h.reloadChannels(); err != nil {
-		slog.Error("load text channels", "err", err)
-		return
+	if err := h.syncMirrors(); err != nil {
+		slog.Error("text channel mirrors", "err", err)
+		if err := h.reloadChannels(); err != nil {
+			slog.Error("load text channels", "err", err)
+			return
+		}
 	}
 	h.mu.Lock()
 	channels := h.channels
@@ -568,17 +596,21 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	h.broadcast(map[string]any{"type": "channels", "channels": channels})
 }
 
+func toWireChannels(channels []store.Channel) []wireChannel {
+	wire := make([]wireChannel, len(channels))
+	for i, ch := range channels {
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Mumble: ch.Mumble}
+	}
+	return wire
+}
+
 func (h *Hub) reloadChannels() error {
 	channels, err := h.store.Channels()
 	if err != nil {
 		return err
 	}
-	wire := make([]wireChannel, len(channels))
-	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
-	}
 	h.mu.Lock()
-	h.channels = wire
+	h.channels = toWireChannels(channels)
 	h.mu.Unlock()
 	return nil
 }

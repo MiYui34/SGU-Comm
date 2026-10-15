@@ -16,6 +16,13 @@ type fakeVoice struct {
 	mu   sync.Mutex
 	sent []string
 	mods []uint32
+	// Text channel mirrors: the last sync, Mumble channels by name, and
+	// texts to Mumble clients (channel texts by channel, server texts by
+	// session).
+	synced    []Mirror
+	mirrors   map[string]uint32
+	toChannel map[uint32][]string
+	toUser    map[uint32][]string
 }
 
 func (f *fakeVoice) MayRead(session, channel uint32) bool  { return session == 1 || channel != 9 }
@@ -24,6 +31,43 @@ func (f *fakeVoice) SendChannelText(from, channel uint32, text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, text)
+	if f.toChannel == nil {
+		f.toChannel = map[uint32][]string{}
+	}
+	f.toChannel[channel] = append(f.toChannel[channel], text)
+}
+
+// Mirrors get Mumble channels 100, 101, ... by name.
+func (f *fakeVoice) SyncTextChannels(want []Mirror) ([]uint32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mirrors == nil {
+		f.mirrors = map[string]uint32{}
+	}
+	f.synced = slices.Clone(want)
+	ids := make([]uint32, len(want))
+	for i, m := range want {
+		if f.mirrors[m.Name] == 0 {
+			f.mirrors[m.Name] = 100 + uint32(len(f.mirrors))
+		}
+		ids[i] = f.mirrors[m.Name]
+	}
+	return ids, nil
+}
+
+func (f *fakeVoice) SendServerText(session uint32, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.toUser == nil {
+		f.toUser = map[uint32][]string{}
+	}
+	f.toUser[session] = append(f.toUser[session], text)
+}
+
+func (f *fakeVoice) userTexts(session uint32) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.toUser[session])
 }
 
 func readyAs(t *testing.T, h *Hub, session uint32, name string) *Conn {
