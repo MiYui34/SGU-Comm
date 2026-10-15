@@ -1,6 +1,7 @@
 <script lang="ts">
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
   import { htmlToText } from "../lib/htmlText";
+  import type { ChannelKind } from "../lib/channelForm";
   import type { TextChannel } from "../lib/textChannels";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
@@ -19,6 +20,9 @@
     onOpenText,
     onJoin,
     onUserMenu,
+    onCreate,
+    canCreate = { text: false, voice: false },
+    onChannelMenu,
   }: {
     server: ServerState;
     currentChannel: number | null;
@@ -35,6 +39,11 @@
     onOpenText: (id: number) => void;
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
+    // A "+" in a category (undefined: the user may not create there).
+    onCreate?: (kind: ChannelKind) => void;
+    canCreate?: Record<ChannelKind, boolean>;
+    // Right-click on a channel.
+    onChannelMenu?: (kind: ChannelKind, id: number, event: MouseEvent) => void;
   } = $props();
 
   const tree = $derived(channelTree(server));
@@ -53,6 +62,11 @@
       class:current={node.channel.id === currentChannel}
       aria-current={node.channel.id === currentChannel ? "page" : undefined}
       onclick={() => onJoin(node.channel.id)}
+      oncontextmenu={(e) => {
+        if (!onChannelMenu) return;
+        e.preventDefault();
+        onChannelMenu("voice", node.channel.id, e);
+      }}
       title={htmlToText(node.channel.description) || undefined}
     >
       <Icon name="speaker" size={20} />
@@ -103,18 +117,25 @@
   </li>
 {/snippet}
 
-{#snippet category(label: string, isCollapsed: boolean, toggle: () => void)}
-  <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
-    <svg class="chevron" class:collapsed={isCollapsed} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" />
-    </svg>
-    {label}
-  </button>
+{#snippet category(label: string, isCollapsed: boolean, toggle: () => void, kind: ChannelKind)}
+  <div class="category-row">
+    <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
+      <svg class="chevron" class:collapsed={isCollapsed} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" />
+      </svg>
+      {label}
+    </button>
+    {#if onCreate && canCreate[kind]}
+      <button class="add" title="Create channel" aria-label="Create {kind} channel" onclick={() => onCreate(kind)}>
+        <Icon name="plus" size={16} />
+      </button>
+    {/if}
+  </div>
 {/snippet}
 
 <nav aria-label="Channels">
-  {#if textChannels.length}
-    {@render category("Text channels", textCollapsed, () => (textCollapsed = !textCollapsed))}
+  {#if textChannels.length || canCreate.text}
+    {@render category("Text channels", textCollapsed, () => (textCollapsed = !textCollapsed), "text")}
     {#if !textCollapsed}
       <ul class="text-channels">
         {#each textChannels as ch (ch.id)}
@@ -125,6 +146,11 @@
               class:unread={unreadText.has(ch.id) && ch.id !== currentText}
               aria-current={ch.id === currentText ? "page" : undefined}
               onclick={() => onOpenText(ch.id)}
+              oncontextmenu={(e) => {
+                if (!onChannelMenu) return;
+                e.preventDefault();
+                onChannelMenu("text", ch.id, e);
+              }}
             >
               <Icon name="hash" size={20} />
               <span class="name ellipsis">{ch.name}</span>
@@ -137,7 +163,7 @@
       </ul>
     {/if}
   {/if}
-  {@render category("Voice channels", collapsed, () => (collapsed = !collapsed))}
+  {@render category("Voice channels", collapsed, () => (collapsed = !collapsed), "voice")}
   {#if tree && !collapsed}
     {#if lobby}
       <ul>
@@ -161,6 +187,22 @@
     list-style: none;
     margin: 0;
     padding: 0;
+  }
+  .category-row {
+    display: flex;
+    align-items: center;
+  }
+  .category-row .category {
+    flex: 1;
+  }
+  .add {
+    display: grid;
+    place-items: center;
+    padding: 0 4px 2px;
+    color: var(--text-muted);
+  }
+  .add:hover {
+    color: var(--text);
   }
   .category {
     display: flex;

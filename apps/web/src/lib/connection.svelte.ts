@@ -22,11 +22,13 @@ import {
   historyRequest,
   httpBase,
   initialTextState,
+  manageRequest,
   parseServerEvent,
   reduceText,
   sendRequest,
   uploadTokenRequest,
   voiceChatRequest,
+  type ManageAction,
   type TextState,
 } from "./textChannels";
 import { createCapture } from "./voice/capture.svelte";
@@ -141,6 +143,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     // Asks which channel holds a voice channel's chat (built-in server).
     requestVoiceChat: (voice: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(voiceChatRequest(voice));
+    },
+    // Text channel management (admins).
+    manageTextChannels: (action: ManageAction) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));

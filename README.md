@@ -64,7 +64,8 @@ Server settings: `LISTEN_PORT` (8080), `ALLOWED_ORIGINS` (required,
 comma-separated or `*`), `MAX_CONNECTIONS` (100), `MAX_CONNECTIONS_PER_IP`
 (10, web connections), `TRUST_FORWARDED_FOR=1` (only behind a reverse proxy
 that sets `X-Forwarded-For`), `DB_PATH` (`kallisti.db`), `TEXT_CHANNELS`
-(`general`, comma-separated), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10
+(`general`, comma-separated; with the built-in server only the first start
+uses it, then admins manage text channels in the client), `UPLOAD_DIR` (`uploads`), `UPLOAD_MAX_MB` (10
 per file), `UPLOAD_QUOTA_MB` (100 per user per day).
 
 The built-in Mumble server: `MUMBLE_LISTEN` (`:64738`, TCP and UDP),

@@ -1,7 +1,15 @@
 <script lang="ts">
   import {
+    channelTree,
+    createChannel,
+    editChannel,
     inVoice,
     isLobby,
+    may,
+    Perm,
+    queryPermissions,
+    removeChannel,
+    type ChannelNode,
     joinChannel,
     messagesIn,
     privateMessagesWith,
@@ -11,6 +19,8 @@
   } from "@kallisti/protocol";
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
+  import type { ChannelForm, ChannelKind } from "../lib/channelForm";
+  import { moveInList, moveVoiceChannel } from "../lib/channelOrder";
   import type { Connection } from "../lib/connection.svelte";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
@@ -22,6 +32,8 @@
   import { settings, userAudio } from "../lib/settings.svelte";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
+  import ChannelDialog from "./ChannelDialog.svelte";
+  import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
   import MemberList from "./MemberList.svelte";
@@ -282,9 +294,12 @@
     const first = text.channels[0];
     if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
   });
-  // The open channel was removed: back to the voice view.
+  // The open channel was removed: to the first text channel, or the voice
+  // view.
   $effect(() => {
-    if (view.kind === "text" && text.available && !textChannel) view = { kind: "voice" };
+    if (view.kind !== "text" || !text.available || textChannel) return;
+    const first = text.channels[0];
+    view = first ? { kind: "text", id: first.id } : { kind: "voice" };
   });
   const textView = createTextView(() => connection, () => chatId);
   const textChat = $derived(
@@ -355,6 +370,54 @@
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
+  // Channel management. Text channels: admins (Write in root), with the
+  // built-in server. Voice channels: Mumble's permissions; the menu asks the
+  // server what we may do in the channel.
+  const canManageText = $derived(text.voiceChats && may(server, 0, Perm.Write));
+  const canMakeVoice = $derived(may(server, 0, Perm.MakeChannel));
+  const canCreate = $derived({ text: canManageText, voice: canMakeVoice || may(server, 0, Perm.MakeTempChannel) });
+  let channelMenu = $state<{ kind: ChannelKind; id: number; x: number; y: number } | null>(null);
+  let channelForm = $state<{ form: ChannelForm; id: number } | null>(null);
+  const findNode = (node: ChannelNode | null, id: number): ChannelNode | null =>
+    !node ? null : node.channel.id === id ? node : node.children.reduce<ChannelNode | null>((f, c) => f ?? findNode(c, id), null);
+  const voiceSiblings = (id: number) =>
+    findNode(channelTree(server), server.channels[id]?.parent ?? -1)?.children.map((n) => n.channel) ?? [];
+  const menuOrder = $derived.by(() => {
+    if (!channelMenu) return [];
+    return channelMenu.kind === "text" ? text.channels.map((c) => c.id) : voiceSiblings(channelMenu.id).map((c) => c.id);
+  });
+  const openChannelMenu = (kind: ChannelKind, id: number, event: MouseEvent) => {
+    if (kind === "voice") connection.send(queryPermissions(id));
+    channelMenu = { kind, id, x: event.clientX, y: event.clientY };
+  };
+  const nameOf = (kind: ChannelKind, id: number) =>
+    kind === "text" ? (text.channels.find((c) => c.id === id)?.name ?? "") : (server.channels[id]?.name ?? "");
+  const moveChannel = (kind: ChannelKind, id: number, step: -1 | 1) => {
+    if (kind === "text") {
+      connection.manageTextChannels({ order: moveInList(text.channels.map((c) => c.id), id, step) });
+      return;
+    }
+    for (const c of moveVoiceChannel(voiceSiblings(id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
+  };
+  const submitChannel = (v: { kind: ChannelKind; name: string; description: string; temporary: boolean }) => {
+    if (!channelForm) return;
+    const { form, id } = channelForm;
+    if (form.mode === "create") {
+      if (v.kind === "text") connection.manageTextChannels({ create: v.name });
+      else connection.send(createChannel(0, v.name, { temporary: v.temporary }));
+    } else if (form.mode === "edit") {
+      if (v.kind === "text") connection.manageTextChannels({ rename: id, name: v.name });
+      else {
+        const changes = {
+          ...(v.name !== form.name ? { name: v.name } : {}),
+          ...(v.description !== form.description ? { description: v.description } : {}),
+        };
+        if (Object.keys(changes).length) connection.send(editChannel(id, changes));
+      }
+    } else if (v.kind === "text") connection.manageTextChannels({ remove: id });
+    else connection.send(removeChannel(id));
+  };
+
   // Back to the lobby. Its chat is not a place to stay: show a text channel.
   const leaveVoice = () => {
     if (!me || !lobby) return;
@@ -370,6 +433,38 @@
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
 <svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
+
+{#if channelMenu}
+  {@const m = channelMenu}
+  {@const at = menuOrder.indexOf(m.id)}
+  <ChannelMenu
+    name={nameOf(m.kind, m.id)}
+    x={m.x}
+    y={m.y}
+    canEdit={m.kind === "text" ? canManageText : may(server, m.id, Perm.Write)}
+    canMoveUp={at > 0}
+    canMoveDown={at >= 0 && at < menuOrder.length - 1}
+    onEdit={() =>
+      (channelForm = {
+        form: {
+          mode: "edit",
+          kind: m.kind,
+          name: nameOf(m.kind, m.id),
+          description: m.kind === "voice" ? (server.channels[m.id]?.description ?? "") : "",
+        },
+        id: m.id,
+      })}
+    onMove={(step) => moveChannel(m.kind, m.id, step)}
+    onDelete={() => (channelForm = { form: { mode: "delete", kind: m.kind, name: nameOf(m.kind, m.id) }, id: m.id })}
+    onClose={() => (channelMenu = null)}
+  />
+{/if}
+
+{#if channelForm}
+  {#key channelForm}
+    <ChannelDialog form={channelForm.form} onSubmit={submitChannel} onClose={() => (channelForm = null)} />
+  {/key}
+{/if}
 
 {#if menu && menuUser}
   <UserMenu
@@ -419,6 +514,13 @@
       {lobby}
       onJoin={join}
       onUserMenu={openMenu}
+      {canCreate}
+      onCreate={(kind) =>
+        (channelForm = {
+          form: { mode: "create", kind, temporaryOnly: kind === "voice" && !canMakeVoice, canText: false },
+          id: 0,
+        })}
+      onChannelMenu={openChannelMenu}
     />
     {#if me}
       {#if lobby && voiceOn}
