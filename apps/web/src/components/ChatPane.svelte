@@ -41,6 +41,8 @@
     mayDelete,
     onEdit,
     onDelete,
+    typing = "",
+    onTyping,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -80,6 +82,9 @@
     mayDelete?: (m: DisplayMessage) => boolean;
     onEdit?: (id: number, text: string) => void;
     onDelete?: (id: number) => void;
+    // "bob is typing…" under the message box; onTyping: we type.
+    typing?: string;
+    onTyping?: () => void;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -551,7 +556,10 @@
       <input
         bind:this={messageInput}
         onpaste={onPaste}
-        oninput={updateCaret}
+        oninput={(e) => {
+          updateCaret();
+          if (e.currentTarget.value.trim() && !editing) onTyping?.();
+        }}
         onclick={updateCaret}
         onkeyup={(e) => {
           // Up and Down move in the open list; other keys may move the caret.
@@ -578,6 +586,7 @@
         aria-label="Message"
       />
     </div>
+    <p class="typing ellipsis" aria-live="polite">{typing}</p>
   </form>
 </main>
 
@@ -940,7 +949,15 @@
   }
   .send {
     flex-shrink: 0;
-    padding: 0 16px 24px;
+    padding: 0 16px;
+  }
+  /* Always there (also empty): the layout does not jump. */
+  .typing {
+    height: 24px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 24px;
+    color: var(--text-muted);
   }
   .error {
     margin: 0 0 8px;

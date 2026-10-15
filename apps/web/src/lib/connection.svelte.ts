@@ -26,6 +26,7 @@ import {
   historyRequest,
   httpBase,
   markReadRequest,
+  typingRequest,
   searchRequest,
   startSearch,
   initialTextState,
@@ -188,6 +189,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       if (ws.readyState !== WebSocket.OPEN) return;
       text = startSearch(text); // the old results go
       ws.send(searchRequest(query));
+    },
+    typing: (channel: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(typingRequest(channel));
     },
     markRead: (channel: number, message: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(markReadRequest(channel, message));

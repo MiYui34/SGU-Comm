@@ -39,6 +39,7 @@
   import { pingsMe } from "../lib/mentions";
   import { mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
+  import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
   import ChannelDialog from "./ChannelDialog.svelte";
@@ -345,6 +346,32 @@
   });
   // Muted text channels show no unread marker (mentions still count).
   const mutedText = $derived(mutedOn(mutedChannels.value, connection.httpBase));
+  // Who types where (see lib/typing). typingNow ticks while someone types,
+  // so names go away in time.
+  let typers = $state.raw<Typers>({});
+  let typingNow = $state(Date.now());
+  $effect(() =>
+    connection.onTextEvent((ev) => {
+      if (ev.type === "typing") {
+        typingNow = Date.now();
+        typers = typed(typers, ev.channel, ev.name, typingNow);
+      } else if (ev.type === "message") typers = stoppedTyping(typers, ev.message.channel, ev.message.author);
+    }),
+  );
+  const typingHere = $derived(chatId === null ? [] : typingNames(typers, chatId, typingNow, me?.name ?? ""));
+  const anyoneTyping = $derived(typingHere.length > 0);
+  $effect(() => {
+    if (!anyoneTyping) return;
+    const tick = setInterval(() => (typingNow = Date.now()), 1000);
+    return () => clearInterval(tick);
+  });
+  const typingSent: Record<number, number> = {};
+  const onTyping = () => {
+    const now = Date.now();
+    if (chatId === null || !shouldSendTyping(typingSent[chatId], now)) return;
+    typingSent[chatId] = now;
+    connection.typing(chatId);
+  };
   const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "");
   // Mentions in voice channel chats, by voice channel.
   const mentionVoice = $derived(
@@ -652,6 +679,8 @@
         : undefined}
       {jumpTarget}
       onJumped={() => (jumpTarget = null)}
+      typing={typingText(typingHere)}
+      {onTyping}
     />
   </div>
   {#if searchOpen}

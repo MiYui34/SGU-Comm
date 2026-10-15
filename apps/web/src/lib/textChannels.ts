@@ -60,6 +60,8 @@ export type ServerEvent =
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
   | { type: "upload-token"; token: string }
+  // Someone types in a channel (see lib/typing).
+  | { type: "typing"; channel: number; name: string }
   // The server dropped messages for us: reload what is shown.
   | { type: "resync" };
 
@@ -193,6 +195,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
     case "resync":
       return { type: "resync" };
+    case "typing":
+      return isNum(v.channel) && isStr(v.name) ? { type: "typing", channel: v.channel, name: v.name } : null;
     default:
       return null;
   }
@@ -258,6 +262,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         ? { ...state, notice: { text: event.message, n: (state.notice?.n ?? 0) + 1 } }
         : { ...state, lastError: event.message };
     case "upload-token": // answered by the connection, not state
+    case "typing": // short-lived: the client keeps it (lib/typing)
       return state;
     case "resync":
       return { ...state, messages: {}, loaded: {}, more: {}, resyncs: state.resyncs + 1 };
@@ -299,6 +304,7 @@ export const manageRequest = (a: ManageAction) =>
   );
 
 export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
+export const typingRequest = (channel: number) => JSON.stringify({ type: "typing", channel });
 export const markReadRequest = (channel: number, message: number) =>
   JSON.stringify({ type: "mark-read", channel, message });
 export const editMessageRequest = (message: number, text: string) =>
