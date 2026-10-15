@@ -20,7 +20,10 @@ export type TextMessage = {
 export type DisplayMessage = ChatMessage & { upload?: Attachment; verified?: boolean };
 
 export type ServerEvent =
-  | { type: "ready"; channels: TextChannel[] }
+  // voiceChats: voice channels have stored chats (the built-in server).
+  | { type: "ready"; channels: TextChannel[]; voiceChats?: boolean }
+  // The channel that holds a voice channel's chat.
+  | { type: "voice-chat"; voice: number; channel: number }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "error"; message: string }
@@ -31,6 +34,9 @@ export type ServerEvent =
 export type TextState = {
   available: boolean;
   channels: TextChannel[];
+  voiceChats: boolean;
+  // Voice channel id -> the channel that holds its chat.
+  voiceChannels: Readonly<Record<number, number>>;
   messages: Readonly<Record<number, TextMessage[]>>; // per channel, by id
   loaded: Readonly<Record<number, boolean>>;
   more: Readonly<Record<number, boolean>>;
@@ -42,6 +48,8 @@ export type TextState = {
 export const initialTextState: TextState = {
   available: false,
   channels: [],
+  voiceChats: false,
+  voiceChannels: {},
   messages: {},
   loaded: {},
   more: {},
@@ -78,8 +86,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
   switch (v.type) {
     case "ready":
       return Array.isArray(v.channels) && v.channels.every(isChannel)
-        ? { type: "ready", channels: v.channels }
+        ? { type: "ready", channels: v.channels, ...(v.voiceChats === true ? { voiceChats: true } : {}) }
         : null;
+    case "voice-chat":
+      return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "history":
       return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
@@ -103,7 +113,9 @@ const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
 export const reduceText = (state: TextState, event: ServerEvent): TextState => {
   switch (event.type) {
     case "ready":
-      return { ...state, available: true, channels: event.channels };
+      return { ...state, available: true, channels: event.channels, voiceChats: event.voiceChats === true };
+    case "voice-chat":
+      return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "history":
       return {
         ...state,
@@ -132,6 +144,8 @@ export const sendRequest = (channel: number, text: string, upload?: string) =>
   JSON.stringify(upload ? { type: "send", channel, text, upload } : { type: "send", channel, text });
 
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
+
+export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice-chat", voice });
 
 // The server's HTTP origin, from the bridge WebSocket URL.
 export const httpBase = (wsUrl: string) => {

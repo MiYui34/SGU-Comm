@@ -184,6 +184,22 @@
         uploading,
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
+    if (dm === null && voiceChatId !== null)
+      return {
+        title: channelName,
+        topic: htmlToText(server.channels[channelId]?.description ?? ""),
+        kind: "channel" as const,
+        stored: true,
+        messages: textChat,
+        welcomeText: "",
+        more: text.more[voiceChatId] ?? false,
+        loadingOlder: textView.loadingOlder,
+        onLoadOlder: textView.loadOlder,
+        error: uploadError ?? text.lastError,
+        onUpload: upload,
+        uploading,
+        onSend: send,
+      } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null)
       return {
         title: channelName,
@@ -242,6 +258,19 @@
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
   const textId = $derived(view.kind === "text" ? view.id : null);
+  // A voice channel's stored chat (built-in server): the channel that holds
+  // it, once the server told us. Not for the lobby.
+  const storedVoiceChat = $derived(text.voiceChats && view.kind === "voice" && dm === null && voiceOn && !(lobby && channelId === 0));
+  const voiceChatId = $derived(storedVoiceChat ? (text.voiceChannels[channelId] ?? null) : null);
+  const askedVoiceChats = new Set<number>();
+  $effect(() => {
+    if (storedVoiceChat && voiceChatId === null && !askedVoiceChats.has(channelId)) {
+      askedVoiceChats.add(channelId);
+      connection.requestVoiceChat(channelId);
+    }
+  });
+  // The stored chat that is open: a text channel or a voice channel's.
+  const chatId = $derived(textId ?? voiceChatId);
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
   $effect(() => {
     const first = text.channels[0];
@@ -251,16 +280,16 @@
   $effect(() => {
     if (view.kind === "text" && text.available && !textChannel) view = { kind: "voice" };
   });
-  const textView = createTextView(() => connection, () => textId);
+  const textView = createTextView(() => connection, () => chatId);
   const textChat = $derived(
-    textId === null ? [] : (text.messages[textId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
+    chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
   );
   // One upload at a time. Errors show where server errors show.
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
   const upload = async (file: File, caption: string) => {
-    if (view.kind !== "text" || uploading) return;
-    const channel = view.id;
+    const channel = chatId;
+    if (channel === null || uploading) return;
     uploading = true;
     uploadError = null;
     try {
@@ -313,7 +342,7 @@
   });
   const send = (message: string) => {
     uploadError = null;
-    if (view.kind === "text") connection.sendToTextChannel(view.id, message);
+    if (chatId !== null) connection.sendToTextChannel(chatId, message);
     else connection.sendText(dm === null ? { channelId } : { session: dm.session }, message);
   };
   const join = (id: number) => {

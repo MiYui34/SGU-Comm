@@ -12,6 +12,7 @@
     title,
     topic = "",
     kind,
+    stored = false,
     messages,
     welcomeText,
     membersOpen,
@@ -35,6 +36,8 @@
     // channel: a Mumble voice channel's chat (not stored), text: a stored
     // Kallisti text channel, dm: a private conversation.
     kind: "channel" | "text" | "dm";
+    // A voice channel's chat that the server stores (with history).
+    stored?: boolean;
     messages: readonly (ChatMessage | DisplayMessage)[];
     welcomeText: string;
     membersOpen: boolean;
@@ -250,6 +253,8 @@
           This is the start of your conversation with {title}. Private messages are not stored.
         {:else if kind === "text"}
           This is the start of the {target} channel.
+        {:else if stored}
+          This is the start of the {title} voice channel's chat.
         {:else}
           This is the start of the {title} voice channel's chat. These messages are not stored: you
           only see what was sent while you were here.
@@ -340,7 +345,7 @@
       <button
         type="button"
         class="attach"
-        title={onUpload ? "Upload a file" : "Uploads work in text channels"}
+        title={onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
         aria-label="Upload a file"
         disabled={!onUpload || uploading}
         onclick={() => filePicker?.click()}

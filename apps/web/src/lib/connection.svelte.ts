@@ -26,6 +26,7 @@ import {
   reduceText,
   sendRequest,
   uploadTokenRequest,
+  voiceChatRequest,
   type TextState,
 } from "./textChannels";
 import { createCapture } from "./voice/capture.svelte";
@@ -136,6 +137,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     account: credentials.account === true,
     get text() {
       return text;
+    },
+    // Asks which channel holds a voice channel's chat (built-in server).
+    requestVoiceChat: (voice: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(voiceChatRequest(voice));
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));

@@ -9,6 +9,7 @@ import {
   toChatMessage,
   unreadTextIds,
   uploadTokenRequest,
+  voiceChatRequest,
   httpBase,
   formatSize,
   type TextMessage,
@@ -217,5 +218,25 @@ describe("robustness", () => {
   it("marks verified authors on chat messages", () => {
     expect(toChatMessage({ ...msg(77), verified: true }).verified).toBe(true);
     expect(toChatMessage(msg(78)).verified).toBe(false);
+  });
+});
+
+describe("voice channel chats", () => {
+  it("knows whether the server stores voice channel chats", () => {
+    const on = reduceText(initialTextState, parseServerEvent('{"type":"ready","channels":[],"voiceChats":true}')!);
+    const off = reduceText(initialTextState, parseServerEvent('{"type":"ready","channels":[]}')!);
+    expect(on.voiceChats).toBe(true);
+    expect(off.voiceChats).toBe(false);
+  });
+
+  it("maps a voice channel to the channel that holds its chat", () => {
+    const ev = parseServerEvent('{"type":"voice-chat","voice":5,"channel":42}');
+    expect(ev).toEqual({ type: "voice-chat", voice: 5, channel: 42 });
+    expect(reduceText(initialTextState, ev!).voiceChannels[5]).toBe(42);
+    expect(parseServerEvent('{"type":"voice-chat","voice":"5","channel":42}')).toBeNull();
+  });
+
+  it("asks for a voice channel's chat", () => {
+    expect(JSON.parse(voiceChatRequest(5))).toEqual({ type: "voice-chat", voice: 5 });
   });
 });
