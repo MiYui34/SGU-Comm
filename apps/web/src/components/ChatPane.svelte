@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { opensLightbox } from "../lib/lightbox";
+  import Lightbox from "./Lightbox.svelte";
   import type { ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
@@ -180,6 +182,9 @@
     onSend(text);
     draft = "";
   };
+
+  // The image shown large (see Lightbox).
+  let lightbox = $state<{ url: string; name: string } | null>(null);
 </script>
 
 <main
@@ -377,11 +382,27 @@
   </form>
 </main>
 
+{#if lightbox}
+  <Lightbox url={lightbox.url} name={lightbox.name} onClose={() => (lightbox = null)} />
+{/if}
+
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
     {#if m.upload.type.startsWith("image/")}
-      <a class="image" href={m.upload.url} target="_blank" rel="noopener noreferrer">
-        <img src={m.upload.url} alt={m.upload.name} loading="lazy" onload={keepBottom} />
+      {@const upload = m.upload}
+      <a
+        class="image"
+        href={upload.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View {upload.name}"
+        onclick={(e) => {
+          if (!opensLightbox(e)) return;
+          e.preventDefault();
+          lightbox = { url: upload.url, name: upload.name };
+        }}
+      >
+        <img src={upload.url} alt={upload.name} loading="lazy" onload={keepBottom} />
       </a>
     {:else}
       <a class="file" href={m.upload.url} rel="noopener noreferrer">
