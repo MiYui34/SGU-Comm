@@ -281,6 +281,24 @@
     editing = null;
     messageInput?.focus();
   };
+  // Replies and reactions: stored chats we may write in. picking: the
+  // message whose emoji picker is open (focus moves into it and back).
+  const canReply = $derived((stored || kind === "text") && !!onSend);
+  const canReact = $derived(canReply && !!onReact);
+  let picking = $state<number | null>(null);
+  const inLine = (id: number | null, selector: string) =>
+    document.querySelector<HTMLElement>(`[data-message="${id}"] ${selector}`);
+  const openPicker = async (id: number) => {
+    picking = id;
+    await tick();
+    inLine(id, ".actions .emoji")?.focus();
+  };
+  const closePicker = async () => {
+    const id = picking;
+    picking = null;
+    await tick();
+    inLine(id, '[aria-label="Add a reaction"]')?.focus();
+  };
   const startConfirm = async (id: number) => {
     confirming = id;
     await tick();
@@ -303,10 +321,6 @@
   const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
   // Mentions as notifications see them: in the written text, not the
   // Markdown result (Mumble messages have no source: their HTML).
-  // Reactions: stored chats we may write in. picking: the message whose
-  // emoji picker is open.
-  const canReact = $derived((stored || kind === "text") && !!onSend && !!onReact);
-  let picking = $state<number | null>(null);
   const pingText = (m: ChatMessage | DisplayMessage) => ("source" in m && m.source ? escapeHtml(m.source.text) : m.text);
   // Replies: the message we answer, and jumping to an original.
   let replying = $state<{ id: number; author: string } | null>(null);
@@ -673,7 +687,6 @@
     {@const id = m.source.id}
     {@const canEdit = mayEdit?.(m) && onEdit}
     {@const canDelete = mayDelete?.(m) && onDelete}
-    {@const canReply = (stored || kind === "text") && !!onSend}
     {#if canEdit || canDelete || canReply || canReact}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -681,7 +694,7 @@
         class:confirming={confirming === id || picking === id}
         onkeydown={(e) => {
           if (e.key === "Escape" && confirming === id) endConfirm();
-          if (e.key === "Escape" && picking === id) picking = null;
+          if (e.key === "Escape" && picking === id) void closePicker();
         }}
       >
         {#if picking === id}
@@ -692,20 +705,17 @@
               class="emoji"
               class:mine
               aria-label="React with {emoji}"
-              onclick={() => {
-                onReact?.(id, emoji, !mine);
-                picking = null;
-              }}>{emoji}</button
+              onclick={() => (onReact?.(id, emoji, !mine), closePicker())}>{emoji}</button
             >
           {/each}
-          <button type="button" aria-label="Close" onclick={() => (picking = null)}>×</button>
+          <button type="button" aria-label="Close" onclick={closePicker}>×</button>
         {:else if confirming === id}
           <span>Delete this message?</span>
           <button type="button" class="danger" onclick={() => (onDelete?.(id), endConfirm())}>Delete</button>
           <button type="button" bind:this={cancelButton} onclick={endConfirm}>Cancel</button>
         {:else}
           {#if canReact}
-            <button type="button" aria-label="Add a reaction" title="React" onclick={() => (picking = id)}>React</button>
+            <button type="button" aria-label="Add a reaction" title="React" onclick={() => openPicker(id)}>React</button>
           {/if}
           {#if canReply}
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
@@ -1092,6 +1102,7 @@
   @media (hover: none) {
     .actions {
       position: static;
+      flex-wrap: wrap;
       opacity: 1;
       box-shadow: none;
       background: none;
