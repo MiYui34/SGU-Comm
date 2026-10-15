@@ -65,3 +65,4 @@
 - [x] [Desktop notifications](issues/desktop-notifications.md)
 - [x] [Avatar size check](issues/avatar-size-check.md)
 - [x] [Text channel topic](issues/text-channel-topic.md)
+- [x] [Replies](issues/message-replies.md)

@@ -14,3 +14,11 @@ Reply to a message: the reply shows a short quote of it.
 ## Acceptance Criteria
 
 - Store, sidecar and web tests.
+
+## Result
+
+- Reply action; "Replying to" bar (Escape or × cancels); the quote above
+  the reply jumps to the original when it is loaded; a reply pings the
+  original author (highlight, badges, summary, notifications); Mumble
+  clients get "> author: quote — text"; a deleted original shows so.
+- Tested: store, sidecar and web tests; browser with two users.
