@@ -168,4 +168,7 @@ pnpm --filter @kallisti/devtools voicebot tone.opus ws://127.0.0.1:8080
 
 ## License
 
-Public domain: [the Unlicense](LICENSE).
+Public domain: [the Unlicense](LICENSE). The web app includes RNNoise and
+DeepFilterNet3 (for noise suppression) under their own licenses: see
+[third-party-notices.txt](apps/web/public/third-party-notices.txt), which the
+built app also serves.

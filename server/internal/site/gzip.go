@@ -27,7 +27,11 @@ type gzipCache struct {
 // file compresses (false: serve it as it is).
 func (c *gzipCache) serve(w http.ResponseWriter, r *http.Request, dir, clean string) bool {
 	ext := filepath.Ext(clean)
-	if !slices.Contains(compressible, ext) || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+	if !slices.Contains(compressible, ext) {
+		return false
+	}
+	w.Header().Add("Vary", "Accept-Encoding") // also on the plain answer, for caches
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 		return false
 	}
 	body, ok := c.get(filepath.Join(dir, filepath.FromSlash(clean)))
@@ -37,7 +41,6 @@ func (c *gzipCache) serve(w http.ResponseWriter, r *http.Request, dir, clean str
 	h := w.Header()
 	h.Set("Content-Type", mime.TypeByExtension(ext))
 	h.Set("Content-Encoding", "gzip")
-	h.Add("Vary", "Accept-Encoding")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	if r.Method != http.MethodHead {
 		w.Write(body)
@@ -56,7 +59,7 @@ func (c *gzipCache) get(file string) ([]byte, bool) {
 		return nil, false
 	}
 	var buf bytes.Buffer
-	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw := gzip.NewWriter(&buf) // the best level gains 0.2% and takes longer
 	zw.Write(data)
 	zw.Close()
 	c.files[file] = buf.Bytes()

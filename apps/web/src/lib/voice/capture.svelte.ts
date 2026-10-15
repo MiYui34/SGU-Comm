@@ -14,6 +14,37 @@ const VAD_HOLD_MS = 300;
 
 export type Capture = ReturnType<typeof createCapture>;
 
+// One DeepFilterNet3 node per AudioContext, made when first chosen and
+// kept: the package's dispose() does not free its state (10 to 14 MB each
+// time), and the context outlives connections. Off, it is out of the path.
+// handlers: the capture using it, for its overload and error messages.
+type SharedDfn = {
+  node: AudioWorkletNode;
+  ready: Promise<unknown>;
+  handlers: { overload: () => void; error: (why: string) => void } | null;
+};
+const dfns = new WeakMap<AudioContext, Promise<SharedDfn>>();
+const sharedDfn = (ctx: AudioContext): Promise<SharedDfn> => {
+  let p = dfns.get(ctx);
+  if (!p) {
+    p = (async () => {
+      const { createDeepFilterNetAudioWorklet } = await import("@workadventure/noise-suppression/deepfilternet");
+      const shared: SharedDfn = { node: null!, ready: Promise.resolve(), handlers: null };
+      const w = await createDeepFilterNetAudioWorklet(ctx, { onOverload: () => shared.handlers?.overload() });
+      shared.node = w.node;
+      shared.ready = w.ready;
+      // Errors while it runs (the package then passes the microphone through).
+      w.node.port.addEventListener("message", (e: MessageEvent<{ type?: string; message?: string }>) => {
+        if (e.data.type === "error") shared.handlers?.error(e.data.message ?? "it stopped");
+      });
+      return shared;
+    })();
+    p.catch(() => dfns.delete(ctx)); // a failed load may be tried again
+    dfns.set(ctx, p);
+  }
+  return p;
+};
+
 export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) => void) => {
   let level = $state(-100);
   let transmitting = $state(false);
@@ -41,8 +72,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let running = $state<NoiseMode | null>(null);
   let noiseError = $state<string | null>(null);
   let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
-  let dfn: { node: AudioWorkletNode; dispose: () => void } | null = null;
-  let dfnLoading = false;
+  let dfn: SharedDfn | null = null; // in use by this capture
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
   const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
@@ -146,42 +176,40 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     (rnnoise ??= fetch(rnnoiseUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText)))));
 
   // Runs the chosen filter: RNNoise in our worklet, DeepFilterNet3 before
-  // it (its code and model load when first chosen). A change while one
-  // loads wins.
+  // it (the shared node, see sharedDfn). A change while one loads wins;
+  // a failure counts for the filter that was loading.
   const applyNoise = async () => {
     if (!node) return; // the node applies it when it is made
-    if (noise !== "strongest" && dfn) {
-      dfn.dispose();
+    const want = noise;
+    if (want !== "strongest" && dfn) {
+      dfn.node.disconnect();
+      dfn.handlers = null;
       dfn = null;
       if (running === "strongest") running = null;
       route();
     }
-    if (noise !== "strong") node.port.postMessage({ denoise: null });
+    if (want !== "strong") node.port.postMessage({ denoise: null });
     try {
-      if (noise === "strong") {
+      if (want === "strong") {
         const bytes = await loadRnnoise();
         if (noise === "strong") node.port.postMessage({ denoise: bytes }); // copied: kept for next time
-      } else if (noise === "strongest" && !dfn && !dfnLoading) {
-        dfnLoading = true;
-        try {
-          const { createDeepFilterNetAudioWorklet } = await import("@workadventure/noise-suppression/deepfilternet");
-          const w = await createDeepFilterNetAudioWorklet(ctx, {
-            onOverload: () => noiseFailed("strongest", "this computer is too slow for it"),
-          });
-          if (noise !== "strongest") return w.dispose();
-          dfn = w;
-          w.node.connect(node);
-          route();
-          await w.ready;
-          if (dfn === w) running = "strongest";
-        } finally {
-          dfnLoading = false;
-        }
-        if (noise !== "strongest") void applyNoise(); // changed while it loaded
+      } else if (want === "strongest" && !dfn) {
+        const shared = await sharedDfn(ctx);
+        if (closed || noise !== "strongest" || dfn) return;
+        shared.handlers = {
+          overload: () => noiseFailed("strongest", "this computer is too slow for it"),
+          error: (why) => noiseFailed("strongest", why),
+        };
+        shared.node.connect(node);
+        dfn = shared;
+        route();
+        await shared.ready;
+        if (dfn === shared) running = "strongest";
       }
     } catch (err) {
-      if (noise === "strong") rnnoise = null;
-      noiseFailed(noise, err instanceof Error ? err.message : String(err));
+      if (want === "strong") rnnoise = null;
+      if (want === "strongest") dfns.delete(ctx); // a node that did not start: made again next time
+      noiseFailed(want, err instanceof Error ? err.message : String(err));
     }
   };
   // A filter that failed (or is too slow): the next lighter one, with a
@@ -311,7 +339,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     close: () => {
       closed = true;
       stopStream();
-      dfn?.dispose();
+      if (dfn) {
+        dfn.node.disconnect(); // kept for the next capture (see sharedDfn)
+        dfn.handlers = null;
+      }
       // The node can still be on its way: disconnect it when it arrives.
       void nodePromise?.then((n) => n.disconnect()).catch(() => {});
       encoders.closeAll();
