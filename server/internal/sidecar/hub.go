@@ -32,9 +32,21 @@ const (
 	tokenLifetime = 5 * time.Minute
 )
 
+// Voice is the built-in Mumble server, for voice channel chats: its
+// permissions, and delivery to Mumble clients.
+type Voice interface {
+	MayRead(session, channel uint32) bool
+	MayWrite(session, channel uint32) bool
+	SendChannelText(from, channel uint32, text string)
+}
+
 type Hub struct {
 	store *store.Store
 	now   func() time.Time
+	// Nil: no voice channel chats (a Murmur server).
+	voice Voice
+	// The server's public address, for upload links sent to Mumble clients.
+	publicBase string
 	// Channels are fixed at startup.
 	channels []wireChannel
 	mu       sync.Mutex
@@ -57,6 +69,12 @@ func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
 		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
 	}
 	return &Hub{store: s, now: now, channels: wire, conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
+}
+
+// SetVoice turns on stored voice channel chats. Call it before clients
+// connect.
+func (h *Hub) SetVoice(v Voice, publicBase string) {
+	h.voice, h.publicBase = v, strings.TrimSuffix(publicBase, "/")
 }
 
 func (h *Hub) count() int {
@@ -114,7 +132,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
 	if becomesReady {
-		c.send(map[string]any{"type": "ready", "channels": c.hub.channels})
+		c.send(map[string]any{"type": "ready", "channels": c.hub.channels, "voiceChats": c.hub.voice != nil})
 	}
 }
 
@@ -158,6 +176,7 @@ func toWire(m store.Message) wireMessage {
 
 type request struct {
 	Type    string `json:"type"`
+	Voice   uint32 `json:"voice"` // voice-chat: the Mumble channel
 	Channel int64  `json:"channel"`
 	Before  int64  `json:"before"`
 	Text    string `json:"text"`
@@ -186,20 +205,85 @@ func (c *Conn) Handle(raw []byte) {
 		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name)})
 		return
 	}
+	if req.Type == "voice-chat" {
+		c.voiceChat(*id, req.Voice)
+		return
+	}
 	if req.Type != "send" && req.Type != "history" {
 		c.sendError("unknown request type")
 		return
 	}
-	if !c.hub.channelExists(req.Channel) {
+	voice, isVoice, ok := c.hub.chatOf(req.Channel)
+	if !ok {
 		c.sendError("unknown channel")
+		return
+	}
+	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type == "send") {
+		c.sendError("you may not use this channel's chat")
 		return
 	}
 	switch req.Type {
 	case "history":
 		c.history(req)
 	case "send":
-		c.post(*id, req)
+		c.post(*id, req, voice, isVoice)
 	}
+}
+
+// chatOf finds a channel: a text channel, or a voice channel's chat.
+func (h *Hub) chatOf(channel int64) (voice uint32, isVoice, ok bool) {
+	if h.channelExists(channel) {
+		return 0, false, true
+	}
+	if h.voice == nil {
+		return 0, false, false
+	}
+	voice, isVoice, err := h.store.VoiceOf(channel)
+	return voice, isVoice, err == nil && isVoice
+}
+
+func (h *Hub) mayUse(session, voice uint32, write bool) bool {
+	if write {
+		return h.voice.MayWrite(session, voice)
+	}
+	return h.voice.MayRead(session, voice)
+}
+
+// voiceChat tells the client which channel holds a voice channel's chat.
+func (c *Conn) voiceChat(id mumble.Identity, voice uint32) {
+	if c.hub.voice == nil {
+		c.sendError("voice channel chats need the built-in Mumble server")
+		return
+	}
+	if !c.hub.voice.MayRead(id.Session, voice) {
+		c.sendError("you may not use this channel's chat")
+		return
+	}
+	channel, err := c.hub.store.VoiceChat(voice)
+	if err != nil {
+		c.sendError("cannot open the chat")
+		return
+	}
+	c.send(map[string]any{"type": "voice-chat", "voice": voice, "channel": channel})
+}
+
+// MumbleText stores a text a Mumble client sent to a channel, and shows it
+// to the web clients that may read it (see mumbled.Config.OnChannelText).
+func (h *Hub) MumbleText(from uint32, name string, registered bool, voice uint32, text string) {
+	channel, err := h.store.VoiceChat(voice)
+	if err != nil {
+		slog.Error("voice channel chat", "channel", voice, "err", err)
+		return
+	}
+	if utf8.RuneCountInString(text) > MaxTextLength {
+		text = string([]rune(text)[:MaxTextLength])
+	}
+	m, err := h.store.AddMessage(store.NewMessage{ChannelID: channel, Author: name, Verified: registered, Text: text, At: h.now()})
+	if err != nil {
+		slog.Error("store a voice channel message", "err", err)
+		return
+	}
+	h.broadcastVoice(voice, map[string]any{"type": "message", "message": toWire(m)})
 }
 
 func (h *Hub) channelExists(id int64) bool {
@@ -229,7 +313,7 @@ func (c *Conn) history(req request) {
 	c.send(map[string]any{"type": "history", "channel": req.Channel, "messages": wire, "more": more})
 }
 
-func (c *Conn) post(id mumble.Identity, req request) {
+func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool) {
 	text := strings.TrimSpace(req.Text)
 	// A message with an attachment may have no text.
 	if (text == "" && req.Upload == "") || utf8.RuneCountInString(text) > MaxTextLength {
@@ -250,7 +334,44 @@ func (c *Conn) post(id mumble.Identity, req request) {
 		c.sendError("cannot store message")
 		return
 	}
-	c.hub.broadcast(map[string]any{"type": "message", "message": toWire(m)})
+	event := map[string]any{"type": "message", "message": toWire(m)}
+	if !isVoice {
+		c.hub.broadcast(event)
+		return
+	}
+	c.hub.broadcastVoice(voice, event)
+	c.hub.voice.SendChannelText(id.Session, voice, c.hub.mumbleText(m))
+}
+
+// mumbleText is a stored message as Mumble clients see it: an upload as a
+// link (or its name, without a public address).
+func (h *Hub) mumbleText(m store.Message) string {
+	if m.Upload == nil {
+		return m.Text
+	}
+	file := "[" + m.Upload.Name + "]"
+	if h.publicBase != "" {
+		file = h.publicBase + FileURL(*m.Upload)
+	}
+	return strings.TrimSpace(m.Text + " " + file)
+}
+
+// broadcastVoice sends to the connections whose user may read the chat.
+func (h *Hub) broadcastVoice(voice uint32, v any) {
+	h.mu.Lock()
+	conns := make([]*Conn, 0, len(h.conns))
+	for c := range h.conns {
+		conns = append(conns, c)
+	}
+	h.mu.Unlock()
+	for _, c := range conns {
+		c.mu.Lock()
+		id := c.identity
+		c.mu.Unlock()
+		if id != nil && h.voice.MayRead(id.Session, voice) {
+			c.send(v)
+		}
+	}
 }
 
 func (h *Hub) broadcast(v any) {
