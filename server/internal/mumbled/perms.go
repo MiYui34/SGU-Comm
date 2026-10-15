@@ -415,6 +415,9 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 		var err error
 		if e.Name != nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(e.GetName())) {
 			err = errors.New("the name belongs to a Kallisti account")
+		} else if e.Name != nil && s.accountRegistration(id) {
+			// Its name is the account's: renamed, the account could not join.
+			err = errors.New("this registration belongs to a Kallisti account")
 		} else if e.Name != nil {
 			err = db.RenameUser(id, e.GetName())
 		} else {
@@ -431,6 +434,15 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 			s.rolesChanged() // its group memberships are gone
 		}
 	}
+}
+
+// accountRegistration: the registration of a Kallisti web account.
+func (s *Server) accountRegistration(id uint32) bool {
+	if s.cfg.ReservedName == nil {
+		return false
+	}
+	known, err := s.cfg.DB.UserNames([]uint32{id})
+	return err == nil && known[id] != "" && s.cfg.ReservedName(names.Key(known[id]))
 }
 
 // registrationChangedLocked updates an online user after a rename (name

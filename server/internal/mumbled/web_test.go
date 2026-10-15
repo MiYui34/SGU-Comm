@@ -218,3 +218,20 @@ func eventually(t *testing.T, ok func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestAccountRegistrationsKeepTheirName(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	reserved := map[string]bool{"alice": true}
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, ReservedName: func(n string) bool { return reserved[n] }}, nil)
+	joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "alice", CertHash: "aaa"}}, "alice"))
+	reg, _ := db.UserByHash("aaa")
+	su := superUser(t, addr)
+	// Renaming it would lock the account out (its name is the account's).
+	su.send(mumble.TypeUserList, &pb.UserList{Users: []*pb.UserList_User{{UserId: proto.Uint32(reg.ID), Name: proto.String("mallory")}}})
+	su.expectDenied(pb.PermissionDenied_Text)
+	if r, _ := db.UserByHash("aaa"); r.Name != "alice" {
+		t.Fatalf("renamed to %q", r.Name)
+	}
+}
