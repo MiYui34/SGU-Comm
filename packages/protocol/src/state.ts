@@ -28,6 +28,10 @@ export type User = {
   selfDeaf: boolean;
   prioritySpeaker: boolean;
   recording: boolean;
+  // The avatar picture, as sent (null: none, or not loaded yet). Long ones
+  // come as a hash first: fetch them with a RequestBlob (missingTextures).
+  texture: Uint8Array | null;
+  textureHash: string | null;
 };
 
 export type ChatMessage = {
@@ -115,6 +119,8 @@ export const emptyUser = (session: number): User => ({
   selfDeaf: false,
   prioritySpeaker: false,
   recording: false,
+  texture: null,
+  textureHash: null,
 });
 
 const parseVersion = (msg: pb.Version): Version =>
@@ -135,6 +141,8 @@ const without = <V>(record: Readonly<Record<number, V>>, key: number) => {
   return rest;
 };
 
+const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+
 const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerState => {
   const prev = state.channels[msg.channelId] ?? emptyChannel(msg.channelId);
   const next: Channel = {
@@ -148,7 +156,7 @@ const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerStat
     ]),
   };
   if (isFieldSet(msg, pb.ChannelStateSchema.field.descriptionHash)) {
-    next.descriptionHash = [...msg.descriptionHash].map((b) => b.toString(16).padStart(2, "0")).join("");
+    next.descriptionHash = hex(msg.descriptionHash);
   }
   return { ...state, channels: { ...state.channels, [msg.channelId]: next } };
 };
@@ -170,6 +178,17 @@ const applyUserState = (state: ServerState, msg: pb.UserState): ServerState => {
       "userId",
     ]),
   };
+  if (isFieldSet(msg, pb.UserStateSchema.field.textureHash)) {
+    const hash = hex(msg.textureHash);
+    // The same picture again keeps its data.
+    if (hash !== prev.textureHash) next.texture = null;
+    next.textureHash = hash;
+  }
+  if (isFieldSet(msg, pb.UserStateSchema.field.texture)) {
+    // Empty: the picture was removed.
+    next.texture = msg.texture.length ? msg.texture : null;
+    if (!msg.texture.length) next.textureHash = null;
+  }
   return { ...state, users: { ...state.users, [msg.session]: next } };
 };
 

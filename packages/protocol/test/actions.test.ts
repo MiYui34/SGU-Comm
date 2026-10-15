@@ -10,8 +10,10 @@ import {
   registerSelf,
   removeChannel,
   requestDescriptions,
+  requestTextures,
   sendText,
   setSelfState,
+  setSelfTexture,
 } from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
@@ -101,5 +103,17 @@ describe("channel management", () => {
     expect(rm.type === "ChannelRemove" && rm.message.channelId).toBe(5);
     const q = decodeOne(queryPermissions(5));
     expect(q.type === "PermissionQuery" && q.message.channelId).toBe(5);
+  });
+});
+
+describe("textures", () => {
+  it("asks for avatar blobs and sets our own", () => {
+    const ask = decodeOne(requestTextures([3, 4]));
+    if (ask.type !== "RequestBlob") throw new Error();
+    expect(ask.message.sessionTexture).toEqual([3, 4]);
+    const set = decodeOne(setSelfTexture(7, new Uint8Array([1, 2])));
+    if (set.type !== "UserState") throw new Error();
+    expect(set.message.session).toBe(7);
+    expect([...set.message.texture]).toEqual([1, 2]);
   });
 });

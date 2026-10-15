@@ -9,6 +9,7 @@ import {
   messagesIn,
   Perm,
   missingDescriptions,
+  missingTextures,
   privateMessagesWith,
   usersIn,
   usersSorted,
@@ -201,5 +202,19 @@ describe("channelSiblings", () => {
     expect(channelSiblings(s, 2).map((c) => c.id)).toEqual([3, 2, 1]);
     expect(channelSiblings(s, 4).map((c) => c.id)).toEqual([4]);
     expect(channelSiblings(s, 0)).toEqual([]); // root has none
+  });
+});
+
+describe("missingTextures", () => {
+  it("lists users whose picture is known only by its hash", () => {
+    const s: ServerState = {
+      ...initialState,
+      users: {
+        1: { ...emptyUser(1), textureHash: "ab" },
+        2: { ...emptyUser(2), textureHash: "cd", texture: new Uint8Array([1]) },
+        3: emptyUser(3),
+      },
+    };
+    expect(missingTextures(s)).toEqual([1]);
   });
 });

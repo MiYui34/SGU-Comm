@@ -363,3 +363,35 @@ describe("channel permissions", () => {
     expect(s.channelPermissions).toEqual({ 5: 0x4 });
   });
 });
+
+describe("avatars (textures)", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+  it("stores a short texture as it is", () => {
+    const s = run([userState({ session: 2, name: "a", texture: png })]);
+    expect(s.users[2]?.texture).toEqual(png);
+    expect(s.users[2]?.textureHash).toBeNull();
+  });
+
+  it("stores the hash of a long one, then the data from the blob answer", () => {
+    let s = run([userState({ session: 2, name: "a", textureHash: new Uint8Array([0xab, 0xcd]) })]);
+    expect(s.users[2]?.textureHash).toBe("abcd");
+    expect(s.users[2]?.texture).toBeNull();
+    s = run([userState({ session: 2, texture: png })], s);
+    expect(s.users[2]?.texture).toEqual(png);
+    expect(s.users[2]?.textureHash).toBe("abcd");
+    // The same hash again (another state change) keeps the data.
+    s = run([userState({ session: 2, textureHash: new Uint8Array([0xab, 0xcd]) })], s);
+    expect(s.users[2]?.texture).toEqual(png);
+    // A new picture: the old data goes.
+    s = run([userState({ session: 2, textureHash: new Uint8Array([0x01]) })], s);
+    expect(s.users[2]?.texture).toBeNull();
+  });
+
+  it("forgets a removed picture (empty texture)", () => {
+    let s = run([userState({ session: 2, name: "a", textureHash: new Uint8Array([1]) })]);
+    s = run([userState({ session: 2, texture: new Uint8Array() })], s);
+    expect(s.users[2]?.texture).toBeNull();
+    expect(s.users[2]?.textureHash).toBeNull();
+  });
+});

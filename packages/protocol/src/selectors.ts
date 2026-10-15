@@ -70,6 +70,12 @@ export const missingDescriptions = (state: ServerState): number[] =>
     .filter((c) => c.descriptionHash !== null && c.description === "")
     .map((c) => c.id);
 
+// Users whose avatar is known only by its hash.
+export const missingTextures = (state: ServerState): number[] =>
+  Object.values(state.users)
+    .filter((u) => u.textureHash !== null && u.texture === null)
+    .map((u) => u.session);
+
 // Mumble's permission bits (the ones the client looks at).
 export const Perm = {
   Write: 0x1,

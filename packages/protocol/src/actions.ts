@@ -35,6 +35,11 @@ export const requestDescriptions = (channelIds: number[]) =>
 
 // Registers the own user on the server (needs a client certificate; the
 // Kallisti server provides one for accounts).
+// Avatars: fetch long pictures; set ours (empty: remove it).
+export const requestTextures = (sessions: number[]) => encodeMessage("RequestBlob", { sessionTexture: sessions });
+export const setSelfTexture = (session: number, texture: Uint8Array) =>
+  encodeMessage("UserState", { session, texture });
+
 export const registerSelf = (session: number) => encodeMessage("UserState", { session, userId: 0 });
 
 // Channel management (the server checks the permissions).
