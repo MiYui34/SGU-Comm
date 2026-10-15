@@ -17,7 +17,8 @@ export const voiceSiblings = (server: ServerState, text: TextState, id: number) 
   return channelSiblings(server, id).filter((c) => !hidden.has(c.id));
 };
 
-// What a channel's menu offers (null: no menu). Voice channels follow
+// What a channel's menu offers (null: no menu; text channels always have
+// one, to mute them). Voice channels follow
 // Mumble's permissions, known after a queryPermissions. A move renumbers
 // all siblings, so it needs Write on each of them.
 export const menuRights = (server: ServerState, text: TextState, kind: ChannelKind, id: number): MenuRights | null => {
@@ -26,8 +27,9 @@ export const menuRights = (server: ServerState, text: TextState, kind: ChannelKi
     return { canEdit, canDelete, canMoveUp: canMove && at > 0, canMoveDown: canMove && at >= 0 && at < order.length - 1 };
   };
   if (kind === "text") {
-    if (!canManageText(server, text) || !text.channels.some((c) => c.id === id)) return null;
-    return rights(true, true, text.channels.map((c) => c.id), true);
+    if (!text.channels.some((c) => c.id === id)) return null;
+    const manage = canManageText(server, text);
+    return rights(manage, manage, text.channels.map((c) => c.id), manage);
   }
   if (!server.channels[id]) return null;
   const siblings = voiceSiblings(server, text, id);

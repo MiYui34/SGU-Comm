@@ -37,7 +37,6 @@ export const createChannelManagement = (current: () => Connection) => {
     },
     open: (kind: ChannelKind, id: number, event: MouseEvent) => {
       event.preventDefault();
-      if (kind === "text" && !canManageText(server, text)) return;
       // Ask what we may do here and with the siblings (for moves). Root
       // has no siblings.
       if (kind === "voice") {

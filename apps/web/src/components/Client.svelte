@@ -37,7 +37,8 @@
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { pingsMe } from "../lib/mentions";
-  import { settings, userAudio } from "../lib/settings.svelte";
+  import { mutedChannels, settings, userAudio } from "../lib/settings.svelte";
+  import { mutedOn, withoutMuted } from "../lib/channelMute";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
   import ChannelDialog from "./ChannelDialog.svelte";
@@ -342,6 +343,8 @@
     const first = text.channels[0];
     view = first ? { kind: "text", id: first.id } : { kind: "voice" };
   });
+  // Muted text channels show no unread marker (mentions still count).
+  const mutedText = $derived(mutedOn(mutedChannels.value, connection.httpBase));
   const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "");
   // Mentions in voice channel chats, by voice channel.
   const mentionVoice = $derived(
@@ -505,6 +508,8 @@
     canDelete={m.canDelete}
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
+    muted={m.kind === "text" ? mutedText.has(m.id) : undefined}
+    onToggleMute={() => mutedChannels.toggle(connection.httpBase, m.id)}
     onEdit={() => channels.startEdit(m.kind, m.id)}
     onMove={(step) => channels.move(m.kind, m.id, step)}
     onDelete={() => channels.startDelete(m.kind, m.id)}
@@ -598,7 +603,8 @@
       {unread}
       textChannels={text.channels}
       currentText={textId}
-      unreadText={textView.unread}
+      unreadText={withoutMuted(textView.unread, mutedText)}
+      {mutedText}
       mentionText={textView.mentions}
       {mentionVoice}
       onOpenText={(id) => show({ kind: "text", id })}

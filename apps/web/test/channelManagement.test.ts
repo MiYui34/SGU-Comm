@@ -20,10 +20,12 @@ const text: TextState = {
 const W = Perm.Write;
 
 describe("menuRights", () => {
-  it("lets admins and moderators change text channels, others not at all", () => {
+  it("lets admins and moderators change text channels; others get a menu without changes (to mute)", () => {
     expect(menuRights(server({}, Perm.MakeChannel), text, "text", 10)).toEqual({ canEdit: true, canDelete: true, canMoveUp: false, canMoveDown: true });
-    expect(menuRights(server({}, 0), text, "text", 10)).toBeNull();
-    expect(menuRights(server({}, Perm.MakeChannel), { ...text, voiceChats: false }, "text", 10)).toBeNull();
+    const none = { canEdit: false, canDelete: false, canMoveUp: false, canMoveDown: false };
+    expect(menuRights(server({}, 0), text, "text", 10)).toEqual(none);
+    expect(menuRights(server({}, Perm.MakeChannel), { ...text, voiceChats: false }, "text", 10)).toEqual(none);
+    expect(menuRights(server({}, Perm.MakeChannel), text, "text", 999)).toBeNull();
   });
 
   it("moves a voice channel only with Write on all its siblings", () => {

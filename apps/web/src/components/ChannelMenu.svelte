@@ -11,6 +11,8 @@
     canDelete,
     canMoveUp,
     canMoveDown,
+    muted,
+    onToggleMute,
     onEdit,
     onMove,
     onDelete,
@@ -23,6 +25,9 @@
     canDelete: boolean;
     canMoveUp: boolean;
     canMoveDown: boolean;
+    // Text channels: muted or not (undefined: cannot be muted).
+    muted?: boolean;
+    onToggleMute?: () => void;
     onEdit: () => void;
     onMove: (step: -1 | 1) => void;
     onDelete: () => void;
@@ -36,6 +41,10 @@
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
+  {#if muted !== undefined && onToggleMute}
+    <button onclick={act(onToggleMute)}>{muted ? "Unmute channel" : "Mute channel"}</button>
+    {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
+  {/if}
   {#if canEdit || canMoveUp || canMoveDown}
     {#if canEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
     {#if canMoveUp}<button onclick={act(() => onMove(-1))}>Move up</button>{/if}
@@ -44,7 +53,7 @@
       <div class="sep"></div>
       <button class="danger" onclick={act(onDelete)}>Delete channel</button>
     {/if}
-  {:else}
+  {:else if muted === undefined}
     <p class="none">You may not change this channel.</p>
   {/if}
 </ContextMenu>

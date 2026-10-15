@@ -19,6 +19,7 @@
     textChannels,
     currentText,
     unreadText,
+    mutedText = new Set(),
     mentionText = {},
     mentionVoice = {},
     onOpenText,
@@ -40,6 +41,7 @@
     textChannels: TextChannel[];
     currentText: number | null;
     unreadText: ReadonlySet<number>;
+    mutedText?: ReadonlySet<number>;
     // Unseen mentions of us, by text channel and by voice channel.
     mentionText?: Record<number, number>;
     mentionVoice?: Record<number, number>;
@@ -155,6 +157,7 @@
               class="channel hover-row"
               class:current={ch.id === currentText}
               class:unread={unreadText.has(ch.id) && ch.id !== currentText}
+              class:muted={mutedText.has(ch.id)}
               aria-current={ch.id === currentText ? "page" : undefined}
               onclick={() => onOpenText(ch.id)}
               oncontextmenu={(e) => {
@@ -260,6 +263,9 @@
   .channel.unread {
     color: white;
     font-weight: 600;
+  }
+  .channel.muted:not(.current) {
+    opacity: 0.5;
   }
   .text-channels {
     margin-bottom: 16px;
