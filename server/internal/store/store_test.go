@@ -533,3 +533,22 @@ func TestVoiceChatsList(t *testing.T) {
 		t.Fatalf("voice chats %v %v", got, err)
 	}
 }
+
+func TestChannelTopics(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	if chans[0].Topic != "" {
+		t.Fatalf("new topic %q", chans[0].Topic)
+	}
+	if err := s.SetTopic(chans[0].ID, "Anything goes"); err != nil {
+		t.Fatal(err)
+	}
+	chans, _ = s.Channels()
+	if chans[0].Topic != "Anything goes" {
+		t.Fatalf("topic %q", chans[0].Topic)
+	}
+	if err := s.SetTopic(999, "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown channel: %v", err)
+	}
+}

@@ -101,3 +101,29 @@ func TestNoMirrorsWithoutTheBuiltInServer(t *testing.T) {
 		t.Fatalf("ready %v", ready)
 	}
 }
+
+func TestTopics(t *testing.T) {
+	h := newHub(t, "general")
+	v := &fakeVoice{}
+	h.SetVoice(v, "")
+	admin := joinAs(t, h, mumble.Identity{Session: 1, Name: "admin", Registered: true})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true})
+	general := strconv.FormatInt(h.channels[0].ID, 10)
+	bob.Handle([]byte(`{"type":"set-topic","channel":` + general + `,"text":"mine"}`))
+	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
+		t.Fatalf("bob: %v", m)
+	}
+	admin.Handle([]byte(`{"type":"set-topic","channel":` + general + `,"text":"  Anything <goes>  "}`))
+	m := next(t, admin)
+	if ch := m["channels"].([]any)[0].(map[string]any); m["type"] != "channels" || ch["topic"] != "Anything <goes>" {
+		t.Fatalf("channels %v", m)
+	}
+	if v.synced[0].Topic != "Anything <goes>" {
+		t.Fatalf("mirror %+v", v.synced)
+	}
+	long := strings.Repeat("x", 201)
+	admin.Handle([]byte(`{"type":"set-topic","channel":` + general + `,"text":"` + long + `"}`))
+	if m := next(t, admin); m["type"] != "error" {
+		t.Fatalf("long topic: %v", m)
+	}
+}

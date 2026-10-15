@@ -194,3 +194,14 @@ func TestSyncAdoptsAnUnsavedParent(t *testing.T) {
 	}
 	mirrorTree(t, s)
 }
+
+func TestMirrorsGetTheTopicAsDescription(t *testing.T) {
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{}, nil)
+	ids, _ := s.SyncTextChannels([]TextMirror{{Name: "general", Topic: "Fish & chips"}})
+	s.mu.Lock()
+	desc := s.state.Channels[ids[0]].Description
+	s.mu.Unlock()
+	if desc != "Fish &amp; chips" {
+		t.Fatalf("description %q", desc)
+	}
+}

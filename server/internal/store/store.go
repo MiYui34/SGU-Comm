@@ -20,6 +20,7 @@ type Channel struct {
 	Position int
 	// Mumble is the channel that mirrors it for Mumble clients (0: none).
 	Mumble uint32
+	Topic  string
 }
 
 type Message struct {
@@ -167,6 +168,14 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if _, err := db.Exec(`CREATE UNIQUE INDEX channels_voice ON channels (voice_channel) WHERE voice_channel IS NOT NULL`); err != nil {
+			return err
+		}
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('channels') WHERE name = 'topic'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE channels ADD COLUMN topic TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}
@@ -327,6 +336,11 @@ func (s *Store) SetPositions(ids []int64) error {
 	return tx.Commit()
 }
 
+// SetTopic sets a text channel's topic.
+func (s *Store) SetTopic(id int64, topic string) error {
+	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND voice_channel IS NULL`, topic, id)
+}
+
 // SetMumbleChannel remembers the Mumble channel that mirrors a text channel.
 func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
 	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND voice_channel IS NULL`, mumble, id)
@@ -335,7 +349,7 @@ func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
 
 // Channels returns the visible channels in order.
 func (s *Store) Channels() ([]Channel, error) {
-	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0) FROM channels WHERE hidden = 0 ORDER BY position`)
+	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0), topic FROM channels WHERE hidden = 0 ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +357,7 @@ func (s *Store) Channels() ([]Channel, error) {
 	var out []Channel
 	for rows.Next() {
 		var c Channel
-		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble, &c.Topic); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

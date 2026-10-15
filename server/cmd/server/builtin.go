@@ -130,7 +130,7 @@ type voiceServer struct{ *mumbled.Server }
 func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
 	mirrors := make([]mumbled.TextMirror, len(want))
 	for i, w := range want {
-		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name}
+		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name, Topic: w.Topic}
 	}
 	return v.Server.SyncTextChannels(mirrors)
 }

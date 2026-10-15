@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"html"
 	"log/slog"
 	"maps"
 	"slices"
@@ -27,6 +28,7 @@ const (
 type TextMirror struct {
 	Channel uint32
 	Name    string
+	Topic   string // plain text; the mirror's description
 }
 
 // SyncTextChannels makes the mirrors match want, in order, and returns
@@ -87,8 +89,9 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 				continue
 			}
 		}
-		if ch.Name != name || ch.Position != pos {
-			if err := s.state.EditChannel(ch.ID, ChannelEdit{Name: &name, Position: &pos}); err != nil {
+		desc := html.EscapeString(w.Topic)
+		if ch.Name != name || ch.Position != pos || ch.Description != desc {
+			if err := s.state.EditChannel(ch.ID, ChannelEdit{Name: &name, Position: &pos, Description: &desc}); err != nil {
 				slog.Error("text channel mirror", "name", name, "err", err)
 			}
 			touched[ch.ID] = true

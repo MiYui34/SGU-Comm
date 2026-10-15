@@ -189,6 +189,7 @@ type wireChannel struct {
 	// The Mumble channel that mirrors it (the web client hides it from
 	// the voice channels).
 	Mumble uint32 `json:"mumble,omitempty"`
+	Topic  string `json:"topic,omitempty"`
 }
 
 type wireMessage struct {
@@ -266,7 +267,7 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	switch req.Type {
-	case "create-channel", "rename-channel", "delete-channel", "order-channels":
+	case "create-channel", "rename-channel", "delete-channel", "order-channels", "set-topic":
 		c.manage(*id, req)
 		return
 	case "mark-read":
@@ -576,6 +577,8 @@ func textChannelName(raw string) (string, bool) {
 	return name, channelNameChars.MatchString(name)
 }
 
+const maxTopicLength = 200
+
 // manage changes the text channels (admins only) and sends everyone the
 // new list.
 func (c *Conn) manage(id mumble.Identity, req request) {
@@ -601,6 +604,13 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 	case "delete-channel":
 		err = h.store.HideChannel(req.Channel)
+	case "set-topic":
+		topic := strings.TrimSpace(req.Text)
+		if utf8.RuneCountInString(topic) > maxTopicLength {
+			c.manageError("a topic has at most 200 characters")
+			return
+		}
+		err = h.store.SetTopic(req.Channel, topic)
 	case "order-channels":
 		err = h.store.SetPositions(h.fullOrder(req.Channels))
 	}
@@ -630,7 +640,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 func toWireChannels(channels []store.Channel, mirrors bool) []wireChannel {
 	wire := make([]wireChannel, len(channels))
 	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name}
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Topic: ch.Topic}
 		if mirrors {
 			wire[i].Mumble = ch.Mumble
 		}

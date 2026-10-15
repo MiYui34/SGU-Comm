@@ -15,6 +15,7 @@ import (
 type Mirror struct {
 	Channel uint32
 	Name    string
+	Topic   string
 }
 
 // noChannel is the voice server's "not on the server" (mumbled.NoChannel).
@@ -32,7 +33,7 @@ func (h *Hub) syncMirrors() error {
 	}
 	want := make([]Mirror, len(channels))
 	for i, c := range channels {
-		want[i] = Mirror{Channel: c.Mumble, Name: c.Name}
+		want[i] = Mirror{Channel: c.Mumble, Name: c.Name, Topic: c.Topic}
 	}
 	ids, err := h.voice.SyncTextChannels(want)
 	if err != nil {
