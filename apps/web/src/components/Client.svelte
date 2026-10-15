@@ -686,6 +686,7 @@
       onJumped={() => (jumpTarget = null)}
       typing={typingText(typingHere)}
       {onTyping}
+      onReact={connection.react}
     />
   </div>
   {#if searchOpen}

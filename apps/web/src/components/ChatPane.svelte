@@ -1,5 +1,6 @@
 <script lang="ts">
   import { opensLightbox } from "../lib/lightbox";
+  import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
   import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
@@ -43,6 +44,7 @@
     onDelete,
     typing = "",
     onTyping,
+    onReact,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -85,6 +87,8 @@
     // "bob is typing…" under the message box; onTyping: we type.
     typing?: string;
     onTyping?: () => void;
+    // Stored messages: add (on) or remove our reaction.
+    onReact?: (id: number, emoji: string, on: boolean) => void;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -293,6 +297,10 @@
   const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
   // Mentions as notifications see them: in the written text, not the
   // Markdown result (Mumble messages have no source: their HTML).
+  // Reactions: stored chats we may write in. picking: the message whose
+  // emoji picker is open.
+  const canReact = $derived((stored || kind === "text") && !!onSend && !!onReact);
+  let picking = $state<number | null>(null);
   const pingText = (m: ChatMessage | DisplayMessage) => ("source" in m && m.source ? escapeHtml(m.source.text) : m.text);
   // Replies: the message we answer, and jumping to an original.
   let replying = $state<{ id: number; author: string } | null>(null);
@@ -623,6 +631,24 @@
     </div>
   {/if}
   {@render attachment(m)}
+  {#if "reactions" in m && m.reactions?.length && "source" in m && m.source}
+    {@const id = m.source.id}
+    <div class="reactions">
+      {#each m.reactions as r (r.emoji)}
+        {@const mine = reactedBy(r, me)}
+        <button
+          type="button"
+          class="reaction"
+          class:mine
+          aria-pressed={mine}
+          aria-label="{r.emoji} {r.users.length}, from {r.users.join(', ')}"
+          title={r.users.join(", ")}
+          disabled={!canReact}
+          onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji">{r.emoji}</span>{r.users.length}</button
+        >
+      {/each}
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet actions(m: ChatMessage | DisplayMessage)}
@@ -631,20 +657,39 @@
     {@const canEdit = mayEdit?.(m) && onEdit}
     {@const canDelete = mayDelete?.(m) && onDelete}
     {@const canReply = (stored || kind === "text") && !!onSend}
-    {#if canEdit || canDelete || canReply}
+    {#if canEdit || canDelete || canReply || canReact}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="actions"
-        class:confirming={confirming === id}
+        class:confirming={confirming === id || picking === id}
         onkeydown={(e) => {
           if (e.key === "Escape" && confirming === id) endConfirm();
+          if (e.key === "Escape" && picking === id) picking = null;
         }}
       >
-        {#if confirming === id}
+        {#if picking === id}
+          {#each COMMON_EMOJI as emoji (emoji)}
+            {@const mine = !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, me)))}
+            <button
+              type="button"
+              class="emoji"
+              class:mine
+              aria-label="React with {emoji}"
+              onclick={() => {
+                onReact?.(id, emoji, !mine);
+                picking = null;
+              }}>{emoji}</button
+            >
+          {/each}
+          <button type="button" aria-label="Close" onclick={() => (picking = null)}>×</button>
+        {:else if confirming === id}
           <span>Delete this message?</span>
           <button type="button" class="danger" onclick={() => (onDelete?.(id), endConfirm())}>Delete</button>
           <button type="button" bind:this={cancelButton} onclick={endConfirm}>Cancel</button>
         {:else}
+          {#if canReact}
+            <button type="button" aria-label="Add a reaction" title="React" onclick={() => (picking = id)}>React</button>
+          {/if}
           {#if canReply}
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
           {/if}
@@ -1049,6 +1094,42 @@
   }
   .actions .danger {
     color: var(--danger);
+  }
+  .actions .emoji {
+    padding: 2px 4px;
+    font-size: 18px;
+  }
+  .actions .emoji.mine {
+    background: var(--bg-active);
+  }
+  .reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .reaction {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .reaction:not(:disabled):hover {
+    border-color: var(--border-subtle);
+  }
+  .reaction.mine {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--text);
+  }
+  .reaction .emoji {
+    font-size: 16px;
   }
   .edited {
     margin-left: 4px;

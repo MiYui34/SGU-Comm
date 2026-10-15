@@ -1,5 +1,6 @@
 import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
 import { markdown } from "./markdown";
+import type { Reaction } from "./reactions";
 import type { Roles } from "./roles";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -20,6 +21,7 @@ export type TextMessage = {
   edited?: number; // Unix milliseconds
   // The message it answers (author empty: deleted since).
   reply?: Quote;
+  reactions?: Reaction[];
 };
 export type Quote = { id: number; author: string; text: string };
 // A chat line for display: a text channel message can carry an attachment
@@ -31,6 +33,7 @@ export type DisplayMessage = ChatMessage & {
   edited?: number;
   source?: { id: number; text: string };
   reply?: Quote;
+  reactions?: Reaction[];
 };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
@@ -60,6 +63,8 @@ export type ServerEvent =
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
   | { type: "upload-token"; token: string }
+  // A message's reactions changed (all of them).
+  | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
   // Someone types in a channel (see lib/typing).
   | { type: "typing"; channel: number; name: string }
   // The server dropped messages for us: reload what is shown.
@@ -131,6 +136,9 @@ const isChannel = (v: unknown): v is TextChannel =>
   (v.topic === undefined || typeof v.topic === "string");
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
+const isReactions = (v: unknown): v is Reaction[] =>
+  Array.isArray(v) && v.every((r) => isObj(r) && isStr(r.emoji) && Array.isArray(r.users) && r.users.every(isStr));
+
 const isMessage = (v: unknown): v is TextMessage =>
   isObj(v) &&
   isNum(v.id) &&
@@ -141,7 +149,8 @@ const isMessage = (v: unknown): v is TextMessage =>
   (v.verified === undefined || typeof v.verified === "boolean") &&
   (v.edited === undefined || isNum(v.edited)) &&
   (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
-  (v.upload === undefined || isAttachment(v.upload));
+  (v.upload === undefined || isAttachment(v.upload)) &&
+  (v.reactions === undefined || isReactions(v.reactions));
 
 // Network input: anything unexpected is dropped.
 export const parseServerEvent = (raw: string): ServerEvent | null => {
@@ -197,6 +206,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return { type: "resync" };
     case "typing":
       return isNum(v.channel) && isStr(v.name) ? { type: "typing", channel: v.channel, name: v.name } : null;
+    case "reactions":
+      return isNum(v.channel) && isNum(v.message) && isReactions(v.reactions)
+        ? { type: "reactions", channel: v.channel, message: v.message, reactions: v.reactions }
+        : null;
     default:
       return null;
   }
@@ -251,6 +264,14 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     }
     case "search-results":
       return { ...state, search: { text: event.text, messages: event.messages } };
+    case "reactions": {
+      const msgs = state.messages[event.channel];
+      const i = msgs?.findIndex((m) => m.id === event.message) ?? -1;
+      if (!msgs || i < 0) return state;
+      const next = msgs.slice();
+      next[i] = { ...msgs[i]!, reactions: event.reactions };
+      return { ...state, messages: { ...state.messages, [event.channel]: next } };
+    }
     case "message-deleted": {
       const search = patchSearch(state.search, (ms) => ms.filter((m) => m.id !== event.id));
       const msgs = state.messages[event.channel];
@@ -361,6 +382,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       source: { id: m.id, text: m.text },
       ...(m.edited !== undefined && { edited: m.edited }),
       ...(m.reply && { reply: m.reply }),
+      ...(m.reactions?.length && { reactions: m.reactions }),
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
     chatCache.set(m, chat);
