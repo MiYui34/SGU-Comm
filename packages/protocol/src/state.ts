@@ -67,13 +67,32 @@ export type ServerState = {
   rootPermissions: number | null;
   // What we may do in other channels, from PermissionQuery answers.
   channelPermissions: Readonly<Record<number, number>>;
+  // Admin views (null: not asked yet): the ban list and the registered
+  // users, as the server last sent them.
+  bans: readonly Ban[] | null;
+  registered: readonly Registered[] | null;
 };
+
+// A ban as Mumble sends it: a 16-byte address (IPv4 as ::ffff:a.b.c.d)
+// with a prefix length over 128 bits; duration 0: for ever.
+export type Ban = {
+  address: Uint8Array;
+  mask: number;
+  name: string;
+  hash: string;
+  reason: string;
+  start: string;
+  duration: number;
+};
+export type Registered = { userId: number; name: string };
 
 export const MAX_MESSAGES = 1000;
 
 export const initialState: ServerState = {
   rootPermissions: null,
   channelPermissions: {},
+  bans: null,
+  registered: null,
   serverVersion: null,
   status: "connecting",
   session: null,
@@ -282,6 +301,26 @@ export const reduce = (
       return applyTextMessage(state, msg.message, now);
     case "PermissionDenied":
       return { ...state, notice: { text: msg.message.reason || "The server did not allow this.", at: now } };
+    case "BanList":
+      return {
+        ...state,
+        bans: msg.message.bans.map((b) => ({
+          address: b.address.slice(),
+          mask: b.mask,
+          name: b.name,
+          hash: b.hash,
+          reason: b.reason,
+          start: b.start,
+          duration: b.duration,
+        })),
+      };
+    case "UserList":
+      return {
+        ...state,
+        registered: msg.message.users
+          .map((u) => ({ userId: u.userId, name: u.name }))
+          .sort((a, b) => a.userId - b.userId),
+      };
     default:
       return state;
   }

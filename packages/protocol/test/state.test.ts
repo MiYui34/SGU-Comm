@@ -2,7 +2,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 import * as pb from "../src/gen/Mumble_pb";
 import type { MumbleMessage } from "../src/messages";
-import { privateMessagesWith } from "../src/selectors";
+import { banAddress, privateMessagesWith } from "../src/selectors";
 import {
   addOwnMessage,
   emptyChannel,
@@ -410,5 +410,31 @@ describe("avatars (textures)", () => {
     s = run([userState({ session: 2, texture: new Uint8Array() })], s);
     expect(s.users[2]?.texture).toBeNull();
     expect(s.users[2]?.textureHash).toBeNull();
+  });
+});
+
+describe("ban list and registered users", () => {
+  const v4 = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 203, 0, 113, 5]);
+  it("stores the ban list", () => {
+    const s = run([
+      {
+        type: "BanList",
+        message: create(pb.BanListSchema, {
+          bans: [{ address: v4, mask: 120, name: "troll", hash: "ab", reason: "spam", start: "2026-10-15", duration: 0 }],
+        }),
+      } as MumbleMessage,
+    ]);
+    expect(s.bans).toEqual([{ address: v4, mask: 120, name: "troll", hash: "ab", reason: "spam", start: "2026-10-15", duration: 0 }]);
+    expect(banAddress(s.bans![0]!)).toBe("203.0.113.5/24");
+  });
+
+  it("stores the registered users", () => {
+    const s = run([
+      {
+        type: "UserList",
+        message: create(pb.UserListSchema, { users: [{ userId: 4, name: "alice" }, { userId: 0, name: "SuperUser" }] }),
+      } as MumbleMessage,
+    ]);
+    expect(s.registered).toEqual([{ userId: 0, name: "SuperUser" }, { userId: 4, name: "alice" }]);
   });
 });

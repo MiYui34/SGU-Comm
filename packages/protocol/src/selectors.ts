@@ -104,3 +104,12 @@ export const inVoice = (state: ServerState): boolean => {
   const me = state.session === null ? undefined : state.users[state.session];
   return me !== undefined && !(isLobby(state) && me.channelId === 0);
 };
+
+// A ban's address for people: IPv4 (::ffff:a.b.c.d) as a.b.c.d/n.
+export const banAddress = ({ address: a, mask }: { address: Uint8Array; mask: number }): string => {
+  const v4 = a.length === 16 && a.subarray(0, 10).every((x) => x === 0) && a[10] === 0xff && a[11] === 0xff;
+  if (v4) return `${a[12]}.${a[13]}.${a[14]}.${a[15]}/${mask - 96}`;
+  const groups = [];
+  for (let i = 0; i < a.length; i += 2) groups.push(((a[i]! << 8) | a[i + 1]!).toString(16));
+  return `${groups.join(":")}/${mask}`;
+};

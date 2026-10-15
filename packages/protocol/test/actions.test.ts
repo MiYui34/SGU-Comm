@@ -1,4 +1,6 @@
+import { isFieldSet } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
+import * as pb from "../src/gen/Mumble_pb";
 import { decodeFrames } from "../src/framing";
 import { decodeMessage } from "../src/messages";
 import {
@@ -7,7 +9,12 @@ import {
   escapeHtml,
   joinChannel,
   queryPermissions,
+  queryBans,
+  queryRegistered,
   registerSelf,
+  renameRegistered,
+  setBans,
+  unregister,
   removeChannel,
   requestDescriptions,
   requestTextures,
@@ -115,5 +122,28 @@ describe("textures", () => {
     if (set.type !== "UserState") throw new Error();
     expect(set.message.session).toBe(7);
     expect([...set.message.texture]).toEqual([1, 2]);
+  });
+});
+
+describe("ban list and registered users", () => {
+  it("queries and changes them", () => {
+    const q = decodeOne(queryBans());
+    if (q.type !== "BanList") throw new Error();
+    expect(q.message.query).toBe(true);
+    const ban = { address: new Uint8Array(16), mask: 128, name: "x", hash: "h", reason: "r", start: "", duration: 0 };
+    const set = decodeOne(setBans([ban]));
+    if (set.type !== "BanList") throw new Error();
+    expect(set.message.bans).toHaveLength(1);
+    expect(set.message.query).toBe(false);
+    const users = decodeOne(queryRegistered());
+    if (users.type !== "UserList") throw new Error();
+    expect(users.message.users).toHaveLength(0);
+    const rename = decodeOne(renameRegistered(4, "bob"));
+    if (rename.type !== "UserList") throw new Error();
+    expect(rename.message.users[0]).toMatchObject({ userId: 4, name: "bob" });
+    const gone = decodeOne(unregister(4));
+    if (gone.type !== "UserList") throw new Error();
+    expect(gone.message.users[0]?.userId).toBe(4);
+    expect(isFieldSet(gone.message.users[0]!, pb.UserList_UserSchema.field.name)).toBe(false);
   });
 });

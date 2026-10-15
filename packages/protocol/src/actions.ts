@@ -1,3 +1,4 @@
+import type { Ban } from "./state";
 import { encodeMessage } from "./messages";
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -55,3 +56,11 @@ export const removeChannel = (channelId: number) => encodeMessage("ChannelRemove
 
 // What the own user may do in a channel; the answer is a PermissionQuery.
 export const queryPermissions = (channelId: number) => encodeMessage("PermissionQuery", { channelId });
+
+// Admin views: the ban list (Mumble replaces it as a whole) and the
+// registered users (a user without a name is unregistered).
+export const queryBans = () => encodeMessage("BanList", { query: true });
+export const setBans = (bans: readonly Ban[]) => encodeMessage("BanList", { bans: bans.map((b) => ({ ...b })), query: false });
+export const queryRegistered = () => encodeMessage("UserList", {});
+export const renameRegistered = (userId: number, name: string) => encodeMessage("UserList", { users: [{ userId, name }] });
+export const unregister = (userId: number) => encodeMessage("UserList", { users: [{ userId }] });
