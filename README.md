@@ -69,11 +69,12 @@ On top of that, they get these things, without installing anything:
   Mumble user, with their avatar.
 - **Text channels.** The web app's text channels appear as channels under
   "Text channels". What they write there reaches web users, and web users'
-  messages arrive live. When they enter one, the server sends what was said
-  before (the newest 20 messages; later visits in the same connection, what
-  they missed).
-- **Chat that stays.** What they write in a voice channel is kept, so people
-  who come later read it in the web app, and it can be searched.
+  messages arrive live.
+- **Chat that stays.** What is written in text and voice channels is kept.
+  When they enter a channel, the server sends what was said there as one
+  message: registered users get what they missed since their last visit
+  (also days later), guests the newest 20. People who come later read it in
+  the web app too, and it can be searched.
 - **Pictures and files.** Pictures that registered users send are kept with
   the message; files from web users arrive as links, and replies with a
   short quote in front.
