@@ -217,8 +217,16 @@ export const reduce = (
         status: "synced",
         session: msg.message.session,
         welcomeText: msg.message.welcomeText,
-        rootPermissions: Number(msg.message.permissions),
+        // Proto2: an unset field reads as 0, which would mean "no rights".
+        rootPermissions: isFieldSet(msg.message, pb.ServerSyncSchema.field.permissions)
+          ? Number(msg.message.permissions)
+          : null,
       };
+    case "PermissionQuery":
+      // The server flushes cached permissions after ACL changes.
+      return msg.message.channelId === 0 && isFieldSet(msg.message, pb.PermissionQuerySchema.field.permissions)
+        ? { ...state, rootPermissions: msg.message.permissions }
+        : state;
     case "Reject":
       return {
         ...state,

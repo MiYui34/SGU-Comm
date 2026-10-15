@@ -330,3 +330,22 @@ describe("root permissions", () => {
     expect(s.rootPermissions).toBe(0x6);
   });
 });
+
+describe("root permissions, later", () => {
+  it("stays unknown when the server leaves the field out", () => {
+    const s = run([{ type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 3 }) }]);
+    expect(s.rootPermissions).toBeNull();
+  });
+
+  it("follows permission updates for root", () => {
+    const s = run([
+      { type: "ServerSync", message: create(pb.ServerSyncSchema, { session: 3, permissions: 0x6n }) },
+      { type: "PermissionQuery", message: create(pb.PermissionQuerySchema, { channelId: 5, permissions: 0xe }) },
+    ]);
+    expect(s.rootPermissions).toBe(0x6); // another channel
+    const t = run([
+      { type: "PermissionQuery", message: create(pb.PermissionQuerySchema, { channelId: 0, permissions: 0xe, flush: true }) },
+    ], s);
+    expect(t.rootPermissions).toBe(0xe);
+  });
+});
