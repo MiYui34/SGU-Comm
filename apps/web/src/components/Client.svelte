@@ -39,6 +39,7 @@
   import { pingsMe } from "../lib/mentions";
   import { mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
+  import { previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
@@ -346,6 +347,14 @@
   });
   // Muted text channels show no unread marker (mentions still count).
   const mutedText = $derived(mutedOn(mutedChannels.value, connection.httpBase));
+  // Link previews of the open chat's messages: asked once per message.
+  const previewsAsked = new Set<number>();
+  $effect(() => {
+    if (chatId === null) return;
+    const ids = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked);
+    for (const id of ids) previewsAsked.add(id);
+    for (let i = 0; i < ids.length; i += 30) connection.previews(ids.slice(i, i + 30));
+  });
   // Who types where (see lib/typing). typingNow ticks while someone types,
   // so names go away in time.
   let typers = $state.raw<Typers>({});
@@ -687,6 +696,8 @@
       typing={typingText(typingHere)}
       {onTyping}
       onReact={connection.react}
+      previewOf={(id) => text.previews[id] ?? null}
+      httpBase={connection.httpBase}
     />
   </div>
   {#if searchOpen}

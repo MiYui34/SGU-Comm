@@ -42,6 +42,7 @@ import {
 } from "./textChannels";
 import { texturesToFetch } from "./avatar";
 import { reactRequest } from "./reactions";
+import { previewsRequest } from "./linkPreview";
 import { createCapture } from "./voice/capture.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 
@@ -190,6 +191,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       if (ws.readyState !== WebSocket.OPEN) return;
       text = startSearch(text); // the old results go
       ws.send(searchRequest(query));
+    },
+    previews: (messages: number[]) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(previewsRequest(messages));
     },
     react: (message: number, emoji: string, on: boolean) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(reactRequest(message, emoji, on));

@@ -1,6 +1,7 @@
 import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
 import { markdown } from "./markdown";
 import type { Reaction } from "./reactions";
+import type { LinkPreview } from "./linkPreview";
 import type { Roles } from "./roles";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -65,6 +66,8 @@ export type ServerEvent =
   | { type: "upload-token"; token: string }
   // A message's reactions changed (all of them).
   | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
+  // A message's link preview (null: none).
+  | { type: "preview"; message: number; preview: LinkPreview | null }
   // Someone types in a channel (see lib/typing).
   | { type: "typing"; channel: number; name: string }
   // The server dropped messages for us: reload what is shown.
@@ -90,6 +93,8 @@ export type TextState = {
   notice: { text: string; n: number } | null;
   // The latest search answer.
   search: { text: string; messages: TextMessage[] } | null;
+  // Link previews by message (null: none).
+  previews: Readonly<Record<number, LinkPreview | null>>;
   // Counts resync events, so views can reload.
   resyncs: number;
 };
@@ -108,6 +113,7 @@ export const initialTextState: TextState = {
   lastError: null,
   notice: null,
   search: null,
+  previews: {},
   resyncs: 0,
 };
 
@@ -136,6 +142,16 @@ const isChannel = (v: unknown): v is TextChannel =>
   (v.topic === undefined || typeof v.topic === "string");
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
+const optStr = (v: unknown) => v === undefined || isStr(v);
+const isPreview = (v: unknown): v is LinkPreview =>
+  isObj(v) &&
+  isStr(v.url) &&
+  /^https?:\/\//.test(v.url) &&
+  isStr(v.title) &&
+  optStr(v.description) &&
+  optStr(v.site) &&
+  (v.image === undefined || (isStr(v.image) && v.image.startsWith("/api/link-image/")));
+
 const isReactions = (v: unknown): v is Reaction[] =>
   Array.isArray(v) && v.every((r) => isObj(r) && isStr(r.emoji) && Array.isArray(r.users) && r.users.every(isStr));
 
@@ -206,6 +222,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return { type: "resync" };
     case "typing":
       return isNum(v.channel) && isStr(v.name) ? { type: "typing", channel: v.channel, name: v.name } : null;
+    case "preview":
+      if (!isNum(v.message)) return null;
+      if (v.preview === null) return { type: "preview", message: v.message, preview: null };
+      return isPreview(v.preview) ? { type: "preview", message: v.message, preview: v.preview } : null;
     case "reactions":
       return isNum(v.channel) && isNum(v.message) && isReactions(v.reactions)
         ? { type: "reactions", channel: v.channel, message: v.message, reactions: v.reactions }
@@ -264,6 +284,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     }
     case "search-results":
       return { ...state, search: { text: event.text, messages: event.messages } };
+    case "preview":
+      return { ...state, previews: { ...state.previews, [event.message]: event.preview } };
     case "reactions": {
       const msgs = state.messages[event.channel];
       const i = msgs?.findIndex((m) => m.id === event.message) ?? -1;

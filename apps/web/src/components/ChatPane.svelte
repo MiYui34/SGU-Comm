@@ -1,6 +1,7 @@
 <script lang="ts">
   import { opensLightbox } from "../lib/lightbox";
   import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
+  import type { LinkPreview } from "../lib/linkPreview";
   import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
@@ -45,6 +46,8 @@
     typing = "",
     onTyping,
     onReact,
+    previewOf,
+    httpBase = "",
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -89,6 +92,9 @@
     onTyping?: () => void;
     // Stored messages: add (on) or remove our reaction.
     onReact?: (id: number, emoji: string, on: boolean) => void;
+    // Link previews of stored messages; images are on the server (httpBase).
+    previewOf?: (id: number) => LinkPreview | null;
+    httpBase?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string) => void;
     uploading?: boolean;
@@ -631,6 +637,17 @@
     </div>
   {/if}
   {@render attachment(m)}
+  {#if "source" in m && m.source && previewOf?.(m.source.id)}
+    {@const p = previewOf(m.source.id)!}
+    <a class="preview" href={p.url} target="_blank" rel="noopener noreferrer">
+      <span class="preview-text">
+        {#if p.site}<span class="preview-site ellipsis">{p.site}</span>{/if}
+        <span class="preview-title">{p.title}</span>
+        {#if p.description}<span class="preview-description">{p.description}</span>{/if}
+      </span>
+      {#if p.image}<img src={httpBase + p.image} alt="" loading="lazy" />{/if}
+    </a>
+  {/if}
   {#if "reactions" in m && m.reactions?.length && "source" in m && m.source}
     {@const id = m.source.id}
     <div class="reactions">
@@ -1101,6 +1118,52 @@
   }
   .actions .emoji.mine {
     background: var(--bg-active);
+  }
+  .preview {
+    display: flex;
+    gap: 12px;
+    max-width: 480px;
+    margin-top: 6px;
+    padding: 10px 12px;
+    border-left: 4px solid var(--accent);
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .preview-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .preview-site {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .preview-title {
+    font-weight: 600;
+    color: var(--link);
+  }
+  .preview:hover .preview-title {
+    text-decoration: underline;
+  }
+  .preview-description {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  .preview img {
+    flex-shrink: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: 4px;
+    object-fit: cover;
   }
   .reactions {
     display: flex;
