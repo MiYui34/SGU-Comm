@@ -408,7 +408,7 @@ mod tests {
         let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 443).await.unwrap();
         assert!(trusted);
         let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 64738).await.unwrap();
-        assert!(!trusted); // self-signed until the server uses the web certificate
+        assert!(trusted); // the Mumble port uses the web certificate too
     }
 
     #[test]
