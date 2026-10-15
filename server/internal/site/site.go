@@ -12,9 +12,10 @@ import (
 
 // The web app needs only its own origin. Inline styles: Svelte sets style
 // attributes. blob: images: upload previews; data: images: avatars (images
-// cannot run scripts). connect-src 'self' also allows ws(s) to the same
+// cannot run scripts). wasm-unsafe-eval: compiling WebAssembly (RNNoise),
+// not eval of JavaScript. connect-src 'self' also allows ws(s) to the same
 // host.
-const csp = "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; " +
+const csp = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; " +
 	"object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
 // New returns the site handler. Without webDir, everything goes to the

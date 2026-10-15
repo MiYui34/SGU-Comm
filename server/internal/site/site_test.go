@@ -50,7 +50,7 @@ func TestServesTheWebApp(t *testing.T) {
 	}
 	// data: images: avatars (Mumble textures) are data: URLs.
 	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") ||
-		!strings.Contains(csp, "img-src 'self' blob: data:;") {
+		!strings.Contains(csp, "img-src 'self' blob: data:;") || !strings.Contains(csp, "script-src 'self' 'wasm-unsafe-eval';") {
 		t.Errorf("CSP: %q", csp)
 	}
 	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
