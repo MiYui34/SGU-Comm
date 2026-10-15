@@ -67,3 +67,4 @@
 - [x] [Text channel topic](issues/text-channel-topic.md)
 - [x] [Replies](issues/message-replies.md)
 - [x] [Phones zoom in on text fields](issues/mobile-input-zoom.md)
+- [x] [Search messages](issues/message-search.md)

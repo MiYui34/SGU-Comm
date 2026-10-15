@@ -7,4 +7,3 @@
 - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Bans and users in the web app](issues/web-moderation-view.md)
 - [ ] [Mumble port with the web certificate](issues/mumble-tls-certificate.md)
-- [ ] [Search messages](issues/message-search.md)
