@@ -8,4 +8,3 @@
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
 - [ ] [Pinned messages](issues/web-pinned-messages.md)
-- [ ] [Listen-only voice channels](issues/listen-only-channels.md)

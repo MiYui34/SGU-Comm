@@ -90,3 +90,4 @@
 - [x] [Voice: better noise suppression](issues/voice-noise-suppression.md)
 - [x] [Voice: DeepFilterNet3 as the strongest noise suppression](issues/voice-deepfilternet.md)
 - [x] [Settings: link to the project site](issues/settings-link-to-project.md)
+- [x] [Listen-only voice channels](issues/listen-only-channels.md)
