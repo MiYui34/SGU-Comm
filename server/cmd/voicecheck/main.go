@@ -34,6 +34,7 @@ func main() {
 	password := flag.String("password", "", "server password")
 	insecure := flag.Bool("insecure", false, "accept any server certificate")
 	duration := flag.Duration("for", 0, "stop after this long (0: at Ctrl-C)")
+	minSpurts := flag.Int("spurts", 1, "fail with fewer finished spurts in all")
 	flag.Parse()
 
 	conn, err := tls.Dial("tcp", *server, &tls.Config{InsecureSkipVerify: *insecure})
@@ -74,7 +75,7 @@ func main() {
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		os.Exit(printReport(names, heard, time.Now()))
+		os.Exit(printReport(names, heard, time.Now(), *minSpurts))
 	}()
 
 	header := make([]byte, 6)
@@ -127,9 +128,9 @@ func main() {
 }
 
 // printReport prints each speaker's spurts; the exit code is 1 if any is
-// wrong.
-func printReport(names map[uint32]string, heard map[uint32][]packet, end time.Time) int {
-	code := 0
+// wrong or fewer than minSpurts were finished.
+func printReport(names map[uint32]string, heard map[uint32][]packet, end time.Time, minSpurts int) int {
+	code, finished := 0, 0
 	sessions := slices.Sorted(maps.Keys(heard))
 	for _, s := range sessions {
 		r := check(heard[s], end)
@@ -140,7 +141,14 @@ func printReport(names map[uint32]string, heard map[uint32][]packet, end time.Ti
 		fmt.Printf("\n%s: %d spurts, %s\n", names[s], len(r.spurts), status)
 		for _, sp := range r.spurts {
 			fmt.Println("  " + sp.String())
+			if !sp.open {
+				finished++
+			}
 		}
+	}
+	if finished < minSpurts {
+		fmt.Printf("\n%d finished spurts, want at least %d\n", finished, minSpurts)
+		code = 1
 	}
 	if len(sessions) == 0 {
 		fmt.Println("\nno voice heard")

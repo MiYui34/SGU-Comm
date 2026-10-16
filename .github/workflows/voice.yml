@@ -1,0 +1,56 @@
+# Voice in real browsers: frame numbers and terminators, checked on the wire
+# (tests/voice/run.sh).
+name: voice
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  voice:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chrome
+            os: ubuntu-latest
+          - browser: firefox
+            os: ubuntu-latest
+          - browser: safari
+            os: macos-26
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web build
+
+      # Without a sound device, browsers do not run audio.
+      - name: Sound device (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y pulseaudio
+          pulseaudio -D --exit-idle-time=-1
+      - name: WebDriver
+        run: |
+          case ${{ matrix.browser }} in
+            chrome) "$CHROMEWEBDRIVER/chromedriver" --port=4444 & ;;
+            firefox) "$GECKOWEBDRIVER/geckodriver" --port 4444 & ;;
+            safari) sudo safaridriver --enable && safaridriver -p 4444 & ;;
+          esac
+          sleep 2
+
+      - run: tests/voice/run.sh ${{ matrix.browser }} http://localhost:4444

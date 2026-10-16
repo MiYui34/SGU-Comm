@@ -7,3 +7,4 @@
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
+- [ ] [CI: voice test in real browsers](issues/ci-voice-test.md)
