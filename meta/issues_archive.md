@@ -112,3 +112,4 @@
 - [x] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
 - [x] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [x] [CI: voice test in real browsers](issues/ci-voice-test.md)
+- [x] [Web: multiline messages and channel links](issues/web-multiline-and-channel-links.md)
