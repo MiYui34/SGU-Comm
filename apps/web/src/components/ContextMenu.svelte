@@ -13,12 +13,16 @@
   let menu: HTMLElement | undefined = $state();
   let pos = $state({ x: 0, y: 0 });
 
-  // Measure after the first render, then place it inside the window. Focus
-  // goes back to where it came from when the menu closes.
+  // Measure after the first render, then place it inside the window.
   $effect(() => {
     if (!menu) return;
     const { width, height } = menu.getBoundingClientRect();
     pos = fitMenu({ x, y }, { width, height }, { width: innerWidth, height: innerHeight });
+  });
+  // Focus goes back to where it came from when the menu closes. Only once:
+  // a re-run (new props while open) would move focus out and close it.
+  $effect(() => {
+    if (!menu) return;
     const previous = document.activeElement as HTMLElement | null;
     menu.focus();
     return () => previous?.focus();
