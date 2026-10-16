@@ -108,3 +108,4 @@
   - [x] [Server: join, move and leave events can be lost](issues/server-lifecycle-events.md)
   - [x] [Server: ACL edits do not check permission again after the lookup](issues/acl-recheck.md)
   - [x] [Web: a changed long channel description can stay old](issues/stale-channel-description.md)
+- [x] [Pinned messages](issues/web-pinned-messages.md)
