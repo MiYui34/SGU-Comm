@@ -128,21 +128,23 @@ func run() error {
 		MaxPerIP:          cfg.MaxPerIP,
 		TrustForwardedFor: cfg.TrustForwardedFor,
 		Dial:              dial,
-		Account: func(r *http.Request) (string, *tls.Certificate, bool) {
+		Account: func(r *http.Request) (bridge.Account, bool) {
 			acc, ok := accounts.AccountFor(r)
 			if !ok {
-				return "", nil, false
+				return bridge.Account{}, false
 			}
 			db.TouchAccount(acc.ID, time.Now()) // a visit (guest accounts live a day from it)
 			cert, err := certs.Load(acc.CertPEM, acc.KeyPEM)
 			if err != nil {
 				slog.Error("load account certificate", "account", acc.Name, "err", err)
-				return "", nil, false
+				return bridge.Account{}, false
 			}
-			return acc.Name, &cert, true
+			return bridge.Account{Name: acc.Name, Cert: &cert, ID: acc.ID, Session: auth.SessionKey(r)}, true
 		},
 		IsAccountName: accountExists(db),
 	})
+	// Ended sessions end their open connections.
+	accounts.Revoke = b.Revoke
 
 	if cfg.BackupDir != "" {
 		go backup.Daily(db.DB(), cfg.BackupDir, cfg.BackupKeep)

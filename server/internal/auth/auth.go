@@ -61,6 +61,9 @@ type Service struct {
 	// temporary accounts at the same time (0: defaultMaxGuests).
 	GuestAccounts bool
 	MaxGuests     int
+	// Revoke closes the open connections whose account ID and session
+	// (SessionKey) match, when sessions end. Nil: none.
+	Revoke func(match func(accountID int64, session string) bool)
 
 	logins, guests limiter
 }
@@ -150,6 +153,21 @@ func (a *Service) AccountFor(r *http.Request) (store.Account, bool) {
 	}
 	acc, err := a.Store.AccountBySession(tokenHash(c.Value), a.Now())
 	return acc, err == nil
+}
+
+// SessionKey is the stored key of a request's session, or "".
+func SessionKey(r *http.Request) string {
+	c, err := r.Cookie(CookieName)
+	if err != nil {
+		return ""
+	}
+	return tokenHash(c.Value)
+}
+
+func (a *Service) revoke(match func(accountID int64, session string) bool) {
+	if a.Revoke != nil {
+		a.Revoke(match)
+	}
 }
 
 func (a *Service) create(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +321,9 @@ func (a *Service) logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clearSession(w, r, a.Store)
+	if key := SessionKey(r); key != "" {
+		a.revoke(func(_ int64, session string) bool { return session == key })
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -324,6 +345,7 @@ func (a *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot log out"})
 		return
 	}
+	a.revoke(func(id int64, _ string) bool { return id == acc.ID })
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -369,11 +391,12 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	if acc.Temporary {
 		save = a.Store.MakePermanent
 	}
-	cookie, _ := r.Cookie(CookieName)
-	if err != nil || save(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, tokenHash(cookie.Value)) != nil {
+	keep := SessionKey(r)
+	if err != nil || save(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, keep) != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot change the password"})
 		return
 	}
+	a.revoke(func(id int64, session string) bool { return id == acc.ID && session != keep })
 	w.WriteHeader(http.StatusNoContent)
 }
 

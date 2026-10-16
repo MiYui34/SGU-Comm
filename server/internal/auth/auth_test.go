@@ -214,6 +214,42 @@ func TestLogoutEverywhere(t *testing.T) {
 	}
 }
 
+// Ending sessions also ends their open connections (Revoke).
+func TestEndedSessionsAreRevoked(t *testing.T) {
+	a, srv := setup(t)
+	var match func(int64, string) bool
+	a.Revoke = func(m func(int64, string) bool) { match = m }
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "gina", "password": "longpassword"}, nil)
+	first := sessionCookie(resp)
+	acc, _ := a.AccountFor(requestWith(first))
+	login := func() *http.Cookie {
+		resp, _ := post(t, srv, "/api/login", map[string]string{"name": "gina", "password": "longpassword"}, nil)
+		return sessionCookie(resp)
+	}
+	second, third := login(), login()
+	check := func(what string, want map[*http.Cookie]bool) {
+		t.Helper()
+		if match == nil {
+			t.Fatalf("%s: nothing revoked", what)
+		}
+		for c, revoked := range want {
+			if match(acc.ID, SessionKey(requestWith(c))) != revoked {
+				t.Errorf("%s: session revoked %v, want %v", what, !revoked, revoked)
+			}
+		}
+		if match(acc.ID+1, "") {
+			t.Errorf("%s: another account revoked", what)
+		}
+		match = nil
+	}
+	post(t, srv, "/api/logout", nil, third)
+	check("logout", map[*http.Cookie]bool{third: true, second: false})
+	post(t, srv, "/api/password", map[string]string{"old": "longpassword", "new": "new password"}, second)
+	check("password change", map[*http.Cookie]bool{first: true, second: false})
+	post(t, srv, "/api/logout-all", map[string]string{}, second)
+	check("logout-all", map[*http.Cookie]bool{first: true, second: true})
+}
+
 func TestWildcardOriginsGetCredentialsOnlyForLocalhost(t *testing.T) {
 	a := &Service{AllowedOrigins: []string{"*"}}
 	for origin, want := range map[string]bool{

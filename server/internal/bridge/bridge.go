@@ -40,9 +40,9 @@ type Options struct {
 	// Dial opens the upstream connection: TLS to Murmur, or a session of
 	// the built-in Mumble server.
 	Dial func(ctx context.Context, up Upstream) (net.Conn, error)
-	// Account returns the account behind a request (session cookie): its
-	// name and client certificate. Nil: everyone is a guest.
-	Account func(r *http.Request) (name string, cert *tls.Certificate, ok bool)
+	// Account returns the account behind a request (session cookie). Nil:
+	// everyone is a guest.
+	Account func(r *http.Request) (Account, bool)
 	// IsAccountName: guests may not use the names of accounts.
 	IsAccountName func(name string) bool
 	// Sidecar serves text channels over text frames. Nil: text frames close
@@ -66,21 +66,44 @@ type Upstream struct {
 	Cert        *tls.Certificate // the account's client certificate, or nil
 }
 
+// Account is the account behind a connection.
+type Account struct {
+	Name    string
+	Cert    *tls.Certificate // its client certificate
+	ID      int64            // for Revoke
+	Session string           // the session's key, for Revoke
+}
+
 type Bridge struct {
-	opts   Options
-	mu     sync.Mutex
-	active int
-	perIP  map[string]int
-	guests map[string]bool // names.Key of connected guests
-	closed bool
-	wg     sync.WaitGroup
-	ctx    context.Context
-	cancel context.CancelFunc
+	opts     Options
+	mu       sync.Mutex
+	active   int
+	perIP    map[string]int
+	guests   map[string]bool             // names.Key of connected guests
+	accounts map[*websocket.Conn]Account // open account connections
+	closed   bool
+	wg       sync.WaitGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 func New(opts Options) *Bridge {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}, guests: map[string]bool{}}
+	return &Bridge{opts: opts, ctx: ctx, cancel: cancel, perIP: map[string]int{}, guests: map[string]bool{},
+		accounts: map[*websocket.Conn]Account{}}
+}
+
+// Revoke closes the open account connections (code 1008) whose account ID
+// and session match: their sessions ended.
+func (b *Bridge) Revoke(match func(accountID int64, session string) bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for ws, acc := range b.accounts {
+		if match(acc.ID, acc.Session) {
+			// Close waits for the browser's answer: not under the lock.
+			go ws.Close(websocket.StatusPolicyViolation, "logged out")
+		}
+	}
 }
 
 // Close refuses new connections, ends the open ones (close code 1001) and
@@ -144,11 +167,20 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(MaxPayload)
 
-	var accountName string
-	var cert *tls.Certificate
+	var acc Account
 	isAccount := false
 	if b.opts.Account != nil {
-		accountName, cert, isAccount = b.opts.Account(r)
+		acc, isAccount = b.opts.Account(r)
+	}
+	if isAccount {
+		b.mu.Lock()
+		b.accounts[ws] = acc
+		b.mu.Unlock()
+		defer func() {
+			b.mu.Lock()
+			delete(b.accounts, ws)
+			b.mu.Unlock()
+		}()
 	}
 
 	// Read up to Authenticate first. Accounts must use their own name (their
@@ -167,8 +199,8 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ws.Close(websocket.StatusNormalClosure, "rejected")
 		}
 		switch {
-		case isAccount && name != names.Key(accountName):
-			reject(pb.Reject_InvalidUsername, "Use your account name, "+accountName+".")
+		case isAccount && name != names.Key(acc.Name):
+			reject(pb.Reject_InvalidUsername, "Use your account name, "+acc.Name+".")
 			return
 		case !isAccount && b.opts.IsAccountName != nil && b.opts.IsAccountName(name):
 			reject(pb.Reject_UsernameInUse, "This name belongs to an account. Log in to use it.")
@@ -183,9 +215,9 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hello = early
 	}
 
-	up := Upstream{IP: ip, Cert: cert}
+	up := Upstream{IP: ip}
 	if isAccount {
-		up.AccountName = accountName
+		up.AccountName, up.Cert = acc.Name, acc.Cert
 	}
 	upstream, err := b.opts.Dial(b.ctx, up)
 	if err != nil {

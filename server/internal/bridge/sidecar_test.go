@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -222,12 +223,15 @@ func TestNameIsFreeAgainAfterLeaving(t *testing.T) {
 	eventually(t, func() bool { return echo.open.Load() == 1 })
 }
 
-// accounts: requests with a "user" query value belong to that account.
-func accounts(names ...string) (func(*http.Request) (string, *tls.Certificate, bool), func(string) bool) {
+// accounts: requests with a "user" query value belong to that account (ID:
+// its position in names), with the "session" query value.
+func accounts(names ...string) (func(*http.Request) (Account, bool), func(string) bool) {
 	cert := &tls.Certificate{}
-	lookup := func(r *http.Request) (string, *tls.Certificate, bool) {
-		u := r.URL.Query().Get("user")
-		return u, cert, u != ""
+	lookup := func(r *http.Request) (Account, bool) {
+		q := r.URL.Query()
+		u := q.Get("user")
+		id := int64(slices.Index(names, u) + 1)
+		return Account{Name: u, Cert: cert, ID: id, Session: q.Get("session")}, u != ""
 	}
 	isAccount := func(name string) bool {
 		for _, n := range names {
@@ -311,6 +315,38 @@ func TestAccountNameCheckWithoutGuestNameRule(t *testing.T) {
 	c.Write(testCtx(t), websocket.MessageBinary, hello("mallory"))
 	if m := readReject(t, c); m == nil {
 		t.Fatal("an account used a foreign name")
+	}
+}
+
+func TestRevokeClosesMatchingConnections(t *testing.T) {
+	echo := startEcho(t)
+	lookup, isAccount := accounts("carol", "dave")
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), Account: lookup, IsAccountName: isAccount})
+	join := func(user, session string) *websocket.Conn {
+		c, _, _ := connect(t, url+"?user="+user+"&session="+session, "")
+		c.Write(testCtx(t), websocket.MessageBinary, hello(user))
+		return c
+	}
+	kept := join("carol", "kept")
+	ended := join("carol", "ended")
+	other := join("dave", "other")
+	eventually(t, func() bool { return echo.open.Load() == 3 })
+	b.Revoke(func(id int64, session string) bool { return id == 1 && session != "kept" })
+	if got := closeStatus(t, ended); got != websocket.StatusPolicyViolation {
+		t.Fatalf("got close code %v, want 1008", got)
+	}
+	eventually(t, func() bool { return echo.open.Load() == 2 })
+	for _, c := range []*websocket.Conn{kept, other} {
+		c.Write(testCtx(t), websocket.MessageBinary, []byte{9})
+		for {
+			_, data, err := c.Read(testCtx(t))
+			if err != nil {
+				t.Fatalf("a connection that was not revoked ended: %v", err)
+			}
+			if bytes.HasSuffix(data, []byte{9}) {
+				break
+			}
+		}
 	}
 }
 
