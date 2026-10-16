@@ -4,6 +4,8 @@
 
 Review of repository revision `52719d0`. No application code was changed. Findings below are prioritized by impact; a severity does not imply an unauthenticated exploit unless stated.
 
+**Independent follow-up:** the [6.1-sol report](repository-review-6-1-sol.md) confirms these nine defects, adds four findings, and reclassifies finding 2 below as **Medium capacity/reliability**, rather than High. This initial report is otherwise preserved as the original audit record.
+
 ## Requirements
 
 - Inspect the Go server, web client, protocol package, desktop bridge and deployment boundaries.

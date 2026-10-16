@@ -92,3 +92,4 @@
 - [x] [Settings: link to the project site](issues/settings-link-to-project.md)
 - [x] [Listen-only voice channels](issues/listen-only-channels.md)
 - [x] [Review efficiency, DRY, architecture and security](issues/repository-review.md)
+- [x] [Independent repository review by 6.1-sol](issues/repository-review-6-1-sol.md)
