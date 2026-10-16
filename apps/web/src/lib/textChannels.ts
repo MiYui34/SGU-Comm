@@ -274,8 +274,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
       return isStr(v.token) ? { type: "stream-token", token: v.token } : null;
-    case "stream-preview":
-      return isNum(v.session) && isStreamPreview(v.image) ? { type: "stream-preview", session: v.session, image: v.image } : null;
+    case "stream-preview": // "": the preview was turned off
+      return isNum(v.session) && (v.image === "" || isStreamPreview(v.image)) ? { type: "stream-preview", session: v.session, image: v.image as string } : null;
     case "dm":
       return isDirect(v) ? { type: "dm", channel: v.channel, peer: { id: v.peer.id, name: v.peer.name } } : null;
     case "voice-chat":
@@ -365,8 +365,10 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
-    case "stream-preview":
-      return { ...state, streamPreviews: { ...state.streamPreviews, [event.session]: event.image } };
+    case "stream-preview": {
+      const { [event.session]: _, ...rest } = state.streamPreviews;
+      return { ...state, streamPreviews: event.image ? { ...rest, [event.session]: event.image } : rest };
+    }
     case "stream-token": // answered by the connection, not state
       return state;
     case "dm":

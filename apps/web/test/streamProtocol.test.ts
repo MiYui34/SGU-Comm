@@ -82,3 +82,39 @@ describe("createAvClock", () => {
     expect(createAvClock(0.15).time(1_000_000)).toBeNull();
   });
 });
+
+describe("createAvClock recovery", () => {
+  it("starts over after a few late sounds in a row (a delay that stays)", () => {
+    const clock = createAvClock(0.15);
+    clock.at(0, 0);
+    let last: number | null = null;
+    for (let i = 1; i <= 6; i++) last = clock.at(i * 20_000, 0.5 + i * 0.02); // each 0.3 s late
+    expect(last).not.toBeNull();
+  });
+  it("starts over when sound would play far ahead", () => {
+    const clock = createAvClock(0.15);
+    clock.at(5_000_000, 10);
+    expect(clock.at(5_020_000, 7)).toBeCloseTo(7.15); // the viewer's clock jumped back
+  });
+});
+
+describe("cleared stream previews", () => {
+  it("go away", () => {
+    const ev = (v: object) => parseServerEvent(JSON.stringify(v))!;
+    let s = reduceText(initialTextState, ev({ type: "ready", channels: [], streams: [{ session: 4, channel: 2, preview: "data:image/jpeg;base64,AA" }] }));
+    s = reduceText(s, ev({ type: "stream-preview", session: 4, image: "" }));
+    expect(s.streamPreviews[4]).toBeUndefined();
+  });
+});
+
+import { resample } from "../src/lib/stream/client.svelte";
+
+describe("resample", () => {
+  it("turns 44.1 kHz into 48 kHz, keeping the shape", () => {
+    const input = new Float32Array(441).map((_, i) => i / 441);
+    const out = resample(input, 44_100, 48_000);
+    expect(out.length).toBe(480);
+    expect(out[0]).toBe(0);
+    expect(out[240]).toBeCloseTo(0.5, 2);
+  });
+});

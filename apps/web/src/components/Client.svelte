@@ -623,6 +623,9 @@
   $effect(() => {
     streamClient?.setPreviews(prefs.streamPreviews);
   });
+  $effect(() => {
+    streamClient?.setDeaf(me?.selfDeaf ?? false);
+  });
   // A direct chat from the list: the partner's session if online.
   const openDirect = (peer: Peer) => {
     const user = Object.values(server.users).find((u) => u.userId === peer.id);

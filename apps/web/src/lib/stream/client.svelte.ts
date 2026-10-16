@@ -61,6 +61,8 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   // Who watches our stream (sessions), and whether others see thumbnails.
   let viewers = $state<number[]>([]);
   let previews = true;
+  // Deafened: stream sound is silent too.
+  let deaf = false;
   // Watching: by streamer session.
   const watched = new Map<number, Viewer>();
   let watching = $state<number[]>([]);
@@ -263,7 +265,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   // The stream's sound, into the app's audio context with its own volume.
   const listen = (session: number, v: Viewer) => {
     if (!audio || typeof AudioDecoder === "undefined") return;
-    v.gain = new GainNode(audio, { gain: sounds[session] ?? 1 });
+    v.gain = new GainNode(audio, { gain: deaf ? 0 : (sounds[session] ?? 1) });
     v.gain.connect(audio.destination);
     v.sound = new AudioDecoder({
       output: (data) => {
@@ -375,11 +377,20 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     setVolume: (session: number, volume: number) => {
       const v = watched.get(session);
       if (!v?.gain || !audio) return;
-      v.gain.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
+      if (!deaf) v.gain.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
       sounds = { ...sounds, [session]: volume };
     },
-    // Whether others see thumbnails of our stream (a setting).
-    setPreviews: (on: boolean) => (previews = on),
+    // Whether others see thumbnails of our stream (a setting); turned off,
+    // the last one goes too.
+    setPreviews: (on: boolean) => {
+      if (previews && !on && sharing) send({ type: "preview", image: "" });
+      previews = on;
+    },
+    setDeaf: (on: boolean) => {
+      deaf = on;
+      if (!audio) return;
+      for (const [session, v] of watched) v.gain?.gain.setTargetAtTime(on ? 0 : (sounds[session] ?? 1), audio.currentTime, 0.02);
+    },
     startSharing,
     stopSharing: () => stopSharing(true),
     clearError: () => (error = null),
@@ -432,9 +443,9 @@ const soundSupported = async () =>
   !!(globalThis as { MediaStreamTrackProcessor?: unknown }).MediaStreamTrackProcessor &&
   (await AudioEncoder.isConfigSupported(SOUND)).supported === true;
 
-// A sound track's data, mixed down to mono, until the returned stop (needs
-// MediaStreamTrackProcessor: Chromium, the only one that shares sound).
-// Other sample rates than 48 kHz are left out (the encoder takes 48 kHz).
+// A sound track's data, mixed down to mono and at 48 kHz (the encoder's;
+// Windows devices may run at 44.1 kHz), until the returned stop. Needs
+// MediaStreamTrackProcessor: Chromium, the only one that shares sound.
 const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void): (() => void) => {
   const Processor = (globalThis as { MediaStreamTrackProcessor?: new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<AudioData> } })
     .MediaStreamTrackProcessor!;
@@ -444,14 +455,15 @@ const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void)
     while (!stopped) {
       const { value: data, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
       if (done || !data) return;
-      if (!stopped && data.sampleRate === SOUND.sampleRate) {
-        const mono = new Float32Array(data.numberOfFrames);
+      if (!stopped) {
+        let mono = new Float32Array(data.numberOfFrames);
         const plane = new Float32Array(data.numberOfFrames);
         for (let ch = 0; ch < data.numberOfChannels; ch++) {
           data.copyTo(plane, { planeIndex: ch, format: "f32-planar" });
           for (let i = 0; i < plane.length; i++) mono[i]! += plane[i]! / data.numberOfChannels;
         }
-        const out = new AudioData({ format: "f32-planar", sampleRate: data.sampleRate, numberOfFrames: data.numberOfFrames, numberOfChannels: 1, timestamp: data.timestamp, data: mono });
+        if (data.sampleRate !== SOUND.sampleRate) mono = resample(mono, data.sampleRate, SOUND.sampleRate);
+        const out = new AudioData({ format: "f32-planar", sampleRate: SOUND.sampleRate, numberOfFrames: mono.length, numberOfChannels: 1, timestamp: data.timestamp, data: mono });
         onData(out);
         out.close();
       }
@@ -463,6 +475,19 @@ const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void)
     void reader.cancel().catch(() => {});
     track.stop();
   };
+};
+
+// Linear resampling of one chunk (good enough for a stream's sound).
+export const resample = (input: Float32Array, from: number, to: number): Float32Array<ArrayBuffer> => {
+  const out = new Float32Array(Math.round((input.length * to) / from));
+  for (let i = 0; i < out.length; i++) {
+    const x = (i * from) / to;
+    const j = Math.floor(x);
+    const a = input[j] ?? 0;
+    const b = input[j + 1] ?? a;
+    out[i] = a + (b - a) * (x - j);
+  }
+  return out;
 };
 
 // A frame as a small JPEG data URL.
