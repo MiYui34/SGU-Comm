@@ -6,11 +6,16 @@
     nameOf,
     attach,
     onClose,
+    volumeOf,
+    onVolume,
   }: {
     sessions: number[];
     nameOf: (session: number) => string;
     attach: (session: number, canvas: HTMLCanvasElement | null) => void;
     onClose: (session: number) => void;
+    // A stream's sound volume, 0 to 1 (undefined: no sound).
+    volumeOf: (session: number) => number | undefined;
+    onVolume: (session: number, volume: number) => void;
   } = $props();
 
   const canvasOf = (canvas: HTMLCanvasElement, session: number) => {
@@ -31,6 +36,17 @@
       <div class="overlay">
         <span class="who"><span class="live">LIVE</span> {nameOf(session)}</span>
         <span class="tools">
+          {#if volumeOf(session) !== undefined}
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volumeOf(session)}
+              aria-label="Volume of {nameOf(session)}'s stream"
+              oninput={(e) => onVolume(session, Number(e.currentTarget.value))}
+            />
+          {/if}
           <button onclick={fullScreen} title="Full screen" aria-label="Full screen">⛶</button>
           <button onclick={() => onClose(session)} title="Stop watching" aria-label="Stop watching {nameOf(session)}">×</button>
         </span>
@@ -87,6 +103,15 @@
     background: var(--danger);
     font-size: 10px;
     font-weight: 700;
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tools input {
+    width: 90px;
+    accent-color: var(--accent);
   }
   .tools button {
     padding: 2px 8px;

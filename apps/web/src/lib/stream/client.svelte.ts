@@ -1,4 +1,4 @@
-import { decodeFrame, encodeFrame, fitSize, pickCodec } from "./protocol";
+import { createAvClock, decodeFrame, encodeFrame, fitSize, pickCodec } from "./protocol";
 import Ticker from "./ticker.worker?worker";
 
 // Screen sharing over the stream connection (/api/stream, see the server's
@@ -16,8 +16,24 @@ const PREVIEW_FIRST_MS = 2_000;
 const PREVIEW_WIDTH = 320;
 const MAX_PREVIEW = 60_000; // characters of the data URL (the server takes 64 KiB)
 
-type Viewer = { decoder: VideoDecoder | null; needKey: boolean; canvas: HTMLCanvasElement | null };
-type Text = { type: string; session?: number; sessions?: number[]; codec?: string; message?: string };
+// Stream sound: Opus, 48 kHz mono, 20 ms frames (what Mumble clients get
+// too); played this far ahead, pictures waiting for it.
+const SOUND: AudioEncoderConfig = { codec: "opus", sampleRate: 48_000, numberOfChannels: 1, bitrate: 64_000 };
+const SOUND_LEAD = 0.15;
+const MAX_QUEUED_PICTURES = 30;
+
+type Viewer = {
+  decoder: VideoDecoder | null;
+  needKey: boolean;
+  canvas: HTMLCanvasElement | null;
+  // With sound: its decoder, volume, clock and the pictures waiting for it.
+  sound: AudioDecoder | null;
+  gain: GainNode | null;
+  clock: ReturnType<typeof createAvClock>;
+  queue: VideoFrame[];
+  raf: number;
+};
+type Text = { type: string; session?: number; sessions?: number[]; codec?: string; audio?: string; message?: string };
 
 export const streamingSupported = () =>
   typeof VideoEncoder !== "undefined" &&
@@ -25,7 +41,8 @@ export const streamingSupported = () =>
   typeof VideoFrame !== "undefined" &&
   !!navigator.mediaDevices?.getDisplayMedia;
 
-export const createStreamClient = (url: string, token: () => Promise<string>) => {
+// audio: the app's audio context (stream sound plays there; none: no sound).
+export const createStreamClient = (url: string, token: () => Promise<string>, audio: AudioContext | null) => {
   let ws: WebSocket | null = null;
   let opening: Promise<WebSocket> | null = null;
   let closed = false;
@@ -36,7 +53,9 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   let error = $state<string | null>(null);
   let screen: MediaStream | null = null;
   let encoder: VideoEncoder | null = null;
+  let soundEncoder: AudioEncoder | null = null;
   let stopFrames: (() => void) | null = null;
+  let stopSound: (() => void) | null = null;
   let forceKey = true;
   let started: ((err: string | null) => void) | null = null;
   // Who watches our stream (sessions), and whether others see thumbnails.
@@ -45,6 +64,8 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   // Watching: by streamer session.
   const watched = new Map<number, Viewer>();
   let watching = $state<number[]>([]);
+  // Watched streams with sound, and their volume (0 to 1).
+  let sounds = $state<Record<number, number>>({});
 
   // The connection: open once the server took the token ("ready").
   const open = (): Promise<WebSocket> => {
@@ -98,7 +119,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         if (!started || m.session !== undefined) error = m.message ?? "error";
         break;
       case "stream":
-        if (m.session !== undefined && m.codec) void configureIfSupported(m.session, m.codec);
+        if (m.session !== undefined && m.codec) void configureIfSupported(m.session, m.codec, m.audio === "opus");
         break;
       case "ended":
         if (m.session !== undefined) unwatch(m.session, false);
@@ -114,8 +135,13 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     error = null;
     try {
       const sock = await open();
-      screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FPS }, audio: false });
+      // Sound where the browser offers it (Chromium: a tab, or the system on
+      // Windows).
+      screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FPS }, audio: true });
       const track = screen.getVideoTracks()[0]!;
+      const soundTrack = screen.getAudioTracks()[0];
+      const withSound = !!soundTrack && (await soundSupported());
+      if (soundTrack && !withSound) soundTrack.stop();
       track.onended = () => stopSharing(true); // the browser's own "Stop sharing"
       const codec = await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, 1280, 720))).supported === true);
       if (!codec) throw new Error("this browser cannot encode video for screen sharing");
@@ -135,14 +161,27 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         forceKey = true;
       };
       configure();
+      const audioField = withSound ? { audio: "opus" } : {};
       const err = await new Promise<string | null>((resolve) => {
         started = resolve;
-        send({ type: "start", codec, ...size });
+        send({ type: "start", codec, ...size, ...audioField });
       });
       started = null;
       if (err) throw new Error(err);
       sharing = true;
       preview = screen;
+      if (withSound) {
+        soundEncoder = new AudioEncoder({
+          output: (chunk) => {
+            const data = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(data);
+            if (sock.readyState === WebSocket.OPEN) sock.send(encodeFrame(false, chunk.timestamp, data, true));
+          },
+          error: () => stopSound?.(), // the picture goes on
+        });
+        soundEncoder.configure(SOUND);
+        stopSound = soundFrames(soundTrack!, (data) => soundEncoder?.state === "configured" && soundEncoder.encode(data));
+      }
       let n = 0;
       let previewAt = performance.now() + PREVIEW_FIRST_MS;
       stopFrames = frames(track, (frame) => {
@@ -160,7 +199,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         if (next.width !== size.width || next.height !== size.height) {
           size = next; // the shared window was resized
           configure();
-          send({ type: "start", codec, ...size });
+          send({ type: "start", codec, ...size, ...audioField });
         }
         encoder.encode(frame, { keyFrame: forceKey || n % KEYFRAME_EVERY === 0 });
         frame.close();
@@ -181,6 +220,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     if (tell && sharing) send({ type: "stop" });
     stopFrames?.();
     stopFrames = null;
+    stopSound?.();
+    stopSound = null;
+    if (soundEncoder && soundEncoder.state !== "closed") soundEncoder.close();
+    soundEncoder = null;
     if (encoder && encoder.state !== "closed") encoder.close();
     encoder = null;
     screen?.getTracks().forEach((t) => t.stop());
@@ -195,7 +238,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   const watch = async (session: number) => {
     error = null;
     if (watched.has(session)) return;
-    watched.set(session, { decoder: null, needKey: true, canvas: null });
+    watched.set(session, { decoder: null, needKey: true, canvas: null, sound: null, gain: null, clock: createAvClock(SOUND_LEAD), queue: [], raf: 0 });
     watching = [...watched.keys()];
     try {
       await open();
@@ -206,13 +249,53 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     }
   };
 
-  const configureIfSupported = async (session: number, codec: string) => {
+  const configureIfSupported = async (session: number, codec: string, withSound: boolean) => {
     if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
       unwatch(session);
       error = "This browser cannot play this screen share.";
       return;
     }
     configure(session, codec);
+    const v = watched.get(session);
+    if (v && withSound && !v.sound) listen(session, v);
+  };
+
+  // The stream's sound, into the app's audio context with its own volume.
+  const listen = (session: number, v: Viewer) => {
+    if (!audio || typeof AudioDecoder === "undefined") return;
+    v.gain = new GainNode(audio, { gain: sounds[session] ?? 1 });
+    v.gain.connect(audio.destination);
+    v.sound = new AudioDecoder({
+      output: (data) => {
+        const at = v.clock.at(data.timestamp, audio.currentTime);
+        if (at !== null && v.gain) {
+          const buffer = audio.createBuffer(1, data.numberOfFrames, data.sampleRate);
+          data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
+          const src = new AudioBufferSourceNode(audio, { buffer });
+          src.connect(v.gain);
+          src.start(at);
+        }
+        data.close();
+      },
+      error: () => {}, // the picture goes on
+    });
+    v.sound.configure(SOUND);
+    sounds = { ...sounds, [session]: sounds[session] ?? 1 };
+    const present = () => {
+      v.raf = requestAnimationFrame(present);
+      let due: VideoFrame | undefined;
+      while (v.queue.length) {
+        const t = v.clock.time(v.queue[0]!.timestamp);
+        if (t !== null && t > audio.currentTime) break;
+        due?.close();
+        due = v.queue.shift();
+      }
+      if (due) {
+        draw(v, due);
+        due.close();
+      }
+    };
+    v.raf = requestAnimationFrame(present);
   };
 
   // A decoder for a stream, then a keyframe to start from.
@@ -223,14 +306,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     v.needKey = true;
     v.decoder = new VideoDecoder({
       output: (frame) => {
-        const c = v.canvas;
-        if (c) {
-          if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) {
-            c.width = frame.displayWidth;
-            c.height = frame.displayHeight;
-          }
-          c.getContext("2d")?.drawImage(frame, 0, 0);
+        // With sound, pictures wait for it (see listen); before the first
+        // sound, and without, they show at once.
+        if (v.sound && v.clock.time(frame.timestamp) !== null) {
+          v.queue.push(frame);
+          while (v.queue.length > MAX_QUEUED_PICTURES) v.queue.shift()!.close();
+          return;
         }
+        draw(v, frame);
         frame.close();
       },
       error: () => watched.get(session) === v && configure(session, codec), // start over
@@ -243,6 +326,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     const f = decodeFrame(buf);
     const v = f && watched.get(f.session);
     if (!f || !v?.decoder || v.decoder.state !== "configured") return;
+    if (f.sound) {
+      if (v.sound?.state === "configured") v.sound.decode(new EncodedAudioChunk({ type: "key", timestamp: f.timestamp, data: f.data }));
+      return;
+    }
     if (!f.key && (v.needKey || v.decoder.decodeQueueSize > MAX_DECODE_QUEUE)) {
       if (!v.needKey) send({ type: "keyframe", session: f.session }); // too slow: skip ahead
       v.needKey = true;
@@ -257,8 +344,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     if (!v) return;
     if (tell) send({ type: "unwatch", session });
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
+    if (v.sound && v.sound.state !== "closed") v.sound.close();
+    cancelAnimationFrame(v.raf);
+    v.queue.forEach((f) => f.close());
+    v.gain?.disconnect();
     watched.delete(session);
     watching = [...watched.keys()];
+    const { [session]: _, ...rest } = sounds;
+    sounds = rest;
   };
 
   return {
@@ -276,6 +369,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     },
     get viewers() {
       return viewers;
+    },
+    // A watched stream's volume (undefined: it has no sound).
+    volumeOf: (session: number): number | undefined => sounds[session],
+    setVolume: (session: number, volume: number) => {
+      const v = watched.get(session);
+      if (!v?.gain || !audio) return;
+      v.gain.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
+      sounds = { ...sounds, [session]: volume };
     },
     // Whether others see thumbnails of our stream (a setting).
     setPreviews: (on: boolean) => (previews = on),
@@ -315,6 +416,54 @@ const encoderConfig = (codec: string, width: number, height: number): VideoEncod
 // another window). Elsewhere a hidden video element is drawn on a worker's
 // timer (page timers are slowed in hidden tabs; worker timers less so).
 type ProcessorCtor = new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
+
+const draw = (v: Viewer, frame: VideoFrame) => {
+  const c = v.canvas;
+  if (!c) return;
+  if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) {
+    c.width = frame.displayWidth;
+    c.height = frame.displayHeight;
+  }
+  c.getContext("2d")?.drawImage(frame, 0, 0);
+};
+
+const soundSupported = async () =>
+  typeof AudioEncoder !== "undefined" &&
+  !!(globalThis as { MediaStreamTrackProcessor?: unknown }).MediaStreamTrackProcessor &&
+  (await AudioEncoder.isConfigSupported(SOUND)).supported === true;
+
+// A sound track's data, mixed down to mono, until the returned stop (needs
+// MediaStreamTrackProcessor: Chromium, the only one that shares sound).
+// Other sample rates than 48 kHz are left out (the encoder takes 48 kHz).
+const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void): (() => void) => {
+  const Processor = (globalThis as { MediaStreamTrackProcessor?: new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<AudioData> } })
+    .MediaStreamTrackProcessor!;
+  const reader = new Processor({ track }).readable.getReader();
+  let stopped = false;
+  void (async () => {
+    while (!stopped) {
+      const { value: data, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+      if (done || !data) return;
+      if (!stopped && data.sampleRate === SOUND.sampleRate) {
+        const mono = new Float32Array(data.numberOfFrames);
+        const plane = new Float32Array(data.numberOfFrames);
+        for (let ch = 0; ch < data.numberOfChannels; ch++) {
+          data.copyTo(plane, { planeIndex: ch, format: "f32-planar" });
+          for (let i = 0; i < plane.length; i++) mono[i]! += plane[i]! / data.numberOfChannels;
+        }
+        const out = new AudioData({ format: "f32-planar", sampleRate: data.sampleRate, numberOfFrames: data.numberOfFrames, numberOfChannels: 1, timestamp: data.timestamp, data: mono });
+        onData(out);
+        out.close();
+      }
+      data.close();
+    }
+  })();
+  return () => {
+    stopped = true;
+    void reader.cancel().catch(() => {});
+    track.stop();
+  };
+};
 
 // A frame as a small JPEG data URL.
 const thumbnail = (frame: VideoFrame): string => {

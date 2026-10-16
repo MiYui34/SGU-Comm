@@ -1,18 +1,18 @@
 // The stream connection's binary frames (see the server's stream package):
-// up from a streamer: flags (bit 0: keyframe), an 8-byte timestamp
-// (microseconds), the encoded data; down to viewers with the streamer's
-// session (4 bytes) in front.
+// up from a streamer: flags (bit 0: keyframe, bit 1: sound), an 8-byte
+// timestamp (microseconds; picture and sound on one clock), the encoded
+// data; down to viewers with the streamer's session (4 bytes) in front.
 
-export const encodeFrame = (key: boolean, timestamp: number, data: Uint8Array): Uint8Array<ArrayBuffer> => {
+export const encodeFrame = (key: boolean, timestamp: number, data: Uint8Array, sound = false): Uint8Array<ArrayBuffer> => {
   const out = new Uint8Array(9 + data.length);
   const view = new DataView(out.buffer);
-  out[0] = key ? 1 : 0;
+  out[0] = (key ? 1 : 0) | (sound ? 2 : 0);
   view.setBigUint64(1, BigInt(Math.max(0, Math.round(timestamp))));
   out.set(data, 9);
   return out;
 };
 
-export type Frame = { session: number; key: boolean; timestamp: number; data: Uint8Array };
+export type Frame = { session: number; key: boolean; sound: boolean; timestamp: number; data: Uint8Array };
 
 export const decodeFrame = (buf: ArrayBuffer): Frame | null => {
   if (buf.byteLength < 13) return null;
@@ -20,6 +20,7 @@ export const decodeFrame = (buf: ArrayBuffer): Frame | null => {
   return {
     session: view.getUint32(0),
     key: (view.getUint8(4) & 1) === 1,
+    sound: (view.getUint8(4) & 2) === 2,
     timestamp: Number(view.getBigUint64(5)),
     data: new Uint8Array(buf, 13),
   };
@@ -41,4 +42,23 @@ export const CODECS = ["vp8", "avc1.42E01F"] as const;
 export const pickCodec = async (supported: (codec: string) => Promise<boolean>): Promise<string | null> => {
   for (const c of CODECS) if (await supported(c)) return c;
   return null;
+};
+
+// Picture and sound in sync: stream timestamps (microseconds) on the audio
+// context's clock (seconds). The first sound sets the offset, played lead
+// seconds ahead (a small buffer); pictures show when the clock reaches
+// theirs. Sound that is too late is dropped; far behind, it starts over.
+export const createAvClock = (lead: number) => {
+  let offset: number | null = null;
+  return {
+    // When to play sound with this timestamp (null: drop it).
+    at: (timestamp: number, now: number): number | null => {
+      const t = timestamp / 1e6;
+      if (offset === null || t + offset < now - 1) offset = now + lead - t;
+      const when = t + offset;
+      return when < now ? null : when;
+    },
+    // When a picture with this timestamp is due (null: no sound yet).
+    time: (timestamp: number): number | null => (offset === null ? null : timestamp / 1e6 + offset),
+  };
 };

@@ -95,7 +95,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       ws.send(JSON.stringify({ type: "stream-token" }));
     });
   const base = httpBase(url);
-  const streams = streamingSupported() ? createStreamClient(`${base.replace(/^http/, "ws")}/api/stream`, streamToken) : null;
+  const streams = streamingSupported() ? createStreamClient(`${base.replace(/^http/, "ws")}/api/stream`, streamToken, audio) : null;
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";

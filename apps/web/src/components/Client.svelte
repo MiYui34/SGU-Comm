@@ -821,7 +821,14 @@
   {/if}
   {#snippet stage()}
     {#if streamClient}
-      <StreamStage sessions={streamClient.watching} nameOf={nameOfSession} attach={streamClient.attach} onClose={streamClient.unwatch} />
+      <StreamStage
+        sessions={streamClient.watching}
+        nameOf={nameOfSession}
+        attach={streamClient.attach}
+        onClose={streamClient.unwatch}
+        volumeOf={streamClient.volumeOf}
+        onVolume={streamClient.setVolume}
+      />
     {/if}
   {/snippet}
   <div class="main" inert={phone && panel !== "chat"}>

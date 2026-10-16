@@ -7,7 +7,7 @@ describe("stream frames", () => {
     expect([...up]).toEqual([1, 0, 0, 0, 0, 0, 0x16, 0xe3, 0x60, 7, 8]);
     const down = new Uint8Array([0, 0, 0, 5, ...up]);
     const f = decodeFrame(down.buffer);
-    expect(f && { ...f, data: [...f.data] }).toEqual({ session: 5, key: true, timestamp: 1_500_000, data: [7, 8] });
+    expect(f && { ...f, data: [...f.data] }).toEqual({ session: 5, key: true, sound: false, timestamp: 1_500_000, data: [7, 8] });
     expect(decodeFrame(new Uint8Array(5).buffer)).toBeNull();
   });
 });
@@ -53,5 +53,32 @@ describe("stream previews in the text state", () => {
     s = reduceText(s, ev({ type: "streams", streams: [] }));
     expect(s.streamPreviews[4]).toBeUndefined();
     expect(ev({ type: "stream-preview", session: 4, image: "javascript:alert(1)" })).toBeNull();
+  });
+});
+
+import { createAvClock } from "../src/lib/stream/protocol";
+
+describe("sound frames", () => {
+  it("carry flag bit 1", () => {
+    const up = encodeFrame(false, 20_000, new Uint8Array([9]), true);
+    expect(up[0]).toBe(2);
+    expect(decodeFrame(new Uint8Array([0, 0, 0, 1, ...up]).buffer)?.sound).toBe(true);
+  });
+});
+
+describe("createAvClock", () => {
+  it("plays sound a little ahead and places pictures on the same clock", () => {
+    const clock = createAvClock(0.15);
+    expect(clock.at(1_000_000, 10)).toBeCloseTo(10.15); // the first sound sets the clock
+    expect(clock.at(1_020_000, 10.01)).toBeCloseTo(10.17);
+    expect(clock.at(1_000_000, 10.2)).toBeNull(); // too late: dropped
+  });
+  it("starts over when it fell far behind", () => {
+    const clock = createAvClock(0.15);
+    clock.at(0, 0);
+    expect(clock.at(1_000_000, 5)).toBeCloseTo(5.15);
+  });
+  it("knows nothing before the first sound", () => {
+    expect(createAvClock(0.15).time(1_000_000)).toBeNull();
   });
 });
