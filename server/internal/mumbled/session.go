@@ -372,19 +372,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
 	}
 	s.state.Refresh(u)
-	tree := s.state.Tree()
-	for _, ch := range tree {
-		c.sendMsg(mumble.TypeChannelState, s.state.channelStateFor(ch, u))
-	}
-	// Links once all channels exist, as Murmur does.
-	for _, ch := range tree {
-		if len(ch.Links) > 0 {
-			c.sendMsg(mumble.TypeChannelState, &pb.ChannelState{ChannelId: proto.Uint32(ch.ID), Links: slices.Sorted(maps.Keys(ch.Links))})
-		}
-	}
-	for _, u := range s.state.Users {
-		c.send(userState(u), false)
-	}
+	c.send(s.state.snapshot(u), false)
 	s.state.AddUser(u)
 	s.clients[c.session] = c
 	if s.byHost[c.host] == nil {
@@ -401,6 +389,27 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		ImageMessageLength: proto.Uint32(maxTextLength), MaxUsers: proto.Uint32(uint32(s.maxUsers())),
 	})
 	return nil
+}
+
+// snapshot is the channels and users a joining user gets, as one queue
+// entry: as single frames a big server would fill the queue.
+func (s *State) snapshot(joining *User) []byte {
+	var out []byte
+	tree := s.Tree()
+	for _, ch := range tree {
+		out = append(out, mumble.MessageFrame(mumble.TypeChannelState, s.channelStateFor(ch, joining))...)
+	}
+	// Links once all channels exist, as Murmur does.
+	for _, ch := range tree {
+		if len(ch.Links) > 0 {
+			out = append(out, mumble.MessageFrame(mumble.TypeChannelState,
+				&pb.ChannelState{ChannelId: proto.Uint32(ch.ID), Links: slices.Sorted(maps.Keys(ch.Links))})...)
+		}
+	}
+	for _, u := range s.Users {
+		out = append(out, userState(u)...)
+	}
+	return out
 }
 
 func (s *Server) leave(c *client) {

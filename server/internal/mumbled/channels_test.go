@@ -1,7 +1,9 @@
 package mumbled
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -197,4 +199,38 @@ func TestTreeTextSkipsChannelsWithoutPermission(t *testing.T) {
 	alice.send(mumble.TypeTextMessage, &pb.TextMessage{TreeId: []uint32{0}, Message: proto.String("all")})
 	bob.expect(mumble.TypeTextMessage)
 	alice.expectNone(mumble.TypePermissionDenied)
+}
+
+func TestABigServerAcceptsNewClients(t *testing.T) {
+	n := 1000
+	_, addr := startServerAndListen(t, "127.0.0.1", Config{}, func(s *Server) {
+		for i := range n {
+			s.state.AddChannel(0, fmt.Sprintf("Channel %d", i), false)
+		}
+	})
+	c, err := tryDial(t, addr, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels := 0
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case f, ok := <-c.frames:
+			if !ok {
+				t.Fatalf("closed after %d channels", channels)
+			}
+			if f.typ == mumble.TypeChannelState {
+				channels++
+			}
+			if f.typ == mumble.TypeServerSync {
+				if channels != n+1 {
+					t.Fatalf("%d channels before ServerSync", channels)
+				}
+				return
+			}
+		case <-timeout:
+			t.Fatal("no ServerSync")
+		}
+	}
 }
