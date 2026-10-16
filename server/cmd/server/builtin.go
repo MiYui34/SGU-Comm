@@ -96,26 +96,16 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 			}
 			return out
 		}
-		// Streams with sound have a stream user for Mumble clients (calls
-		// come one at a time, see stream.Hub.OnChange).
-		withSound := map[uint32]bool{}
+		// Streams with sound have a stream user for Mumble clients.
 		streams.OnChange = func(infos []stream.Info) {
 			hub.StreamsChanged(liveStreams(infos))
-			now := map[uint32]bool{}
+			var withSound []uint32
 			for _, i := range infos {
 				if i.Audio {
-					now[i.Session] = true
-					if !withSound[i.Session] {
-						sv.srv.StartStreamSound(i.Session)
-					}
+					withSound = append(withSound, i.Session)
 				}
 			}
-			for s := range withSound {
-				if !now[s] {
-					sv.srv.EndStreamSound(s)
-				}
-			}
-			withSound = now
+			sv.srv.SetStreamSounds(withSound)
 		}
 		streams.OnSound = func(streamer uint32, opus []byte, ts uint64) { sv.srv.StreamSound(streamer, opus, ts) }
 		streams.OnPreview = func(i stream.Info) { hub.StreamPreview(liveStreams([]stream.Info{i})[0]) }

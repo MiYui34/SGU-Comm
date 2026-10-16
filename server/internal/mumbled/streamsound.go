@@ -1,8 +1,6 @@
 package mumbled
 
 import (
-	"fmt"
-
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/mumble"
@@ -17,14 +15,31 @@ import (
 
 type streamUser struct {
 	session, channel uint32
-	name             string
+	name             string // the streamer's
 }
 
 func (su *streamUser) state() []byte {
 	return mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-		Session: proto.Uint32(su.session), Name: proto.String(su.name), ChannelId: proto.Uint32(su.channel),
-		Comment: proto.String("The sound of " + su.name[:len(su.name)-len(" (stream)")] + "'s screen share. The picture is in Kallisti's web app."),
+		Session: proto.Uint32(su.session), Name: proto.String(su.name + " (stream)"), ChannelId: proto.Uint32(su.channel),
+		Comment: proto.String("The sound of " + su.name + "'s screen share. The picture is in Kallisti's web app."),
 	})
+}
+
+// SetStreamSounds makes the stream users match the streams with sound (by
+// streamer session): new ones appear, gone ones leave.
+func (s *Server) SetStreamSounds(streamers []uint32) {
+	want := map[uint32]bool{}
+	for _, st := range streamers {
+		want[st] = true
+		s.StartStreamSound(st)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for st := range s.streams {
+		if !want[st] {
+			s.endStreamSoundLocked(st)
+		}
+	}
 }
 
 // StartStreamSound makes the stream user of a streamer (false: no such
@@ -40,7 +55,7 @@ func (s *Server) StartStreamSound(streamer uint32) (uint32, bool) {
 		return su.session, true
 	}
 	s.next++
-	su := &streamUser{session: s.next, channel: u.Channel, name: fmt.Sprintf("%s (stream)", u.Name)}
+	su := &streamUser{session: s.next, channel: u.Channel, name: u.Name}
 	s.streams[streamer] = su
 	s.broadcastNativeLocked(su.state())
 	return su.session, true

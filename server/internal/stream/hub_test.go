@@ -9,13 +9,16 @@ import (
 )
 
 // fakeVoice: users' channels; session 9 may not speak anywhere.
-type fakeVoice struct{ channels map[uint32]uint32 }
+type fakeVoice struct {
+	channels map[uint32]uint32
+	mute     map[uint32]bool
+}
 
 func (f *fakeVoice) Channel(session uint32) (uint32, bool) {
 	c, ok := f.channels[session]
 	return c, ok
 }
-func (f *fakeVoice) MaySpeak(session, _ uint32) bool { return session != 9 }
+func (f *fakeVoice) MaySpeak(session, _ uint32) bool { return session != 9 && !f.mute[session] }
 
 // sink collects what a session's connection gets.
 type sink struct {
@@ -312,5 +315,58 @@ func TestSoundIsPassedOn(t *testing.T) {
 	h.Frame(1, frame(true, 8))
 	if len(got) != 1 || got[0][0] != 7 || stamps[0] != 1 {
 		t.Fatalf("sound %v %v", got, stamps)
+	}
+}
+
+func TestSoundFramesAreChecked(t *testing.T) {
+	h, _, sinks := setup()
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	h.Frame(1, audio(7)) // the stream has no sound
+	if len(sinks[2].frames) != 0 {
+		t.Fatal("sound of a stream without sound")
+	}
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Audio: "opus"})
+	big := append([]byte{2, 0, 0, 0, 0, 0, 0, 0, 1}, make([]byte, 2000)...)
+	h.Frame(1, big)
+	if len(sinks[2].frames) != 0 {
+		t.Fatal("an oversized sound frame went out")
+	}
+}
+
+// A streamer who may no longer speak (muted by an admin, ACL) loses the
+// stream.
+func TestStreamsEndWhenSpeakIsGone(t *testing.T) {
+	h, _, sinks := setup()
+	now := time.Unix(100, 0)
+	h.now = func() time.Time { return now }
+	h.Start(9, Config{Codec: "vp8", Width: 640, Height: 360}) // 9 may not speak
+	if len(h.Streams()) != 0 {
+		t.Fatal("started")
+	}
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	speak := h.voice.(*fakeVoice)
+	speak.mute = map[uint32]bool{1: true}
+	now = now.Add(3 * time.Second)
+	h.Frame(1, frame(true, 1))
+	if len(h.Streams()) != 0 || !slices.Contains(sinks[1].types(), "stopped") {
+		t.Fatalf("still streaming: %v", sinks[1].types())
+	}
+}
+
+func TestPreviewsAreLimitedAndCanBeCleared(t *testing.T) {
+	h, _, _ := setup()
+	now := time.Unix(100, 0)
+	h.now = func() time.Time { return now }
+	var got []string
+	h.OnPreview = func(i Info) { got = append(got, i.Preview) }
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	img := "data:image/jpeg;base64,/9j/"
+	h.SetPreview(1, img)
+	h.SetPreview(1, img) // too soon: dropped
+	now = now.Add(6 * time.Second)
+	h.SetPreview(1, "") // previews turned off: cleared at once
+	if !slices.Equal(got, []string{img, ""}) || h.Streams()[0].Preview != "" {
+		t.Fatalf("previews %q, streams %v", got, h.Streams())
 	}
 }

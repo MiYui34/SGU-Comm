@@ -37,6 +37,7 @@ const (
 	maxAuth      = 1024             // bytes, before the token is checked
 	maxText      = maxPreview + 256 // a command (a preview is the largest)
 	textsPerSec  = 10               // commands per second, steady
+	soundsPerSec = 100              // sound frames per second (20 ms each: 50), steady
 )
 
 type command struct {
@@ -86,12 +87,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.SendText(map[string]any{"type": "ready"})
 	bytes := rate.NewLimiter(rate.Limit(h.BytesPerSecond), 2*h.BytesPerSecond)
 	texts := rate.NewLimiter(textsPerSec, 2*textsPerSec)
+	sounds := rate.NewLimiter(soundsPerSec, soundsPerSec/2)
 	for {
 		typ, data, err := ws.Read(ctx)
 		if err != nil {
 			return
 		}
 		if typ == websocket.MessageBinary {
+			if len(data) > 0 && data[0]&audioFlag != 0 && !sounds.Allow() {
+				continue // many tiny sound frames would multiply at every listener
+			}
 			if bytes.AllowN(time.Now(), len(data)) {
 				h.Hub.Frame(session, data)
 			} else {

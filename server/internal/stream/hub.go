@@ -61,6 +61,9 @@ const (
 	audioFlag     = 2
 	maxFrame      = 1 << 20
 	keyframeEvery = time.Second // keyframe requests to a streamer, at most
+	maxSound      = 1500        // bytes of one Opus packet (20 ms), at most
+	speakEvery    = 2 * time.Second
+	previewEvery  = 5 * time.Second // thumbnails, at most
 	maxSide       = 4096
 )
 
@@ -71,11 +74,14 @@ func (c Config) valid() bool {
 }
 
 type stream struct {
-	channel  uint32
-	preview  string
-	config   Config
-	viewers  map[uint32]*viewer
-	askedKey time.Time
+	channel uint32
+	preview string
+	// When the streamer's Speak was checked last, and the last thumbnail
+	// came.
+	speakAt, previewAt time.Time
+	config             Config
+	viewers            map[uint32]*viewer
+	askedKey           time.Time
 }
 
 // viewer: waiting for a keyframe (new, or frames were dropped).
@@ -149,15 +155,19 @@ func (h *Hub) Start(session uint32, c Config) error {
 		return errors.New("you may not speak (or share your screen) in this channel")
 	}
 	if st := h.streams[session]; st != nil { // a new config: viewers start over
+		soundChanged := st.config.Audio != c.Audio
 		st.config = c
 		for v, vw := range st.viewers {
 			vw.needKey = true
 			h.text(v, streamText(session, c))
 		}
 		h.mu.Unlock()
+		if soundChanged {
+			h.changed()
+		}
 		return nil
 	}
-	h.streams[session] = &stream{channel: channel, config: c, viewers: map[uint32]*viewer{}}
+	h.streams[session] = &stream{channel: channel, config: c, viewers: map[uint32]*viewer{}, speakAt: h.now()}
 	h.mu.Unlock()
 	h.changed()
 	return nil
@@ -213,10 +223,11 @@ func (h *Hub) viewersLocked(streamer uint32, st *stream) {
 	h.text(streamer, map[string]any{"type": "viewers", "sessions": append([]uint32{}, slices.Sorted(maps.Keys(st.viewers))...)})
 }
 
-// SetPreview keeps a stream's thumbnail (a small JPEG data URL) and passes
-// it on.
+// SetPreview keeps a stream's thumbnail (a small JPEG data URL, at most
+// one every few seconds) and passes it on; "" clears it (previews turned
+// off).
 func (h *Hub) SetPreview(session uint32, image string) error {
-	if !strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview {
+	if image != "" && (!strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview) {
 		return errors.New("bad preview")
 	}
 	h.mu.Lock()
@@ -225,7 +236,12 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 		h.mu.Unlock()
 		return errors.New("no stream")
 	}
-	st.preview = image
+	now := h.now()
+	if image == st.preview || image != "" && now.Sub(st.previewAt) < previewEvery {
+		h.mu.Unlock()
+		return nil
+	}
+	st.preview, st.previewAt = image, now
 	info := Info{Session: session, Channel: st.channel, Preview: image}
 	h.mu.Unlock()
 	if h.OnPreview != nil {
@@ -243,14 +259,23 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 	key, sound := f[0]&keyFlag != 0, f[0]&audioFlag != 0
 	h.mu.Lock()
 	st := h.streams[streamer]
-	if st == nil {
+	if st == nil || sound && (st.config.Audio == "" || len(f)-headerSize > maxSound) {
 		h.mu.Unlock()
 		return
 	}
-	withSound := st.config.Audio != ""
+	// Speak can go (an admin's mute, an ACL change): then so does the stream.
+	if now := h.now(); now.Sub(st.speakAt) >= speakEvery {
+		st.speakAt = now
+		if !h.voice.MaySpeak(streamer, st.channel) {
+			h.endLocked(streamer)
+			h.mu.Unlock()
+			h.changed()
+			return
+		}
+	}
 	defer func() {
 		h.mu.Unlock()
-		if sound && withSound && h.OnSound != nil {
+		if sound && h.OnSound != nil {
 			h.OnSound(streamer, f[headerSize:], binary.BigEndian.Uint64(f[1:headerSize]))
 		}
 	}()

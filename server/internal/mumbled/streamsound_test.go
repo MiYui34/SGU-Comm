@@ -54,3 +54,23 @@ func TestStreamSoundForMumbleClients(t *testing.T) {
 		}
 	}
 }
+
+func TestSetStreamSounds(t *testing.T) {
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{}, openACL)
+	a := dial(t, addr, "anna")
+	b := dial(t, addr, "ben")
+	s.SetStreamSounds([]uint32{a.session, b.session, 9999}) // 9999: not there
+	s.mu.Lock()
+	n, name := len(s.streams), s.streams[a.session].name
+	s.mu.Unlock()
+	if n != 2 || name != "anna" {
+		t.Fatalf("%d stream users, %q", n, name)
+	}
+	s.SetStreamSounds([]uint32{b.session})
+	s.mu.Lock()
+	_, still := s.streams[a.session]
+	s.mu.Unlock()
+	if still {
+		t.Fatal("anna's stream user stayed")
+	}
+}
