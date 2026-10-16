@@ -48,8 +48,8 @@ func (c *Conn) previews(id mumble.Identity, req request) {
 			continue
 		}
 		link := firstLink(m.Text)
-		voice, isVoice, ok := c.hub.chatOf(m.ChannelID)
-		if link == "" || !ok || isVoice && !c.hub.voice.MayRead(id.Session, voice) {
+		ch, ok := c.hub.chatOf(m.ChannelID)
+		if link == "" || !ok || !c.hub.may(id, ch, false) {
 			continue
 		}
 		c.mu.Lock()

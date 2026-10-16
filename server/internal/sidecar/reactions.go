@@ -91,8 +91,8 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		c.sendError("unknown message")
 		return
 	}
-	voice, isVoice, ok := c.hub.chatOf(m.ChannelID)
-	if !ok || isVoice && !c.hub.mayUse(id.Session, voice, true) {
+	ch, ok := c.hub.chatOf(m.ChannelID)
+	if !ok || !c.hub.may(id, ch, true) {
 		c.sendError("unknown message") // as for messages that do not exist
 		return
 	}
@@ -111,5 +111,5 @@ func (c *Conn) react(id mumble.Identity, req request) {
 	if m, err = c.hub.store.MessageByID(m.ID); err != nil {
 		return // deleted meanwhile
 	}
-	c.hub.sendToChat(voice, isVoice)(map[string]any{"type": "reactions", "channel": m.ChannelID, "message": m.ID, "reactions": toWireReactions(m.Reactions)})
+	c.hub.sendTo(ch, map[string]any{"type": "reactions", "channel": m.ChannelID, "message": m.ID, "reactions": toWireReactions(m.Reactions)})
 }

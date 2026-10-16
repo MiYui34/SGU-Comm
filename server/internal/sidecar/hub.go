@@ -387,14 +387,14 @@ func (c *Conn) Handle(raw []byte) {
 		c.sendError("unknown request type")
 		return
 	}
-	voice, isVoice, ok := c.hub.chatOf(req.Channel)
+	ch, ok := c.hub.chatOf(req.Channel)
 	if !ok {
 		if req.Type != "typing" { // a channel deleted while typing
 			c.sendError("unknown channel")
 		}
 		return
 	}
-	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type != "history" && req.Type != "pins") {
+	if !c.hub.may(*id, ch, req.Type != "history" && req.Type != "pins") {
 		if req.Type != "typing" { // only typing: no error to show
 			c.sendError("you may not use this channel's chat")
 		}
@@ -406,29 +406,10 @@ func (c *Conn) Handle(raw []byte) {
 	case "pins":
 		c.pins(req)
 	case "send":
-		c.post(*id, req, voice, isVoice)
+		c.post(*id, req, ch)
 	case "typing":
-		c.typing(*id, req.Channel, voice, isVoice)
+		c.typing(*id, ch)
 	}
-}
-
-// chatOf finds a channel: a text channel, or a voice channel's chat.
-func (h *Hub) chatOf(channel int64) (voice uint32, isVoice, ok bool) {
-	if h.channelExists(channel) {
-		return 0, false, true
-	}
-	if h.voice == nil {
-		return 0, false, false
-	}
-	voice, isVoice, err := h.store.VoiceOf(channel)
-	return voice, isVoice, err == nil && isVoice
-}
-
-func (h *Hub) mayUse(session, voice uint32, write bool) bool {
-	if write {
-		return h.voice.MayWrite(session, voice)
-	}
-	return h.voice.MayRead(session, voice)
 }
 
 // voiceChat tells the client which channel holds a voice channel's chat.
@@ -458,24 +439,24 @@ func (h *Hub) MumbleText(from mumble.Identity, channel uint32, text string, imag
 	if utf8.RuneCountInString(text) > MaxTextLength {
 		text = string([]rune(text)[:MaxTextLength])
 	}
-	chat, broadcast := int64(0), h.broadcast
+	var where chat
 	if c, ok := h.textOf(channel); ok {
-		chat = c.ID
+		where = chat{id: c.ID}
 	} else {
-		var err error
-		if chat, err = h.store.VoiceChat(channel); err != nil {
+		id, err := h.store.VoiceChat(channel)
+		if err != nil {
 			slog.Error("voice channel chat", "channel", channel, "err", err)
 			return
 		}
-		broadcast = func(v any) { h.broadcastVoice(channel, v) }
+		where = chat{id: id, voice: channel, isVoice: true}
 	}
 	store1 := func(text string, upload int64) {
-		m, err := h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: from.Name, Verified: from.Registered, AuthorID: from.UserID, Text: text, At: h.now(), UploadID: upload})
+		m, err := h.store.AddMessage(store.NewMessage{ChannelID: where.id, Author: from.Name, Verified: from.Registered, AuthorID: from.UserID, Text: text, At: h.now(), UploadID: upload})
 		if err != nil {
 			slog.Error("store a Mumble message", "err", err)
 			return
 		}
-		broadcast(map[string]any{"type": "message", "message": toWire(m)})
+		h.sendTo(where, map[string]any{"type": "message", "message": toWire(m)})
 	}
 	// Only registered users' images are kept (with their upload quota):
 	// guests can use any name. Mumble clients see them live anyway.
@@ -548,7 +529,7 @@ func (c *Conn) history(req request) {
 	c.send(map[string]any{"type": "history", "channel": req.Channel, "messages": wire, "more": more})
 }
 
-func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool) {
+func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	text, ok := validText(req.Text, req.Upload != "")
 	if !ok {
 		c.sendError(textError)
@@ -577,16 +558,12 @@ func (c *Conn) post(id mumble.Identity, req request, voice uint32, isVoice bool)
 	if !id.Registered {
 		c.hub.rememberGuest(m.ID, id.Session)
 	}
-	event := map[string]any{"type": "message", "message": toWire(m)}
-	if !isVoice {
-		c.hub.broadcast(event)
-		if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {
-			c.hub.voice.SendChannelText(id.Session, mirror, c.hub.mumbleText(m))
-		}
-		return
+	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
+	if ch.isVoice {
+		c.hub.voice.SendChannelText(id.Session, ch.voice, c.hub.mumbleText(m))
+	} else if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {
+		c.hub.voice.SendChannelText(id.Session, mirror, c.hub.mumbleText(m))
 	}
-	c.hub.broadcastVoice(voice, event)
-	c.hub.voice.SendChannelText(id.Session, voice, c.hub.mumbleText(m))
 }
 
 // mumbleText is a stored message as Mumble clients see it: an upload as a
@@ -609,34 +586,6 @@ func (h *Hub) mumbleText(m store.Message) string {
 
 // readers are the connections whose user may read a chat (a text
 // channel: everyone).
-func (h *Hub) readers(voice uint32, isVoice bool) []*Conn {
-	h.mu.Lock()
-	conns := make([]*Conn, 0, len(h.conns))
-	for c := range h.conns {
-		conns = append(conns, c)
-	}
-	h.mu.Unlock()
-	if !isVoice {
-		return conns
-	}
-	out := conns[:0]
-	for _, c := range conns {
-		c.mu.Lock()
-		id := c.identity
-		c.mu.Unlock()
-		if id != nil && h.voice.MayRead(id.Session, voice) {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// broadcastVoice sends to the connections whose user may read the chat.
-func (h *Hub) broadcastVoice(voice uint32, v any) {
-	for _, c := range h.readers(voice, true) {
-		c.send(v)
-	}
-}
 
 // roles are the registered user ids of admins and moderators.
 type roles struct {
@@ -676,7 +625,7 @@ func (h *Hub) ListenOnlyChanged() {
 }
 
 func (h *Hub) broadcast(v any) {
-	for _, c := range h.readers(0, false) {
+	for _, c := range h.all() {
 		c.send(v)
 	}
 }

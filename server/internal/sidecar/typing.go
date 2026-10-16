@@ -11,7 +11,8 @@ import (
 // pass). Nothing is stored.
 const typingEvery = 2500 * time.Millisecond
 
-func (c *Conn) typing(id mumble.Identity, channel int64, voice uint32, isVoice bool) {
+func (c *Conn) typing(id mumble.Identity, ch chat) {
+	channel := ch.id
 	now := c.hub.now()
 	c.mu.Lock()
 	if c.typed == nil {
@@ -25,7 +26,7 @@ func (c *Conn) typing(id mumble.Identity, channel int64, voice uint32, isVoice b
 	c.typed[channel] = now
 	c.mu.Unlock()
 	event := map[string]any{"type": "typing", "channel": channel, "name": id.Name}
-	for _, other := range c.hub.readers(voice, isVoice) {
+	for _, other := range c.hub.readers(ch) {
 		if other != c {
 			other.send(event)
 		}

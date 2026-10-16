@@ -55,12 +55,12 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		c.sendError("unknown message")
 		return
 	}
-	voice, isVoice, ok := h.chatOf(m.ChannelID)
-	if !ok || (isVoice && !h.mayUse(id.Session, voice, req.Type == "edit-message")) {
+	ch, ok := h.chatOf(m.ChannelID)
+	if !ok || !h.may(id, ch, req.Type == "edit-message") {
 		c.sendError("unknown message")
 		return
 	}
-	send := h.sendToChat(voice, isVoice)
+	send := func(v any) { h.sendTo(ch, v) }
 	own := h.wrote(id, m)
 	if req.Type == "edit-message" {
 		text, valid := validText(req.Text, m.Upload != nil)
@@ -99,13 +99,4 @@ const textError = "message must be 1 to 2000 characters"
 func validText(raw string, hasUpload bool) (string, bool) {
 	text := strings.TrimSpace(raw)
 	return text, (text != "" || hasUpload) && utf8.RuneCountInString(text) <= MaxTextLength
-}
-
-// sendToChat sends to the readers of a chat: everyone for text channels,
-// those who may read the voice channel for its chat.
-func (h *Hub) sendToChat(voice uint32, isVoice bool) func(any) {
-	if !isVoice {
-		return h.broadcast
-	}
-	return func(v any) { h.broadcastVoice(voice, v) }
 }

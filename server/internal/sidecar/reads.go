@@ -121,8 +121,8 @@ func (c *Conn) markRead(id mumble.Identity, req request) {
 	if !id.Registered {
 		return
 	}
-	voice, isVoice, ok := c.hub.chatOf(req.Channel)
-	if !ok || (isVoice && !c.hub.mayUse(id.Session, voice, false)) {
+	ch, ok := c.hub.chatOf(req.Channel)
+	if !ok || !c.hub.may(id, ch, false) {
 		return
 	}
 	if err := c.hub.store.SetReadMark(id.UserID, req.Channel, req.Message); err != nil {

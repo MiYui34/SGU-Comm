@@ -22,8 +22,8 @@ func (c *Conn) pin(id mumble.Identity, req request) {
 		c.sendError("unknown message")
 		return
 	}
-	voice, isVoice, ok := h.chatOf(m.ChannelID)
-	if !ok || (isVoice && !h.mayUse(id.Session, voice, false)) {
+	ch, ok := h.chatOf(m.ChannelID)
+	if !ok || !h.may(id, ch, false) {
 		c.sendError("unknown message")
 		return
 	}
@@ -38,7 +38,7 @@ func (c *Conn) pin(id mumble.Identity, req request) {
 	case err != nil:
 		c.sendError("cannot pin the message")
 	case changed:
-		h.sendToChat(voice, isVoice)(map[string]any{"type": "message-pinned", "message": toWire(m)})
+		h.sendTo(ch, map[string]any{"type": "message-pinned", "message": toWire(m)})
 	}
 }
 
