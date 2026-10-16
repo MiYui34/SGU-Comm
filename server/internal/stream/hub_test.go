@@ -274,3 +274,23 @@ func TestPreviews(t *testing.T) {
 		t.Fatalf("streams %v", s)
 	}
 }
+
+func audio(data byte) []byte { return []byte{2, 0, 0, 0, 0, 0, 0, 0, 1, data} }
+
+// Sound goes to every viewer, also one that waits for a video keyframe.
+func TestAudioFramesReachAllViewers(t *testing.T) {
+	h, _, sinks := setup()
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Audio: "opus"})
+	h.Watch(2, 1)
+	h.Frame(1, audio(7))
+	h.Frame(1, frame(false, 8)) // video before a keyframe: not sent
+	if len(sinks[2].frames) != 1 || sinks[2].frames[0][len(sinks[2].frames[0])-1] != 7 {
+		t.Fatalf("viewer frames %v", sinks[2].frames)
+	}
+	if sinks[2].texts[0]["audio"] != "opus" {
+		t.Fatalf("stream text %v", sinks[2].texts[0])
+	}
+	if err := h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Audio: "mp3"}); err == nil {
+		t.Fatal("accepted another sound codec")
+	}
+}

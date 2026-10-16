@@ -34,6 +34,7 @@ type Config struct {
 	Codec  string `json:"codec"`
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+	Audio  string `json:"audio,omitempty"` // "opus" (48 kHz mono, 20 ms frames) or none
 }
 
 // Info is a live stream, for everyone's channel list. Preview: its latest
@@ -49,12 +50,14 @@ const (
 	maxPreview    = 64 << 10
 )
 
-// A frame from a streamer: flags (bit 0: keyframe), an 8-byte timestamp
-// (microseconds), the data. Viewers get it with the streamer's session (4
+// A frame from a streamer: flags (bit 0: keyframe, bit 1: sound), an
+// 8-byte timestamp (microseconds; picture and sound on one clock), the
+// data. Viewers get it with the streamer's session (4
 // bytes) in front.
 const (
 	headerSize    = 9
 	keyFlag       = 1
+	audioFlag     = 2
 	maxFrame      = 1 << 20
 	keyframeEvery = time.Second // keyframe requests to a streamer, at most
 	maxSide       = 4096
@@ -63,7 +66,7 @@ const (
 var codecName = regexp.MustCompile(`^[A-Za-z0-9.]{1,64}$`)
 
 func (c Config) valid() bool {
-	return codecName.MatchString(c.Codec) && c.Width > 0 && c.Width <= maxSide && c.Height > 0 && c.Height <= maxSide
+	return codecName.MatchString(c.Codec) && (c.Audio == "" || c.Audio == "opus") && c.Width > 0 && c.Width <= maxSide && c.Height > 0 && c.Height <= maxSide
 }
 
 type stream struct {
@@ -233,7 +236,7 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 	if len(f) < headerSize || len(f) > maxFrame {
 		return
 	}
-	key := f[0]&keyFlag != 0
+	key, sound := f[0]&keyFlag != 0, f[0]&audioFlag != 0
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	st := h.streams[streamer]
@@ -243,11 +246,15 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
 	out = append(out, f...)
 	for v, vw := range st.viewers {
-		if vw.needKey && !key {
-			continue
-		}
 		sink := h.sinks[v]
 		if sink == nil {
+			continue
+		}
+		if sound { // no keyframes: a full viewer loses this bit of sound
+			sink.SendFrame(out)
+			continue
+		}
+		if vw.needKey && !key {
 			continue
 		}
 		if sink.SendFrame(out) {
@@ -327,7 +334,7 @@ func (h *Hub) endLocked(session uint32) bool {
 
 // streamText tells a viewer how to decode a stream.
 func streamText(session uint32, c Config) map[string]any {
-	return map[string]any{"type": "stream", "session": session, "codec": c.Codec, "width": c.Width, "height": c.Height}
+	return map[string]any{"type": "stream", "session": session, "codec": c.Codec, "width": c.Width, "height": c.Height, "audio": c.Audio}
 }
 
 func (h *Hub) askKeyLocked(streamer uint32, st *stream) {
