@@ -96,6 +96,15 @@ func (s *Server) ListenOnly() []ListenOnlyChannel {
 	return out
 }
 
+// UserNames are the names of registered users (unknown ids are left out).
+func (s *Server) UserNames(ids []uint32) map[uint32]string {
+	names, _ := s.userNames(ids)
+	if names == nil {
+		names = map[uint32]string{}
+	}
+	return names
+}
+
 func (s *Server) userNames(ids []uint32) (map[uint32]string, error) {
 	if s.cfg.DB == nil || len(ids) == 0 {
 		return nil, nil

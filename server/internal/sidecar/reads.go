@@ -26,7 +26,8 @@ func mentionsName(text, name string) bool { return mentionPattern(name).MatchStr
 
 type summaryEntry struct {
 	Channel  int64  `json:"channel"`
-	Voice    uint32 `json:"voice,omitempty"` // a voice channel's chat
+	Voice    uint32 `json:"voice,omitempty"`  // a voice channel's chat
+	Direct   uint32 `json:"direct,omitempty"` // a direct chat: the other user
 	Latest   int64  `json:"latest"`
 	Mentions int    `json:"mentions"`
 }
@@ -49,6 +50,15 @@ func (h *Hub) readableChats(id mumble.Identity) []summaryEntry {
 	for chat, voice := range voiceChats {
 		if h.voice.MayRead(id.Session, voice) {
 			chats = append(chats, summaryEntry{Channel: chat, Voice: voice})
+		}
+	}
+	if id.Registered {
+		directs, err := h.store.DirectChats(id.UserID)
+		if err != nil {
+			slog.Error("direct chats", "err", err)
+		}
+		for chat, peer := range directs {
+			chats = append(chats, summaryEntry{Channel: chat, Direct: peer})
 		}
 	}
 	return chats
@@ -97,7 +107,12 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 	mention := mentionPattern(id.Name)
 	out := chats[:0]
 	for _, e := range chats {
-		latest, msgs, err := h.store.MessagesAfter(e.Channel, marks[e.Channel], "@")
+		// In a direct chat every message counts (to the user, as a mention).
+		contains := "@"
+		if e.Direct != 0 {
+			contains = ""
+		}
+		latest, msgs, err := h.store.MessagesAfter(e.Channel, marks[e.Channel], contains)
 		if err != nil {
 			slog.Error("channel summary", "err", err)
 			continue
@@ -105,7 +120,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		e.Latest = latest
 		for _, m := range msgs {
 			repliesToMe := m.Reply != nil && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
-			if !byUser(id, m) && (mention.MatchString(m.Text) || repliesToMe) {
+			if !byUser(id, m) && (e.Direct != 0 || mention.MatchString(m.Text) || repliesToMe) {
 				e.Mentions++
 			}
 		}

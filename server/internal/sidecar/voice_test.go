@@ -31,6 +31,18 @@ type fakeVoice struct {
 	gone  map[uint32]bool
 	// The last SetListenOnly.
 	listenOnly []ListenOnlyChannel
+	// Registered users' names.
+	names map[uint32]string
+}
+
+func (f *fakeVoice) UserNames(ids []uint32) map[uint32]string {
+	out := map[uint32]string{}
+	for _, id := range ids {
+		if n, ok := f.names[id]; ok {
+			out[id] = n
+		}
+	}
+	return out
 }
 
 func (f *fakeVoice) MumbleClient(session uint32) (MumbleUser, bool) {

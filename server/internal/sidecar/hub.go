@@ -60,6 +60,8 @@ type Voice interface {
 	SyncTextChannels(want []Mirror) ([]uint32, error)
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
+	// UserNames: the names of registered users (unknown ids are left out).
+	UserNames(ids []uint32) map[uint32]string
 	// MumbleClient: the session is a Mumble client (not a web client), and
 	// who it is.
 	MumbleClient(session uint32) (MumbleUser, bool)
@@ -217,6 +219,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
+			if c.hub.voice != nil {
+				ready["directs"] = c.hub.directs(id)
+			}
 		}
 		c.send(ready)
 	}
@@ -373,6 +378,9 @@ func (c *Conn) Handle(raw []byte) {
 		} else if err := c.hub.voice.SetModerator(id.Session, req.User, req.Moderator); err != nil {
 			c.manageError(err.Error())
 		}
+		return
+	case "dm":
+		c.direct(*id, req.User)
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).
@@ -557,6 +565,9 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	}
 	if !id.Registered {
 		c.hub.rememberGuest(m.ID, id.Session)
+	}
+	if ch.direct {
+		c.hub.announceDirect(ch)
 	}
 	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
 	if ch.isVoice {
