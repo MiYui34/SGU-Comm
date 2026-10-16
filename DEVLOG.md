@@ -77,10 +77,20 @@ Server language: Rust or Go are preferred. Decide when sidecar work starts.
   before connecting: replace `navigator.mediaDevices.getUserMedia` with a
   stream from an oscillator. `scripts/voicebot.ts` plays an Opus file into
   the server for playback tests.
-- Do not call `encoder.flush()` after the terminator frame. In Chrome it
-  emits an extra packet for the Opus lookahead, after the terminator and with
-  a repeated frame number. Chrome's encoder gives one output per 20 ms input,
-  so no packet is held back. Firefox and Safari are not checked yet.
+- Encoder outputs are matched to inputs in order, not by timestamp
+  (2026-10-16). Firefox shifts output timestamps by the Opus pre-skip
+  (input 20000 µs, output 13500 µs) and holds the last packet back until
+  `flush()`. So the terminator frame is flushed, and outputs after the last
+  input are dropped: both Chrome and Firefox emit one extra packet on flush.
+- An inactive worklet input has no channels; Firefox gives that for a
+  digitally silent source. The capture worklet treats it as silence, so the
+  voice detection still ends the spurt.
+- `server/cmd/voicecheck` joins a channel and checks frame numbers and
+  terminators per speaker. Firefox can be tested in the Playwright image with
+  PulseAudio added (without a sound device its AudioContext stays
+  suspended), with a fake microphone from an oscillator whose gain is
+  switched on and off. Chrome and Firefox pass; Safari is not checked (in
+  Lockdown Mode it has no AudioWorkletNode).
 - In this sandbox, `navigator.mediaDevices.enumerateDevices()` and a
   `devicechange` listener crash the headless Chrome tab (it lands on
   `about:blank`). The fake microphone script for tests must stub both.
