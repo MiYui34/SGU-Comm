@@ -1,6 +1,8 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
   import { mediaKind } from "../lib/media";
+  import { emojiImages } from "../lib/emojiImages.svelte";
+  import Emoji from "./Emoji.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
   import { opensLightbox } from "../lib/lightbox";
@@ -704,7 +706,7 @@
     </form>
   {:else if m.text}
     <div class="text">
-      {@html safe(highlightMentions(m.text, me))}
+      {@html safe(highlightMentions(m.text, me), emojiImages.ok)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
@@ -736,7 +738,7 @@
           aria-label="{r.emoji} {r.users.length}, from {r.users.join(', ')}"
           title={r.users.join(", ")}
           disabled={!canReact}
-          onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji">{r.emoji}</span>{r.users.length}</button
+          onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji"><Emoji text={r.emoji} /></span>{r.users.length}</button
         >
       {/each}
     </div>
@@ -768,7 +770,7 @@
               class="emoji"
               class:mine
               aria-label="React with {emoji}"
-              onclick={() => (onReact?.(id, emoji, !mine), closePicker())}>{emoji}</button
+              onclick={() => (onReact?.(id, emoji, !mine), closePicker())}><Emoji text={emoji} /></button
             >
           {/each}
           <button type="button" aria-label="Close" onclick={closePicker}>×</button>
@@ -1066,7 +1068,7 @@
   .text :global(a) {
     color: var(--link);
   }
-  .text :global(img) {
+  .text :global(img:not(.emoji)) {
     max-width: 400px;
     border-radius: 8px;
   }

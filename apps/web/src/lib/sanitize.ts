@@ -1,4 +1,5 @@
 import DOMPurify from "dompurify";
+import { addEmojiImages } from "./emoji";
 
 // Mumble messages are HTML from other users. On top of the default
 // (XSS-safe) config: links open in a new tab, so clicking one does not drop
@@ -18,4 +19,13 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-export const sanitize = (html: string) => DOMPurify.sanitize(html);
+// emoji: emoji become Twemoji images, added after sanitizing (into text
+// only), so nothing from the message can make or change them.
+export const sanitize = (html: string, emoji = false) => {
+  if (!emoji) return DOMPurify.sanitize(html);
+  const fragment = DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
+  addEmojiImages(fragment);
+  const div = document.createElement("div");
+  div.append(fragment);
+  return div.innerHTML;
+};

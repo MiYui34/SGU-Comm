@@ -1,0 +1,48 @@
+import { parse } from "@twemoji/parser";
+
+// Emoji as Twemoji images (72x72 PNG, served with the web app; see
+// scripts/twemoji.mjs), so they look the same everywhere, also where emoji
+// fonts are blocked (Lockdown Mode). The emoji stays in the alt text, for
+// copying and screen readers.
+export const EMOJI_BASE = `${import.meta.env.BASE_URL}emoji/`;
+
+export type EmojiPart = { text: string } | { emoji: string; url: string };
+
+// Plain text in parts: text, and emoji with their image.
+export const emojiParts = (text: string, base = EMOJI_BASE): EmojiPart[] => {
+  const parts: EmojiPart[] = [];
+  let at = 0;
+  for (const e of parse(text, { buildUrl: (code) => `${base}${code}.png` })) {
+    const [from, to] = e.indices;
+    if (from > at) parts.push({ text: text.slice(at, from) });
+    parts.push({ emoji: e.text, url: e.url });
+    at = to;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts;
+};
+
+// Replaces the emoji in a (sanitized) DOM's text with images; code keeps
+// them as text. Attributes are never touched.
+export const addEmojiImages = (root: Node) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.parentElement?.closest("code, pre")) texts.push(n as Text);
+  }
+  for (const node of texts) {
+    const parts = emojiParts(node.data);
+    if (!parts.some((p) => "emoji" in p)) continue;
+    node.replaceWith(
+      ...parts.map((p) => {
+        if (!("emoji" in p)) return p.text;
+        const img = document.createElement("img");
+        img.className = "emoji";
+        img.draggable = false;
+        img.alt = p.emoji;
+        img.src = p.url;
+        return img;
+      }),
+    );
+  }
+};

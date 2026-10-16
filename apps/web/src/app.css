@@ -106,3 +106,11 @@ button:disabled {
     font-size: max(16px, 1em) !important;
   }
 }
+
+/* Twemoji images (lib/emoji): a little taller than the text around them. */
+img.emoji {
+  width: 1.375em;
+  height: 1.375em;
+  margin: 0 0.05em;
+  vertical-align: -0.3em;
+}

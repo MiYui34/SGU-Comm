@@ -116,3 +116,4 @@
 - [x] [Web: play audio and video attachments inline](issues/web-inline-audio-video.md)
 - [x] [Web: reply with an attachment](issues/web-reply-with-attachment.md)
 - [x] [Web: "Load older messages" keeps the scroll position](issues/web-load-older-keeps-position.md)
+- [x] [Web: Twemoji images for emoji](issues/web-twemoji.md)
