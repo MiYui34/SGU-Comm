@@ -26,3 +26,10 @@ describe("nextScrollTop", () => {
     expect(nextScrollTop({ ...before, scrollTop: 0 }, 900, true)).toBe(400);
   });
 });
+
+describe("nextScrollTop without a snapshot", () => {
+  it("leaves the reader where they are (a re-run without new content), unless the conversation changed", () => {
+    expect(nextScrollTop(null, 2654, false)).toBeNull();
+    expect(nextScrollTop(null, 2654, true)).toBe(2654);
+  });
+});

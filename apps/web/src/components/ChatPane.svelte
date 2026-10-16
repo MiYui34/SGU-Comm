@@ -162,9 +162,10 @@
     untrack(() => {
       if (!list) return;
       const firstAt = messages[0]?.at ?? 0;
-      const switched = target !== shown.target || !before;
+      const switched = target !== shown.target;
       const prepended = !switched && firstAt < shown.firstAt;
-      list.scrollTop = before ? nextScrollTop(before, list.scrollHeight, switched, prepended) : list.scrollHeight;
+      const top = nextScrollTop(before, list.scrollHeight, switched, prepended);
+      if (top !== null) list.scrollTop = top;
       shown = { target, firstAt };
       before = null;
       trackBottom();

@@ -5,12 +5,15 @@ const AT_BOTTOM_PX = 80;
 // Where the chat should scroll after its content changed: follow the bottom
 // if the reader was there (or the conversation changed), else keep what the
 // reader sees in place. `prepended`: content was added above (older history).
+// Without a snapshot of before the change (a re-run with nothing new):
+// null, stay where the reader is; or the end of a new conversation.
 export const nextScrollTop = (
-  before: ScrollState,
+  before: ScrollState | null,
   newScrollHeight: number,
   switched: boolean,
   prepended = false,
-): number => {
+): number | null => {
+  if (!before) return switched ? newScrollHeight : null;
   const fromBottom = before.scrollHeight - before.scrollTop - before.clientHeight;
   if (switched || fromBottom <= AT_BOTTOM_PX) return newScrollHeight - before.clientHeight;
   return prepended ? before.scrollTop + (newScrollHeight - before.scrollHeight) : before.scrollTop;
