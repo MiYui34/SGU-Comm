@@ -109,3 +109,6 @@
   - [x] [Server: ACL edits do not check permission again after the lookup](issues/acl-recheck.md)
   - [x] [Web: a changed long channel description can stay old](issues/stale-channel-description.md)
 - [x] [Pinned messages](issues/web-pinned-messages.md)
+- [x] [Voice: Safari support for the capture worklet](issues/voice-safari-support-for-the-capture-worklet.md)
+- [x] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
+- [x] [CI: voice test in real browsers](issues/ci-voice-test.md)

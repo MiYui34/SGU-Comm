@@ -89,8 +89,12 @@ Server language: Rust or Go are preferred. Decide when sidecar work starts.
   terminators per speaker. Firefox can be tested in the Playwright image with
   PulseAudio added (without a sound device its AudioContext stays
   suspended), with a fake microphone from an oscillator whose gain is
-  switched on and off. Chrome and Firefox pass; Safari is not checked (in
-  Lockdown Mode it has no AudioWorkletNode).
+  switched on and off. In Lockdown Mode Safari has no AudioWorkletNode.
+- CI (2026-10-16): `.github/workflows/voice.yml` runs `tests/voice/run.sh`
+  in Chrome and Firefox (Linux, PulseAudio for a sound device) and Safari
+  26.6 (macos-26 runner, safaridriver), driven by plain WebDriver. All pass.
+  With the encoder fix reverted, Firefox fails (no terminators); Safari
+  keeps input timestamps, as Chrome does.
 - In this sandbox, `navigator.mediaDevices.enumerateDevices()` and a
   `devicechange` listener crash the headless Chrome tab (it lands on
   `about:blank`). The fake microphone script for tests must stub both.
