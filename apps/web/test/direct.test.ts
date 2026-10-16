@@ -19,7 +19,7 @@ describe("direct chats", () => {
   it("count every unread message from the other user as a mention", () => {
     let s = reduceText(initialTextState, ev({ type: "ready", channels: [], directs: [{ channel: 7, peer: { id: 20, name: "bob" } }] }));
     s = reduceText(s, ev({ type: "message", message: msg(1, 7, "bob") }));
-    s = reduceText(s, ev({ type: "message", message: msg(2, 7, "alice") }));
+    s = reduceText(s, ev({ type: "message", message: msg(2, 7, "Alice") })); // names ignore case
     s = reduceText(s, ev({ type: "message", message: msg(3, 7, "bob", "no mention here") }));
     expect(mentionCounts(s, {}, "alice")).toEqual({ 7: 2 });
     expect(mentionCounts(s, { 7: 1 }, "alice")).toEqual({ 7: 1 });

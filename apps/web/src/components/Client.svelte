@@ -356,7 +356,11 @@
   // server): stored. Asked for once per conversation opened.
   const storedDirect = $derived(text.voiceChats && me?.userId != null && dm?.userId != null ? dm.userId : null);
   const directChatId = $derived(storedDirect === null ? null : directChatWith(text.directs, storedDirect));
+  // An error answers some request: a failed one may be asked again.
   const askedDirects = new Set<number>();
+  $effect(() => {
+    if (text.lastError) untrack(() => askedDirects.clear());
+  });
   $effect(() => {
     if (storedDirect !== null && directChatId === null && !askedDirects.has(storedDirect)) {
       askedDirects.add(storedDirect);
@@ -443,7 +447,7 @@
       const m = ev.message;
       const peer = text.directs[m.channel];
       if (peer) {
-        if (m.author !== me.name) notify(peer.name, notificationBody(m.text), chatId === m.channel, () => openDirect(peer));
+        if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(m.text), chatId === m.channel, () => openDirect(peer));
         return;
       }
       if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name)) return;
@@ -499,6 +503,8 @@
   const whereOf = (m: TextMessage) => {
     const ch = text.channels.find((c) => c.id === m.channel);
     if (ch) return `#${ch.name}`;
+    const peer = text.directs[m.channel];
+    if (peer) return `@${peer.name}`;
     const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
     return server.channels[Number(voice)]?.name ?? "a voice chat";
   };
@@ -799,9 +805,11 @@
       text={text.search?.text ?? null}
       messages={text.search?.messages ?? []}
       where={whereOf}
-      canOpen={(m) => text.channels.some((c) => c.id === m.channel)}
+      canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
       onOpen={(m) => {
-        show({ kind: "text", id: m.channel });
+        const peer = text.directs[m.channel];
+        if (peer) openDirect(peer);
+        else show({ kind: "text", id: m.channel });
         jumpTarget = m.id;
       }}
       onClose={() => {

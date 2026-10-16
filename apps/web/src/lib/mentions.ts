@@ -56,7 +56,7 @@ export const mentionCounts = (state: TextState, seen: Record<number, number>, me
     const msgs = state.messages[channel] ?? [];
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
       const m = msgs[i]!;
-      if (direct ? m.author !== me : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me)) n++;
+      if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me)) n++;
     }
     if (n) out[channel] = n;
   }
