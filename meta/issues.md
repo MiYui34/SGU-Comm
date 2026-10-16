@@ -5,3 +5,4 @@
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
+- [ ] [Web: multiline messages and channel links](issues/web-multiline-and-channel-links.md)

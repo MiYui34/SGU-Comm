@@ -462,12 +462,14 @@ const fileUrl = (url: string, base: string): string | null => {
   }
 };
 
-const chatCache = new WeakMap<TextMessage, DisplayMessage>();
+const chatCache = new WeakMap<TextMessage, { chat: DisplayMessage; channels?: ReadonlyMap<string, number> }>();
 
 // Text channel messages are plain text: escape, then Markdown. Attachment
-// URLs are relative to the server (`base`).
-export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
-  let chat = chatCache.get(m);
+// URLs are relative to the server (`base`); channels: text channel ids by
+// name, for "#name" links (a new map makes the line again).
+export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<string, number>): DisplayMessage => {
+  const cached = chatCache.get(m);
+  let chat = cached?.channels === channels ? cached?.chat : undefined;
   if (!chat) {
     const url = m.upload && fileUrl(m.upload.url, base);
     chat = {
@@ -476,7 +478,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       channelIds: [],
       treeIds: [],
       sessions: [],
-      text: markdown(escapeHtml(m.text)),
+      text: markdown(escapeHtml(m.text), channels),
       at: m.at,
       peer: null,
       verified: m.verified === true,
@@ -488,7 +490,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       ...(m.reactions?.length && { reactions: m.reactions }),
       ...(m.upload && url && { upload: { ...m.upload, url } }),
     };
-    chatCache.set(m, chat);
+    chatCache.set(m, { chat, channels });
   }
   return chat;
 };

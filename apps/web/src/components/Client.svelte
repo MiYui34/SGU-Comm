@@ -450,8 +450,12 @@
     if (!fresh && total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
     mentionTotal = total;
   });
+  // Text channel ids by name, for "#name" links. Derived from the list
+  // itself: a new map (and new chat lines) only when the channels change.
+  const textChannelList = $derived(text.channels);
+  const channelIds = $derived(new Map(textChannelList.map((c) => [c.name.toLowerCase(), c.id])));
   const textChat = $derived(
-    chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase)),
+    chatId === null ? [] : (text.messages[chatId] ?? []).map((m) => toChatMessage(m, connection.httpBase, channelIds)),
   );
   // Server settings (bans, registered users) for moderators and admins.
   let showModeration = $state(false);
@@ -718,6 +722,7 @@
             pinsOpen = false;
           }
         : undefined}
+      onOpenChannel={(id) => show({ kind: "text", id })}
       onPins={text.voiceChats && chatId !== null
         ? () => {
             pinsOpen = !pinsOpen;

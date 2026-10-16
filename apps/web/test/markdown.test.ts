@@ -27,7 +27,7 @@ describe("markdown", () => {
 
   it("makes quotes from lines starting with >", () => {
     expect(md("> said this\nmy answer")).toBe("<blockquote>said this</blockquote>my answer");
-    expect(md("> one\n> two")).toBe("<blockquote>one\ntwo</blockquote>");
+    expect(md("> one\n> two")).toBe("<blockquote>one<br>two</blockquote>");
   });
 
   it("links URLs without formatting inside them", () => {
@@ -64,3 +64,30 @@ describe("markdown", () => {
   });
 });
 
+
+describe("line breaks and channel links", () => {
+  const channels = new Map([["random", 5], ["game-night", 7]]);
+  const mdc = (text: string) => markdown(escapeHtml(text), channels);
+  it("keeps line breaks, also in quotes; code blocks keep theirs", () => {
+    expect(md("one\ntwo")).toBe("one<br>two");
+    expect(md("> a\n> b\nc")).toBe("<blockquote>a<br>b</blockquote>c");
+    expect(md("```\nx\ny\n```")).toBe("<pre><code>x\ny</code></pre>");
+  });
+  it("links #names of existing text channels", () => {
+    expect(mdc("see #random and #game-night!")).toBe(
+      'see <a href="#" data-channel="5">#random</a> and <a href="#" data-channel="7">#game-night</a>!',
+    );
+    expect(mdc("#nope, a#random, it's")).toBe("#nope, a#random, it&#39;s");
+    expect(mdc("https://example.org/#random")).toBe('<a href="https://example.org/#random">https://example.org/#random</a>');
+    expect(mdc("`#random`")).toBe("<code>#random</code>");
+  });
+});
+
+describe("channel links with other letters", () => {
+  it("links names with non-ASCII letters and underscores", () => {
+    const channels = new Map([["café", 3], ["_misc", 4]]);
+    expect(markdown(escapeHtml("#café and #_misc"), channels)).toBe(
+      '<a href="#" data-channel="3">#café</a> and <a href="#" data-channel="4">#_misc</a>',
+    );
+  });
+});

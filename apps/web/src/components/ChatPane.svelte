@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autosize } from "../lib/autosize";
   import { opensLightbox } from "../lib/lightbox";
   import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
   import type { LinkPreview } from "../lib/linkPreview";
@@ -9,7 +10,7 @@
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
   import { tick, untrack } from "svelte";
-  import { sanitize as safe } from "../lib/sanitize";
+  import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
 
@@ -38,6 +39,7 @@
     people = [],
     onSearch,
     onPins,
+    onOpenChannel,
     pinsOpen = false,
     mayPin = false,
     onPin,
@@ -85,6 +87,8 @@
     // Searching stored messages; jumpTarget: a message to scroll to once
     // it is loaded (then onJumped).
     onSearch?: (text: string) => void;
+    // A "#name" link in a message was clicked.
+    onOpenChannel?: (id: number) => void;
     // The pinned messages panel (undefined: none here).
     onPins?: () => void;
     pinsOpen?: boolean;
@@ -241,7 +245,7 @@
 
   // "@" autocomplete (see mentionQuery). Escape hides the list until the
   // "@word" changes.
-  let messageInput: HTMLInputElement | undefined = $state();
+  let messageInput: HTMLTextAreaElement | undefined = $state();
   let caret = $state(0);
   let selected = $state(0);
   let dismissed = $state<number | null>(null);
@@ -277,7 +281,7 @@
   // Editing and deleting stored messages.
   let editing = $state<{ id: number; text: string; old: string; upload: boolean } | null>(null);
   let confirming = $state<number | null>(null);
-  let editInput: HTMLInputElement | undefined = $state();
+  let editInput: HTMLTextAreaElement | undefined = $state();
   let cancelButton: HTMLButtonElement | undefined = $state();
   const startEdit = async (m: ChatMessage | DisplayMessage) => {
     if (!("source" in m) || !m.source) return;
@@ -444,7 +448,19 @@
     </div>
   </header>
 
-  <div class="scroller" bind:this={list} onscroll={trackBottom}>
+  <!-- Clicks on "#name" links open the channel (see markdown). -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div
+    class="scroller"
+    bind:this={list}
+    onscroll={trackBottom}
+    onclick={(e) => {
+      const link = (e.target as Element).closest<HTMLElement>("a[data-channel]");
+      if (!link || !isChannelLink(link)) return;
+      e.preventDefault();
+      onOpenChannel?.(Number(link.dataset.channel));
+    }}
+  >
     {#if more}
       <div class="older">
         <button onclick={onLoadOlder} disabled={loadingOlder}>
@@ -598,8 +614,11 @@
           {/each}
         </ul>
       {/if}
-      <input
+      <textarea
+        rows="1"
         bind:this={messageInput}
+        use:autosize={draft}
+        enterkeyhint="send"
         onpaste={onPaste}
         oninput={(e) => {
           updateCaret();
@@ -611,10 +630,18 @@
           if (!(suggestions.length && (e.key === "ArrowUp" || e.key === "ArrowDown"))) updateCaret();
         }}
         onkeydown={(e) => {
-          if (e.isComposing) return; // Enter picks a word in an input method
-          if (suggestions.length && onSuggestionKey(e)) return;
+          // Enter picks a word in an input method (229: Safari, after
+          // compositionend).
+          if (e.isComposing || e.keyCode === 229) return;
+          if (suggestions.length && !e.shiftKey && onSuggestionKey(e)) return;
           if (e.key === "ArrowUp" && draft === "" && !pending && editLast()) {
             e.preventDefault();
+            return;
+          }
+          // Enter sends; Shift+Enter makes a new line.
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
             return;
           }
           if (e.key === "Escape" && replying) replying = null;
@@ -629,7 +656,7 @@
         placeholder={pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`}
         disabled={!onSend}
         aria-label="Message"
-      />
+      ></textarea>
     </div>
     <p class="typing ellipsis" aria-live="polite">{typing}</p>
   </form>
@@ -649,17 +676,24 @@
   {/if}
   {#if "source" in m && m.source && editing?.id === m.source.id}
     <form class="edit" onsubmit={(e) => (e.preventDefault(), saveEdit())}>
-      <input
+      <textarea
+        rows="1"
         bind:this={editInput}
         bind:value={editing.text}
+        use:autosize={editing.text}
         aria-label="Edit message"
         onkeydown={(e) => {
-          if (e.key !== "Escape") return;
-          editing = null;
-          messageInput?.focus();
+          if (e.isComposing || e.keyCode === 229) return;
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            saveEdit();
+          } else if (e.key === "Escape") {
+            editing = null;
+            messageInput?.focus();
+          }
         }}
-      />
-      <span class="hint">Escape to cancel, Enter to save</span>
+      ></textarea>
+      <span class="hint">Escape to cancel, Enter to save, Shift+Enter for a new line</span>
     </form>
   {:else if m.text}
     <div class="text">
@@ -1044,7 +1078,6 @@
     margin: 2px 0;
     padding-left: 10px;
     border-left: 4px solid var(--border-subtle);
-    white-space: pre-line;
   }
   .send {
     flex-shrink: 0;
@@ -1066,7 +1099,7 @@
   .composer {
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 4px;
     padding: 0 12px 0 4px;
     border-radius: 8px;
@@ -1242,7 +1275,9 @@
     flex-direction: column;
     gap: 4px;
   }
-  .edit input {
+  .edit textarea {
+    max-height: 40vh;
+    resize: none;
     padding: 8px 10px;
     border: none;
     border-radius: 6px;
@@ -1375,16 +1410,22 @@
     background: var(--text-muted);
     color: var(--bg-input);
   }
-  input {
+  .composer textarea {
     flex: 1;
     min-width: 0;
-    height: 44px;
+    max-height: 40vh;
+    padding: 11px 0;
     border: none;
     background: none;
+    color: inherit;
+    font: inherit;
     font-size: 16px;
+    line-height: 22px;
+    resize: none;
     outline: none;
   }
-  input::placeholder {
+  input::placeholder,
+  .composer textarea::placeholder {
     color: var(--text-faint);
   }
   /* Phones: touch targets of at least 44 px. */

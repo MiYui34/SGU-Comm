@@ -41,11 +41,19 @@ const blocks = (s: string) => {
     else parts.push({ quote, lines: [quote ? (m[1] ?? "") : line] });
   }
   return parts
-    .map((p) => (p.quote ? `<blockquote>${inline(p.lines.join("\n"))}</blockquote>` : inline(p.lines.join("\n"))))
+    .map((p) => {
+      const html = inline(p.lines.join("\n")).replaceAll("\n", "<br>");
+      return p.quote ? `<blockquote>${html}</blockquote>` : html;
+    })
     .join("");
 };
 
-export const markdown = (escaped: string): string => {
+// "#name" of a text channel (not inside a word, a URL or an entity such
+// as "&#39;"). Names as the server allows them: letters, digits, _ and -.
+const CHANNEL_PATTERN = /(^|[^\p{L}\p{N}_&#/-])#([\p{L}\p{N}_-]+)/gu;
+
+// channels: text channel ids by name, for links to them.
+export const markdown = (escaped: string, channels?: ReadonlyMap<string, number>): string => {
   // Code and links are set aside first: nothing in them is formatted.
   const kept: string[] = [];
   const keep = (html: string) => `${NUL}${kept.push(html) - 1}${NUL}`;
@@ -56,6 +64,12 @@ export const markdown = (escaped: string): string => {
     const { html, rest } = link(url);
     return keep(html) + rest;
   });
+  if (channels?.size) {
+    s = s.replace(CHANNEL_PATTERN, (all, before: string, name: string) => {
+      const id = channels.get(name.toLowerCase());
+      return id === undefined ? all : before + keep(`<a href="#" data-channel="${id}">#${name}</a>`);
+    });
+  }
   s = blocks(s);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[Number(i)]!);
 };
