@@ -188,9 +188,13 @@ type eventQueue struct {
 	mu      sync.Mutex
 	pending []func()
 	closed  bool
+	stopped bool // the last hooks were taken: later ones are lost
 	wake    chan struct{}
 	done    chan struct{} // the goroutine ended
 }
+
+// A queue this long means hooks are slow or stuck: a warning.
+const longEventQueue = 10000
 
 func newEventQueue() *eventQueue {
 	q := &eventQueue{wake: make(chan struct{}, 1), done: make(chan struct{})}
@@ -201,8 +205,18 @@ func newEventQueue() *eventQueue {
 // add never blocks (it runs under mu).
 func (q *eventQueue) add(f func()) {
 	q.mu.Lock()
-	q.pending = append(q.pending, f)
+	stopped := q.stopped
+	if !stopped {
+		q.pending = append(q.pending, f)
+	}
+	n := len(q.pending)
 	q.mu.Unlock()
+	switch {
+	case stopped:
+		slog.Warn("an event came after shutdown: it was lost")
+	case n == longEventQueue:
+		slog.Warn("the event queue is long: hooks are slow", "events", n)
+	}
 	q.signal()
 }
 
@@ -218,7 +232,7 @@ func (q *eventQueue) run() {
 	for range q.wake {
 		q.mu.Lock()
 		batch, closed := q.pending, q.closed
-		q.pending = nil
+		q.pending, q.stopped = nil, closed
 		q.mu.Unlock()
 		for _, f := range batch {
 			f()

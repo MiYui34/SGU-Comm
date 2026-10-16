@@ -1,9 +1,13 @@
 package mumbled
 
 import (
+	"bytes"
+	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -172,6 +176,52 @@ func TestEventsAreNotLost(t *testing.T) {
 	s.Close()
 	if n != 10000 {
 		t.Fatalf("%d of 10000 events", n)
+	}
+}
+
+// logBuffer collects log lines; slog writes from any goroutine.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) lines() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return strings.Count(b.buf.String(), "\n")
+}
+
+func captureLog(t *testing.T) *logBuffer {
+	b := &logBuffer{}
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(b, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	return b
+}
+
+func TestTheEventQueueWarns(t *testing.T) {
+	log := captureLog(t)
+	q := newEventQueue()
+	started, release := make(chan struct{}), make(chan struct{})
+	q.add(func() { close(started); <-release })
+	<-started
+	for range 20000 {
+		q.add(func() {})
+	}
+	if n := log.lines(); n != 1 {
+		t.Fatalf("%d warnings for a long queue, want 1", n)
+	}
+	close(release)
+	q.close(time.Second)
+	q.add(func() {}) // too late: lost
+	if n := log.lines(); n != 2 {
+		t.Fatalf("%d warnings, want one more for a late event", n)
 	}
 }
 
