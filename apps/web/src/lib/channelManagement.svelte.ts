@@ -1,11 +1,12 @@
 import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
 import { canManageText, menuRights, voiceSiblings } from "./channelManagement";
+import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOnly";
 import { moveInList, moveVoiceChannel } from "./channelOrder";
 import type { Connection } from "./connection.svelte";
 import { menuAnchor } from "./menu";
 
-export type ChannelValues = { kind: ChannelKind; name: string; description: string; temporary: boolean };
+export type ChannelValues = { kind: ChannelKind; name: string; description: string; temporary: boolean; listenOnly?: ListenOnly };
 
 // The channel menu and dialog: what they show and what they send.
 export const createChannelManagement = (current: () => Connection) => {
@@ -56,6 +57,9 @@ export const createChannelManagement = (current: () => Connection) => {
           name: nameOf(kind, id),
           // Text channels: the topic (plain text).
           description: kind === "voice" ? (server.channels[id]?.description ?? "") : (text.channels.find((c) => c.id === id)?.topic ?? ""),
+          ...(kind === "voice" && id !== 0 && text.voiceChats
+            ? { listenOnly: { on: id in text.listenOnly, speakers: text.listenOnly[id] ?? [], users: speakerCandidates(server) } }
+            : {}),
         },
         id,
       }),
@@ -81,6 +85,8 @@ export const createChannelManagement = (current: () => Connection) => {
             ...(v.description !== f.description ? { description: v.description } : {}),
           };
           if (Object.keys(changes).length) connection.send(editChannel(id, changes));
+          const listenOnly = f.listenOnly && v.listenOnly && listenOnlyAction(id, f.listenOnly, v.listenOnly);
+          if (listenOnly) connection.manage(listenOnly);
         }
       } else if (v.kind === "text") connection.manage({ remove: id });
       else connection.send(removeChannel(id));

@@ -654,6 +654,7 @@
       {mutedText}
       mentionText={textView.mentions}
       {mentionVoice}
+      listenOnly={text.listenOnly}
       onOpenText={(id) => show({ kind: "text", id })}
       currentChannel={view.kind === "voice" ? channelId : null}
       {lobby}

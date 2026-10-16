@@ -22,6 +22,7 @@
     mutedText = new Set(),
     mentionText = {},
     mentionVoice = {},
+    listenOnly = {},
     onOpenText,
     onJoin,
     onUserMenu,
@@ -45,6 +46,8 @@
     // Unseen mentions of us, by text channel and by voice channel.
     mentionText?: Record<number, number>;
     mentionVoice?: Record<number, number>;
+    // Listen-only voice channels (only some users may speak).
+    listenOnly?: Readonly<Record<number, unknown>>;
     onOpenText: (id: number) => void;
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
@@ -80,7 +83,11 @@
       }}
       title={htmlToText(node.channel.description) || undefined}
     >
-      <Icon name="speaker" size={20} />
+      {#if node.channel.id in listenOnly}
+        <Icon name="headphones" size={20} /><span class="sr-only">Listen only:</span>
+      {:else}
+        <Icon name="speaker" size={20} />
+      {/if}
       <span class="name ellipsis">{node.channel.name}</span>
       {#if node.channel.id !== currentChannel}<Badge count={mentionVoice[node.channel.id]} label="mentions" />{/if}
     </button>

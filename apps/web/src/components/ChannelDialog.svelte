@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { ChannelForm, ChannelKind } from "../lib/channelForm";
+  import type { ListenOnly, Speaker } from "../lib/listenOnly";
 
   // Create, edit or delete a channel.
 
@@ -10,7 +11,7 @@
     onClose,
   }: {
     form: ChannelForm;
-    onSubmit: (v: { kind: ChannelKind; name: string; description: string; temporary: boolean }) => void;
+    onSubmit: (v: { kind: ChannelKind; name: string; description: string; temporary: boolean; listenOnly?: ListenOnly }) => void;
     onClose: () => void;
   } = $props();
 
@@ -20,6 +21,16 @@
   const kind = start.kind;
   let name = $state(start.mode === "create" ? "" : start.name);
   let description = $state(start.mode === "edit" ? start.description : "");
+  // Voice channels with the built-in server.
+  const startListenOnly = start.mode === "edit" ? start.listenOnly : undefined;
+  let listenOnly = $state(startListenOnly?.on ?? false);
+  let speakers = $state<Speaker[]>(startListenOnly?.speakers ?? []);
+  const addable = $derived((startListenOnly?.users ?? []).filter((u) => !speakers.some((s) => s.id === u.id)));
+  const addSpeaker = (event: Event & { currentTarget: HTMLSelectElement }) => {
+    const u = addable.find((a) => String(a.id) === event.currentTarget.value);
+    if (u) speakers = [...speakers, u];
+    event.currentTarget.value = "";
+  };
   // Users who may only make temporary voice channels get one of those.
   const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice");
   $effect(() => dialog?.showModal());
@@ -30,7 +41,13 @@
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (form.mode !== "delete" && !name.trim()) return;
-    onSubmit({ kind, name: name.trim(), description, temporary });
+    onSubmit({
+      kind,
+      name: name.trim(),
+      description,
+      temporary,
+      ...(startListenOnly ? { listenOnly: { on: listenOnly, speakers } } : {}),
+    });
     dialog?.close();
   };
 </script>
@@ -60,6 +77,38 @@
           {kind === "text" ? "Topic" : "Description"}
           <textarea bind:value={description} rows="3" maxlength={kind === "text" ? 200 : undefined}></textarea>
         </label>
+      {/if}
+      {#if startListenOnly}
+        <label class="check">
+          <input type="checkbox" bind:checked={listenOnly} />
+          <span>
+            Listen only
+            <span class="note">Only the people below can speak. Everyone else listens, also admins and moderators.</span>
+          </span>
+        </label>
+        {#if listenOnly}
+          <div class="speakers">
+            <span class="label">Who can speak</span>
+            {#if speakers.length}
+              <ul>
+                {#each speakers as s (s.id)}
+                  <li>
+                    {s.name}
+                    <button type="button" aria-label="Remove {s.name}" onclick={() => (speakers = speakers.filter((x) => x.id !== s.id))}>×</button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if addable.length}
+              <select aria-label="Add someone who can speak" value="" onchange={addSpeaker}>
+                <option value="" disabled>Add someone (registered and online)…</option>
+                {#each addable as u (u.id)}<option value={String(u.id)}>{u.name}</option>{/each}
+              </select>
+            {:else if !speakers.length}
+              <p class="note">Nobody can speak. You can add registered users who are online.</p>
+            {/if}
+          </div>
+        {/if}
       {/if}
       {#if temporary}
         <p class="note">A temporary channel: it goes away when the last person leaves.</p>
@@ -128,6 +177,63 @@
     color: var(--text);
     font: inherit;
     text-transform: none;
+  }
+  .check {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: normal;
+    text-transform: none;
+    color: var(--text);
+  }
+  .check input {
+    margin-top: 3px;
+  }
+  .check .note {
+    display: block;
+    font-size: 12px;
+  }
+  .speakers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 16px;
+  }
+  .label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .speakers ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .speakers li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 4px 4px 10px;
+    border-radius: 12px;
+    background: var(--bg-rail);
+    font-size: 14px;
+  }
+  .speakers li button {
+    padding: 0 6px;
+    color: var(--text-muted);
+  }
+  select {
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
   }
   p {
     margin: 0 0 16px;

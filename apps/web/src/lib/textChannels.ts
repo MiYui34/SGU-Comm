@@ -2,6 +2,7 @@ import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
 import { markdown } from "./markdown";
 import type { Reaction } from "./reactions";
 import type { LinkPreview } from "./linkPreview";
+import type { Speaker } from "./listenOnly";
 import type { Roles } from "./roles";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -40,6 +41,8 @@ export type DisplayMessage = ChatMessage & {
   reactions?: Reaction[];
 };
 
+export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
+
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
 export type ServerEvent =
@@ -49,12 +52,15 @@ export type ServerEvent =
       channels: TextChannel[];
       voiceChats?: boolean;
       roles?: Roles;
+      listenOnly?: ListenOnlyChannel[];
       // Registered users: read marks, and per channel the newest message
       // and unread mentions (voice: the voice channel of a voice chat).
       reads?: Record<number, number>;
       summary?: SummaryEntry[];
     }
   | ({ type: "roles" } & Roles)
+  // The listen-only voice channels changed.
+  | { type: "listen-only"; channels: ListenOnlyChannel[] }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
@@ -87,6 +93,8 @@ export type TextState = {
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
   roles: Roles;
+  // Listen-only voice channels: their speakers.
+  listenOnly: Readonly<Record<number, Speaker[]>>;
   // From ready (registered users): read marks, and the newest message and
   // unread mentions per channel at that time.
   reads: Readonly<Record<number, number>>;
@@ -107,6 +115,7 @@ export const initialTextState: TextState = {
   channels: [],
   voiceChats: false,
   roles: { admins: [], moderators: [] },
+  listenOnly: {},
   reads: {},
   summary: {},
   voiceChannels: {},
@@ -136,6 +145,10 @@ const parseRoles = (v: unknown): Roles | null =>
 
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
+const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr(v.name);
+const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
+  Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && Array.isArray(c.speakers) && c.speakers.every(isSpeaker));
+const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
 
 const isChannel = (v: unknown): v is TextChannel =>
   isObj(v) &&
@@ -202,6 +215,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         channels: v.channels,
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(roles ? { roles } : {}),
+        ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
         ...(summary ? { summary } : {}),
       };
@@ -210,6 +224,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const roles = parseRoles(v);
       return roles && { type: "roles", ...roles };
     }
+    case "listen-only":
+      return isListenOnly(v.channels) ? { type: "listen-only", channels: v.channels } : null;
     case "voice-chat":
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "channels":
@@ -267,6 +283,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         channels: event.channels,
         voiceChats: event.voiceChats === true,
         roles: event.roles ?? initialTextState.roles,
+        listenOnly: listenOnlyMap(event.listenOnly ?? []),
         reads: event.reads ?? {},
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
         voiceChannels: {
@@ -276,6 +293,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       };
     case "roles":
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
+    case "listen-only":
+      return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "channels":
@@ -345,6 +364,7 @@ export type ManageAction =
   | { remove: number }
   | { order: number[] }
   | { moderator: number; on: boolean }
+  | { listenOnly: number; on: boolean; users: number[] }
   | { topic: number; text: string };
 
 export const manageRequest = (a: ManageAction) =>
@@ -357,9 +377,11 @@ export const manageRequest = (a: ManageAction) =>
           ? { type: "delete-channel", channel: a.remove }
           : "moderator" in a
             ? { type: "set-moderator", user: a.moderator, moderator: a.on }
-            : "topic" in a
-              ? { type: "set-topic", channel: a.topic, text: a.text }
-              : { type: "order-channels", channels: a.order },
+            : "listenOnly" in a
+              ? { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users }
+              : "topic" in a
+                ? { type: "set-topic", channel: a.topic, text: a.text }
+                : { type: "order-channels", channels: a.order },
   );
 
 export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
