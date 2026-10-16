@@ -115,6 +115,11 @@ CREATE TABLE IF NOT EXISTS messages (
 	verified   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
+-- Counters; last_message_id: the highest message id ever given.
+CREATE TABLE IF NOT EXISTS store_meta (
+	key   TEXT PRIMARY KEY,
+	value INTEGER NOT NULL
+);
 -- The newest message a registered user (Mumble user id) read in a channel.
 CREATE TABLE IF NOT EXISTS read_marks_by_user (
 	user_id    INTEGER NOT NULL,
@@ -392,7 +397,10 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	// Message ids counted from before the counter: the newest there is.
+	_, err := db.Exec(`INSERT OR IGNORE INTO store_meta (key, value)
+		SELECT 'last_message_id', coalesce(max(id), 0) FROM messages`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -620,13 +628,16 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if n.Verified {
 		authorID = &n.AuthorID
 	}
-	res, err := tx.Exec(`INSERT INTO messages (channel_id, author, verified, author_id, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply)
+	// Ids are never used twice (read marks only go up), so the highest id
+	// ever given is kept in store_meta.
+	var id int64
+	err = tx.QueryRow(`UPDATE store_meta SET value = max(value, (SELECT coalesce(max(id), 0) FROM messages)) + 1
+		WHERE key = 'last_message_id' RETURNING value`).Scan(&id)
 	if err != nil {
 		return Message{}, err
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
+	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply); err != nil {
 		return Message{}, err
 	}
 	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote}

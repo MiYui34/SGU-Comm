@@ -668,3 +668,63 @@ func TestCountAfter(t *testing.T) {
 		t.Fatalf("%d %v", n, err)
 	}
 }
+
+func TestMessageIDsAreNotReused(t *testing.T) {
+	path := t.TempDir() + "/ids.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.EnsureChannels([]string{"general"})
+	add := func(s *Store, text string) Message {
+		t.Helper()
+		m, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "bob", Text: text, At: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	first := add(s, "hi")
+	s.SetReadMark(1, 1, first.ID)
+	if _, err := s.DeleteMessage(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := add(s, "@alice there")
+	if _, msgs, _ := s.MessagesAfter(1, first.ID, "@"); m.ID <= first.ID || len(msgs) != 1 {
+		t.Fatalf("new id %d after %d: unread %+v", m.ID, first.ID, msgs)
+	}
+	// Also after a restart.
+	s.DeleteMessage(m.ID)
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if again := add(s, "x"); again.ID <= m.ID {
+		t.Fatalf("id %d reused after restart (last %d)", again.ID, m.ID)
+	}
+}
+
+func TestMessageIDCounterStartsAtTheNewestMessage(t *testing.T) {
+	path := t.TempDir() + "/old.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.EnsureChannels([]string{"general"})
+	for range 2 {
+		s.AddMessage(NewMessage{ChannelID: 1, Author: "a", Text: "x", At: time.Now()})
+	}
+	// A database from before the counter.
+	if _, err := s.db.Exec(`DROP TABLE store_meta`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if m, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "a", Text: "x", At: time.Now()}); err != nil || m.ID != 3 {
+		t.Fatalf("id %d %v", m.ID, err)
+	}
+}
