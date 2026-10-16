@@ -6,3 +6,4 @@ export class Fifo {
   push(samples: ArrayLike<number>): void;
   pull(out: Float32Array): void;
 }
+export function inputBlock(inputs: Float32Array[][], quantum: number): Float32Array;
