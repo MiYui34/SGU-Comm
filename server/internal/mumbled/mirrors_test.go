@@ -138,6 +138,43 @@ func TestUserMovesAreReported(t *testing.T) {
 	})
 }
 
+func TestLeavesAreReportedAtShutdown(t *testing.T) {
+	var mu sync.Mutex
+	var got [][3]uint32
+	cfg := Config{OnUserMoved: func(session, from, to uint32) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, [3]uint32{session, from, to})
+	}}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, nil)
+	c := dial(t, addr, "leaver")
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(got) == 1 })
+	s.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	if want := [][3]uint32{{c.session, NoChannel, 0}, {c.session, 0, NoChannel}}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEventsAreNotLost(t *testing.T) {
+	s, err := New(Config{OnUserMoved: func(_, _, _ uint32) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	s.events.add(func() { <-release })
+	n := 0 // only the event goroutine changes it
+	for range 10000 {
+		s.events.add(func() { n++ })
+	}
+	close(release)
+	s.Close()
+	if n != 10000 {
+		t.Fatalf("%d of 10000 events", n)
+	}
+}
+
 func TestServerTextsGoToOneUser(t *testing.T) {
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{}, nil)
 	c := dial(t, addr, "reader")

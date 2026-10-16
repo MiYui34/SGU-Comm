@@ -105,9 +105,7 @@ type Server struct {
 	sessions sync.WaitGroup // running connections, for Close
 	closing  atomic.Bool
 	// Hooks that must not run under mu go through this queue, in order.
-	events     chan func()
-	stopEvents chan struct{}
-	stopOnce   sync.Once
+	events     *eventQueue
 	textParent uint32 // the text channel mirrors' parent (see SyncTextChannels), under mu
 
 	// Read at every accept: not under mu, which the voice path uses.
@@ -183,9 +181,9 @@ func New(cfg Config) (*Server, error) {
 	srv.bans.Store(&bans)
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
 	if cfg.OnUserMoved != nil {
-		srv.startEvents()
+		srv.events = newEventQueue()
 		state.OnMove = func(session, from, to uint32) {
-			srv.queue(func() { cfg.OnUserMoved(session, from, to) })
+			srv.events.add(func() { cfg.OnUserMoved(session, from, to) })
 		}
 	}
 	return srv, nil
@@ -228,13 +226,11 @@ func (s *Server) track() bool {
 }
 
 // Close disconnects all clients and waits (briefly) until their sessions
-// ended, so last channels are saved before the database closes.
+// ended and their leaves were reported, so last channels are saved before
+// the database closes.
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closing.Store(true)
-	if s.stopEvents != nil {
-		s.stopOnce.Do(func() { close(s.stopEvents) })
-	}
 	clients := make([]*client, 0, len(s.clients))
 	for _, c := range s.clients {
 		clients = append(clients, c)
@@ -251,6 +247,9 @@ func (s *Server) Close() {
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
+	}
+	if s.events != nil {
+		s.events.close(flushTimeout)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -179,28 +181,62 @@ func (s *Server) SendServerText(session uint32, text string) {
 	}
 }
 
-// The event queue: hooks run on one goroutine, in order, outside mu.
-const eventQueue = 4096
-
-func (s *Server) startEvents() {
-	s.events, s.stopEvents = make(chan func(), eventQueue), make(chan struct{})
-	go func() {
-		for {
-			select {
-			case f := <-s.events:
-				f()
-			case <-s.stopEvents:
-				return
-			}
-		}
-	}()
+// eventQueue runs hooks on one goroutine, in order, outside mu. It has no
+// bound: joins, moves and leaves must not get lost (they come from
+// clients' messages, which are rate-limited).
+type eventQueue struct {
+	mu      sync.Mutex
+	pending []func()
+	closed  bool
+	wake    chan struct{}
+	done    chan struct{} // the goroutine ended
 }
 
-// queue never blocks (it runs under mu): when full, the event is lost.
-func (s *Server) queue(f func()) {
+func newEventQueue() *eventQueue {
+	q := &eventQueue{wake: make(chan struct{}, 1), done: make(chan struct{})}
+	go q.run()
+	return q
+}
+
+// add never blocks (it runs under mu).
+func (q *eventQueue) add(f func()) {
+	q.mu.Lock()
+	q.pending = append(q.pending, f)
+	q.mu.Unlock()
+	q.signal()
+}
+
+func (q *eventQueue) signal() {
 	select {
-	case s.events <- f:
+	case q.wake <- struct{}{}:
 	default:
-		slog.Warn("event queue full: an event was lost")
+	}
+}
+
+func (q *eventQueue) run() {
+	defer close(q.done)
+	for range q.wake {
+		q.mu.Lock()
+		batch, closed := q.pending, q.closed
+		q.pending = nil
+		q.mu.Unlock()
+		for _, f := range batch {
+			f()
+		}
+		if closed {
+			return
+		}
+	}
+}
+
+// close runs the hooks queued so far and stops; it waits at most d.
+func (q *eventQueue) close(d time.Duration) {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	q.signal()
+	select {
+	case <-q.done:
+	case <-time.After(d):
 	}
 }
