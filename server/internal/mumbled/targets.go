@@ -102,10 +102,21 @@ func (s *State) Listen(session, channel uint32, on bool) bool {
 func (s *State) DropListeners() map[uint32][]uint32 {
 	dropped := map[uint32][]uint32{}
 	for _, u := range s.Users {
-		for _, ch := range slices.Sorted(maps.Keys(u.Listening)) {
-			if !s.Has(u, ch, Listen) && s.Listen(u.Session, ch, false) {
-				dropped[u.Session] = append(dropped[u.Session], ch)
-			}
+		if chans := s.dropListener(u); len(chans) > 0 {
+			dropped[u.Session] = chans
+		}
+	}
+	return dropped
+}
+
+// dropListener stops one user listening where it may no longer listen
+// (for example after a move, with Listen from @in). It returns those
+// channels.
+func (s *State) dropListener(u *User) []uint32 {
+	var dropped []uint32
+	for _, ch := range slices.Sorted(maps.Keys(u.Listening)) {
+		if !s.Has(u, ch, Listen) && s.Listen(u.Session, ch, false) {
+			dropped = append(dropped, ch)
 		}
 	}
 	return dropped

@@ -80,7 +80,17 @@ func (s *Server) moveLocked(u *User, channel, actor uint32) {
 	}
 	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
 	s.broadcastRemovedLocked(removed)
+	s.broadcastUnlistenLocked(u.Session, s.state.dropListener(u))
 	s.flushPermissionsLocked(u) // @in, @out and @sub depend on the channel
+}
+
+// broadcastUnlistenLocked tells everyone where a user stopped listening.
+func (s *Server) broadcastUnlistenLocked(session uint32, channels []uint32) {
+	if len(channels) > 0 {
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
+			Session: proto.Uint32(session), ListeningChannelRemove: channels,
+		}), nil)
+	}
 }
 
 // permissionsChangedLocked runs after ACLs, groups or registrations
@@ -107,9 +117,7 @@ func (s *Server) permissionsChangedLocked(changed *Channel) {
 	}
 	dropped := s.state.DropListeners()
 	for _, session := range slices.Sorted(maps.Keys(dropped)) {
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(session), ListeningChannelRemove: dropped[session],
-		}), nil)
+		s.broadcastUnlistenLocked(session, dropped[session])
 	}
 	for _, u := range s.state.Users {
 		if s.refreshLocked(u) {
