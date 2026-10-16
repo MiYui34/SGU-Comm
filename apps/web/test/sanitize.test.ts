@@ -14,8 +14,8 @@ describe("sanitize with emoji", () => {
     expect(div.querySelectorAll("img").length).toBe(0); // the title stays text
     expect(div.querySelector("a")?.title).toBe("😀 <img src=x onerror=alert(1)>");
   });
-  it("keeps emoji as text in code", () => {
-    expect(sanitize("<code>😀</code>", true)).toBe("<code>😀</code>");
+  it("makes images in code too (blank there without an emoji font)", () => {
+    expect(sanitize("<code>😀</code>", true)).toBe(`<code>${img("😀", "1f600")}</code>`);
   });
   it("does not let foreign images in, also with the emoji class", () => {
     expect(sanitize('<img class="emoji" src="/emoji/../api/x.png">', true)).not.toContain("src=");

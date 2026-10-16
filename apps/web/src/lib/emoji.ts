@@ -32,14 +32,13 @@ export const emojiParts = (text: string, base = EMOJI_BASE): EmojiPart[] => {
   return parts;
 };
 
-// Replaces the emoji in a (sanitized) DOM's text with images; code keeps
-// them as text. Attributes are never touched.
+// Replaces the emoji in a (sanitized) DOM's text with images, also in code
+// (without an emoji font, as in Lockdown Mode, text emoji are blank).
+// Attributes are never touched.
 export const addEmojiImages = (root: Node) => {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const texts: Text[] = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    if (!n.parentElement?.closest("code, pre")) texts.push(n as Text);
-  }
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n as Text);
   for (const node of texts) {
     const parts = emojiParts(node.data);
     if (!parts.some((p) => "emoji" in p)) continue;
