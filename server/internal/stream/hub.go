@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"maps"
+	"regexp"
 	"slices"
 	"sync"
 	"time"
@@ -18,11 +19,13 @@ type Voice interface {
 	MaySpeak(session, channel uint32) bool
 }
 
-// Sink is one session's stream connection. Both never block: SendFrame
-// reports false when the connection is full (the frame is dropped).
+// Sink is one session's stream connection. Sends never block: SendFrame
+// reports false when the connection is full (the frame is dropped). Close
+// ends a connection that a newer one of the session replaced.
 type Sink interface {
 	SendFrame(b []byte) bool
 	SendText(v any)
+	Close()
 }
 
 // Config describes a stream for its viewers' decoders.
@@ -46,7 +49,14 @@ const (
 	keyFlag       = 1
 	maxFrame      = 1 << 20
 	keyframeEvery = time.Second // keyframe requests to a streamer, at most
+	maxSide       = 4096
 )
+
+var codecName = regexp.MustCompile(`^[A-Za-z0-9.]{1,64}$`)
+
+func (c Config) valid() bool {
+	return codecName.MatchString(c.Codec) && c.Width > 0 && c.Width <= maxSide && c.Height > 0 && c.Height <= maxSide
+}
 
 type stream struct {
 	channel  uint32
@@ -64,6 +74,8 @@ type Hub struct {
 	OnChange func([]Info)
 	now      func() time.Time
 
+	// changes keeps OnChange calls in order (taken before mu).
+	changes sync.Mutex
 	mu      sync.Mutex
 	sinks   map[uint32]Sink
 	streams map[uint32]*stream // by streamer session
@@ -73,10 +85,15 @@ func New(v Voice) *Hub {
 	return &Hub{voice: v, now: time.Now, sinks: map[uint32]Sink{}, streams: map[uint32]*stream{}}
 }
 
+// Connect makes s the session's connection; an older one is closed.
 func (h *Hub) Connect(session uint32, s Sink) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	old := h.sinks[session]
 	h.sinks[session] = s
+	h.mu.Unlock()
+	if old != nil && old != s {
+		old.Close()
+	}
 }
 
 // Disconnect ends the session's stream and what it watched, if s is still
@@ -100,16 +117,19 @@ func (h *Hub) Disconnect(session uint32, s Sink) {
 
 // Start begins a stream in the streamer's voice channel (needs Speak).
 func (h *Hub) Start(session uint32, c Config) error {
+	if !c.valid() {
+		return errors.New("bad stream settings")
+	}
+	h.mu.Lock() // the channel is looked up under it: a move waits (see Moved)
 	channel, ok := h.voice.Channel(session)
 	switch {
 	case !ok:
+		h.mu.Unlock()
 		return errors.New("join a voice channel to share your screen")
 	case !h.voice.MaySpeak(session, channel):
+		h.mu.Unlock()
 		return errors.New("you may not speak (or share your screen) in this channel")
-	case c.Codec == "":
-		return errors.New("no codec")
 	}
-	h.mu.Lock()
 	if st := h.streams[session]; st != nil { // a new config: viewers start over
 		st.config = c
 		for v, vw := range st.viewers {
@@ -136,9 +156,9 @@ func (h *Hub) Stop(session uint32) {
 
 // Watch subscribes a viewer in the stream's channel.
 func (h *Hub) Watch(viewerSession, streamer uint32) error {
-	channel, ok := h.voice.Channel(viewerSession)
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	channel, ok := h.voice.Channel(viewerSession)
 	st := h.streams[streamer]
 	switch {
 	case st == nil:
@@ -169,14 +189,14 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 		return
 	}
 	key := f[0]&keyFlag != 0
-	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
-	out = append(out, f...)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	st := h.streams[streamer]
 	if st == nil {
 		return
 	}
+	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
+	out = append(out, f...)
 	for v, vw := range st.viewers {
 		if vw.needKey && !key {
 			continue
@@ -187,10 +207,33 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 		}
 		if sink.SendFrame(out) {
 			vw.needKey = false
-		} else {
+		} else if !vw.needKey { // asked once; a viewer that stays full waits for the periodic keyframe
 			vw.needKey = true
 			h.askKeyLocked(streamer, st)
 		}
+	}
+}
+
+// Dropped: the server dropped a streamer's frame (its rate limit), so
+// viewers wait for a keyframe.
+func (h *Hub) Dropped(streamer uint32) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if st := h.streams[streamer]; st != nil {
+		for _, vw := range st.viewers {
+			vw.needKey = true
+		}
+		h.askKeyLocked(streamer, st)
+	}
+}
+
+// RequestKey asks the streamer for a keyframe for a viewer (its decoder is
+// new or failed).
+func (h *Hub) RequestKey(viewerSession, streamer uint32) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if st := h.streams[streamer]; st != nil && st.viewers[viewerSession] != nil {
+		h.askKeyLocked(streamer, st)
 	}
 }
 
@@ -256,6 +299,8 @@ func (h *Hub) text(session uint32, v any) {
 }
 
 func (h *Hub) changed() {
+	h.changes.Lock()
+	defer h.changes.Unlock()
 	if h.OnChange != nil {
 		h.OnChange(h.Streams())
 	}

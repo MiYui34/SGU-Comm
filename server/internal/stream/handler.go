@@ -30,9 +30,13 @@ type Handler struct {
 }
 
 const (
-	authTimeout = 10 * time.Second
-	outFrames   = 32 // frames queued per connection before it counts as full
-	outTexts    = 32
+	authTimeout  = 10 * time.Second
+	writeTimeout = 10 * time.Second // a peer that takes longer is gone
+	outFrames    = 32               // frames queued per connection before it counts as full
+	outTexts     = 32
+	maxAuth      = 1024 // bytes, before the token is checked
+	maxText      = 4096 // a command
+	textsPerSec  = 10   // commands per second, steady
 )
 
 type command struct {
@@ -55,7 +59,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.CloseNow()
-	ws.SetReadLimit(maxFrame + 1024)
+	ws.SetReadLimit(maxAuth)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -73,24 +77,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := &conn{frames: make(chan []byte, outFrames), texts: make(chan []byte, outTexts)}
+	ws.SetReadLimit(maxFrame + headerSize)
+	c := &conn{frames: make(chan []byte, outFrames), texts: make(chan []byte, outTexts), cancel: cancel}
 	h.Hub.Connect(session, c)
 	defer h.Hub.Disconnect(session, c)
-	go c.write(ctx, ws, cancel)
-	limit := rate.NewLimiter(rate.Limit(h.BytesPerSecond), 2*h.BytesPerSecond)
+	go c.write(ctx, ws)
+	c.SendText(map[string]any{"type": "ready"})
+	bytes := rate.NewLimiter(rate.Limit(h.BytesPerSecond), 2*h.BytesPerSecond)
+	texts := rate.NewLimiter(textsPerSec, 2*textsPerSec)
 	for {
 		typ, data, err := ws.Read(ctx)
 		if err != nil {
 			return
 		}
 		if typ == websocket.MessageBinary {
-			if limit.AllowN(time.Now(), len(data)) {
+			if bytes.AllowN(time.Now(), len(data)) {
 				h.Hub.Frame(session, data)
+			} else {
+				h.Hub.Dropped(session)
 			}
 			continue
 		}
 		var cmd command
-		if json.Unmarshal(data, &cmd) != nil {
+		if len(data) > maxText || !texts.Allow() || json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
 		switch cmd.Type {
@@ -108,6 +117,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		case "unwatch":
 			h.Hub.Unwatch(session, cmd.Session)
+		case "keyframe": // a viewer's decoder needs one
+			h.Hub.RequestKey(session, cmd.Session)
 		}
 	}
 }
@@ -116,7 +127,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type conn struct {
 	frames chan []byte
 	texts  chan []byte
+	cancel func() // ends the connection
 }
+
+func (c *conn) Close() { c.cancel() }
 
 func (c *conn) SendFrame(b []byte) bool {
 	select {
@@ -136,8 +150,8 @@ func (c *conn) SendText(v any) {
 	}
 }
 
-func (c *conn) write(ctx context.Context, ws *websocket.Conn, cancel func()) {
-	defer cancel()
+func (c *conn) write(ctx context.Context, ws *websocket.Conn) {
+	defer c.cancel()
 	for {
 		var typ websocket.MessageType
 		var b []byte
@@ -154,7 +168,10 @@ func (c *conn) write(ctx context.Context, ws *websocket.Conn, cancel func()) {
 				return
 			}
 		}
-		if ws.Write(ctx, typ, b) != nil {
+		wctx, done := context.WithTimeout(ctx, writeTimeout)
+		err := ws.Write(wctx, typ, b)
+		done()
+		if err != nil {
 			return
 		}
 	}

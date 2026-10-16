@@ -3,7 +3,9 @@ package stream
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 // fakeVoice: users' channels; session 9 may not speak anywhere.
@@ -20,7 +22,10 @@ type sink struct {
 	frames [][]byte
 	texts  []map[string]any
 	room   int // frames it takes before it is full (-1: any)
+	closed bool
 }
+
+func (s *sink) Close() { s.closed = true }
 
 func (s *sink) SendFrame(b []byte) bool {
 	if s.room == 0 {
@@ -101,18 +106,18 @@ func TestStartWatchAndFrames(t *testing.T) {
 
 func TestStartNeedsSpeakAndVoice(t *testing.T) {
 	h, v, _ := setup()
-	if err := h.Start(9, Config{Codec: "vp8"}); err == nil {
+	if err := h.Start(9, Config{Codec: "vp8", Width: 640, Height: 360}); err == nil {
 		t.Fatal("started without Speak")
 	}
 	delete(v.channels, 1)
-	if err := h.Start(1, Config{Codec: "vp8"}); err == nil {
+	if err := h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360}); err == nil {
 		t.Fatal("started outside voice")
 	}
 }
 
 func TestSlowViewersDropFramesUntilAKeyframe(t *testing.T) {
 	h, _, sinks := setup()
-	h.Start(1, Config{Codec: "vp8"})
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
 	h.Watch(2, 1)
 	h.Frame(1, frame(true, 1))
 	sinks[2].room = 0 // full
@@ -133,7 +138,7 @@ func TestStreamsEndWhenTheStreamerLeaves(t *testing.T) {
 	h, _, sinks := setup()
 	var last []Info
 	h.OnChange = func(i []Info) { last = i }
-	h.Start(1, Config{Codec: "vp8"})
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
 	h.Watch(2, 1)
 	h.Moved(1, 6)
 	if len(last) != 0 || !slices.Contains(sinks[2].types(), "ended") {
@@ -147,7 +152,7 @@ func TestStreamsEndWhenTheStreamerLeaves(t *testing.T) {
 
 func TestViewersWhoLeaveStopWatching(t *testing.T) {
 	h, _, sinks := setup()
-	h.Start(1, Config{Codec: "vp8"})
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
 	h.Watch(2, 1)
 	h.Moved(2, 6)
 	h.Frame(1, frame(true, 1))
@@ -161,5 +166,61 @@ func TestViewersWhoLeaveStopWatching(t *testing.T) {
 	h.Disconnect(1, sinks[1])
 	if len(h.Streams()) != 0 {
 		t.Fatal("a stream outlives its connection")
+	}
+}
+
+func TestStartChecksTheConfig(t *testing.T) {
+	h, _, _ := setup()
+	for _, c := range []Config{{Codec: strings.Repeat("v", 100), Width: 640, Height: 360}, {Codec: "vp8", Width: 0, Height: 360}, {Codec: "vp8 <x>", Width: 640, Height: 360}, {Codec: "vp8", Width: 99999, Height: 360}} {
+		if err := h.Start(1, c); err == nil {
+			t.Fatalf("accepted %+v", c)
+		}
+	}
+}
+
+// A new connection of a session closes the old one (one upload budget per
+// session).
+func TestANewConnectionReplacesTheOld(t *testing.T) {
+	h, _, _ := setup()
+	old := &sink{room: -1}
+	h.Connect(4, old)
+	if !old.closed {
+		h.Connect(4, &sink{room: -1})
+	}
+	if !old.closed {
+		t.Fatal("the old connection is still open")
+	}
+}
+
+// Frames the server dropped (rate limit): viewers wait for a keyframe.
+func TestDroppedFramesMakeViewersWaitForAKeyframe(t *testing.T) {
+	h, _, sinks := setup()
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	h.Frame(1, frame(true, 1))
+	h.Dropped(1)
+	h.Frame(1, frame(false, 2))
+	h.Frame(1, frame(true, 3))
+	if len(sinks[2].frames) != 2 || sinks[2].frames[1][len(sinks[2].frames[1])-1] != 3 {
+		t.Fatalf("viewer frames %v", sinks[2].frames)
+	}
+}
+
+// A viewer asks for a keyframe (its decoder is new); only viewers may.
+func TestViewersAskForKeyframes(t *testing.T) {
+	h, _, sinks := setup()
+	h.now = func() time.Time { return time.Unix(100, 0) }
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	asked := func() int { return strings.Count(strings.Join(sinks[1].types(), ","), "keyframe") }
+	before := asked()
+	h.now = func() time.Time { return time.Unix(102, 0) }
+	h.RequestKey(3, 1) // not a viewer
+	if asked() != before {
+		t.Fatal("a non-viewer asked for a keyframe")
+	}
+	h.RequestKey(2, 1)
+	if asked() != before+1 {
+		t.Fatal("the viewer's request did not reach the streamer")
 	}
 }
