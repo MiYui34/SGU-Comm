@@ -47,6 +47,7 @@ import { texturesToFetch } from "./avatar";
 import { reactRequest } from "./reactions";
 import { previewsRequest } from "./linkPreview";
 import { createCapture } from "./voice/capture.svelte";
+import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 
 // The server drops clients after 30 s without a ping.
@@ -74,7 +75,18 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // Live text events for the UI (notifications), after the state took them.
   const textListeners = new Set<(ev: ServerEvent) => void>();
   let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void } | null = null;
+  // Screen sharing (built-in server): its own connection, with a token
+  // asked for here.
+  const streamTokenWaiters: ((token: string) => void)[] = [];
+  const streamToken = () =>
+    new Promise<string>((resolve, reject) => {
+      if (ws.readyState !== WebSocket.OPEN) return reject(new Error("not connected"));
+      streamTokenWaiters.push(resolve);
+      ws.send(JSON.stringify({ type: "stream-token" }));
+      setTimeout(() => reject(new Error("no stream token from the server")), 10_000);
+    });
   const base = httpBase(url);
+  const streams = streamingSupported() ? createStreamClient(`${base.replace(/^http/, "ws")}/api/stream`, streamToken) : null;
   const push = createMessageStream();
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
@@ -134,6 +146,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     if (typeof event.data === "string") {
       const ev = parseServerEvent(event.data);
       if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
+      else if (ev?.type === "stream-token") streamTokenWaiters.shift()?.(ev.token);
       else if (ev) text = reduceText(text, ev);
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
@@ -157,6 +170,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
     capture?.close();
+    streams?.close();
     playback?.close(); // the audio context stays: the app may reconnect with it
     closed = true;
   };
@@ -260,6 +274,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     playback,
     capture,
+    streams,
     send,
     sendText: (target: TextTarget, text: string) => {
       send(sendText(target, text));

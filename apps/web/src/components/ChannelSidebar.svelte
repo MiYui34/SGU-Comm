@@ -24,6 +24,8 @@
     mentionVoice = {},
     listenOnly = {},
     directs = [],
+    live = new Set(),
+    onWatch,
     currentDirect = null,
     onOpenDirect,
     onOpenText,
@@ -51,6 +53,9 @@
     mentionVoice?: Record<number, number>;
     // Listen-only voice channels (only some users may speak).
     listenOnly?: Readonly<Record<number, unknown>>;
+    // Sessions sharing their screen, and watching one.
+    live?: ReadonlySet<number>;
+    onWatch?: (session: number) => void;
     // Stored direct chats, the newest first (mentions: unread messages).
     directs?: { channel: number; peer: Peer }[];
     currentDirect?: number | null;
@@ -130,6 +135,11 @@
                 <Badge count={unread[user.name]} />
               </span>
             </button>
+            {#if live.has(user.session)}
+              <button class="live" title="Watch {user.name}'s screen" aria-label="Watch {user.name}'s screen" onclick={() => onWatch?.(user.session)}
+                >LIVE</button
+              >
+            {/if}
           </li>
         {/each}
       </ul>
@@ -336,5 +346,26 @@
   }
   .flags span {
     display: inline-flex;
+  }
+  .users li:has(.live) {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .users li:has(.live) .user {
+    flex: 1;
+    min-width: 0;
+  }
+  .live {
+    flex: none;
+    margin-right: 8px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    cursor: pointer;
   }
 </style>

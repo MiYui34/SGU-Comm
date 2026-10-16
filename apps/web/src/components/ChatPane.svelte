@@ -14,7 +14,7 @@
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
-  import { tick, untrack } from "svelte";
+  import { tick, untrack, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
@@ -45,6 +45,7 @@
     onSearch,
     onPins,
     onOpenChannel,
+    stage,
     pinsOpen = false,
     mayPin = false,
     onPin,
@@ -92,6 +93,8 @@
     // Searching stored messages; jumpTarget: a message to scroll to once
     // it is loaded (then onJumped).
     onSearch?: (text: string) => void;
+    // Shown between the header and the messages (screen shares).
+    stage?: Snippet;
     // A "#name" link in a message was clicked.
     onOpenChannel?: (id: number) => void;
     // The pinned messages panel (undefined: none here).
@@ -456,6 +459,7 @@
       {/if}
     </div>
   </header>
+  {@render stage?.()}
 
   <!-- Clicks on "#name" links open the channel (see markdown). -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

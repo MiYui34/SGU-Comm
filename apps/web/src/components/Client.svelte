@@ -45,6 +45,8 @@
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
   import ChannelDialog from "./ChannelDialog.svelte";
+  import StreamPreview from "./StreamPreview.svelte";
+  import StreamStage from "./StreamStage.svelte";
   import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
@@ -578,6 +580,38 @@
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
+  // Screen shares: who is live, and watching (a stream in another channel:
+  // join it first).
+  const streams = $derived(connection.streams);
+  const liveSessions = $derived(new Set(text.streams.map((s) => s.session)));
+  let pendingWatch = $state<number | null>(null);
+  const watchStream = (session: number) => {
+    const s = text.streams.find((x) => x.session === session);
+    if (!s || !streams || session === me?.session) return;
+    if (voiceOn && channelId === s.channel) void streams.watch(session);
+    else {
+      pendingWatch = session;
+      join(s.channel);
+    }
+  };
+  $effect(() => {
+    const s = pendingWatch === null ? undefined : text.streams.find((x) => x.session === pendingWatch);
+    if (pendingWatch !== null && (!s || (voiceOn && channelId === s.channel))) {
+      untrack(() => {
+        if (s) void streams?.watch(s.session);
+        pendingWatch = null;
+      });
+    }
+  });
+  // Streams that ended, or are in a channel we left, are not watched.
+  $effect(() => {
+    if (!streams) return;
+    const here = new Set(text.streams.filter((s) => voiceOn && s.channel === channelId).map((s) => s.session));
+    untrack(() => {
+      for (const s of streams.watching) if (!here.has(s)) streams.unwatch(s);
+    });
+  });
+  const nameOfSession = (session: number) => server.users[session]?.name ?? "someone";
   // A direct chat from the list: the partner's session if online.
   const openDirect = (peer: Peer) => {
     const user = Object.values(server.users).find((u) => u.userId === peer.id);
@@ -732,6 +766,8 @@
       mentionText={textView.mentions}
       {mentionVoice}
       listenOnly={text.listenOnly}
+      live={liveSessions}
+      onWatch={streams ? watchStream : undefined}
       directs={directList}
       currentDirect={directChatId}
       onOpenDirect={openDirect}
@@ -746,7 +782,15 @@
     />
     {#if me}
       {#if lobby && voiceOn}
-        <VoiceBar channel={channelName} onLeave={leaveVoice} />
+        {#if streams?.preview}
+          <StreamPreview stream={streams.preview} onStop={() => streams?.stopSharing()} />
+        {/if}
+        <VoiceBar
+          channel={channelName}
+          onLeave={leaveVoice}
+          sharing={streams?.sharing ?? false}
+          onShare={streams && text.voiceChats && !phone ? () => (streams.sharing ? streams.stopSharing() : void streams.startSharing()) : undefined}
+        />
       {/if}
       <UserPanel
         {me}
@@ -763,6 +807,11 @@
   {#if phone && panel !== "chat"}
     <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
+  {#snippet stage()}
+    {#if streams}
+      <StreamStage sessions={streams.watching} nameOf={nameOfSession} attach={streams.attach} onClose={streams.unwatch} />
+    {/if}
+  {/snippet}
   <div class="main" inert={phone && panel !== "chat"}>
     <ChatPane
       {...paneCommon}
@@ -781,6 +830,8 @@
           }
         : undefined}
       onOpenChannel={(id) => show({ kind: "text", id })}
+      stage={streams?.watching.length ? stage : undefined}
+      error={streams?.error ?? pane.error}
       onPins={text.voiceChats && chatId !== null
         ? () => {
             pinsOpen = !pinsOpen;
