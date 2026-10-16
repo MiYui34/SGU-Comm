@@ -29,6 +29,7 @@ import {
   typingRequest,
   searchRequest,
   pinRequest,
+  directRequest,
   pinsRequest,
   startSearch,
   initialTextState,
@@ -210,6 +211,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     pin: (message: number, on: boolean) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(pinRequest(message, on));
+    },
+    requestDirect: (user: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(directRequest(user));
     },
     requestPins: (channel: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(pinsRequest(channel));

@@ -484,7 +484,7 @@
       <h2>{kind === "dm" ? title : `Welcome to ${target}!`}</h2>
       <p>
         {#if kind === "dm"}
-          This is the start of your conversation with {title}. Private messages are not stored.
+          This is the start of your conversation with {title}.{stored ? "" : " Private messages are not stored."}
         {:else if kind === "text"}
           This is the start of the {target} channel.
         {:else if stored}

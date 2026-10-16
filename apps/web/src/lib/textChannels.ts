@@ -44,6 +44,9 @@ export type DisplayMessage = ChatMessage & {
 };
 
 export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
+// The other user of a direct chat.
+export type Peer = { id: number; name: string };
+export type DirectChat = { channel: number; peer: Peer };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
@@ -55,12 +58,16 @@ export type ServerEvent =
       voiceChats?: boolean;
       roles?: Roles;
       listenOnly?: ListenOnlyChannel[];
+      // Registered users' direct chats (with messages).
+      directs?: DirectChat[];
       // Registered users: read marks, and per channel the newest message
       // and unread mentions (voice: the voice channel of a voice chat).
       reads?: Record<number, number>;
       summary?: SummaryEntry[];
     }
   | ({ type: "roles" } & Roles)
+  // A direct chat with a user (asked for, or a new one's first message).
+  | ({ type: "dm" } & DirectChat)
   // The listen-only voice channels changed.
   | { type: "listen-only"; channels: ListenOnlyChannel[] }
   // The channel that holds a voice channel's chat.
@@ -101,6 +108,8 @@ export type TextState = {
   roles: Roles;
   // Listen-only voice channels: their speakers.
   listenOnly: Readonly<Record<number, Speaker[]>>;
+  // Direct chats: chat -> the other user.
+  directs: Readonly<Record<number, Peer>>;
   // From ready (registered users): read marks, and the newest message and
   // unread mentions per channel at that time.
   reads: Readonly<Record<number, number>>;
@@ -124,6 +133,7 @@ export const initialTextState: TextState = {
   voiceChats: false,
   roles: { admins: [], moderators: [] },
   listenOnly: {},
+  directs: {},
   reads: {},
   summary: {},
   voiceChannels: {},
@@ -158,6 +168,8 @@ const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr
 const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && Array.isArray(c.speakers) && c.speakers.every(isSpeaker));
 const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
+const isDirect = (v: unknown): v is DirectChat =>
+  isObj(v) && isNum(v.channel) && isObj(v.peer) && isNum(v.peer.id) && isStr(v.peer.name);
 
 const isChannel = (v: unknown): v is TextChannel =>
   isObj(v) &&
@@ -226,6 +238,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(roles ? { roles } : {}),
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
+        ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
         ...(summary ? { summary } : {}),
       };
@@ -236,6 +249,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "listen-only":
       return isListenOnly(v.channels) ? { type: "listen-only", channels: v.channels } : null;
+    case "dm":
+      return isDirect(v) ? { type: "dm", channel: v.channel, peer: { id: v.peer.id, name: v.peer.name } } : null;
     case "voice-chat":
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "channels":
@@ -307,6 +322,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         voiceChats: event.voiceChats === true,
         roles: event.roles ?? initialTextState.roles,
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
+        directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         reads: event.reads ?? {},
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
         voiceChannels: {
@@ -318,6 +334,10 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
+    case "dm":
+      return state.directs[event.channel]?.name === event.peer.name
+        ? state
+        : { ...state, directs: { ...state.directs, [event.channel]: event.peer } };
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "channels":
@@ -424,6 +444,13 @@ export const manageRequest = (a: ManageAction) =>
   );
 
 export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
+export const directRequest = (user: number) => JSON.stringify({ type: "dm", user });
+
+// The direct chat with a user, if known.
+export const directChatWith = (directs: TextState["directs"], user: number): number | null => {
+  const found = Object.entries(directs).find(([, p]) => p.id === user);
+  return found ? Number(found[0]) : null;
+};
 export const pinRequest = (message: number, on: boolean) => JSON.stringify({ type: "pin", message, on });
 export const pinsRequest = (channel: number) => JSON.stringify({ type: "pins", channel });
 export const typingRequest = (channel: number) => JSON.stringify({ type: "typing", channel });

@@ -44,16 +44,19 @@ export const highlightMentions = (html: string, name: string): string =>
 // loaded messages after both. Messages are sorted by id.
 export const mentionCounts = (state: TextState, seen: Record<number, number>, me: string): Record<number, number> => {
   const out: Record<number, number> = {};
-  // Only chats that still exist: text channels and known voice chats.
-  const ids = new Set([...state.channels.map((c) => c.id), ...Object.values(state.voiceChannels)]);
+  // Only chats that still exist: text channels, known voice chats and
+  // direct chats (there every message from the other user counts).
+  const ids = new Set([...state.channels.map((c) => c.id), ...Object.values(state.voiceChannels), ...Object.keys(state.directs).map(Number)]);
   for (const channel of ids) {
+    const direct = channel in state.directs;
     const read = seen[channel] ?? 0;
     const summary = state.summary[channel];
     let n = summary && read < summary.latest ? summary.mentions : 0;
     const after = Math.max(read, summary?.latest ?? 0);
     const msgs = state.messages[channel] ?? [];
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
-      if (pingsMe(escapeHtml(msgs[i]!.text), msgs[i]!.author, msgs[i]!.reply?.author, me)) n++;
+      const m = msgs[i]!;
+      if (direct ? m.author !== me : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me)) n++;
     }
     if (n) out[channel] = n;
   }

@@ -28,7 +28,7 @@
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
-  import { toChatMessage, type TextMessage } from "../lib/textChannels";
+  import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
@@ -260,6 +260,22 @@
         welcomeText: channelId === 0 ? server.welcomeText : "",
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
+    if (storedDirect !== null)
+      return {
+        title: dm.name,
+        kind: "dm" as const,
+        stored: true,
+        messages: textChat,
+        welcomeText: "",
+        more: directChatId === null ? false : (text.more[directChatId] ?? false),
+        loadingOlder: textView.loadingOlder,
+        onLoadOlder: textView.loadOlder,
+        error: uploadError ?? text.lastError,
+        onUpload: directChatId === null ? undefined : upload,
+        uploading,
+        onSend: directChatId === null ? undefined : send,
+        onClose: () => show({ kind: "voice" }),
+      } satisfies Partial<ComponentProps<typeof ChatPane>>;
     return {
       title: dm.name,
       kind: "dm" as const,
@@ -336,8 +352,20 @@
       connection.requestVoiceChat(channelId);
     }
   });
-  // The stored chat that is open: a text channel or a voice channel's.
-  const chatId = $derived(textId ?? voiceChatId);
+  // A direct chat with a registered user, both registered (built-in
+  // server): stored. Asked for once per conversation opened.
+  const storedDirect = $derived(text.voiceChats && me?.userId != null && dm?.userId != null ? dm.userId : null);
+  const directChatId = $derived(storedDirect === null ? null : directChatWith(text.directs, storedDirect));
+  const askedDirects = new Set<number>();
+  $effect(() => {
+    if (storedDirect !== null && directChatId === null && !askedDirects.has(storedDirect)) {
+      askedDirects.add(storedDirect);
+      connection.requestDirect(storedDirect);
+    }
+  });
+  // The stored chat that is open: a text channel, a voice channel's or a
+  // direct chat.
+  const chatId = $derived(textId ?? voiceChatId ?? directChatId);
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
   $effect(() => {
     const first = text.channels[0];
@@ -413,6 +441,11 @@
     connection.onTextEvent((ev) => {
       if (ev.type !== "message" || !me) return;
       const m = ev.message;
+      const peer = text.directs[m.channel];
+      if (peer) {
+        if (m.author !== me.name) notify(peer.name, notificationBody(m.text), chatId === m.channel, () => openDirect(peer));
+        return;
+      }
       if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name)) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
@@ -432,7 +465,7 @@
         const user = Object.values(server.users).find((u) => u.name === peer);
         if (last)
           notify(peer, notificationBody(last.text), dm?.name === peer, () => {
-            if (user) show({ kind: "dm", session: user.session, name: peer });
+            if (user) show({ kind: "dm", session: user.session, name: peer, userId: user.userId });
           });
       }
       privateSeen = { ...counts };
@@ -525,7 +558,7 @@
 
   // Same name too: Murmur reuses the session numbers of users who left.
   const dmPartner = $derived.by(() => {
-    const user = dm && server.users[dm.session];
+    const user = dm && dm.session !== null ? server.users[dm.session] : undefined;
     return user && user.name === dm?.name ? user : undefined;
   });
   // A new message or another view clears an old upload error.
@@ -536,8 +569,24 @@
   const send = (message: string, reply?: number) => {
     uploadError = null;
     if (chatId !== null) connection.sendToTextChannel(chatId, message, undefined, reply);
-    else connection.sendText(dm === null ? { channelId } : { session: dm.session }, message);
+    else if (dm === null) connection.sendText({ channelId }, message);
+    else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
+  // A direct chat from the list: the partner's session if online.
+  const openDirect = (peer: Peer) => {
+    const user = Object.values(server.users).find((u) => u.userId === peer.id);
+    show({ kind: "dm", session: user?.session ?? null, name: peer.name, userId: peer.id });
+  };
+  // Direct chats for the sidebar, the newest first.
+  const directList = $derived(
+    Object.entries(text.directs)
+      .map(([id, peer]) => ({
+        channel: Number(id),
+        peer,
+        latest: Math.max(text.messages[Number(id)]?.at(-1)?.id ?? 0, text.summary[Number(id)]?.latest ?? 0),
+      }))
+      .sort((a, b) => b.latest - a.latest),
+  );
   const join = (id: number) => {
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
@@ -596,7 +645,7 @@
     x={menu.x}
     y={menu.y}
     onAudio={(patch) => userAudio.update(menuUser.name, patch)}
-    onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name })}
+    onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
     onSettings={() => (showSettings = true)}
     role={roleOf(text.roles, menuUser.userId)}
     moderator={moderatorAction(server, text, menuUser)}
@@ -677,6 +726,9 @@
       mentionText={textView.mentions}
       {mentionVoice}
       listenOnly={text.listenOnly}
+      directs={directList}
+      currentDirect={directChatId}
+      onOpenDirect={openDirect}
       onOpenText={(id) => show({ kind: "text", id })}
       currentChannel={view.kind === "voice" ? channelId : null}
       {lobby}
@@ -730,7 +782,7 @@
           }
         : undefined}
       {pinsOpen}
-      mayPin={canManageText(server, text)}
+      mayPin={directChatId !== null || canManageText(server, text)}
       onPin={connection.pin}
       {jumpTarget}
       onJumped={() => (jumpTarget = null)}

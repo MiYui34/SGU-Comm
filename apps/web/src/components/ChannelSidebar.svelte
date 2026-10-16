@@ -4,7 +4,7 @@
   import { mirrorIds, withoutMirrors } from "../lib/mirrors";
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
-  import type { TextChannel } from "../lib/textChannels";
+  import type { Peer, TextChannel } from "../lib/textChannels";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
   import Icon from "./Icon.svelte";
@@ -23,6 +23,9 @@
     mentionText = {},
     mentionVoice = {},
     listenOnly = {},
+    directs = [],
+    currentDirect = null,
+    onOpenDirect,
     onOpenText,
     onJoin,
     onUserMenu,
@@ -48,6 +51,10 @@
     mentionVoice?: Record<number, number>;
     // Listen-only voice channels (only some users may speak).
     listenOnly?: Readonly<Record<number, unknown>>;
+    // Stored direct chats, the newest first (mentions: unread messages).
+    directs?: { channel: number; peer: Peer }[];
+    currentDirect?: number | null;
+    onOpenDirect?: (peer: Peer) => void;
     onOpenText: (id: number) => void;
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
@@ -61,6 +68,7 @@
   // Text channel mirrors (for Mumble clients) are not voice channels here.
   const tree = $derived(withoutMirrors(channelTree(server), mirrorIds(server, textChannels)));
   let collapsed = $state(false);
+  let directCollapsed = $state(false);
   let textCollapsed = $state(false);
   const INDENT = 16;
 </script>
@@ -136,7 +144,7 @@
   </li>
 {/snippet}
 
-{#snippet category(label: string, isCollapsed: boolean, toggle: () => void, kind: ChannelKind)}
+{#snippet category(label: string, isCollapsed: boolean, toggle: () => void, kind?: ChannelKind)}
   <div class="category-row">
     <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
       <svg class="chevron" class:collapsed={isCollapsed} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
@@ -144,7 +152,7 @@
       </svg>
       {label}
     </button>
-    {#if onCreate && canCreate[kind]}
+    {#if kind && onCreate && canCreate[kind]}
       <button class="add" title="Create channel" aria-label="Create {kind} channel" onclick={() => onCreate(kind)}>
         <Icon name="plus" size={16} />
       </button>
@@ -195,6 +203,28 @@
       </ul>
     {:else}
       <ul>{@render channel(tree, 0)}</ul>
+    {/if}
+  {/if}
+  {#if directs.length && onOpenDirect}
+    {@render category("Direct messages", directCollapsed, () => (directCollapsed = !directCollapsed))}
+    {#if !directCollapsed}
+      <ul class="text-channels">
+        {#each directs as d (d.channel)}
+          <li>
+            <button
+              class="channel hover-row"
+              class:current={d.channel === currentDirect}
+              class:unread={!!mentionText[d.channel] && d.channel !== currentDirect}
+              aria-current={d.channel === currentDirect ? "page" : undefined}
+              onclick={() => onOpenDirect(d.peer)}
+            >
+              <Avatar name={d.peer.name} size={20} />
+              <span class="name ellipsis">{d.peer.name}</span>
+              {#if d.channel !== currentDirect}<Badge count={mentionText[d.channel]} label="unread messages" />{/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
     {/if}
   {/if}
 </nav>
