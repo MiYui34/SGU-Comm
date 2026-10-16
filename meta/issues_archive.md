@@ -113,3 +113,4 @@
 - [x] [Voice: check Opus encoder output in Firefox and Safari](issues/voice-check-opus-encoder-output-in-firefox-and-safari.md)
 - [x] [CI: voice test in real browsers](issues/ci-voice-test.md)
 - [x] [Web: multiline messages and channel links](issues/web-multiline-and-channel-links.md)
+- [x] [Web: play audio and video attachments inline](issues/web-inline-audio-video.md)

@@ -1,5 +1,8 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
+  import { mediaKind } from "../lib/media";
+  import AudioPlayer from "./AudioPlayer.svelte";
+  import VideoPlayer from "./VideoPlayer.svelte";
   import { opensLightbox } from "../lib/lightbox";
   import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
   import type { LinkPreview } from "../lib/linkPreview";
@@ -242,6 +245,8 @@
 
   // The image shown large (see Lightbox).
   let lightbox = $state<{ url: string; name: string } | null>(null);
+  // Media attachments that cannot play: shown as files.
+  let unplayable = $state(new Set<string>());
 
   // "@" autocomplete (see mentionQuery). Escape hides the list until the
   // "@word" changes.
@@ -811,6 +816,14 @@
       >
         <img src={upload.url} alt={upload.name} loading="lazy" onload={keepBottom} />
       </a>
+    {:else if mediaKind(m.upload) && !unplayable.has(m.upload.url)}
+      {@const u = m.upload}
+      {@const failed = () => (unplayable = new Set([...unplayable, u.url]))}
+      {#if mediaKind(u) === "audio"}
+        <AudioPlayer url={u.url} name={u.name} size={u.size} onError={failed} />
+      {:else}
+        <VideoPlayer url={u.url} name={u.name} size={u.size} onLoad={keepBottom} onError={failed} />
+      {/if}
     {:else}
       <a class="file" href={m.upload.url} rel="noopener noreferrer">
         <span class="file-name">{m.upload.name}</span>
