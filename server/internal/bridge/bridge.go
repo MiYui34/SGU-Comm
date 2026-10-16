@@ -367,6 +367,10 @@ func (c *conn) writeSidecar() {
 // helloTimeout: a client that does not authenticate in time is dropped.
 const helloTimeout = 10 * time.Second
 
+// maxGreeting limits all bytes before Authenticate (the web client sends
+// Version and Authenticate, a few hundred bytes).
+const maxGreeting = 64 * 1024
+
 // readHello reads the client's first binary frames up to Authenticate. It
 // returns the requested name and all bytes read (to forward unchanged).
 func (b *Bridge) readHello(ws *websocket.Conn) (string, []byte, bool) {
@@ -382,6 +386,10 @@ func (b *Bridge) readHello(ws *websocket.Conn) (string, []byte, bool) {
 		}
 		if typ != websocket.MessageBinary {
 			continue // sidecar requests before the login: nothing to answer yet
+		}
+		if len(early)+len(data) > maxGreeting {
+			ws.Close(websocket.StatusPolicyViolation, "greeting too large")
+			return "", nil, false
 		}
 		early = append(early, data...)
 		name, done, err := auth.Feed(data)

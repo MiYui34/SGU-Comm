@@ -313,3 +313,23 @@ func TestAccountNameCheckWithoutGuestNameRule(t *testing.T) {
 		t.Fatal("an account used a foreign name")
 	}
 }
+
+func TestGreetingAboveTheBudgetCloses(t *testing.T) {
+	echo := startEcho(t)
+	url := startBridge(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true})
+	c, _, _ := connect(t, url, "")
+	// Valid frames, but no Authenticate: together above the budget.
+	ping := mumbleFrame(mumble.TypePing, &pb.Ping{Timestamp: proto.Uint64(1)})
+	chunk := bytes.Repeat(ping, 16*1024/len(ping))
+	for i := 0; i*len(chunk) <= maxGreeting; i++ {
+		if c.Write(testCtx(t), websocket.MessageBinary, chunk) != nil {
+			break
+		}
+	}
+	if got := closeStatus(t, c); got != websocket.StatusPolicyViolation {
+		t.Fatalf("got close code %v, want 1008", got)
+	}
+	if echo.open.Load() != 0 {
+		t.Fatal("the client reached the upstream")
+	}
+}
