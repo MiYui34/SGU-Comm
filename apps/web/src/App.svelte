@@ -17,6 +17,7 @@
   import type { Place } from "./lib/place";
   import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
   import { untrack } from "svelte";
+  import { checkForUpdate } from "./lib/update";
   import { voiceSupported } from "./lib/voice/support";
 
   const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? proxyUrl(location);
@@ -104,6 +105,29 @@
     if (!server) throw new Error("Enter a server address, for example voice.example.org or voice.example.org:64738");
     return bridgeUrl(await getBridge(), server);
   };
+
+  // A new version on the server (web app only: the desktop app carries its
+  // own): checked now, every 15 minutes, when the tab shows again, and
+  // after each (re)connect, as a deploy restarts the server. No automatic
+  // reload: it would end voice.
+  let updateReady = $state(false);
+  let updateClosed = $state(false);
+  const checkUpdate = async () => {
+    if (!desktop && !updateReady && document.visibilityState === "visible") updateReady = await checkForUpdate(location.origin);
+  };
+  $effect(() => {
+    void checkUpdate();
+    const timer = setInterval(checkUpdate, 15 * 60_000);
+    const onShow = () => void checkUpdate();
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  });
+  $effect(() => {
+    if (connection?.state.status === "synced") untrack(() => void checkUpdate());
+  });
 
   // Each start gets a number: a slower earlier start must not win.
   let starts = 0;
@@ -256,7 +280,44 @@
   <div class="connecting">Connecting…</div>
 {/if}
 
+{#if updateReady && !updateClosed}
+  <div class="update" role="status">
+    A new version of Kallisti is available.
+    <button type="button" onclick={() => location.reload()}>Reload</button>
+    <button type="button" class="close" aria-label="Close" onclick={() => (updateClosed = true)}>×</button>
+  </div>
+{/if}
+
 <style>
+  .update {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 8px 14px;
+    border-radius: 8px;
+    background: var(--bg-menu);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .update button {
+    padding: 4px 12px;
+    border-radius: 4px;
+    background: var(--accent-strong);
+    color: #fff;
+    font-weight: 600;
+  }
+  .update .close {
+    padding: 0 6px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 18px;
+  }
   .reconnecting {
     position: fixed;
     top: 8px;

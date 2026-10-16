@@ -121,3 +121,4 @@
   - [x] [Direct messages: store and sidecar](issues/direct-messages-server.md)
   - [x] [Direct messages: web app](issues/direct-messages-web.md)
   - [x] [Direct messages: Mumble clients](issues/direct-messages-mumble.md)
+- [x] [Web: notice when a new version is deployed](issues/web-update-notice.md)
