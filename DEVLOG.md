@@ -292,3 +292,19 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
   fail. Its dispose() does not free the filter state, so there is one node
   per AudioContext, kept and connected in or out. The Go server now gzips
   assets (the engine: 4 MB).
+
+## Screen sharing (2026-10-16)
+
+- WebCodecs over a WebSocket of its own (`/api/stream`): the server only
+  forwards frames. VP8 first: a Chromium without proprietary codecs claimed
+  to decode H.264 (`isConfigSupported` true) but failed on every frame.
+- Picture and sound tracks from Chromium's tab capture stamp their frames on
+  different clocks. Viewers that synced pictures to the sound clock showed a
+  black picture (tests with a canvas and an oscillator shared one clock and
+  passed). Both tracks are now put on the page's clock from their first
+  frame, and viewers show pictures that seem far ahead at once.
+- Hidden tabs (the usual case while sharing another window): frames come from
+  MediaStreamTrackProcessor where it exists; a worker timer elsewhere (blob
+  workers are blocked by the CSP: the worker is a file of its own).
+- Mumble clients hear the stream from a hidden user that is not in the
+  server's user list (nobody can message, move or kick it).
