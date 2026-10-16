@@ -77,13 +77,22 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void } | null = null;
   // Screen sharing (built-in server): its own connection, with a token
   // asked for here.
+  // Answered in order; a waiter that timed out leaves the queue, so a late
+  // answer cannot go to the wrong one.
   const streamTokenWaiters: ((token: string) => void)[] = [];
   const streamToken = () =>
     new Promise<string>((resolve, reject) => {
       if (ws.readyState !== WebSocket.OPEN) return reject(new Error("not connected"));
-      streamTokenWaiters.push(resolve);
+      const waiter = (t: string) => {
+        clearTimeout(timeout);
+        resolve(t);
+      };
+      const timeout = setTimeout(() => {
+        streamTokenWaiters.splice(streamTokenWaiters.indexOf(waiter), 1);
+        reject(new Error("no stream token from the server"));
+      }, 10_000);
+      streamTokenWaiters.push(waiter);
       ws.send(JSON.stringify({ type: "stream-token" }));
-      setTimeout(() => reject(new Error("no stream token from the server")), 10_000);
     });
   const base = httpBase(url);
   const streams = streamingSupported() ? createStreamClient(`${base.replace(/^http/, "ws")}/api/stream`, streamToken) : null;

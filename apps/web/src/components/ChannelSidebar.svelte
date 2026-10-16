@@ -135,7 +135,9 @@
                 <Badge count={unread[user.name]} />
               </span>
             </button>
-            {#if live.has(user.session)}
+            {#if live.has(user.session) && user.session === server.session}
+              <span class="live" title="You are sharing your screen">LIVE</span>
+            {:else if live.has(user.session)}
               <button class="live" title="Watch {user.name}'s screen" aria-label="Watch {user.name}'s screen" onclick={() => onWatch?.(user.session)}
                 >LIVE</button
               >

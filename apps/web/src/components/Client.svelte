@@ -582,33 +582,41 @@
   };
   // Screen shares: who is live, and watching (a stream in another channel:
   // join it first).
-  const streams = $derived(connection.streams);
+  const streamClient = $derived(connection.streams);
   const liveSessions = $derived(new Set(text.streams.map((s) => s.session)));
   let pendingWatch = $state<number | null>(null);
   const watchStream = (session: number) => {
     const s = text.streams.find((x) => x.session === session);
-    if (!s || !streams || session === me?.session) return;
-    if (voiceOn && channelId === s.channel) void streams.watch(session);
+    if (!s || !streamClient || session === me?.session) return;
+    if (voiceOn && channelId === s.channel) void streamClient.watch(session);
     else {
       pendingWatch = session;
       join(s.channel);
+      // Joining may fail (no Enter): then the wish is forgotten.
+      setTimeout(() => pendingWatch === session && (pendingWatch = null), 5000);
     }
   };
+  // A stream error goes away after a while.
+  $effect(() => {
+    if (!streamClient?.error) return;
+    const t = setTimeout(() => streamClient?.clearError(), 8000);
+    return () => clearTimeout(t);
+  });
   $effect(() => {
     const s = pendingWatch === null ? undefined : text.streams.find((x) => x.session === pendingWatch);
     if (pendingWatch !== null && (!s || (voiceOn && channelId === s.channel))) {
       untrack(() => {
-        if (s) void streams?.watch(s.session);
+        if (s) void streamClient?.watch(s.session);
         pendingWatch = null;
       });
     }
   });
   // Streams that ended, or are in a channel we left, are not watched.
   $effect(() => {
-    if (!streams) return;
+    if (!streamClient) return;
     const here = new Set(text.streams.filter((s) => voiceOn && s.channel === channelId).map((s) => s.session));
     untrack(() => {
-      for (const s of streams.watching) if (!here.has(s)) streams.unwatch(s);
+      for (const s of streamClient.watching) if (!here.has(s)) streamClient.unwatch(s);
     });
   });
   const nameOfSession = (session: number) => server.users[session]?.name ?? "someone";
@@ -767,7 +775,7 @@
       {mentionVoice}
       listenOnly={text.listenOnly}
       live={liveSessions}
-      onWatch={streams ? watchStream : undefined}
+      onWatch={streamClient ? watchStream : undefined}
       directs={directList}
       currentDirect={directChatId}
       onOpenDirect={openDirect}
@@ -782,14 +790,14 @@
     />
     {#if me}
       {#if lobby && voiceOn}
-        {#if streams?.preview}
-          <StreamPreview stream={streams.preview} onStop={() => streams?.stopSharing()} />
+        {#if streamClient?.preview}
+          <StreamPreview stream={streamClient.preview} onStop={() => streamClient?.stopSharing()} />
         {/if}
         <VoiceBar
           channel={channelName}
           onLeave={leaveVoice}
-          sharing={streams?.sharing ?? false}
-          onShare={streams && text.voiceChats && !phone ? () => (streams.sharing ? streams.stopSharing() : void streams.startSharing()) : undefined}
+          sharing={streamClient?.sharing ?? false}
+          onShare={streamClient && text.voiceChats && !phone ? () => (streamClient.sharing ? streamClient.stopSharing() : void streamClient.startSharing()) : undefined}
         />
       {/if}
       <UserPanel
@@ -808,8 +816,8 @@
     <button class="backdrop" aria-label="Close panel" onclick={() => (panel = "chat")}></button>
   {/if}
   {#snippet stage()}
-    {#if streams}
-      <StreamStage sessions={streams.watching} nameOf={nameOfSession} attach={streams.attach} onClose={streams.unwatch} />
+    {#if streamClient}
+      <StreamStage sessions={streamClient.watching} nameOf={nameOfSession} attach={streamClient.attach} onClose={streamClient.unwatch} />
     {/if}
   {/snippet}
   <div class="main" inert={phone && panel !== "chat"}>
@@ -830,8 +838,8 @@
           }
         : undefined}
       onOpenChannel={(id) => show({ kind: "text", id })}
-      stage={streams?.watching.length ? stage : undefined}
-      error={streams?.error ?? pane.error}
+      stage={streamClient?.watching.length ? stage : undefined}
+      error={pane.error ?? streamClient?.error}
       onPins={text.voiceChats && chatId !== null
         ? () => {
             pinsOpen = !pinsOpen;

@@ -1,4 +1,5 @@
 import { decodeFrame, encodeFrame, fitSize, pickCodec } from "./protocol";
+import Ticker from "./ticker.worker?worker";
 
 // Screen sharing over the stream connection (/api/stream, see the server's
 // stream package): the screen is encoded with WebCodecs and sent as frames;
@@ -8,8 +9,10 @@ const FPS = 15;
 const BITRATE = 2_500_000;
 const KEYFRAME_EVERY = FPS * 8; // frames; viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
+const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
 
 type Viewer = { decoder: VideoDecoder | null; needKey: boolean; canvas: HTMLCanvasElement | null };
+type Text = { type: string; session?: number; codec?: string; message?: string };
 
 export const streamingSupported = () =>
   typeof VideoEncoder !== "undefined" &&
@@ -20,33 +23,41 @@ export const streamingSupported = () =>
 export const createStreamClient = (url: string, token: () => Promise<string>) => {
   let ws: WebSocket | null = null;
   let opening: Promise<WebSocket> | null = null;
+  let closed = false;
   // Sharing.
   let sharing = $state(false);
+  let starting = false;
   let preview = $state<MediaStream | null>(null);
   let error = $state<string | null>(null);
   let screen: MediaStream | null = null;
   let encoder: VideoEncoder | null = null;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let stopFrames: (() => void) | null = null;
   let forceKey = true;
   let started: ((err: string | null) => void) | null = null;
   // Watching: by streamer session.
   const viewers = new Map<number, Viewer>();
   let watching = $state<number[]>([]);
 
+  // The connection: open once the server took the token ("ready").
   const open = (): Promise<WebSocket> => {
-    if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve(ws);
+    if (ws?.readyState === WebSocket.OPEN) return Promise.resolve(ws);
     opening ??= (async () => {
       const t = await token();
       const sock = new WebSocket(url);
       sock.binaryType = "arraybuffer";
       await new Promise<void>((resolve, reject) => {
-        sock.onopen = () => resolve();
-        sock.onerror = () => reject(new Error("cannot connect for screen sharing"));
+        sock.onopen = () => sock.send(JSON.stringify({ type: "auth", token: t }));
+        sock.onmessage = (e) => typeof e.data === "string" && JSON.parse(e.data).type === "ready" && resolve();
+        sock.onclose = () => reject(new Error("cannot connect for screen sharing"));
       });
-      sock.send(JSON.stringify({ type: "auth", token: t }));
+      if (closed) {
+        sock.close();
+        throw new Error("closed");
+      }
       sock.onmessage = (e) => (typeof e.data === "string" ? onText(JSON.parse(e.data)) : onFrame(e.data as ArrayBuffer));
       sock.onclose = () => {
         if (ws === sock) ws = null;
+        started?.("the screen sharing connection closed");
         stopSharing(false);
         for (const s of [...viewers.keys()]) unwatch(s, false);
       };
@@ -58,7 +69,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
 
   const send = (v: object) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(v));
 
-  const onText = (m: { type: string; session?: number; codec?: string; message?: string }) => {
+  const onText = (m: Text) => {
     switch (m.type) {
       case "started":
         started?.(null);
@@ -70,9 +81,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         stopSharing(false);
         break;
       case "error":
-        if (started) started(m.message ?? "error");
-        else error = m.message ?? "error";
+        // About a stream we wanted to watch, or about our own.
         if (m.session !== undefined) unwatch(m.session, false);
+        else if (started) started(m.message ?? "error");
+        if (!started || m.session !== undefined) error = m.message ?? "error";
         break;
       case "stream":
         if (m.session !== undefined && m.codec) void configureIfSupported(m.session, m.codec);
@@ -86,21 +98,20 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   // Sharing ------------------------------------------------------------
 
   const startSharing = async () => {
+    if (sharing || starting) return; // a second click while the picker is open
+    starting = true;
     error = null;
     try {
       const sock = await open();
       screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FPS }, audio: false });
       const track = screen.getVideoTracks()[0]!;
       track.onended = () => stopSharing(true); // the browser's own "Stop sharing"
-      const video = document.createElement("video");
-      video.muted = true;
-      video.srcObject = screen;
-      await video.play();
       const codec = await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, 1280, 720))).supported === true);
       if (!codec) throw new Error("this browser cannot encode video for screen sharing");
-      let size = fitSize(video.videoWidth || 1280, video.videoHeight || 720);
+      const settings = track.getSettings();
+      let size = fitSize(settings.width || 1280, settings.height || 720);
       const configure = () => {
-        encoder?.close();
+        if (encoder?.state !== "closed") encoder?.close();
         encoder = new VideoEncoder({
           output: (chunk) => {
             const data = new Uint8Array(chunk.byteLength);
@@ -122,36 +133,38 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
       sharing = true;
       preview = screen;
       let n = 0;
-      timer = setInterval(() => {
-        if (!encoder || encoder.state !== "configured" || encoder.encodeQueueSize > 2) return;
-        if (sock.bufferedAmount > MAX_BUFFERED) {
-          forceKey = true; // the viewers miss frames: start whole again
+      stopFrames = frames(track, (frame) => {
+        if (!encoder || encoder.state !== "configured" || encoder.encodeQueueSize > 2 || sock.bufferedAmount > MAX_BUFFERED) {
+          if (sock.bufferedAmount > MAX_BUFFERED) forceKey = true; // viewers miss frames: start whole again
+          frame.close();
           return;
         }
-        const next = fitSize(video.videoWidth || size.width, video.videoHeight || size.height);
+        const next = fitSize(frame.displayWidth, frame.displayHeight);
         if (next.width !== size.width || next.height !== size.height) {
           size = next; // the shared window was resized
           configure();
           send({ type: "start", codec, ...size });
         }
-        const frame = new VideoFrame(video, { timestamp: performance.now() * 1000 });
         encoder.encode(frame, { keyFrame: forceKey || n % KEYFRAME_EVERY === 0 });
         frame.close();
         forceKey = false;
         n++;
-      }, 1000 / FPS);
+      });
     } catch (e) {
+      started = null;
       stopSharing(true);
       // Closing the browser's picker is not an error.
       if (!(e instanceof DOMException && e.name === "NotAllowedError")) error = e instanceof Error ? e.message : String(e);
+    } finally {
+      starting = false;
     }
   };
 
   const stopSharing = (tell: boolean) => {
     if (tell && sharing) send({ type: "stop" });
-    clearInterval(timer);
-    timer = undefined;
-    if (encoder?.state !== "closed") encoder?.close();
+    stopFrames?.();
+    stopFrames = null;
+    if (encoder && encoder.state !== "closed") encoder.close();
     encoder = null;
     screen?.getTracks().forEach((t) => t.stop());
     screen = null;
@@ -176,15 +189,19 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   };
 
   const configureIfSupported = async (session: number, codec: string) => {
-    if ((await VideoDecoder.isConfigSupported({ codec })).supported) return configure(session, codec);
-    unwatch(session);
-    error = "This browser cannot play this screen share.";
+    if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
+      unwatch(session);
+      error = "This browser cannot play this screen share.";
+      return;
+    }
+    configure(session, codec);
   };
 
+  // A decoder for a stream, then a keyframe to start from.
   const configure = (session: number, codec: string) => {
     const v = viewers.get(session);
     if (!v) return;
-    v.decoder?.close();
+    if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     v.needKey = true;
     v.decoder = new VideoDecoder({
       output: (frame) => {
@@ -198,16 +215,21 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         }
         frame.close();
       },
-      error: () => configure(session, codec), // start over at the next keyframe
+      error: () => viewers.get(session) === v && configure(session, codec), // start over
     });
     v.decoder.configure({ codec, optimizeForLatency: true });
+    send({ type: "keyframe", session });
   };
 
   const onFrame = (buf: ArrayBuffer) => {
     const f = decodeFrame(buf);
     const v = f && viewers.get(f.session);
     if (!f || !v?.decoder || v.decoder.state !== "configured") return;
-    if (v.needKey && !f.key) return;
+    if (!f.key && (v.needKey || v.decoder.decodeQueueSize > MAX_DECODE_QUEUE)) {
+      if (!v.needKey) send({ type: "keyframe", session: f.session }); // too slow: skip ahead
+      v.needKey = true;
+      return;
+    }
     v.needKey = false;
     v.decoder.decode(new EncodedVideoChunk({ type: f.key ? "key" : "delta", timestamp: f.timestamp, data: f.data }));
   };
@@ -216,7 +238,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     const v = viewers.get(session);
     if (!v) return;
     if (tell) send({ type: "unwatch", session });
-    if (v.decoder?.state !== "closed") v.decoder?.close();
+    if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     viewers.delete(session);
     watching = [...viewers.keys()];
   };
@@ -236,6 +258,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     },
     startSharing,
     stopSharing: () => stopSharing(true),
+    clearError: () => (error = null),
     watch,
     unwatch: (session: number) => unwatch(session),
     // Where a watched stream is drawn (null: nowhere for now).
@@ -244,6 +267,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
       if (v) v.canvas = canvas;
     },
     close: () => {
+      closed = true;
       stopSharing(true);
       ws?.close();
     },
@@ -261,3 +285,47 @@ const encoderConfig = (codec: string, width: number, height: number): VideoEncod
   latencyMode: "realtime",
   ...(codec.startsWith("avc1") ? { avc: { format: "annexb" as const } } : {}),
 });
+
+// The track's frames, at most FPS a second, until the returned stop. Where
+// the browser has MediaStreamTrackProcessor (Chrome, Edge) frames come
+// straight from the track, also in a hidden tab (the usual case: sharing
+// another window). Elsewhere a hidden video element is drawn on a worker's
+// timer (page timers are slowed in hidden tabs; worker timers less so).
+type ProcessorCtor = new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
+
+const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): (() => void) => {
+  const Processor = (globalThis as { MediaStreamTrackProcessor?: ProcessorCtor }).MediaStreamTrackProcessor;
+  if (Processor) {
+    const reader = new Processor({ track }).readable.getReader();
+    let stopped = false;
+    let last = -Infinity;
+    void (async () => {
+      while (!stopped) {
+        const { value: frame, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+        if (done || !frame) return;
+        if (stopped || frame.timestamp - last < 1e6 / FPS - 2000) frame.close();
+        else {
+          last = frame.timestamp;
+          onFrame(frame);
+        }
+      }
+    })();
+    return () => {
+      stopped = true;
+      void reader.cancel().catch(() => {});
+    };
+  }
+  const video = document.createElement("video");
+  video.muted = true;
+  video.srcObject = new MediaStream([track]);
+  void video.play().catch(() => {});
+  const worker = new Ticker();
+  worker.postMessage(1000 / FPS);
+  worker.onmessage = () => {
+    if (video.readyState >= 2) onFrame(new VideoFrame(video, { timestamp: performance.now() * 1000 }));
+  };
+  return () => {
+    worker.terminate();
+    video.srcObject = null;
+  };
+};
