@@ -105,11 +105,21 @@ func (b *Bridge) Revoke(match func(accountID int64, session string) bool) {
 	b.revokes++
 	open := maps.Clone(b.accounts)
 	b.mu.Unlock()
+	var ended []*websocket.Conn
 	for ws, acc := range open {
 		if match(acc.ID, acc.Session) {
-			// Close waits for the browser's answer.
-			go ws.Close(websocket.StatusPolicyViolation, "logged out")
+			ended = append(ended, ws)
 		}
+	}
+	// Counted like connections (see admit). After Close, shutdown ends them.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	for _, ws := range ended {
+		// Close waits for the browser's answer: not one after another.
+		b.wg.Go(func() { ws.Close(websocket.StatusPolicyViolation, "logged out") })
 	}
 }
 
