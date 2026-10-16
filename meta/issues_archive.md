@@ -89,3 +89,4 @@
   - [x] [Messages and read marks by user id](issues/messages-and-read-marks-by-user-id.md)
 - [x] [Voice: better noise suppression](issues/voice-noise-suppression.md)
 - [x] [Voice: DeepFilterNet3 as the strongest noise suppression](issues/voice-deepfilternet.md)
+- [x] [Settings: link to the project site](issues/settings-link-to-project.md)

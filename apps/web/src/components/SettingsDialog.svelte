@@ -305,6 +305,9 @@
       </div>
     </div>
   {/if}
+  <footer class="hint">
+    Kallisti: a Mumble server and client. <a href="https://kallisti.chat" target="_blank" rel="noreferrer">kallisti.chat</a>
+  </footer>
 </dialog>
 
 <style>
@@ -426,8 +429,12 @@
     margin-bottom: 16px;
     border-top: 1px solid var(--border-subtle);
   }
-  .account:last-child {
-    margin-bottom: 0;
+  footer {
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  footer a {
+    color: var(--link);
   }
   .account input {
     padding: 10px;
