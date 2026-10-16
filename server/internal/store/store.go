@@ -492,7 +492,7 @@ func (s *Store) EnsureChannels(names []string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE channels SET hidden = 1 WHERE voice_channel IS NULL`); err != nil {
+	if _, err := tx.Exec(`UPDATE channels SET hidden = 1 WHERE voice_channel IS NULL AND dm_low IS NULL`); err != nil {
 		return err
 	}
 	for i, name := range names {
@@ -509,7 +509,7 @@ func (s *Store) EnsureChannels(names []string) error {
 // are managed in the client).
 func (s *Store) SeedChannels(names []string) error {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE voice_channel IS NULL`).Scan(&n); err != nil || n > 0 {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE voice_channel IS NULL AND dm_low IS NULL`).Scan(&n); err != nil || n > 0 {
 		return err
 	}
 	return s.EnsureChannels(names)
@@ -525,7 +525,7 @@ func (s *Store) CreateChannel(name string) (Channel, error) {
 	err := s.db.QueryRow(`INSERT INTO channels (name, position)
 		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0))
 		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position
-		WHERE hidden = 1 AND voice_channel IS NULL
+		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL
 		RETURNING id, position`, name).Scan(&c.ID, &c.Position)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNameTaken // a visible channel has the name
@@ -552,12 +552,12 @@ func (s *Store) RenameChannel(id int64, name string) error {
 	if strings.Contains(name, ":") {
 		return ErrInvalidName
 	}
-	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND voice_channel IS NULL`, name, id)
+	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, name, id)
 }
 
 // HideChannel removes a text channel from the list; its history stays.
 func (s *Store) HideChannel(id int64) error {
-	return s.textChannel(`UPDATE channels SET hidden = 1 WHERE id = ? AND voice_channel IS NULL`, id)
+	return s.textChannel(`UPDATE channels SET hidden = 1 WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, id)
 }
 
 // SetPositions puts the given text channels in this order.
@@ -568,7 +568,7 @@ func (s *Store) SetPositions(ids []int64) error {
 	}
 	defer tx.Rollback()
 	for i, id := range ids {
-		if _, err := tx.Exec(`UPDATE channels SET position = ? WHERE id = ? AND voice_channel IS NULL`, i, id); err != nil {
+		if _, err := tx.Exec(`UPDATE channels SET position = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, i, id); err != nil {
 			return err
 		}
 	}
@@ -577,12 +577,12 @@ func (s *Store) SetPositions(ids []int64) error {
 
 // SetTopic sets a text channel's topic.
 func (s *Store) SetTopic(id int64, topic string) error {
-	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND voice_channel IS NULL`, topic, id)
+	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, topic, id)
 }
 
 // SetMumbleChannel remembers the Mumble channel that mirrors a text channel.
 func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
-	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND voice_channel IS NULL`, mumble, id)
+	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, mumble, id)
 	return err
 }
 

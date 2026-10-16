@@ -42,3 +42,24 @@ func TestDirectChats(t *testing.T) {
 		t.Fatal("a chat with oneself")
 	}
 }
+
+// Channel management never touches direct chats: one renamed and made
+// again by name would be a public text channel.
+func TestChannelManagementLeavesDirectChatsAlone(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	dm, _ := s.DirectChat(3, 7)
+	s.RenameChannel(dm, "foo")
+	s.SetTopic(dm, "x")
+	s.CreateChannel("foo")
+	s.EnsureChannels([]string{"general", "dm:3:7"})
+	if a, b, ok, _ := s.DirectPeers(dm); !ok || a != 3 || b != 7 {
+		t.Fatal("not direct any more")
+	}
+	cs, _ := s.Channels()
+	for _, c := range cs {
+		if c.ID == dm {
+			t.Fatalf("a direct chat is a text channel: %+v", cs)
+		}
+	}
+}
