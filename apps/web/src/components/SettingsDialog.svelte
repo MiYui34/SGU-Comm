@@ -14,6 +14,7 @@
     deviceLabel = "",
     fellBack = false,
     noiseError = null,
+    voiceError = null,
     noiseRunning = null,
     onChange,
     onClose,
@@ -28,6 +29,8 @@
     fellBack?: boolean;
     // Strong noise suppression failed to load (the standard one is on).
     noiseError?: string | null;
+    // The browser cannot do voice, and why.
+    voiceError?: string | null;
     // Our filter that runs now (null: the browser's, or still loading).
     noiseRunning?: NoiseMode | null;
     onChange: (patch: Partial<Settings>) => void;
@@ -104,6 +107,9 @@
     <h2 id="settings-title">Settings</h2>
     <button class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
   </header>
+  {#if voiceError}
+    <p class="hint warn voice-error" role="status">{voiceError}</p>
+  {/if}
 
   {#if profile}<ProfilePicture {...profile} />{/if}
 
@@ -404,6 +410,10 @@
   input[type="range"],
   input[type="radio"] {
     accent-color: var(--accent);
+  }
+  .voice-error {
+    margin-bottom: 16px;
+    font-size: 14px;
   }
   .hint.warn {
     color: var(--danger);

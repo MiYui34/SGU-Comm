@@ -30,6 +30,7 @@
   import { htmlToText } from "../lib/htmlText";
   import { toChatMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
+  import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
@@ -84,6 +85,8 @@
   setAvatarPictures((name, registered) => lookup(name, registered));
 
   const capture = $derived(connection.capture);
+  // Why there is no capture: the browser lacks something.
+  const noVoice = unsupportedVoiceMessage(missingVoiceApis());
   // The server does not echo our own voice: add ourselves while sending.
   const speaking = $derived.by(() => {
     const others = connection.playback?.speaking ?? [];
@@ -609,6 +612,7 @@
 {#if showSettings}
   <SettingsDialog
     settings={prefs}
+    voiceError={capture ? null : noVoice}
     level={capture?.level ?? -100}
     deviceLabel={capture?.deviceLabel ?? ""}
     fellBack={capture?.fellBack ?? false}
@@ -672,7 +676,8 @@
         {me}
         status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
         active={voiceOn && !lobby}
-        micError={micOn ? (capture?.micError ?? null) : null}
+        micError={micOn ? (capture ? capture.micError : noVoice) : null}
+        noVoice={!capture && !!noVoice}
         onSelfState={updateSelf}
         onSettings={() => (showSettings = true)}
       />

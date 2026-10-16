@@ -9,6 +9,7 @@
     status = "Voice connected",
     active = true,
     micError,
+    noVoice = false,
     onSelfState,
     onSettings,
   }: {
@@ -18,6 +19,8 @@
     // The status in the accent colour (voice is on here).
     active?: boolean;
     micError: string | null;
+    // The browser cannot do voice (micError says why).
+    noVoice?: boolean;
     onSelfState: (s: SelfState) => void;
     onSettings: () => void;
   } = $props();
@@ -28,7 +31,7 @@
   <div class="who">
     <div class="name ellipsis">{me.name}</div>
     {#if micError}
-      <div class="status error ellipsis" title={micError}>No microphone</div>
+      <div class="status error ellipsis" title={micError}>{noVoice ? "No voice in this browser" : "No microphone"}</div>
     {:else}
       <div class="status ellipsis" class:idle={!active}>{status}</div>
     {/if}
