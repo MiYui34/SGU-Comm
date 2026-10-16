@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 // The worklet's helpers (the file registers its processor only in a worklet).
-import { createDenoiser, Fifo } from "../src/lib/voice/capture.worklet.js";
+import { createDenoiser, Fifo, inputBlock } from "../src/lib/voice/capture.worklet.js";
 
 const wasm = new WebAssembly.Module(readFileSync(createRequire(import.meta.url).resolve("@jitsi/rnnoise-wasm/dist/rnnoise.wasm")));
 
@@ -51,5 +51,14 @@ describe("Fifo (the echo test's output)", () => {
     f.push(new Float32Array(10).fill(5));
     f.pull(out);
     expect([...out]).toEqual([5, 5, 5, 5]);
+  });
+});
+
+describe("inputBlock", () => {
+  it("gives the first channel, or silence when the input has no channels (an inactive input)", () => {
+    const ch = new Float32Array([1, 2]);
+    expect(inputBlock([[ch]], 128)).toBe(ch);
+    expect(inputBlock([[]], 128)).toEqual(new Float32Array(128));
+    expect(inputBlock([], 128)).toEqual(new Float32Array(128));
   });
 });

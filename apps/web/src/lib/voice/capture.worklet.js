@@ -78,6 +78,16 @@ export class Fifo {
   }
 }
 
+// The first input channel, or silence when the input has none: an
+// inactive input (Firefox's for a silent source) has no channels, and
+// without frames a talk spurt would never end.
+let silence = new Float32Array(0); // reused: no garbage per block
+export function inputBlock(inputs, quantum) {
+  if (inputs[0]?.[0]) return inputs[0][0];
+  if (silence.length !== quantum) silence = new Float32Array(quantum);
+  return silence;
+}
+
 if (typeof AudioWorkletProcessor !== "undefined") {
   class CaptureProcessor extends AudioWorkletProcessor {
     constructor(options) {
@@ -105,14 +115,12 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     }
 
     process(inputs, outputs) {
-      const input = inputs[0]?.[0];
-      if (input) {
-        for (let i = 0; i < input.length; i++) {
-          this.frame[this.filled++] = input[i];
-          if (this.filled === this.size) this.flush();
-        }
-      }
       const out = outputs[0]?.[0];
+      const input = inputBlock(inputs, out?.length ?? 128);
+      for (let i = 0; i < input.length; i++) {
+        this.frame[this.filled++] = input[i];
+        if (this.filled === this.size) this.flush();
+      }
       if (out) this.echo.pull(out);
       return true;
     }
