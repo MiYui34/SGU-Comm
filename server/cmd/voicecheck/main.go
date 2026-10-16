@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -32,6 +33,7 @@ func main() {
 	channel := flag.String("channel", "", "channel to join (empty: stay in root)")
 	password := flag.String("password", "", "server password")
 	insecure := flag.Bool("insecure", false, "accept any server certificate")
+	duration := flag.Duration("for", 0, "stop after this long (0: at Ctrl-C)")
 	flag.Parse()
 
 	conn, err := tls.Dial("tcp", *server, &tls.Config{InsecureSkipVerify: *insecure})
@@ -60,9 +62,16 @@ func main() {
 	heard := map[uint32][]packet{}
 	channels := map[string]uint32{}
 	go func() {
-		interrupt := make(chan os.Signal, 1)
-		signal.Notify(interrupt, os.Interrupt)
-		<-interrupt
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+		var timeout <-chan time.Time
+		if *duration > 0 {
+			timeout = time.After(*duration)
+		}
+		select {
+		case <-stop:
+		case <-timeout:
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		os.Exit(printReport(names, heard, time.Now()))
