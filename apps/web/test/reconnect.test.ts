@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { proto } from "@kallisti/protocol";
-import { busyName, reconnectDelay, shouldReconnect } from "../src/lib/reconnect";
+import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "../src/lib/reconnect";
 
 const lost = { status: "synced" as const, closed: true, closeReason: "", wasSynced: true };
 
@@ -16,6 +16,18 @@ describe("shouldReconnect", () => {
     expect(shouldReconnect({ ...lost, status: "kicked" })).toBe(false);
     expect(shouldReconnect({ ...lost, status: "rejected" })).toBe(false);
     expect(shouldReconnect({ ...lost, closeReason: "certificate-changed ab" })).toBe(false);
+  });
+
+  it("not after the server ended the session (logout elsewhere)", () => {
+    expect(shouldReconnect({ ...lost, closeReason: "logged out" })).toBe(false);
+  });
+});
+
+describe("loggedOut", () => {
+  it("is the server's close after a logout or password change", () => {
+    expect(loggedOut("logged out")).toBe(true);
+    expect(loggedOut("no authentication")).toBe(false);
+    expect(loggedOut("")).toBe(false);
   });
 });
 

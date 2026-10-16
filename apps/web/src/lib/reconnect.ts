@@ -1,16 +1,24 @@
 import { proto, type ServerState } from "@kallisti/protocol";
 import { certificateProblem } from "./desktop";
 
+// The server closed the connection because its session ended (a logout,
+// also on another device, or a password change there). Same reason text as
+// the bridge's Revoke.
+export const loggedOut = (closeReason: string) => closeReason === "logged out";
+
 // Coming back by itself after a lost connection (a background tab, the
 // network, a server restart): only for a connection that was in, and not
-// after a kick, a refusal or a certificate question (the user decides).
+// after a kick, a refusal, a logout or a certificate question (the user
+// decides).
 export const shouldReconnect = (c: {
   status: ServerState["status"];
   closed: boolean;
   closeReason: string;
   wasSynced: boolean;
 }) =>
-  c.closed && c.wasSynced && c.status !== "kicked" && c.status !== "rejected" && certificateProblem(c.closeReason) === null;
+  c.closed && c.wasSynced && c.status !== "kicked" && c.status !== "rejected" &&
+  !loggedOut(c.closeReason) &&
+  certificateProblem(c.closeReason) === null;
 
 const DELAYS_MS = [1000, 2000, 5000, 10_000, 20_000, 30_000];
 

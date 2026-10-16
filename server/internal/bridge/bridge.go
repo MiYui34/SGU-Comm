@@ -94,7 +94,8 @@ func New(opts Options) *Bridge {
 }
 
 // Revoke closes the open account connections (code 1008) whose account ID
-// and session match: their sessions ended.
+// and session match: their sessions ended. The web client knows the reason
+// text and does not reconnect.
 func (b *Bridge) Revoke(match func(accountID int64, session string) bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

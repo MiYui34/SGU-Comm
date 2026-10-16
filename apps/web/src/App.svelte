@@ -15,7 +15,7 @@
   import { httpBase } from "./lib/textChannels";
   import { connectionError, proxyUrl } from "./lib/status";
   import type { Place } from "./lib/place";
-  import { busyName, reconnectDelay, shouldReconnect } from "./lib/reconnect";
+  import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
   import { untrack } from "svelte";
   import { voiceSupported } from "./lib/voice/support";
 
@@ -66,6 +66,15 @@
     void audio?.close();
     audio = null;
   };
+  // The session ended on the server (a logout or password change on
+  // another device): back to the login screen, as after a logout.
+  $effect(() => {
+    if (connection?.closed && loggedOut(connection.closeReason))
+      untrack(() => {
+        account = null;
+        leave("You were logged out.");
+      });
+  });
   const accountActions: AccountActions = {
     get temporary() {
       return account?.temporary ?? false;
@@ -202,10 +211,10 @@
         next.close();
         // Our old session may still hold the name: try a few more times.
         if (busyName(next.state) && ++busyTries < BUSY_NAME_TRIES) return schedule();
-        // Refused now (for example banned meanwhile), or a certificate
-        // question: show it; else try again.
+        // Refused now (for example banned meanwhile), logged out, or a
+        // certificate question: show it; else try again.
         const refused = next.state.status === "rejected" || next.state.status === "kicked";
-        if (refused || certificateProblem(next.closeReason)) connection = next;
+        if (refused || loggedOut(next.closeReason) || certificateProblem(next.closeReason)) connection = next;
         else schedule();
       });
     }
