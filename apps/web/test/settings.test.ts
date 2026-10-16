@@ -18,6 +18,7 @@ describe("parseSettings", () => {
       notifications: true,
       closeMicWhenMuted: true,
       noiseSuppression: "strong",
+      streamPreviews: false,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });

@@ -10,9 +10,14 @@ const BITRATE = 2_500_000;
 const KEYFRAME_EVERY = FPS * 8; // frames; viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
 const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
+// Thumbnails for people not watching: small JPEGs, now and then.
+const PREVIEW_EVERY_MS = 15_000;
+const PREVIEW_FIRST_MS = 2_000;
+const PREVIEW_WIDTH = 320;
+const MAX_PREVIEW = 60_000; // characters of the data URL (the server takes 64 KiB)
 
 type Viewer = { decoder: VideoDecoder | null; needKey: boolean; canvas: HTMLCanvasElement | null };
-type Text = { type: string; session?: number; codec?: string; message?: string };
+type Text = { type: string; session?: number; sessions?: number[]; codec?: string; message?: string };
 
 export const streamingSupported = () =>
   typeof VideoEncoder !== "undefined" &&
@@ -34,8 +39,11 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   let stopFrames: (() => void) | null = null;
   let forceKey = true;
   let started: ((err: string | null) => void) | null = null;
+  // Who watches our stream (sessions), and whether others see thumbnails.
+  let viewers = $state<number[]>([]);
+  let previews = true;
   // Watching: by streamer session.
-  const viewers = new Map<number, Viewer>();
+  const watched = new Map<number, Viewer>();
   let watching = $state<number[]>([]);
 
   // The connection: open once the server took the token ("ready").
@@ -59,7 +67,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         if (ws === sock) ws = null;
         started?.("the screen sharing connection closed");
         stopSharing(false);
-        for (const s of [...viewers.keys()]) unwatch(s, false);
+        for (const s of [...watched.keys()]) unwatch(s, false);
       };
       ws = sock;
       return sock;
@@ -79,6 +87,9 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         break;
       case "stopped":
         stopSharing(false);
+        break;
+      case "viewers":
+        viewers = m.sessions ?? [];
         break;
       case "error":
         // About a stream we wanted to watch, or about our own.
@@ -133,7 +144,13 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
       sharing = true;
       preview = screen;
       let n = 0;
+      let previewAt = performance.now() + PREVIEW_FIRST_MS;
       stopFrames = frames(track, (frame) => {
+        if (previews && performance.now() >= previewAt) {
+          previewAt = performance.now() + PREVIEW_EVERY_MS;
+          const image = thumbnail(frame);
+          if (image.length <= MAX_PREVIEW) send({ type: "preview", image });
+        }
         if (!encoder || encoder.state !== "configured" || encoder.encodeQueueSize > 2 || sock.bufferedAmount > MAX_BUFFERED) {
           if (sock.bufferedAmount > MAX_BUFFERED) forceKey = true; // viewers miss frames: start whole again
           frame.close();
@@ -170,15 +187,16 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     screen = null;
     sharing = false;
     preview = null;
+    viewers = [];
   };
 
   // Watching -----------------------------------------------------------
 
   const watch = async (session: number) => {
     error = null;
-    if (viewers.has(session)) return;
-    viewers.set(session, { decoder: null, needKey: true, canvas: null });
-    watching = [...viewers.keys()];
+    if (watched.has(session)) return;
+    watched.set(session, { decoder: null, needKey: true, canvas: null });
+    watching = [...watched.keys()];
     try {
       await open();
       send({ type: "watch", session });
@@ -199,7 +217,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
 
   // A decoder for a stream, then a keyframe to start from.
   const configure = (session: number, codec: string) => {
-    const v = viewers.get(session);
+    const v = watched.get(session);
     if (!v) return;
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     v.needKey = true;
@@ -215,7 +233,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
         }
         frame.close();
       },
-      error: () => viewers.get(session) === v && configure(session, codec), // start over
+      error: () => watched.get(session) === v && configure(session, codec), // start over
     });
     v.decoder.configure({ codec, optimizeForLatency: true });
     send({ type: "keyframe", session });
@@ -223,7 +241,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
 
   const onFrame = (buf: ArrayBuffer) => {
     const f = decodeFrame(buf);
-    const v = f && viewers.get(f.session);
+    const v = f && watched.get(f.session);
     if (!f || !v?.decoder || v.decoder.state !== "configured") return;
     if (!f.key && (v.needKey || v.decoder.decodeQueueSize > MAX_DECODE_QUEUE)) {
       if (!v.needKey) send({ type: "keyframe", session: f.session }); // too slow: skip ahead
@@ -235,12 +253,12 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
   };
 
   const unwatch = (session: number, tell = true) => {
-    const v = viewers.get(session);
+    const v = watched.get(session);
     if (!v) return;
     if (tell) send({ type: "unwatch", session });
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
-    viewers.delete(session);
-    watching = [...viewers.keys()];
+    watched.delete(session);
+    watching = [...watched.keys()];
   };
 
   return {
@@ -256,6 +274,11 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     get watching() {
       return watching;
     },
+    get viewers() {
+      return viewers;
+    },
+    // Whether others see thumbnails of our stream (a setting).
+    setPreviews: (on: boolean) => (previews = on),
     startSharing,
     stopSharing: () => stopSharing(true),
     clearError: () => (error = null),
@@ -263,7 +286,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>) =>
     unwatch: (session: number) => unwatch(session),
     // Where a watched stream is drawn (null: nowhere for now).
     attach: (session: number, canvas: HTMLCanvasElement | null) => {
-      const v = viewers.get(session);
+      const v = watched.get(session);
       if (v) v.canvas = canvas;
     },
     close: () => {
@@ -292,6 +315,15 @@ const encoderConfig = (codec: string, width: number, height: number): VideoEncod
 // another window). Elsewhere a hidden video element is drawn on a worker's
 // timer (page timers are slowed in hidden tabs; worker timers less so).
 type ProcessorCtor = new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
+
+// A frame as a small JPEG data URL.
+const thumbnail = (frame: VideoFrame): string => {
+  const canvas = document.createElement("canvas");
+  canvas.width = PREVIEW_WIDTH;
+  canvas.height = Math.round((PREVIEW_WIDTH * frame.displayHeight) / Math.max(1, frame.displayWidth));
+  canvas.getContext("2d")?.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.6);
+};
 
 const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): (() => void) => {
   const Processor = (globalThis as { MediaStreamTrackProcessor?: ProcessorCtor }).MediaStreamTrackProcessor;

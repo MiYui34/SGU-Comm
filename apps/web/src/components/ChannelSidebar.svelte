@@ -25,6 +25,7 @@
     listenOnly = {},
     directs = [],
     live = new Set(),
+    previews = {},
     onWatch,
     currentDirect = null,
     onOpenDirect,
@@ -55,6 +56,8 @@
     listenOnly?: Readonly<Record<number, unknown>>;
     // Sessions sharing their screen, and watching one.
     live?: ReadonlySet<number>;
+    // Thumbnails of the streams (shown on the LIVE button).
+    previews?: Readonly<Record<number, string>>;
     onWatch?: (session: number) => void;
     // Stored direct chats, the newest first (mentions: unread messages).
     directs?: { channel: number; peer: Peer }[];
@@ -138,9 +141,14 @@
             {#if live.has(user.session) && user.session === server.session}
               <span class="live" title="You are sharing your screen">LIVE</span>
             {:else if live.has(user.session)}
-              <button class="live" title="Watch {user.name}'s screen" aria-label="Watch {user.name}'s screen" onclick={() => onWatch?.(user.session)}
-                >LIVE</button
-              >
+              <span class="live-wrap">
+                <button class="live" title="Watch {user.name}'s screen" aria-label="Watch {user.name}'s screen" onclick={() => onWatch?.(user.session)}
+                  >LIVE</button
+                >
+                {#if previews[user.session]}
+                  <img class="live-preview" src={previews[user.session]} alt="" />
+                {/if}
+              </span>
             {/if}
           </li>
         {/each}
@@ -358,9 +366,31 @@
     flex: 1;
     min-width: 0;
   }
-  .live {
+  .live-wrap {
+    position: relative;
     flex: none;
     margin-right: 8px;
+  }
+  .live-preview {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    display: none;
+    width: 200px;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+    pointer-events: none;
+  }
+  .live-wrap:hover .live-preview,
+  .live-wrap:focus-within .live-preview {
+    display: block;
+  }
+  span.live {
+    margin-right: 8px;
+  }
+  .live {
+    flex: none;
     padding: 0 5px;
     border-radius: 3px;
     background: var(--danger);

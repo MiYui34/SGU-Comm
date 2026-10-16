@@ -261,6 +261,11 @@
     <span class="hint">The browser then stops showing it as recording, but the sound stops for a moment when you mute or unmute.</span>
   </label>
   <label class="check">
+    <input type="checkbox" checked={settings.streamPreviews} onchange={(e) => onChange({ streamPreviews: e.currentTarget.checked })} />
+    <span>Show a preview of my screen share</span>
+    <span class="hint">People who are not watching see a small picture of it, updated every few seconds.</span>
+  </label>
+  <label class="check">
     <input
       type="checkbox"
       checked={settings.notifications}

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The streamer's own screen share, small, with Stop.
-  let { stream, onStop }: { stream: MediaStream; onStop: () => void } = $props();
+  // viewers: the names of those watching.
+  let { stream, viewers = [], onStop }: { stream: MediaStream; viewers?: string[]; onStop: () => void } = $props();
   const show = (video: HTMLVideoElement, s: MediaStream) => {
     video.srcObject = s;
     return { update: (next: MediaStream) => (video.srcObject = next) };
@@ -11,6 +12,9 @@
   <video use:show={stream} autoplay muted playsinline></video>
   <div class="bar">
     <span class="live">LIVE</span>
+    <span class="viewers" title={viewers.length ? viewers.join(", ") : "Nobody is watching yet"}>
+      {viewers.length} watching<span class="sr-only">: {viewers.join(", ")}</span>
+    </span>
     <button onclick={onStop}>Stop</button>
   </div>
 </section>
@@ -42,6 +46,12 @@
     color: #fff;
     font-size: 11px;
     font-weight: 700;
+  }
+  .viewers {
+    flex: 1;
+    margin-left: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
   }
   button {
     padding: 4px 10px;

@@ -40,3 +40,18 @@ describe("live streams in the text state", () => {
     expect(ev({ type: "stream-token", token: "abc" })).toEqual({ type: "stream-token", token: "abc" });
   });
 });
+
+describe("stream previews in the text state", () => {
+  it("come with ready and with stream-preview events, and survive list changes", () => {
+    const ev = (v: object) => parseServerEvent(JSON.stringify(v))!;
+    let s = reduceText(initialTextState, ev({ type: "ready", channels: [], streams: [{ session: 4, channel: 2, preview: "data:image/jpeg;base64,AA" }] }));
+    expect(s.streamPreviews[4]).toBe("data:image/jpeg;base64,AA");
+    s = reduceText(s, ev({ type: "stream-preview", session: 4, image: "data:image/jpeg;base64,BB" }));
+    expect(s.streamPreviews[4]).toBe("data:image/jpeg;base64,BB");
+    s = reduceText(s, ev({ type: "streams", streams: [{ session: 4, channel: 2 }] }));
+    expect(s.streamPreviews[4]).toBe("data:image/jpeg;base64,BB");
+    s = reduceText(s, ev({ type: "streams", streams: [] }));
+    expect(s.streamPreviews[4]).toBeUndefined();
+    expect(ev({ type: "stream-preview", session: 4, image: "javascript:alert(1)" })).toBeNull();
+  });
+});

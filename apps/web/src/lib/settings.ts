@@ -12,6 +12,8 @@ export type Settings = {
   // Close the microphone while muted (the browser stops showing it as
   // recording, but opening it again interrupts the sound for a moment).
   closeMicWhenMuted: boolean;
+  // Others see a thumbnail of our screen share before they watch.
+  streamPreviews: boolean;
   // See voice/noise.ts.
   noiseSuppression: NoiseMode;
 };
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   outputDeviceId: null,
   notifications: false,
   closeMicWhenMuted: false,
+  streamPreviews: true,
   noiseSuppression: "browser",
 };
 
@@ -54,6 +57,7 @@ export const parseSettings = (raw: string | null): Settings => {
     outputDeviceId: str(d.outputDeviceId),
     notifications: d.notifications === true,
     closeMicWhenMuted: d.closeMicWhenMuted === true,
+    streamPreviews: d.streamPreviews !== false,
     noiseSuppression: d.noiseSuppression === "strong" || d.noiseSuppression === "strongest" ? d.noiseSuppression : "browser",
   };
 };

@@ -620,6 +620,9 @@
     });
   });
   const nameOfSession = (session: number) => server.users[session]?.name ?? "someone";
+  $effect(() => {
+    streamClient?.setPreviews(prefs.streamPreviews);
+  });
   // A direct chat from the list: the partner's session if online.
   const openDirect = (peer: Peer) => {
     const user = Object.values(server.users).find((u) => u.userId === peer.id);
@@ -775,6 +778,7 @@
       {mentionVoice}
       listenOnly={text.listenOnly}
       live={liveSessions}
+      previews={text.streamPreviews}
       onWatch={streamClient ? watchStream : undefined}
       directs={directList}
       currentDirect={directChatId}
@@ -791,7 +795,7 @@
     {#if me}
       {#if lobby && voiceOn}
         {#if streamClient?.preview}
-          <StreamPreview stream={streamClient.preview} onStop={() => streamClient?.stopSharing()} />
+          <StreamPreview stream={streamClient.preview} viewers={streamClient.viewers.map(nameOfSession)} onStop={() => streamClient?.stopSharing()} />
         {/if}
         <VoiceBar
           channel={channelName}

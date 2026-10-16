@@ -48,7 +48,7 @@ export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
 export type Peer = { id: number; name: string };
 export type DirectChat = { channel: number; peer: Peer };
 // A screen share in a voice channel, by its streamer's session.
-export type LiveStream = { session: number; channel: number };
+export type LiveStream = { session: number; channel: number; preview?: string };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
@@ -73,6 +73,8 @@ export type ServerEvent =
   | ({ type: "dm" } & DirectChat)
   // The live screen shares changed.
   | { type: "streams"; streams: LiveStream[] }
+  // A screen share's new thumbnail (a JPEG data URL).
+  | { type: "stream-preview"; session: number; image: string }
   // A token for the stream connection (asked for by the connection).
   | { type: "stream-token"; token: string }
   // The listen-only voice channels changed.
@@ -117,8 +119,9 @@ export type TextState = {
   listenOnly: Readonly<Record<number, Speaker[]>>;
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
-  // Live screen shares.
+  // Live screen shares, and their thumbnails by streamer session.
   streams: readonly LiveStream[];
+  streamPreviews: Readonly<Record<number, string>>;
   // From ready (registered users): read marks, and the newest message and
   // unread mentions per channel at that time.
   reads: Readonly<Record<number, number>>;
@@ -144,6 +147,7 @@ export const initialTextState: TextState = {
   listenOnly: {},
   directs: {},
   streams: [],
+  streamPreviews: {},
   reads: {},
   summary: {},
   voiceChannels: {},
@@ -178,7 +182,12 @@ const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr
 const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && Array.isArray(c.speakers) && c.speakers.every(isSpeaker));
 const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
-const isStreams = (v: unknown): v is LiveStream[] => Array.isArray(v) && v.every((s) => isObj(s) && isNum(s.session) && isNum(s.channel));
+const isStreamPreview = (v: unknown): v is string => isStr(v) && v.startsWith("data:image/jpeg;base64,");
+const isStreams = (v: unknown): v is LiveStream[] =>
+  Array.isArray(v) && v.every((s) => isObj(s) && isNum(s.session) && isNum(s.channel) && (s.preview === undefined || isStreamPreview(s.preview)));
+// Thumbnails of the streams that are still live.
+const keepPreviews = (previews: TextState["streamPreviews"], streams: readonly LiveStream[]) =>
+  Object.fromEntries(streams.flatMap((s) => (s.preview ?? previews[s.session] ? [[s.session, s.preview ?? previews[s.session]!]] : [])));
 const isDirect = (v: unknown): v is DirectChat =>
   isObj(v) && isNum(v.channel) && isObj(v.peer) && isNum(v.peer.id) && isStr(v.peer.name);
 
@@ -265,6 +274,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
       return isStr(v.token) ? { type: "stream-token", token: v.token } : null;
+    case "stream-preview":
+      return isNum(v.session) && isStreamPreview(v.image) ? { type: "stream-preview", session: v.session, image: v.image } : null;
     case "dm":
       return isDirect(v) ? { type: "dm", channel: v.channel, peer: { id: v.peer.id, name: v.peer.name } } : null;
     case "voice-chat":
@@ -340,6 +351,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
+        streamPreviews: keepPreviews({}, event.streams ?? []),
         reads: event.reads ?? {},
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
         voiceChannels: {
@@ -352,7 +364,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "streams":
-      return { ...state, streams: event.streams };
+      return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
+    case "stream-preview":
+      return { ...state, streamPreviews: { ...state.streamPreviews, [event.session]: event.image } };
     case "stream-token": // answered by the connection, not state
       return state;
     case "dm":
