@@ -19,12 +19,6 @@ func (s *Server) voice(c *client, packet []byte) {
 	if !ok || !c.bandwidth.AllowN(time.Now(), 20+8+4+len(packet)) {
 		return
 	}
-	type receiver struct {
-		c        *client
-		addr     netip.AddrPort
-		ctx      AudioContext
-		position bool
-	}
 	s.mu.Lock()
 	var receivers []receiver
 	sender := s.state.Users[c.session]
@@ -42,7 +36,21 @@ func (s *Server) voice(c *client, packet []byte) {
 	}
 	udp := s.udp
 	s.mu.Unlock()
-	// One packet (and TCP frame) per format and context, at most eight.
+	deliver(p, c.session, receivers, udp)
+}
+
+// receiver is one client a voice packet goes to.
+type receiver struct {
+	c        *client
+	addr     netip.AddrPort // UDP, if it uses it
+	ctx      AudioContext
+	position bool
+}
+
+// deliver sends a voice packet from a session to its receivers (outside
+// the lock): one packet (and TCP frame) per format and context, at most
+// eight.
+func deliver(p audioPacket, from uint32, receivers []receiver, udp *net.UDPConn) {
 	type kind struct {
 		legacy, position bool
 		ctx              AudioContext
@@ -53,7 +61,7 @@ func (s *Server) voice(c *client, packet []byte) {
 		k := kind{r.c.legacy, r.position, r.ctx}
 		out, ok := packets[k]
 		if !ok {
-			out.udp = encodeServerAudio(p, c.session, r.ctx, r.c.legacy, r.position)
+			out.udp = encodeServerAudio(p, from, r.ctx, r.c.legacy, r.position)
 			out.tcp = mumble.EncodeFrame(mumble.TypeUDPTunnel, out.udp)
 			packets[k] = out
 		}

@@ -294,3 +294,23 @@ func TestAudioFramesReachAllViewers(t *testing.T) {
 		t.Fatal("accepted another sound codec")
 	}
 }
+
+func TestSoundIsPassedOn(t *testing.T) {
+	h, _, _ := setup()
+	var got [][]byte
+	var stamps []uint64
+	h.OnSound = func(streamer uint32, opus []byte, ts uint64) {
+		got, stamps = append(got, opus), append(stamps, ts)
+	}
+	var last []Info
+	h.OnChange = func(i []Info) { last = i }
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Audio: "opus"})
+	if len(last) != 1 || !last[0].Audio {
+		t.Fatalf("streams %v", last)
+	}
+	h.Frame(1, audio(7))
+	h.Frame(1, frame(true, 8))
+	if len(got) != 1 || got[0][0] != 7 || stamps[0] != 1 {
+		t.Fatalf("sound %v %v", got, stamps)
+	}
+}

@@ -109,6 +109,8 @@ type PrivateText struct {
 
 type Server struct {
 	cfg Config
+	// Screen share sound, by streamer session (see streamsound.go). Under mu.
+	streams map[uint32]*streamUser
 	// Taken before mu by changes that are saved, so saves keep their order.
 	saveMu sync.Mutex
 	// Web account registrations and their removal take turns (see
@@ -194,6 +196,7 @@ func New(cfg Config) (*Server, error) {
 		clients: map[uint32]*client{},
 		byAddr:  map[netip.AddrPort]*client{},
 		byHost:  map[netip.Addr]map[*client]bool{},
+		streams: map[uint32]*streamUser{},
 	}
 	srv.bans.Store(&bans)
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)

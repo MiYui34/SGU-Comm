@@ -43,6 +43,7 @@ type Info struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`
 	Preview string `json:"preview,omitempty"`
+	Audio   bool   `json:"-"` // it has sound
 }
 
 const (
@@ -86,7 +87,10 @@ type Hub struct {
 	OnChange func([]Info)
 	// OnPreview gets a stream's new thumbnail (outside the lock).
 	OnPreview func(Info)
-	now       func() time.Time
+	// OnSound gets a stream's sound frames (Opus; timestamp in
+	// microseconds), outside the lock: for Mumble clients.
+	OnSound func(streamer uint32, opus []byte, timestamp uint64)
+	now     func() time.Time
 
 	// changes keeps OnChange calls in order (taken before mu).
 	changes sync.Mutex
@@ -238,11 +242,18 @@ func (h *Hub) Frame(streamer uint32, f []byte) {
 	}
 	key, sound := f[0]&keyFlag != 0, f[0]&audioFlag != 0
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	st := h.streams[streamer]
 	if st == nil {
+		h.mu.Unlock()
 		return
 	}
+	withSound := st.config.Audio != ""
+	defer func() {
+		h.mu.Unlock()
+		if sound && withSound && h.OnSound != nil {
+			h.OnSound(streamer, f[headerSize:], binary.BigEndian.Uint64(f[1:headerSize]))
+		}
+	}()
 	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
 	out = append(out, f...)
 	for v, vw := range st.viewers {
@@ -314,7 +325,8 @@ func (h *Hub) Streams() []Info {
 	defer h.mu.Unlock()
 	out := []Info{}
 	for _, s := range slices.Sorted(maps.Keys(h.streams)) {
-		out = append(out, Info{Session: s, Channel: h.streams[s].channel, Preview: h.streams[s].preview})
+		st := h.streams[s]
+		out = append(out, Info{Session: s, Channel: st.channel, Preview: st.preview, Audio: st.config.Audio != ""})
 	}
 	return out
 }

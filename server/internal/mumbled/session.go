@@ -373,6 +373,11 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	}
 	s.state.Refresh(u)
 	c.send(s.state.snapshot(u), false)
+	if !c.web {
+		for _, su := range s.streams {
+			c.send(su.state(), false)
+		}
+	}
 	s.state.AddUser(u)
 	s.clients[c.session] = c
 	if s.byHost[c.host] == nil {
@@ -436,6 +441,7 @@ func (s *Server) saveLastChannel(u User) {
 // the user as it was.
 func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 	u := *s.state.Users[c.session]
+	s.endStreamSoundLocked(c.session)
 	delete(s.clients, c.session)
 	if delete(s.byHost[c.host], c); len(s.byHost[c.host]) == 0 {
 		delete(s.byHost, c.host)
