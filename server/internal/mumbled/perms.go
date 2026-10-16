@@ -170,6 +170,7 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	if m.GetChannelId() == 0 {
 		defer s.rolesChanged() // roles live in root's groups; runs after the unlock
 	}
+	defer s.listenOnlyChanged()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch, u = s.state.Channels[m.GetChannelId()], s.state.Users[c.session]
@@ -222,13 +223,7 @@ func aclUserIDs(m *pb.ACL) []uint32 {
 // registeredIDs keeps the ids of registered users.
 func (s *Server) registeredIDs(ids []uint32) map[uint32]bool {
 	known := map[uint32]bool{}
-	if s.cfg.DB == nil || len(ids) == 0 {
-		return known
-	}
-	names, err := s.cfg.DB.UserNames(ids)
-	if err != nil {
-		slog.Error("looking up users", "err", err)
-	}
+	names, _ := s.userNames(ids)
 	for id := range names {
 		known[id] = true
 	}

@@ -29,6 +29,8 @@ type fakeVoice struct {
 	users map[uint32]MumbleUser
 	web   map[uint32]bool
 	gone  map[uint32]bool
+	// The last SetListenOnly.
+	listenOnly []ListenOnlyChannel
 }
 
 func (f *fakeVoice) MumbleClient(session uint32) (MumbleUser, bool) {
@@ -319,5 +321,59 @@ func TestGuestsImagesAreNotStored(t *testing.T) {
 	h.MumbleText(mumble.Identity{Session: 9, Name: "guest", Registered: false}, 100, "look", []Image{{Type: "image/png", Data: []byte("a")}})
 	if m := next(t, web)["message"].(map[string]any); m["text"] != "look" || m["upload"] != nil {
 		t.Fatalf("message %v", m)
+	}
+}
+
+// Session 1 may: the fake keeps the last change.
+func (f *fakeVoice) SetListenOnly(session, channel uint32, on bool, speakers []uint32) error {
+	if session != 1 {
+		return errors.New("only admins and moderators make channels listen-only")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listenOnly = nil
+	if on {
+		f.listenOnly = []ListenOnlyChannel{{Channel: channel, Speakers: []Speaker{}}}
+		for _, id := range speakers {
+			f.listenOnly[0].Speakers = append(f.listenOnly[0].Speakers, Speaker{ID: id, Name: "user" + strconv.Itoa(int(id))})
+		}
+	}
+	return nil
+}
+
+func (f *fakeVoice) ListenOnly() []ListenOnlyChannel {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.listenOnly)
+}
+
+func TestListenOnlyChannels(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	mod := h.Connect()
+	t.Cleanup(mod.Close)
+	mod.SetIdentity(mumble.Identity{Session: 1, Name: "mod"})
+	if lo, ok := next(t, mod)["listenOnly"].([]any); !ok || len(lo) != 0 {
+		t.Fatal("no listen-only list in ready")
+	}
+	bob := readyAs(t, h, 2, "bob")
+	bob.Handle([]byte(`{"type":"set-listen-only","voice":4,"on":true}`))
+	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
+		t.Fatalf("bob got %v", m)
+	}
+	mod.Handle([]byte(`{"type":"set-listen-only","voice":4,"on":true,"users":[9]}`))
+	// The voice server reports the change; everyone gets the list.
+	h.ListenOnlyChanged()
+	for _, c := range []*Conn{mod, bob} {
+		m := next(t, c)
+		lo := m["channels"].([]any)
+		if m["type"] != "listen-only" || len(lo) != 1 {
+			t.Fatalf("got %v", m)
+		}
+		ch := lo[0].(map[string]any)
+		sp := ch["speakers"].([]any)[0].(map[string]any)
+		if ch["channel"] != float64(4) || sp["id"] != float64(9) || sp["name"] != "user9" {
+			t.Fatalf("got %v", m)
+		}
 	}
 }

@@ -67,10 +67,10 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		return nil, err
 	}
 	var onText func(mumbled.ChannelText)
-	var onRoles func()
+	var onRoles, onListenOnly func()
 	var onMoved func(session, from, to uint32)
 	if hub != nil {
-		onRoles, onMoved = hub.RolesChanged, hub.UserMoved
+		onRoles, onListenOnly, onMoved = hub.RolesChanged, hub.ListenOnlyChanged, hub.UserMoved
 		onText = func(t mumbled.ChannelText) {
 			imgs := make([]sidecar.Image, len(t.Images))
 			for i, img := range t.Images {
@@ -88,9 +88,10 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 			acc, err := db.AccountByName(name)
 			return err == nil && accountCertHash(acc) == hash
 		},
-		OnChannelText:  onText,
-		OnRolesChanged: onRoles,
-		OnUserMoved:    onMoved,
+		OnChannelText:       onText,
+		OnRolesChanged:      onRoles,
+		OnListenOnlyChanged: onListenOnly,
+		OnUserMoved:         onMoved,
 	})
 	if err != nil {
 		return nil, err
@@ -149,6 +150,18 @@ func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
 func (v voiceServer) MumbleClient(session uint32) (sidecar.MumbleUser, bool) {
 	u, ok := v.Server.MumbleClient(session)
 	return sidecar.MumbleUser{Registered: u.Registered, UserID: u.UserID}, ok
+}
+
+func (v voiceServer) ListenOnly() []sidecar.ListenOnlyChannel {
+	var out []sidecar.ListenOnlyChannel
+	for _, c := range v.Server.ListenOnly() {
+		speakers := make([]sidecar.Speaker, len(c.Speakers))
+		for i, sp := range c.Speakers {
+			speakers[i] = sidecar.Speaker{ID: sp.ID, Name: sp.Name}
+		}
+		out = append(out, sidecar.ListenOnlyChannel{Channel: c.Channel, Speakers: speakers})
+	}
+	return out
 }
 
 // dial makes an in-process session for a web client.

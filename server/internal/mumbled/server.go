@@ -40,6 +40,9 @@ type Config struct {
 	OnChannelText func(ChannelText)
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
+	// OnListenOnlyChanged runs after a channel's ACL changed (see
+	// ListenOnly).
+	OnListenOnlyChanged func()
 	// OnUserMoved hears users join (from NoChannel), change channels and
 	// leave (to NoChannel), in order, outside the server lock.
 	OnUserMoved func(session, from, to uint32)

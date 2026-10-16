@@ -49,6 +49,12 @@ type Voice interface {
 	SetModerator(session, user uint32, on bool) error
 	// Roles: registered user ids of admins and moderators.
 	Roles() (admins, moderators []uint32)
+	// SetListenOnly makes a voice channel listen-only for all but the
+	// given registered users, or not (admins and moderators).
+	SetListenOnly(session, channel uint32, on bool, speakers []uint32) error
+	// ListenOnly lists the listen-only voice channels (speaker lists are
+	// never nil).
+	ListenOnly() []ListenOnlyChannel
 	// SyncTextChannels keeps a Mumble channel per text channel (in order)
 	// and returns them.
 	SyncTextChannels(want []Mirror) ([]uint32, error)
@@ -57,6 +63,18 @@ type Voice interface {
 	// MumbleClient: the session is a Mumble client (not a web client), and
 	// who it is.
 	MumbleClient(session uint32) (MumbleUser, bool)
+}
+
+// ListenOnlyChannel is a voice channel where only its speakers may speak.
+type ListenOnlyChannel struct {
+	Channel  uint32    `json:"channel"`
+	Speakers []Speaker `json:"speakers"`
+}
+
+// Speaker is a registered user who may speak in a listen-only channel.
+type Speaker struct {
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
 }
 
 // MumbleUser is who a Mumble client is (see Voice.MumbleClient).
@@ -195,7 +213,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	if becomesReady {
 		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
 		if c.hub.voice != nil {
-			ready["roles"] = c.hub.roles()
+			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
@@ -277,22 +295,23 @@ func toWire(m store.Message) wireMessage {
 }
 
 type request struct {
-	Type      string  `json:"type"`
-	Name      string  `json:"name"`     // create-channel, rename-channel
-	Channels  []int64 `json:"channels"` // order-channels
-	Voice     uint32  `json:"voice"`    // voice-chat: the Mumble channel
-	Channel   int64   `json:"channel"`
-	Before    int64   `json:"before"`
-	Text      string  `json:"text"`
-	Upload    string  `json:"upload"`    // key of an upload to attach
-	Message   int64   `json:"message"`   // edit-message, delete-message
-	Reply     int64   `json:"reply"`     // send: the message it answers
-	Author    string  `json:"author"`    // search: only this author
-	User      uint32  `json:"user"`      // set-moderator: registered user id
-	Moderator bool    `json:"moderator"` // set-moderator
-	Messages  []int64 `json:"messages"`  // previews
-	Emoji     string  `json:"emoji"`     // react
-	On        bool    `json:"on"`        // react: add (or remove)
+	Type      string   `json:"type"`
+	Name      string   `json:"name"`     // create-channel, rename-channel
+	Channels  []int64  `json:"channels"` // order-channels
+	Voice     uint32   `json:"voice"`    // voice-chat: the Mumble channel
+	Channel   int64    `json:"channel"`
+	Before    int64    `json:"before"`
+	Text      string   `json:"text"`
+	Upload    string   `json:"upload"`    // key of an upload to attach
+	Message   int64    `json:"message"`   // edit-message, delete-message
+	Reply     int64    `json:"reply"`     // send: the message it answers
+	Author    string   `json:"author"`    // search: only this author
+	User      uint32   `json:"user"`      // set-moderator: registered user id
+	Moderator bool     `json:"moderator"` // set-moderator
+	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
+	Messages  []int64  `json:"messages"`  // previews
+	Emoji     string   `json:"emoji"`     // react
+	On        bool     `json:"on"`        // react: add (or remove)
 }
 
 // Handle answers one request from the browser.
@@ -345,6 +364,14 @@ func (c *Conn) Handle(raw []byte) {
 		if c.hub.voice == nil {
 			c.manageError("roles need the built-in Mumble server")
 		} else if err := c.hub.voice.SetModerator(id.Session, req.User, req.Moderator); err != nil {
+			c.manageError(err.Error())
+		}
+		return
+	case "set-listen-only":
+		// The voice server reports the change (ListenOnlyChanged).
+		if c.hub.voice == nil {
+			c.manageError("listen-only channels need the built-in Mumble server")
+		} else if err := c.hub.voice.SetListenOnly(id.Session, req.Voice, req.On, req.Users); err != nil {
 			c.manageError(err.Error())
 		}
 		return
@@ -623,6 +650,20 @@ func (h *Hub) RolesChanged() {
 	r := h.roles()
 	r.Type = "roles"
 	h.broadcast(r)
+}
+
+// listenOnly lists the listen-only voice channels (a list, never null in
+// JSON; Voice gives speaker lists).
+func (h *Hub) listenOnly() []ListenOnlyChannel {
+	return append([]ListenOnlyChannel{}, h.voice.ListenOnly()...)
+}
+
+// ListenOnlyChanged sends everyone the listen-only voice channels.
+func (h *Hub) ListenOnlyChanged() {
+	if h.voice == nil {
+		return
+	}
+	h.broadcast(map[string]any{"type": "listen-only", "channels": h.listenOnly()})
 }
 
 func (h *Hub) broadcast(v any) {
