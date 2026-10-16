@@ -115,7 +115,7 @@
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
-    onUpload?: (file: File, caption: string) => void;
+    onUpload?: (file: File, caption: string, reply?: number) => void;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
@@ -232,8 +232,9 @@
     event.preventDefault();
     const text = draft.trim();
     if (pending && onUpload) {
-      onUpload(pending.file, text);
+      onUpload(pending.file, text, replying?.id);
       cancelPending();
+      replying = null;
       draft = "";
       return;
     }

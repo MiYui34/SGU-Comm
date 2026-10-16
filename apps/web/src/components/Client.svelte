@@ -486,13 +486,13 @@
   // One upload at a time. Errors show where server errors show.
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
-  const upload = async (file: File, caption: string) => {
+  const upload = async (file: File, caption: string, reply?: number) => {
     const channel = chatId;
     if (channel === null || uploading) return;
     uploading = true;
     uploadError = null;
     try {
-      connection.sendToTextChannel(channel, caption, await connection.uploadFile(file));
+      connection.sendToTextChannel(channel, caption, await connection.uploadFile(file), reply);
     } catch (err) {
       uploadError = err instanceof Error ? err.message : String(err);
     } finally {
