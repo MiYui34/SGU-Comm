@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -48,6 +49,9 @@ type Handler struct {
 	Now            func() time.Time
 	// Redeem checks an upload token and returns the uploader's name.
 	Redeem func(token string) (string, bool)
+
+	mu       sync.Mutex
+	reserved map[string]int64 // by author: bytes of uploads in progress
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -88,15 +92,21 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid or expired upload token", http.StatusUnauthorized)
 		return
 	}
-	used, err := h.Store.UploadedBytesSince(author, h.Now().Add(-24*time.Hour))
-	if err != nil {
+	// Without a Content-Length, all that is left may be needed.
+	least, most := r.ContentLength, r.ContentLength
+	if least <= 0 {
+		least, most = 1, h.MaxBytes
+	}
+	allowed, release, err := h.reserve(author, least, most)
+	switch {
+	case errors.Is(err, errQuota):
+		jsonError(w, "daily upload quota reached, try again tomorrow", http.StatusTooManyRequests)
+		return
+	case err != nil:
 		jsonError(w, "cannot check the upload quota", http.StatusInternalServerError)
 		return
 	}
-	if used >= h.QuotaBytes || (r.ContentLength > 0 && used+r.ContentLength > h.QuotaBytes) {
-		jsonError(w, "daily upload quota reached, try again tomorrow", http.StatusTooManyRequests)
-		return
-	}
+	defer release()
 	http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadTimeout))
 	key := randomKey()
 	dst := filepath.Join(h.Dir, key)
@@ -113,7 +123,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		os.Remove(dst)
 		jsonError(w, "empty file", http.StatusBadRequest)
 		return
-	case used+size > h.QuotaBytes: // no or wrong Content-Length
+	case size > allowed: // no Content-Length
 		os.Remove(dst)
 		jsonError(w, "daily upload quota reached, try again tomorrow", http.StatusTooManyRequests)
 		return
@@ -137,7 +147,37 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-var errTooLarge = errors.New("too large")
+var (
+	errTooLarge = errors.New("too large")
+	errQuota    = errors.New("daily upload quota reached")
+)
+
+// reserve holds between least and most bytes of an author's daily quota
+// (as many as are left) while an upload is stored. Call release once the
+// upload is in the database, or failed.
+func (h *Handler) reserve(author string, least, most int64) (allowed int64, release func(), err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	used, err := h.Store.UploadedBytesSince(author, h.Now().Add(-24*time.Hour))
+	if err != nil {
+		return 0, nil, err
+	}
+	allowed = min(most, h.QuotaBytes-used-h.reserved[author])
+	if allowed < least {
+		return 0, nil, errQuota
+	}
+	if h.reserved == nil {
+		h.reserved = map[string]int64{}
+	}
+	h.reserved[author] += allowed
+	return allowed, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.reserved[author] -= allowed; h.reserved[author] == 0 {
+			delete(h.reserved, author)
+		}
+	}, nil
+}
 
 // save writes at most MaxBytes and returns the size and the sniffed type.
 func (h *Handler) save(dst string, body io.Reader) (int64, string, error) {
@@ -252,13 +292,12 @@ func (h *Handler) Remove(key string) {
 // message); attach it to a message to keep it.
 // It counts toward the author's daily quota, as uploads from browsers.
 func (h *Handler) Save(author, name, ctype string, data []byte) (store.Upload, error) {
-	used, err := h.Store.UploadedBytesSince(author, h.Now().Add(-24*time.Hour))
+	n := int64(len(data))
+	_, release, err := h.reserve(author, n, n)
 	if err != nil {
 		return store.Upload{}, err
 	}
-	if used+int64(len(data)) > h.QuotaBytes {
-		return store.Upload{}, errors.New("daily upload quota reached")
-	}
+	defer release()
 	key := randomKey()
 	dst := filepath.Join(h.Dir, key)
 	if err := os.WriteFile(dst, data, 0o600); err != nil {

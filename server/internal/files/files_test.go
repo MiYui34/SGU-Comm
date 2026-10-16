@@ -214,6 +214,59 @@ func TestDailyQuota(t *testing.T) {
 	}
 }
 
+// quotaHandler allows 100 bytes per file and per day.
+func quotaHandler(t *testing.T) *Handler {
+	t.Helper()
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return &Handler{Store: s, Dir: t.TempDir(), MaxBytes: 100, QuotaBytes: 100, Now: time.Now,
+		Redeem: func(string) (string, bool) { return "alice", true }}
+}
+
+// serveUpload posts a body to the handler (size -1: no Content-Length).
+func serveUpload(h *Handler, body io.Reader, size int64) int {
+	req := httptest.NewRequest("POST", "/api/upload", body)
+	req.ContentLength = size
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func TestParallelUploadsKeepTheDailyQuota(t *testing.T) {
+	h := quotaHandler(t)
+	pr, pw := io.Pipe()
+	first := make(chan int)
+	go func() { first <- serveUpload(h, pr, 60) }()
+	pw.Write(make([]byte, 30)) // the first upload is past the quota check
+	if code := serveUpload(h, bytes.NewReader(make([]byte, 60)), 60); code != http.StatusTooManyRequests {
+		t.Errorf("second upload: %d", code)
+	}
+	if _, err := h.Save("alice", "a.png", "image/png", make([]byte, 60)); err == nil {
+		t.Error("saved over the quota")
+	}
+	pw.Write(make([]byte, 30))
+	pw.Close()
+	if code := <-first; code != http.StatusOK {
+		t.Fatalf("first upload: %d", code)
+	}
+}
+
+func TestFailedUploadsFreeTheirQuota(t *testing.T) {
+	h := quotaHandler(t)
+	if code := serveUpload(h, bytes.NewReader(make([]byte, 150)), -1); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("too large: %d", code)
+	}
+	if code := serveUpload(h, bytes.NewReader(make([]byte, 60)), 60); code != http.StatusOK {
+		t.Fatalf("after a failed upload: %d", code)
+	}
+	if code := serveUpload(h, bytes.NewReader(make([]byte, 60)), -1); code != http.StatusTooManyRequests {
+		t.Fatalf("over the quota: %d", code)
+	}
+}
+
 func TestTokenInQueryIsNotAccepted(t *testing.T) {
 	srv, _ := setup(t, 100)
 	resp, err := http.Post(srv.URL+"/api/upload?token=good", "text/plain", strings.NewReader("x"))
