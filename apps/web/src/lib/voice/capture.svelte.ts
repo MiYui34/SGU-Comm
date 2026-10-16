@@ -76,20 +76,15 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
   const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
-  // Timestamps of frames that end a transmission. Keyed by timestamp, so a
-  // dropped or merged frame cannot shift the flag to another packet.
-  const terminators = new Set<number>();
-
   // A fresh encoder for every talk spurt (see encoderRotation).
   const makeEncoder = (): AudioEncoder => {
     const encoder: AudioEncoder = new AudioEncoder({
       output: (chunk) => {
+        const input = encoders.output(encoder);
+        if (!input) return; // after the last input (see encoderRotation)
         const opus = new Uint8Array(chunk.byteLength);
         chunk.copyTo(opus);
-        const terminator = terminators.delete(chunk.timestamp);
-        const frameNumber = Math.round(chunk.timestamp / MUMBLE_FRAME_US);
-        send({ target: 0, frameNumber, opus, terminator });
-        encoders.output(encoder);
+        send({ target: 0, frameNumber: Math.round(input.timestamp / MUMBLE_FRAME_US), opus, terminator: input.terminator });
       },
       error: (err) => {
         console.warn("encoder error", err);
@@ -110,12 +105,11 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     };
     return encoder;
   };
-  const encoders = createEncoderRotation(makeEncoder);
+  const encoders = createEncoderRotation<AudioEncoder, { timestamp: number; terminator: boolean }>(makeEncoder);
 
   const encode = (samples: Float32Array<ArrayBuffer>, terminator: boolean) => {
     const encoder = encoders.current();
     if (encoder.state !== "configured") return;
-    if (terminator) terminators.add(timestamp);
     const data = new AudioData({
       format: "f32-planar",
       sampleRate: SAMPLE_RATE,
@@ -124,13 +118,13 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       timestamp,
       data: samples,
     });
+    encoders.encoded(encoder, { timestamp, terminator });
     timestamp += FRAME_MS * 1000;
-    encoders.encoded(encoder);
     encoder.encode(data);
     data.close();
-    // No flush() after the last frame: it emits an extra packet for the
-    // lookahead samples, after the terminator and with a repeated frame
-    // number. Chrome gives one output per input, so nothing is held back.
+    // The last frame: flush, so an encoder that holds a packet back gives it
+    // out. An extra packet after it (Chrome's lookahead) is dropped.
+    if (terminator) encoder.flush().catch(() => {}); // closed meanwhile
   };
 
   const onFrame = (samples: Float32Array<ArrayBuffer>, voiceProbability: number | undefined) => {
