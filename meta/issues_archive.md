@@ -114,3 +114,5 @@
 - [x] [CI: voice test in real browsers](issues/ci-voice-test.md)
 - [x] [Web: multiline messages and channel links](issues/web-multiline-and-channel-links.md)
 - [x] [Web: play audio and video attachments inline](issues/web-inline-audio-video.md)
+- [x] [Web: reply with an attachment](issues/web-reply-with-attachment.md)
+- [x] [Web: "Load older messages" keeps the scroll position](issues/web-load-older-keeps-position.md)
