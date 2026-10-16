@@ -81,6 +81,7 @@ type Bridge struct {
 	perIP    map[string]int
 	guests   map[string]bool             // names.Key of connected guests
 	accounts map[*websocket.Conn]Account // open account connections
+	revokes  uint64                      // Revoke calls, for lookup
 	closed   bool
 	wg       sync.WaitGroup
 	ctx      context.Context
@@ -99,11 +100,35 @@ func New(opts Options) *Bridge {
 func (b *Bridge) Revoke(match func(accountID int64, session string) bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.revokes++
 	for ws, acc := range b.accounts {
 		if match(acc.ID, acc.Session) {
 			// Close waits for the browser's answer: not under the lock.
 			go ws.Close(websocket.StatusPolicyViolation, "logged out")
 		}
+	}
+}
+
+// lookup returns the request's account and lists its connection for
+// Revoke. A Revoke during the lookup may have missed it: then look again.
+func (b *Bridge) lookup(ws *websocket.Conn, r *http.Request) (Account, bool) {
+	if b.opts.Account == nil {
+		return Account{}, false
+	}
+	for {
+		b.mu.Lock()
+		gen := b.revokes
+		b.mu.Unlock()
+		acc, ok := b.opts.Account(r)
+		b.mu.Lock()
+		if b.revokes == gen {
+			if ok {
+				b.accounts[ws] = acc
+			}
+			b.mu.Unlock()
+			return acc, ok
+		}
+		b.mu.Unlock()
 	}
 }
 
@@ -168,15 +193,8 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(MaxPayload)
 
-	var acc Account
-	isAccount := false
-	if b.opts.Account != nil {
-		acc, isAccount = b.opts.Account(r)
-	}
+	acc, isAccount := b.lookup(ws, r)
 	if isAccount {
-		b.mu.Lock()
-		b.accounts[ws] = acc
-		b.mu.Unlock()
 		defer func() {
 			b.mu.Lock()
 			delete(b.accounts, ws)

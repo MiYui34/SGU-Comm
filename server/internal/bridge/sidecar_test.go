@@ -321,7 +321,7 @@ func TestAccountNameCheckWithoutGuestNameRule(t *testing.T) {
 func TestRevokeClosesMatchingConnections(t *testing.T) {
 	echo := startEcho(t)
 	lookup, isAccount := accounts("carol", "dave")
-	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), Account: lookup, IsAccountName: isAccount})
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
 	join := func(user, session string) *websocket.Conn {
 		c, _, _ := connect(t, url+"?user="+user+"&session="+session, "")
 		c.Write(testCtx(t), websocket.MessageBinary, hello(user))
@@ -347,6 +347,32 @@ func TestRevokeClosesMatchingConnections(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestRevokeDuringTheAccountLookup(t *testing.T) {
+	echo := startEcho(t)
+	_, isAccount := accounts("carol")
+	inLookup, release := make(chan struct{}), make(chan struct{})
+	var ended atomic.Bool // the session is gone
+	lookup := func(*http.Request) (Account, bool) {
+		if ended.Load() {
+			return Account{}, false
+		}
+		close(inLookup)
+		<-release
+		return Account{Name: "carol", Cert: &tls.Certificate{}, ID: 1, Session: "s"}, true
+	}
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), UniqueGuestNames: true, Account: lookup, IsAccountName: isAccount})
+	c, _, _ := connect(t, url, "")
+	<-inLookup
+	ended.Store(true)
+	b.Revoke(func(int64, string) bool { return true })
+	close(release)
+	// Now a guest, who may not use the account's name.
+	c.Write(testCtx(t), websocket.MessageBinary, hello("carol"))
+	if m := readReject(t, c); m == nil {
+		t.Fatal("the connection kept its ended session")
 	}
 }
 
