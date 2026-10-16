@@ -153,7 +153,7 @@ func run() error {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()
 			cleanup(time.Now())
-			if _, err := db.DeleteExpiredSessions(time.Now()); err != nil {
+			if err := accounts.DeleteExpiredSessions(); err != nil {
 				slog.Error("delete expired sessions", "err", err)
 			}
 		}

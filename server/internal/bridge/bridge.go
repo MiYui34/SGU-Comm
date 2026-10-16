@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"sync"
@@ -98,12 +99,15 @@ func New(opts Options) *Bridge {
 // and session match: their sessions ended. The web client knows the reason
 // text and does not reconnect.
 func (b *Bridge) Revoke(match func(accountID int64, session string) bool) {
+	// match may ask the database: not under the lock. Connections listed
+	// later look up their account again (see lookup).
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.revokes++
-	for ws, acc := range b.accounts {
+	open := maps.Clone(b.accounts)
+	b.mu.Unlock()
+	for ws, acc := range open {
 		if match(acc.ID, acc.Session) {
-			// Close waits for the browser's answer: not under the lock.
+			// Close waits for the browser's answer.
 			go ws.Close(websocket.StatusPolicyViolation, "logged out")
 		}
 	}

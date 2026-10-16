@@ -250,6 +250,27 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 	check("logout-all", map[*http.Cookie]bool{first: true, second: true})
 }
 
+func TestExpiredSessionsAreRevoked(t *testing.T) {
+	a, srv := setup(t)
+	now := time.Now()
+	a.Now = func() time.Time { return now }
+	var match func(int64, string) bool
+	a.Revoke = func(m func(int64, string) bool) { match = m }
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "hank", "password": "longpassword"}, nil)
+	old := SessionKey(requestWith(sessionCookie(resp)))
+	acc, _ := a.Store.AccountBySession(old, now)
+	now = now.Add(sessionLifetime / 2)
+	resp, _ = post(t, srv, "/api/login", map[string]string{"name": "hank", "password": "longpassword"}, nil)
+	current := SessionKey(requestWith(sessionCookie(resp)))
+	now = now.Add(sessionLifetime / 2)
+	if err := a.DeleteExpiredSessions(); err != nil {
+		t.Fatal(err)
+	}
+	if match == nil || !match(acc.ID, old) || match(acc.ID, current) {
+		t.Fatal("want only the expired session revoked")
+	}
+}
+
 func TestWildcardOriginsGetCredentialsOnlyForLocalhost(t *testing.T) {
 	a := &Service{AllowedOrigins: []string{"*"}}
 	for origin, want := range map[string]bool{
@@ -293,9 +314,14 @@ func TestLoginWithAMumbleRegistration(t *testing.T) {
 	resp, _ = post(t, srv, "/api/accounts", map[string]string{"name": "bob", "password": "longpassword"}, nil)
 	// bob's session in this browser ends with a Mumble login.
 	bob := sessionCookie(resp)
+	var match func(int64, string) bool
+	a.Revoke = func(m func(int64, string) bool) { match = m }
 	post(t, srv, "/api/login", map[string]string{"name": "superuser", "password": "adminpw"}, bob)
 	if _, ok := a.AccountFor(requestWith(bob)); ok {
 		t.Fatal("web session kept")
+	}
+	if match == nil || !match(0, SessionKey(requestWith(bob))) {
+		t.Fatal("the web session's connections were not revoked")
 	}
 	a.MumbleLogin = func(netip.Addr, string, string) (string, bool) { return "bob", true }
 	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "bob", "password": "wrong password"}, nil); resp.StatusCode != http.StatusUnauthorized {

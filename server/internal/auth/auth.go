@@ -170,6 +170,19 @@ func (a *Service) revoke(match func(accountID int64, session string) bool) {
 	}
 }
 
+// DeleteExpiredSessions ends the expired sessions and their connections.
+func (a *Service) DeleteExpiredSessions() error {
+	n, err := a.Store.DeleteExpiredSessions(a.Now())
+	if err != nil || n == 0 {
+		return err
+	}
+	a.revoke(func(_ int64, session string) bool {
+		_, err := a.Store.AccountBySession(session, a.Now())
+		return errors.Is(err, store.ErrNotFound)
+	})
+	return nil
+}
+
 func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 	if !a.allow(r) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts, try again later"})
@@ -296,7 +309,7 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 		if name, ok := a.MumbleLogin(host.Unmap(), c.Name, c.Password); ok {
 			// Not a web account: end a web session of this browser, or the
 			// bridge would connect with that account instead.
-			clearSession(w, r, a.Store)
+			a.clearSession(w, r)
 			writeJSON(w, http.StatusOK, map[string]any{"name": name, "mumble": true})
 			return
 		}
@@ -320,16 +333,15 @@ func (a *Service) logout(w http.ResponseWriter, r *http.Request) {
 			slog.Error("ending a guest account", "account", acc.Name, "err", err)
 		}
 	}
-	clearSession(w, r, a.Store)
-	if key := SessionKey(r); key != "" {
-		a.revoke(func(_ int64, session string) bool { return session == key })
-	}
+	a.clearSession(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func clearSession(w http.ResponseWriter, r *http.Request, s *store.Store) {
-	if c, err := r.Cookie(CookieName); err == nil {
-		s.DeleteSession(tokenHash(c.Value))
+// clearSession ends this session and its connections.
+func (a *Service) clearSession(w http.ResponseWriter, r *http.Request) {
+	if key := SessionKey(r); key != "" {
+		a.Store.DeleteSession(key)
+		a.revoke(func(_ int64, session string) bool { return session == key })
 	}
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 }
