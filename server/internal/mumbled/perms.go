@@ -149,6 +149,11 @@ func (s *State) grantCreator(ch *Channel, u *User) {
 	s.keepWrite(ch, u)
 }
 
+// mayEditACL: Write in the channel or in root. Needs Server.mu.
+func (s *Server) mayEditACL(u *User, ch *Channel) bool {
+	return s.state.Has(u, ch.ID, Write) || s.state.Has(u, 0, Write)
+}
+
 func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
@@ -159,7 +164,7 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		s.mu.Unlock()
 		return
 	}
-	if !s.state.Has(u, ch.ID, Write) && !s.state.Has(u, 0, Write) {
+	if !s.mayEditACL(u, ch) {
 		s.mu.Unlock()
 		c.denyPerm(Write, ch.ID)
 		return
@@ -181,6 +186,10 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	defer s.mu.Unlock()
 	ch, u = s.state.Channels[m.GetChannelId()], s.state.Users[c.session]
 	if ch == nil || u == nil {
+		return
+	}
+	if !s.mayEditACL(u, ch) { // again: Write from @in, for example, can be gone now
+		c.denyPerm(Write, ch.ID)
 		return
 	}
 	ch.NoInheritACL = !m.GetInheritAcls()
