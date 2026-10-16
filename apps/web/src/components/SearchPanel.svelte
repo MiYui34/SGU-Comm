@@ -3,16 +3,23 @@
   import { formatTimestamp } from "../lib/chat";
   import Avatar from "./Avatar.svelte";
 
-  // Search results, in place of the member list.
+  // Search results, in place of the member list. With a heading: another
+  // list of messages (the pinned ones).
   let {
     text,
+    heading,
+    label = "Search results",
+    none = "No messages found.",
     messages,
     where,
     canOpen,
     onOpen,
     onClose,
   }: {
-    text: string | null; // null: searching
+    text: string | null; // null: searching (loading)
+    heading?: string;
+    label?: string;
+    none?: string;
     messages: readonly TextMessage[];
     // Where a message is ("#general", a voice channel's name).
     where: (m: TextMessage) => string;
@@ -26,15 +33,15 @@
   $effect(() => closeButton?.focus());
 </script>
 
-<aside class="search" aria-label="Search results">
+<aside class="search" aria-label={label}>
   <header aria-live="polite">
     <span class="ellipsis">
-      {#if text === null}Searching…{:else}{messages.length} {messages.length === 1 ? "result" : "results"} for “{text}”{/if}
+      {#if text === null}{heading ? "Loading…" : "Searching…"}{:else if heading}{heading}{:else}{messages.length} {messages.length === 1 ? "result" : "results"} for “{text}”{/if}
     </span>
-    <button type="button" aria-label="Close search" bind:this={closeButton} onclick={onClose}>×</button>
+    <button type="button" aria-label="Close {label.toLowerCase()}" bind:this={closeButton} onclick={onClose}>×</button>
   </header>
   {#if text !== null && messages.length === 0}
-    <p class="none">No messages found.</p>
+    <p class="none">{none}</p>
   {:else}
     <ul>
       {#each messages as m (m.id)}

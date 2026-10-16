@@ -37,6 +37,10 @@
     me = "",
     people = [],
     onSearch,
+    onPins,
+    pinsOpen = false,
+    mayPin = false,
+    onPin,
     jumpTarget = null,
     onJumped,
     mayEdit,
@@ -81,6 +85,11 @@
     // Searching stored messages; jumpTarget: a message to scroll to once
     // it is loaded (then onJumped).
     onSearch?: (text: string) => void;
+    // The pinned messages panel (undefined: none here).
+    onPins?: () => void;
+    pinsOpen?: boolean;
+    mayPin?: boolean;
+    onPin?: (id: number, on: boolean) => void;
     jumpTarget?: number | null;
     onJumped?: () => void;
     // Stored messages: who may change which (the server checks again).
@@ -410,6 +419,11 @@
           <input bind:value={searchText} placeholder="Search" aria-label="Search messages" />
         </form>
       {/if}
+      {#if onPins}
+        <button class:on={pinsOpen} onclick={onPins} aria-pressed={pinsOpen} title="Pinned messages" aria-label="Pinned messages">
+          <Icon name="pin" size={20} />
+        </button>
+      {/if}
       {#if kind !== "dm"}
         <button
           class:on={membersOpen}
@@ -651,6 +665,8 @@
     <div class="text">
       {@html safe(highlightMentions(m.text, me))}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
+      <!-- Styled as the edited mark. -->
+      {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
     </div>
   {/if}
   {@render attachment(m)}
@@ -691,7 +707,9 @@
     {@const id = m.source.id}
     {@const canEdit = mayEdit?.(m) && onEdit}
     {@const canDelete = mayDelete?.(m) && onDelete}
-    {#if canEdit || canDelete || canReply || canReact}
+    {@const canPin = mayPin && onPin}
+    {@const pinned = "pinned" in m && !!m.pinned}
+    {#if canEdit || canDelete || canReply || canReact || canPin}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="actions"
@@ -723,6 +741,11 @@
           {/if}
           {#if canReply}
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
+          {/if}
+          {#if canPin}
+            <button type="button" aria-label={pinned ? "Unpin message" : "Pin message"} title={pinned ? "Unpin" : "Pin"} onclick={() => onPin?.(id, !pinned)}
+              >{pinned ? "Unpin" : "Pin"}</button
+            >
           {/if}
           {#if canEdit}
             <button type="button" aria-label="Edit message" title="Edit" onclick={() => startEdit(m)}>Edit</button>

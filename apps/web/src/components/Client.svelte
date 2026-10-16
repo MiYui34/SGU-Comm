@@ -28,7 +28,7 @@
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
-  import { toChatMessage } from "../lib/textChannels";
+  import { toChatMessage, type TextMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
@@ -458,6 +458,20 @@
   const moderation = $derived(moderationRights(server));
   // Search: the results panel, and a message to scroll to.
   let searchOpen = $state(false);
+  // Where a stored message is: "#general", or a voice channel's name.
+  const whereOf = (m: TextMessage) => {
+    const ch = text.channels.find((c) => c.id === m.channel);
+    if (ch) return `#${ch.name}`;
+    const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
+    return server.channels[Number(voice)]?.name ?? "a voice chat";
+  };
+  // The pinned messages of the open chat, in place of the member list.
+  let pinsOpen = $state(false);
+  const resyncs = $derived(text.resyncs); // a number: changes only on a resync
+  $effect(() => {
+    void resyncs; // a resync forgets them: ask again
+    if (pinsOpen && chatId !== null) connection.requestPins(chatId);
+  });
   let jumpTarget = $state<number | null>(null);
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
@@ -701,8 +715,18 @@
         ? (q) => {
             connection.search(q);
             searchOpen = true;
+            pinsOpen = false;
           }
         : undefined}
+      onPins={text.voiceChats && chatId !== null
+        ? () => {
+            pinsOpen = !pinsOpen;
+            searchOpen = false;
+          }
+        : undefined}
+      {pinsOpen}
+      mayPin={canManageText(server, text)}
+      onPin={connection.pin}
       {jumpTarget}
       onJumped={() => (jumpTarget = null)}
       typing={typingText(typingHere)}
@@ -717,12 +741,7 @@
     <SearchPanel
       text={text.search?.text ?? null}
       messages={text.search?.messages ?? []}
-      where={(m) => {
-        const ch = text.channels.find((c) => c.id === m.channel);
-        if (ch) return `#${ch.name}`;
-        const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
-        return server.channels[Number(voice)]?.name ?? "a voice chat";
-      }}
+      where={whereOf}
       canOpen={(m) => text.channels.some((c) => c.id === m.channel)}
       onOpen={(m) => {
         show({ kind: "text", id: m.channel });
@@ -732,6 +751,18 @@
         searchOpen = false;
         document.querySelector<HTMLInputElement>('input[aria-label="Search messages"]')?.focus();
       }}
+    />
+  {:else if pinsOpen && chatId !== null}
+    <SearchPanel
+      text={text.pins[chatId] ? "" : null /* null: loading */}
+      heading="Pinned messages"
+      label="Pinned messages"
+      none="No pinned messages here yet."
+      messages={text.pins[chatId] ?? []}
+      where={whereOf}
+      canOpen={() => true}
+      onOpen={(m) => (jumpTarget = m.id)}
+      onClose={() => (pinsOpen = false)}
     />
   {:else if membersOpen || phone}
     <MemberList

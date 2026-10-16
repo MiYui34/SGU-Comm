@@ -23,6 +23,7 @@ export type TextMessage = {
   authorId?: number;
   upload?: Attachment;
   edited?: number; // Unix milliseconds
+  pinned?: number; // Unix milliseconds
   // The message it answers (author empty: deleted since).
   reply?: Quote;
   reactions?: Reaction[];
@@ -36,6 +37,7 @@ export type DisplayMessage = ChatMessage & {
   verified?: boolean;
   authorId?: number;
   edited?: number;
+  pinned?: number;
   source?: { id: number; text: string };
   reply?: Quote;
   reactions?: Reaction[];
@@ -68,6 +70,10 @@ export type ServerEvent =
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "message-edited"; message: TextMessage }
+  // A message was pinned or unpinned (its pinned field says which).
+  | { type: "message-pinned"; message: TextMessage }
+  // A channel's pinned messages, the newest pin first.
+  | { type: "pins"; channel: number; messages: TextMessage[] }
   | { type: "message-deleted"; channel: number; id: number }
   | { type: "search-results"; text: string; messages: TextMessage[] }
   // about "manage": the answer to a channel or role change.
@@ -106,6 +112,8 @@ export type TextState = {
   search: { text: string; messages: TextMessage[] } | null;
   // Link previews by message (null: none).
   previews: Readonly<Record<number, LinkPreview | null>>;
+  // Pinned messages per channel, once asked for (the newest pin first).
+  pins: Readonly<Record<number, TextMessage[]>>;
   // Counts resync events, so views can reload.
   resyncs: number;
 };
@@ -126,6 +134,7 @@ export const initialTextState: TextState = {
   notice: null,
   search: null,
   previews: {},
+  pins: {},
   resyncs: 0,
 };
 
@@ -191,6 +200,7 @@ const isMessage = (v: unknown): v is TextMessage =>
   (v.verified === undefined || typeof v.verified === "boolean") &&
   (v.authorId === undefined || isNum(v.authorId)) &&
   (v.edited === undefined || isNum(v.edited)) &&
+  (v.pinned === undefined || isNum(v.pinned)) &&
   (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
   (v.upload === undefined || isAttachment(v.upload)) &&
   (v.reactions === undefined || isReactions(v.reactions));
@@ -236,7 +246,12 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "message":
     case "message-edited":
+    case "message-pinned":
       return isMessage(v.message) ? { type: v.type, message: v.message } : null;
+    case "pins":
+      return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
+        ? { type: "pins", channel: v.channel, messages: v.messages }
+        : null;
     case "message-deleted":
       return isNum(v.channel) && isNum(v.id) ? { type: "message-deleted", channel: v.channel, id: v.id } : null;
     case "search-results":
@@ -264,6 +279,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return null;
   }
 };
+
+// A channel's pin list after f, if it is loaded.
+const patchPins = (pins: TextState["pins"], channel: number, f: (ms: TextMessage[]) => TextMessage[]) =>
+  pins[channel] ? { ...pins, [channel]: f(pins[channel]) } : pins;
+
+// A pin list after a message was pinned or unpinned: the newest pin first.
+const withPin = (list: readonly TextMessage[], m: TextMessage) =>
+  [...list.filter((x) => x.id !== m.id), ...(m.pinned ? [m] : [])].sort((x, y) => (y.pinned ?? 0) - (x.pinned ?? 0));
 
 const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
   [...new Map([...a, ...b].map((m) => [m.id, m])).values()].sort((x, y) => x.id - y.id);
@@ -310,13 +333,27 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "message":
     case "message-edited": {
       const ch = event.message.channel;
-      const search = event.type === "message-edited" ? patchSearch(state.search, (ms) => ms.map((m) => (m.id === event.message.id ? event.message : m))) : state.search;
+      const replace = (ms: TextMessage[]) => ms.map((m) => (m.id === event.message.id ? event.message : m));
+      const search = event.type === "message-edited" ? patchSearch(state.search, replace) : state.search;
+      const pins = event.type === "message-edited" ? patchPins(state.pins, ch, replace) : state.pins;
       // An edit of a message not loaded here stays unloaded.
-      if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return { ...state, search };
+      if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return { ...state, search, pins };
       // An edit may change the link: its preview is asked again.
       const { [event.message.id]: _, ...previews } = state.previews;
-      return { ...state, search, previews, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
+      return { ...state, search, pins, previews, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
     }
+    case "message-pinned": {
+      const m = event.message;
+      const msgs = state.messages[m.channel];
+      const list = state.pins[m.channel];
+      return {
+        ...state,
+        ...(msgs?.some((x) => x.id === m.id) && { messages: { ...state.messages, [m.channel]: msgs.map((x) => (x.id === m.id ? m : x)) } }),
+        ...(list && { pins: { ...state.pins, [m.channel]: withPin(list, m) } }),
+      };
+    }
+    case "pins":
+      return { ...state, pins: { ...state.pins, [event.channel]: event.messages } };
     case "search-results":
       return { ...state, search: { text: event.text, messages: event.messages } };
     case "preview":
@@ -330,10 +367,12 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, messages: { ...state.messages, [event.channel]: next } };
     }
     case "message-deleted": {
-      const search = patchSearch(state.search, (ms) => ms.filter((m) => m.id !== event.id));
+      const drop = (ms: TextMessage[]) => ms.filter((m) => m.id !== event.id);
+      const search = patchSearch(state.search, drop);
+      const pins = patchPins(state.pins, event.channel, drop);
       const msgs = state.messages[event.channel];
-      if (!msgs) return { ...state, search };
-      return { ...state, search, messages: { ...state.messages, [event.channel]: msgs.filter((m) => m.id !== event.id) } };
+      if (!msgs) return { ...state, search, pins };
+      return { ...state, search, pins, messages: { ...state.messages, [event.channel]: drop(msgs) } };
     }
     case "error":
       return event.about === "manage"
@@ -343,7 +382,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "typing": // short-lived: the client keeps it (lib/typing)
       return state;
     case "resync":
-      return { ...state, messages: {}, loaded: {}, more: {}, resyncs: state.resyncs + 1 };
+      return { ...state, messages: {}, loaded: {}, more: {}, pins: {}, resyncs: state.resyncs + 1 };
   }
 };
 
@@ -385,6 +424,8 @@ export const manageRequest = (a: ManageAction) =>
   );
 
 export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
+export const pinRequest = (message: number, on: boolean) => JSON.stringify({ type: "pin", message, on });
+export const pinsRequest = (channel: number) => JSON.stringify({ type: "pins", channel });
 export const typingRequest = (channel: number) => JSON.stringify({ type: "typing", channel });
 export const markReadRequest = (channel: number, message: number) =>
   JSON.stringify({ type: "mark-read", channel, message });
@@ -442,6 +483,7 @@ export const toChatMessage = (m: TextMessage, base = ""): DisplayMessage => {
       ...(m.authorId !== undefined && { authorId: m.authorId }),
       source: { id: m.id, text: m.text },
       ...(m.edited !== undefined && { edited: m.edited }),
+      ...(m.pinned !== undefined && { pinned: m.pinned }),
       ...(m.reply && { reply: m.reply }),
       ...(m.reactions?.length && { reactions: m.reactions }),
       ...(m.upload && url && { upload: { ...m.upload, url } }),

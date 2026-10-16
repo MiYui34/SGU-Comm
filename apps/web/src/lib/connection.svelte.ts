@@ -28,6 +28,8 @@ import {
   markReadRequest,
   typingRequest,
   searchRequest,
+  pinRequest,
+  pinsRequest,
   startSearch,
   initialTextState,
   manageRequest,
@@ -205,6 +207,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     editMessage: (message: number, text: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(editMessageRequest(message, text));
+    },
+    pin: (message: number, on: boolean) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(pinRequest(message, on));
+    },
+    requestPins: (channel: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(pinsRequest(channel));
     },
     deleteMessage: (message: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(deleteMessageRequest(message));
