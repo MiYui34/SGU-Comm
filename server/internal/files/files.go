@@ -4,6 +4,7 @@ package files
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -110,7 +111,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadTimeout))
 	key := randomKey()
 	dst := filepath.Join(h.Dir, key)
-	size, sniffed, err := h.save(dst, r.Body)
+	size, head, err := h.save(dst, r.Body)
 	switch {
 	case errors.Is(err, errTooLarge):
 		jsonError(w, "file too large", http.StatusRequestEntityTooLarge)
@@ -129,12 +130,8 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, _ := url.QueryUnescape(r.Header.Get("X-Filename"))
-	// The stored type comes from the content, not from the client: only a
-	// real image becomes an inline image type.
-	ctype := "application/octet-stream"
-	if slices.Contains(inlineTypes, sniffed) {
-		ctype = sniffed
-	}
+	// The stored type comes from the content, not from the client.
+	ctype := storedType(head, name)
 	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: size, Author: author}, h.Now())
 	if err != nil {
 		os.Remove(dst)
@@ -179,11 +176,11 @@ func (h *Handler) reserve(author string, least, most int64) (allowed int64, rele
 	}, nil
 }
 
-// save writes at most MaxBytes and returns the size and the sniffed type.
-func (h *Handler) save(dst string, body io.Reader) (int64, string, error) {
+// save writes at most MaxBytes and returns the size and the first bytes.
+func (h *Handler) save(dst string, body io.Reader) (int64, []byte, error) {
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return 0, "", err
+		return 0, nil, err
 	}
 	head := make([]byte, 512)
 	n, _ := io.ReadFull(body, head)
@@ -197,10 +194,18 @@ func (h *Handler) save(dst string, body io.Reader) (int64, string, error) {
 	}
 	if err != nil {
 		os.Remove(dst)
-		return 0, "", err
+		return 0, nil, err
 	}
-	ctype, _, _ := mime.ParseMediaType(http.DetectContentType(head))
-	return rest, ctype, nil
+	return rest, head, nil
+}
+
+// storedType is an upload's type, from its content: an inline image, audio
+// or video (content and name agree), or a download.
+func storedType(head []byte, name string) string {
+	if sniffed, _, _ := mime.ParseMediaType(http.DetectContentType(head)); slices.Contains(inlineTypes, sniffed) {
+		return sniffed
+	}
+	return cmp.Or(mediaType(head, name), "application/octet-stream")
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +223,12 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	disposition := "attachment"
 	ctype := "application/octet-stream"
-	if slices.Contains(inlineTypes, u.Type) {
+	if u.Type == ctype && mediaName(u.Name) { // uploads from before media types were kept
+		head := make([]byte, 512)
+		n, _ := io.ReadFull(f, head) // ServeContent seeks back to the start
+		u.Type = cmp.Or(mediaType(head[:n], u.Name), ctype)
+	}
+	if isInline(u.Type) {
 		disposition, ctype = "inline", u.Type
 	}
 	hd := w.Header()

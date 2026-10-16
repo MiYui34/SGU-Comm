@@ -29,6 +29,12 @@ func pngBytes(t *testing.T) []byte {
 
 func setup(t *testing.T, maxBytes int64) (*httptest.Server, *store.Store) {
 	t.Helper()
+	srv, s, _ := setupHandler(t, maxBytes)
+	return srv, s
+}
+
+func setupHandler(t *testing.T, maxBytes int64) (*httptest.Server, *store.Store, *Handler) {
+	t.Helper()
 	s, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +53,7 @@ func setup(t *testing.T, maxBytes int64) (*httptest.Server, *store.Store) {
 	}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return srv, s
+	return srv, s, h
 }
 
 func upload(t *testing.T, srv *httptest.Server, token, name, ctype string, body []byte) (*http.Response, map[string]any) {
