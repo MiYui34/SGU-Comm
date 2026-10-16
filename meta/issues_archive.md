@@ -91,3 +91,4 @@
 - [x] [Voice: DeepFilterNet3 as the strongest noise suppression](issues/voice-deepfilternet.md)
 - [x] [Settings: link to the project site](issues/settings-link-to-project.md)
 - [x] [Listen-only voice channels](issues/listen-only-channels.md)
+- [x] [Review efficiency, DRY, architecture and security](issues/repository-review.md)
