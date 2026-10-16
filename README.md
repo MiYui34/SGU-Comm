@@ -101,6 +101,12 @@ Murmur stays their server. Web users join them as normal Mumble users
 (accounts as registered users); text channels and their history are for
 web users only.
 
+### Bots
+
+Bots are plain Mumble clients, so any Mumble bot works. For example,
+[kallisti-jukebox](https://github.com/lambadalambda/kallisti-jukebox) plays
+music from Jellyfin in a voice channel, controlled with chat commands.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri app around the same web client. A small bridge in
