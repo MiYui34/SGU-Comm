@@ -31,7 +31,7 @@ func (s *Server) MayWrite(session, channel uint32) bool {
 // channel, as if the user had sent it (for messages written in the web
 // client). Mumble clients read HTML, so it goes out escaped.
 func (s *Server) SendChannelText(from, channel uint32, text string) {
-	text = lineBreaks(html.EscapeString(strings.TrimSpace(text)))
+	text = mumbleHTML(text)
 	if text == "" {
 		return
 	}
@@ -49,20 +49,28 @@ func (s *Server) SendChannelText(from, channel uint32, text string) {
 	}
 }
 
+// mumbleHTML is plain text as Mumble's HTML: escaped, line breaks as tags.
+func mumbleHTML(text string) string {
+	return lineBreaks(html.EscapeString(strings.TrimSpace(text)))
+}
+
 // SendPrivateText sends plain text to a registered user's Mumble clients
-// (not web clients) as a private message from a session (none if it is
-// gone). It reports whether any got it.
-func (s *Server) SendPrivateText(from, toUser uint32, text string) bool {
-	text = lineBreaks(html.EscapeString(strings.TrimSpace(text)))
-	if text == "" {
+// (not web clients) as a private message from a session; if the session is
+// gone, the text starts with the sender's name. It reports whether any got
+// it.
+func (s *Server) SendPrivateText(from uint32, fromName string, toUser uint32, text string) bool {
+	if strings.TrimSpace(text) == "" {
 		return false
 	}
-	msg := &pb.TextMessage{Message: proto.String(text)}
+	msg := &pb.TextMessage{}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state.Users[from] != nil {
 		msg.Actor = proto.Uint32(from)
+	} else {
+		text = fromName + ": " + text
 	}
+	msg.Message = proto.String(mumbleHTML(text))
 	delivered := false
 	for _, u := range s.state.Users {
 		if c := s.clients[u.Session]; u.Registered && u.UserID == toUser && c != nil && !c.web {

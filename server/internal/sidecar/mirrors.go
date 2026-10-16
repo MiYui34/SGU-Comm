@@ -200,11 +200,6 @@ func (h *Hub) sendMissed(session uint32, chat int64, place string, since int64, 
 	if len(msgs) == 0 {
 		return
 	}
-	var b strings.Builder
-	for _, m := range msgs {
-		at := m.CreatedAt.UTC().Format("Jan 2 15:04")
-		b.WriteString("<br><b>" + html.EscapeString(m.Author) + "</b> <i>" + at + " UTC</i>: " + strings.ReplaceAll(html.EscapeString(h.mumbleText(m)), "\n", "<br>"))
-	}
 	head := "Earlier in "
 	if visited {
 		head = "While you were away in "
@@ -215,5 +210,16 @@ func (h *Hub) sendMissed(session uint32, chat int64, place string, since int64, 
 			head += fmt.Sprintf(" (the newest %d; %d earlier in the web app)", historySize, n-historySize)
 		}
 	}
-	h.voice.SendServerText(session, "<b>"+head+":</b>"+b.String())
+	h.voice.SendServerText(session, "<b>"+head+":</b>"+h.historyLines(msgs))
+}
+
+// historyLines are stored messages as HTML lines for a Mumble client's
+// server text: author, time and text.
+func (h *Hub) historyLines(msgs []store.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		at := m.CreatedAt.UTC().Format("Jan 2 15:04")
+		b.WriteString("<br><b>" + html.EscapeString(m.Author) + "</b> <i>" + at + " UTC</i>: " + strings.ReplaceAll(html.EscapeString(h.mumbleText(m)), "\n", "<br>"))
+	}
+	return b.String()
 }

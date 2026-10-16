@@ -61,8 +61,9 @@ type Voice interface {
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
 	// SendPrivateText sends plain text to a registered user's Mumble
-	// clients as a private message from a session; false: nobody got it.
-	SendPrivateText(from, toUser uint32, text string) bool
+	// clients as a private message from a session (named in the text if
+	// it is gone); false: nobody got it.
+	SendPrivateText(from uint32, fromName string, toUser uint32, text string) bool
 	// UserNames: the names of registered users (unknown ids are left out).
 	UserNames(ids []uint32) map[uint32]string
 	// MumbleClient: the session is a Mumble client (not a web client), and
@@ -465,14 +466,16 @@ func (h *Hub) MumbleText(from mumble.Identity, channel uint32, text string, imag
 }
 
 // storeMumble stores a message from a Mumble client in a chat and sends it
-// to the chat's readers.
-func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images []Image) {
+// to the chat's readers. It returns how many messages it stored and the
+// last one's id.
+func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images []Image) (n int, last int64) {
 	store1 := func(text string, upload int64) {
 		m, err := h.store.AddMessage(store.NewMessage{ChannelID: where.id, Author: from.Name, Verified: from.Registered, AuthorID: from.UserID, Text: text, At: h.now(), UploadID: upload})
 		if err != nil {
 			slog.Error("store a Mumble message", "err", err)
 			return
 		}
+		n, last = n+1, m.ID
 		h.sendTo(where, map[string]any{"type": "message", "message": toWire(m)})
 	}
 	// Only registered users' images are kept (with their upload quota):
@@ -481,7 +484,7 @@ func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images 
 		if text != "" {
 			store1(text, 0)
 		}
-		return
+		return n, last
 	}
 	for i, img := range images {
 		u, err := h.SaveFile(from.Name, fmt.Sprintf("image-%d%s", i+1, imageExt(img.Type)), img.Type, img.Data)
@@ -497,6 +500,7 @@ func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images 
 	if text != "" { // no image could be stored
 		store1(text, 0)
 	}
+	return n, last
 }
 
 // Image is a picture from a Mumble message (see mumbled.Image).
@@ -577,9 +581,11 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	}
 	if ch.direct {
 		c.hub.announceDirect(ch)
-		defer c.hub.relayDirect(id, ch, m)
 	}
 	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
+	if ch.direct {
+		c.hub.relayDirect(id, ch, m)
+	}
 	if ch.isVoice {
 		c.hub.voice.SendChannelText(id.Session, ch.voice, c.hub.mumbleText(m))
 	} else if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {

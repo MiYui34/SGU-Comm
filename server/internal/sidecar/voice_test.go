@@ -39,7 +39,7 @@ type fakeVoice struct {
 	sentTo []string
 }
 
-func (f *fakeVoice) SendPrivateText(from, toUser uint32, text string) bool {
+func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.native[toUser] {

@@ -1,10 +1,10 @@
 package sidecar
 
 import (
+	"fmt"
 	"html"
 	"log/slog"
 	"slices"
-	"strings"
 	"unicode/utf8"
 
 	"kallisti.chat/server/internal/mumble"
@@ -68,8 +68,9 @@ func (h *Hub) announceDirect(ch chat) {
 
 // MumblePrivateText stores a private message from a Mumble client to a
 // registered user (mumbled.Config.OnPrivateText) and sends it to the two
-// users' web connections.
-func (h *Hub) MumblePrivateText(from mumble.Identity, to uint32, text string, images []Image) {
+// users' web connections. delivered: the recipient's Mumble client got it
+// (then it is read).
+func (h *Hub) MumblePrivateText(from mumble.Identity, to uint32, text string, images []Image, delivered bool) {
 	if h.voice == nil || !from.Registered || from.UserID == to {
 		return
 	}
@@ -83,17 +84,36 @@ func (h *Hub) MumblePrivateText(from mumble.Identity, to uint32, text string, im
 	}
 	ch := chat{id: channel, direct: true, peers: [2]uint32{min(from.UserID, to), max(from.UserID, to)}}
 	h.announceDirect(ch)
-	h.storeMumble(from, ch, text, images)
+	if n, last := h.storeMumble(from, ch, text, images); delivered && n > 0 {
+		h.readIfCaughtUp(to, ch.id, n, last)
+	}
+}
+
+// readIfCaughtUp marks the last of n new messages read for a user who saw
+// them on a Mumble client, unless older ones are unread (the next
+// catch-up has those).
+func (h *Hub) readIfCaughtUp(user uint32, channel int64, n int, last int64) {
+	mark, _, err := h.store.ReadMark(user, channel)
+	if err == nil {
+		var after int
+		if after, err = h.store.CountAfter(channel, mark); err == nil && after > n {
+			return
+		}
+	}
+	if err == nil {
+		err = h.store.SetReadMark(user, channel, last)
+	}
+	if err != nil {
+		slog.Error("read mark", "err", err)
+	}
 }
 
 // relayDirect sends a stored direct message to the other user's Mumble
 // clients; seen there, it counts as read.
 func (h *Hub) relayDirect(from mumble.Identity, ch chat, m store.Message) {
 	other := ch.peers[0] + ch.peers[1] - from.UserID
-	if h.voice.SendPrivateText(from.Session, other, h.mumbleText(m)) {
-		if err := h.store.SetReadMark(other, ch.id, m.ID); err != nil {
-			slog.Error("read mark", "err", err)
-		}
+	if h.voice.SendPrivateText(from.Session, from.Name, other, h.mumbleText(m)) {
+		h.readIfCaughtUp(other, ch.id, 1, m.ID)
 	}
 }
 
@@ -128,14 +148,12 @@ func (h *Hub) sendMissedDirects(session, user uint32) {
 			continue
 		}
 		slices.Reverse(msgs) // oldest first
-		msgs = msgs[max(0, len(msgs)-missedDirects):]
-		var b strings.Builder
-		b.WriteString("<b>Direct messages from " + html.EscapeString(names[peer]) + " while you were away:</b>")
-		for _, m := range msgs {
-			at := m.CreatedAt.UTC().Format("Jan 2 15:04")
-			b.WriteString("<br><i>" + at + " UTC</i>: " + strings.ReplaceAll(html.EscapeString(h.mumbleText(m)), "\n", "<br>"))
+		head := "Direct messages from " + html.EscapeString(names[peer]) + " while you were away"
+		if len(msgs) > missedDirects {
+			head += fmt.Sprintf(" (the newest %d; %d earlier in the web app)", missedDirects, len(msgs)-missedDirects)
+			msgs = msgs[len(msgs)-missedDirects:]
 		}
-		h.voice.SendServerText(session, b.String())
+		h.voice.SendServerText(session, "<b>"+head+":</b>"+h.historyLines(msgs))
 		if err := h.store.SetReadMark(user, channel, latest); err != nil {
 			slog.Error("read mark", "err", err)
 		}

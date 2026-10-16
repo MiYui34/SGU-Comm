@@ -128,7 +128,7 @@ func TestBothUsersPinInADirectChat(t *testing.T) {
 
 func TestMumblePrivateTextsAreStored(t *testing.T) {
 	h, alice, bob, carol := directHub(t)
-	h.MumblePrivateText(mumble.Identity{Session: 50, Name: "alice", Registered: true, UserID: 10}, 20, "from my Mumble client", nil)
+	h.MumblePrivateText(mumble.Identity{Session: 50, Name: "alice", Registered: true, UserID: 10}, 20, "from my Mumble client", nil, false)
 	for _, c := range []*Conn{alice, bob} {
 		if m := next(t, c); m["type"] != "dm" {
 			t.Fatalf("dm info %v", m)
@@ -176,5 +176,33 @@ func TestMumbleClientsGetMissedDirectMessages(t *testing.T) {
 	h.UserMoved(60, noChannel, 0)
 	if got := v.userTexts(60); len(got) != 1 {
 		t.Fatalf("again %q", got)
+	}
+}
+
+// Seen live on a Mumble client: read, no catch-up later.
+func TestDeliveredMumblePrivateTextsAreRead(t *testing.T) {
+	h, _, _, _ := directHub(t)
+	v := h.voice.(*fakeVoice)
+	h.MumblePrivateText(mumble.Identity{Session: 50, Name: "alice", Registered: true, UserID: 10}, 20, "seen live", nil, true)
+	v.users = map[uint32]MumbleUser{60: {Registered: true, UserID: 20}}
+	h.UserMoved(60, noChannel, 0)
+	if got := v.userTexts(60); len(got) != 0 {
+		t.Fatalf("catch-up repeats %q", got)
+	}
+}
+
+// A relayed message does not mark older unread ones read: the catch-up
+// still has them.
+func TestRelayKeepsOlderUnread(t *testing.T) {
+	h, alice, _, _ := directHub(t)
+	v := h.voice.(*fakeVoice)
+	chat := openDirect(t, alice, 20)
+	alice.Handle([]byte(`{"type":"send","channel":` + chat + `,"text":"first, while away"}`))
+	v.native = map[uint32]bool{20: true} // bob's Mumble client is there now
+	alice.Handle([]byte(`{"type":"send","channel":` + chat + `,"text":"second, live"}`))
+	v.users = map[uint32]MumbleUser{60: {Registered: true, UserID: 20}}
+	h.UserMoved(60, noChannel, 0)
+	if got := v.userTexts(60); len(got) != 1 || !strings.Contains(got[0], "first, while away") {
+		t.Fatalf("catch-up %q", got)
 	}
 }

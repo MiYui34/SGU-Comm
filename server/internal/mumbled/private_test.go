@@ -44,6 +44,10 @@ func TestPrivateTextBetweenRegisteredUsers(t *testing.T) {
 	slices.Sort(to)
 	want := []uint32{bobID, reg.ID}
 	slices.Sort(want)
+	delivered := map[uint32]bool{got[0].To: got[0].Delivered, got[1].To: got[1].Delivered}
+	if !delivered[bobID] || delivered[reg.ID] {
+		t.Fatalf("delivered %v (bob native, carol web)", delivered)
+	}
 	if !slices.Equal(to, want) || got[0].UserID != aliceID || got[0].Name != "alice" || got[0].Text != "hi & bye" {
 		t.Fatalf("hook got %+v, want to %v", got, want)
 	}
@@ -55,7 +59,7 @@ func TestSendPrivateText(t *testing.T) {
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, openACL)
 	alice, _ := registered(t, addr, "alice")
 	bob, bobID := registered(t, addr, "bob")
-	if !s.SendPrivateText(alice.session, bobID, "one\ntwo <3") {
+	if !s.SendPrivateText(alice.session, "alice", bobID, "one\ntwo <3") {
 		t.Fatal("not delivered")
 	}
 	var m pb.TextMessage
@@ -63,7 +67,13 @@ func TestSendPrivateText(t *testing.T) {
 	if m.GetMessage() != "one<br>two &lt;3" || m.GetActor() != alice.session {
 		t.Fatalf("bob got %v", &m)
 	}
-	if s.SendPrivateText(alice.session, 999, "nobody") {
+	if s.SendPrivateText(alice.session, "alice", 999, "nobody") {
 		t.Fatal("delivered to nobody")
+	}
+	// From a session that is gone: named in the text.
+	s.SendPrivateText(9999, "alice", bobID, "later")
+	proto.Unmarshal(bob.expect(mumble.TypeTextMessage), &m)
+	if m.Actor != nil || m.GetMessage() != "alice: later" {
+		t.Fatalf("bob got %v", &m)
 	}
 }

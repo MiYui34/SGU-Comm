@@ -78,7 +78,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		}
 		onPrivate = func(p mumbled.PrivateText) {
 			from := mumble.Identity{Session: p.From, Name: p.Name, Registered: true, UserID: p.UserID}
-			hub.MumblePrivateText(from, p.To, p.Text, sidecarImages(p.Images))
+			hub.MumblePrivateText(from, p.To, p.Text, sidecarImages(p.Images), p.Delivered)
 		}
 	}
 	srv, err := mumbled.New(mumbled.Config{

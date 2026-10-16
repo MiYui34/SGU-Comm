@@ -643,11 +643,11 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	}
 	// Private messages between registered users are stored (see
 	// OnPrivateText): web recipients get them from the Kallisti server.
-	stored := map[uint32]bool{} // recipients' user ids
+	stored := map[uint32]bool{} // recipients' user ids: delivered to a Mumble client
 	for _, session := range m.Session {
 		u, o := s.state.Users[session], s.clients[session]
 		if s.cfg.OnPrivateText != nil && actor.Registered && u != nil && u.Registered && u.UserID != actor.UserID {
-			stored[u.UserID] = true
+			stored[u.UserID] = stored[u.UserID] || (o != nil && !o.web)
 			if o != nil && o.web && !to[session] {
 				continue
 			}
@@ -665,7 +665,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	}
 	if hook := s.cfg.OnPrivateText; hook != nil {
 		for _, user := range slices.Sorted(maps.Keys(stored)) {
-			p := PrivateText{From: c.session, Name: actor.Name, UserID: actor.UserID, To: user, Text: html.UnescapeString(text), Images: images}
+			p := PrivateText{From: c.session, Name: actor.Name, UserID: actor.UserID, To: user, Text: html.UnescapeString(text), Images: images, Delivered: stored[user]}
 			hooks = append(hooks, func() { hook(p) })
 		}
 	}

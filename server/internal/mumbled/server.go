@@ -103,6 +103,8 @@ type PrivateText struct {
 	To     uint32 // the recipient's user id
 	Text   string
 	Images []Image
+	// One of the recipient's Mumble clients got it (then it is read).
+	Delivered bool
 }
 
 type Server struct {
