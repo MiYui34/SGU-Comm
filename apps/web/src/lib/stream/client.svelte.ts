@@ -20,6 +20,8 @@ const MAX_PREVIEW = 60_000; // characters of the data URL (the server takes 64 K
 // too); played this far ahead, pictures waiting for it.
 const SOUND: AudioEncoderConfig = { codec: "opus", sampleRate: 48_000, numberOfChannels: 1, bitrate: 64_000 };
 const SOUND_LEAD = 0.15;
+// A picture this far ahead of the sound clock: the clocks disagree, show it.
+const MAX_AHEAD = 1;
 const MAX_QUEUED_PICTURES = 30;
 
 type Viewer = {
@@ -288,7 +290,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       let due: VideoFrame | undefined;
       while (v.queue.length) {
         const t = v.clock.time(v.queue[0]!.timestamp);
-        if (t !== null && t > audio.currentTime) break;
+        if (t !== null && t > audio.currentTime && t - audio.currentTime < MAX_AHEAD) break;
         due?.close();
         due = v.queue.shift();
       }
@@ -443,6 +445,17 @@ const soundSupported = async () =>
   !!(globalThis as { MediaStreamTrackProcessor?: unknown }).MediaStreamTrackProcessor &&
   (await AudioEncoder.isConfigSupported(SOUND)).supported === true;
 
+// Picture and sound tracks may stamp their frames on different clocks
+// (Chromium's tab capture does): both are put on the page's clock, from
+// their first frame on (the spacing of their own timestamps stays).
+const onPageClock = () => {
+  let base: number | null = null;
+  return (timestamp: number) => {
+    base ??= performance.now() * 1000 - timestamp;
+    return timestamp + base;
+  };
+};
+
 // A sound track's data, mixed down to mono and at 48 kHz (the encoder's;
 // Windows devices may run at 44.1 kHz), until the returned stop. Needs
 // MediaStreamTrackProcessor: Chromium, the only one that shares sound.
@@ -450,6 +463,7 @@ const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void)
   const Processor = (globalThis as { MediaStreamTrackProcessor?: new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<AudioData> } })
     .MediaStreamTrackProcessor!;
   const reader = new Processor({ track }).readable.getReader();
+  const clock = onPageClock();
   let stopped = false;
   void (async () => {
     while (!stopped) {
@@ -463,7 +477,7 @@ const soundFrames = (track: MediaStreamTrack, onData: (data: AudioData) => void)
           for (let i = 0; i < plane.length; i++) mono[i]! += plane[i]! / data.numberOfChannels;
         }
         if (data.sampleRate !== SOUND.sampleRate) mono = resample(mono, data.sampleRate, SOUND.sampleRate);
-        const out = new AudioData({ format: "f32-planar", sampleRate: SOUND.sampleRate, numberOfFrames: mono.length, numberOfChannels: 1, timestamp: data.timestamp, data: mono });
+        const out = new AudioData({ format: "f32-planar", sampleRate: SOUND.sampleRate, numberOfFrames: mono.length, numberOfChannels: 1, timestamp: clock(data.timestamp), data: mono });
         onData(out);
         out.close();
       }
@@ -503,6 +517,7 @@ const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): 
   const Processor = (globalThis as { MediaStreamTrackProcessor?: ProcessorCtor }).MediaStreamTrackProcessor;
   if (Processor) {
     const reader = new Processor({ track }).readable.getReader();
+    const clock = onPageClock();
     let stopped = false;
     let last = -Infinity;
     void (async () => {
@@ -512,7 +527,9 @@ const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): 
         if (stopped || frame.timestamp - last < 1e6 / FPS - 2000) frame.close();
         else {
           last = frame.timestamp;
-          onFrame(frame);
+          const stamped = new VideoFrame(frame, { timestamp: clock(frame.timestamp) });
+          frame.close();
+          onFrame(stamped);
         }
       }
     })();
