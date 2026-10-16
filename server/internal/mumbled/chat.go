@@ -31,7 +31,7 @@ func (s *Server) MayWrite(session, channel uint32) bool {
 // channel, as if the user had sent it (for messages written in the web
 // client). Mumble clients read HTML, so it goes out escaped.
 func (s *Server) SendChannelText(from, channel uint32, text string) {
-	text = html.EscapeString(strings.TrimSpace(text))
+	text = lineBreaks(html.EscapeString(strings.TrimSpace(text)))
 	if text == "" {
 		return
 	}

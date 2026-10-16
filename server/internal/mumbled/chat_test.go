@@ -110,4 +110,24 @@ func TestChatTextIsPlainBothWays(t *testing.T) {
 	if m.GetMessage() != "if a&lt;b &amp; c" {
 		t.Fatalf("bob got %q", m.GetMessage())
 	}
+	// Line breaks as tags (Mumble text is HTML).
+	s.SendChannelText(alice.session, 0, "one\ntwo")
+	proto.Unmarshal(bob.expect(mumble.TypeTextMessage), &m)
+	if m.GetMessage() != "one<br>two" {
+		t.Fatalf("bob got %q", m.GetMessage())
+	}
+}
+
+// Line breaks pass between clients (plainText makes them "\n"; clients
+// render HTML).
+func TestLineBreaksReachOtherClients(t *testing.T) {
+	_, addr := startServerAndListen(t, "127.0.0.1", Config{}, openACL)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{0}, Message: proto.String("one<br>two<br/>three")})
+	var m pb.TextMessage
+	proto.Unmarshal(bob.expect(mumble.TypeTextMessage), &m)
+	if m.GetMessage() != "one<br>two<br>three" {
+		t.Fatalf("bob got %q", m.GetMessage())
+	}
 }

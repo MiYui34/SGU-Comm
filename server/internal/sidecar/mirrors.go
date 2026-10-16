@@ -200,7 +200,7 @@ func (h *Hub) sendMissed(session uint32, chat int64, place string, since int64, 
 	var b strings.Builder
 	for _, m := range msgs {
 		at := m.CreatedAt.UTC().Format("Jan 2 15:04")
-		b.WriteString("<br><b>" + html.EscapeString(m.Author) + "</b> <i>" + at + " UTC</i>: " + html.EscapeString(h.mumbleText(m)))
+		b.WriteString("<br><b>" + html.EscapeString(m.Author) + "</b> <i>" + at + " UTC</i>: " + strings.ReplaceAll(html.EscapeString(h.mumbleText(m)), "\n", "<br>"))
 	}
 	head := "Earlier in "
 	if visited {

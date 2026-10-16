@@ -90,6 +90,9 @@ func plainText(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(s, "<", "&lt;"))
 }
 
+// lineBreaks makes plain text's line breaks HTML again, for clients.
+func lineBreaks(s string) string { return strings.ReplaceAll(s, "\n", "<br>") }
+
 func optionalPlainText(s *string) *string {
 	if s == nil {
 		return nil
@@ -581,7 +584,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	if (text == "" && len(images) == 0) || len(text) > maxTextLength {
 		return
 	}
-	out := text
+	out := lineBreaks(text)
 	if len(images) > 0 {
 		if out != "" {
 			out += "<br>"

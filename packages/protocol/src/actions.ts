@@ -17,7 +17,7 @@ export type TextTarget = { channelId: number } | { session: number };
 
 export const textMessageInit = (target: TextTarget, text: string) => ({
   ...("channelId" in target ? { channelId: [target.channelId] } : { session: [target.session] }),
-  message: escapeHtml(text),
+  message: escapeHtml(text).replaceAll("\n", "<br>"), // HTML: line breaks need tags
 });
 
 export const sendText = (target: TextTarget, text: string) =>

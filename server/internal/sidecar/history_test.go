@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/store"
 )
 
 func say5(h *Hub, channel uint32, texts ...string) {
@@ -89,5 +90,17 @@ func TestADisconnectSetsTheReadMark(t *testing.T) {
 	}
 	if len(h.visits) != 1 { // only session 8 is remembered
 		t.Fatalf("visits %v", h.visits)
+	}
+}
+
+func TestHistoryKeepsLineBreaks(t *testing.T) {
+	h := newHub(t, "general")
+	v := &fakeVoice{}
+	h.SetVoice(v, "")
+	chat, _ := h.store.VoiceChat(5)
+	h.store.AddMessage(store.NewMessage{ChannelID: chat, Author: "web", Text: "one\ntwo <3", At: clock})
+	h.UserMoved(7, noChannel, 5)
+	if got := v.userTexts(7); len(got) != 1 || !strings.Contains(got[0], "one<br>two &lt;3") {
+		t.Fatalf("got %q", got)
 	}
 }

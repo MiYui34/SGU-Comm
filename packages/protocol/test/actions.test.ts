@@ -21,6 +21,7 @@ import {
   sendText,
   setSelfState,
   setSelfTexture,
+  textMessageInit,
 } from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
@@ -145,5 +146,11 @@ describe("ban list and registered users", () => {
     if (gone.type !== "UserList") throw new Error();
     expect(gone.message.users[0]?.userId).toBe(4);
     expect(isFieldSet(gone.message.users[0]!, pb.UserList_UserSchema.field.name)).toBe(false);
+  });
+});
+
+describe("textMessageInit", () => {
+  it("sends line breaks as <br> (Mumble text is HTML)", () => {
+    expect(textMessageInit({ session: 3 }, "a < b\nc").message).toBe("a &lt; b<br>c");
   });
 });
