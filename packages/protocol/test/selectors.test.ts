@@ -3,6 +3,7 @@ import {
   audioFormat,
   channelSiblings,
   channelTree,
+  descriptionsToFetch,
   inVoice,
   isLobby,
   may,
@@ -202,6 +203,25 @@ describe("channelSiblings", () => {
     expect(channelSiblings(s, 2).map((c) => c.id)).toEqual([3, 2, 1]);
     expect(channelSiblings(s, 4).map((c) => c.id)).toEqual([4]);
     expect(channelSiblings(s, 0)).toEqual([]); // root has none
+  });
+});
+
+describe("descriptionsToFetch", () => {
+  const withHash = (hash: string): ServerState => ({
+    ...initialState,
+    channels: { 2: { ...emptyChannel(2), descriptionHash: hash }, 3: emptyChannel(3) },
+  });
+
+  it("asks once per channel and hash", () => {
+    const first = descriptionsToFetch(withHash("aa"), new Set());
+    expect(first.ids).toEqual([2]);
+    expect(descriptionsToFetch(withHash("aa"), first.asked).ids).toEqual([]);
+    expect(descriptionsToFetch(withHash("bb"), first.asked).ids).toEqual([2]);
+  });
+
+  it("forgets removed channels", () => {
+    const { asked } = descriptionsToFetch(withHash("aa"), new Set());
+    expect(descriptionsToFetch(initialState, asked).asked.size).toBe(0);
   });
 });
 

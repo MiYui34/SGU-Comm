@@ -70,6 +70,15 @@ export const missingDescriptions = (state: ServerState): number[] =>
     .filter((c) => c.descriptionHash !== null && c.description === "")
     .map((c) => c.id);
 
+// Long descriptions to fetch: once per channel and hash. Removed channels
+// are forgotten.
+export const descriptionsToFetch = (state: ServerState, asked: ReadonlySet<string>) => {
+  const key = (id: number) => `${id}:${state.channels[id]?.descriptionHash}`;
+  const kept = [...asked].filter((k) => state.channels[Number(k.split(":")[0])] !== undefined);
+  const ids = missingDescriptions(state).filter((id) => !asked.has(key(id)));
+  return { ids, asked: new Set([...kept, ...ids.map(key)]) };
+};
+
 // Users whose avatar is known only by its hash.
 export const missingTextures = (state: ServerState): number[] =>
   Object.values(state.users)

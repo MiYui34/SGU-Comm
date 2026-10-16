@@ -2,7 +2,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 import * as pb from "../src/gen/Mumble_pb";
 import type { MumbleMessage } from "../src/messages";
-import { banAddress, privateMessagesWith } from "../src/selectors";
+import { banAddress, missingDescriptions, privateMessagesWith } from "../src/selectors";
 import {
   addOwnMessage,
   emptyChannel,
@@ -263,6 +263,30 @@ describe("description hashes", () => {
     const s = run([channelState({ channelId: 2, name: "x", descriptionHash: new Uint8Array([1, 2, 3]) })]);
     expect(s.channels[2]?.descriptionHash).toBe("010203");
     expect(s.channels[2]?.description).toBe("");
+  });
+
+  it("drops the fetched text when the hash changes", () => {
+    const first = [
+      channelState({ channelId: 2, name: "x", descriptionHash: new Uint8Array([1]) }),
+      channelState({ channelId: 2, description: "a".repeat(200) }),
+    ];
+    const same = run([...first, channelState({ channelId: 2, descriptionHash: new Uint8Array([1]) })]);
+    expect(same.channels[2]?.description).toBe("a".repeat(200));
+    const changed = run([...first, channelState({ channelId: 2, descriptionHash: new Uint8Array([2]) })]);
+    expect(changed.channels[2]).toMatchObject({ description: "", descriptionHash: "02" });
+    expect(missingDescriptions(changed)).toEqual([2]);
+  });
+
+  it("drops the hash when a short description comes inline", () => {
+    const long = channelState({ channelId: 2, descriptionHash: new Uint8Array([1]) });
+    const s = run([
+      long,
+      channelState({ channelId: 2, description: "a".repeat(200) }),
+      channelState({ channelId: 2, description: "short" }),
+    ]);
+    expect(s.channels[2]?.descriptionHash).toBeNull();
+    // Back to the long text: fetched again.
+    expect(run([long], s).channels[2]).toMatchObject({ description: "", descriptionHash: "01" });
   });
 });
 

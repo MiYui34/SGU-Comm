@@ -168,10 +168,19 @@ const BLOB_HASH_MIN = 128;
 
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 
+const isShortDescription = (msg: pb.ChannelState) =>
+  isFieldSet(msg, pb.ChannelStateSchema.field.description) &&
+  new TextEncoder().encode(msg.description).length < BLOB_HASH_MIN;
+
 const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerState => {
   const prev = state.channels[msg.channelId] ?? emptyChannel(msg.channelId);
+  const hash = isFieldSet(msg, pb.ChannelStateSchema.field.descriptionHash)
+    ? hex(msg.descriptionHash)
+    : prev.descriptionHash;
   const next: Channel = {
     ...prev,
+    // A new hash: the fetched text is out of date.
+    ...(hash !== prev.descriptionHash && { description: "" }),
     ...pickSet(msg, pb.ChannelStateSchema, [
       "parent",
       "name",
@@ -179,10 +188,9 @@ const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerStat
       "position",
       "temporary",
     ]),
+    // Short texts always come inline, so any earlier hash is out of date.
+    descriptionHash: isShortDescription(msg) ? null : hash,
   };
-  if (isFieldSet(msg, pb.ChannelStateSchema.field.descriptionHash)) {
-    next.descriptionHash = hex(msg.descriptionHash);
-  }
   return { ...state, channels: { ...state.channels, [msg.channelId]: next } };
 };
 

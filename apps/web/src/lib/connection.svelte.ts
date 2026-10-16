@@ -3,11 +3,11 @@ import {
   audioFormat,
   createMessageStream,
   decodeAudio,
+  descriptionsToFetch,
   encodeAudio,
   encodeVoicePacket,
   handshake,
   initialState,
-  missingDescriptions,
   ping,
   reduce,
   requestDescriptions,
@@ -78,13 +78,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   let timer: ReturnType<typeof setInterval> | undefined;
 
   // Long channel descriptions arrive as a hash: ask for each text once.
-  const askedDescriptions = new Set<number>();
+  let askedDescriptions: ReadonlySet<string> = new Set();
   const fetchDescriptions = () => {
     if (state.status !== "synced") return;
-    const ids = missingDescriptions(state).filter((id) => !askedDescriptions.has(id));
-    if (!ids.length) return;
-    ids.forEach((id) => askedDescriptions.add(id));
-    send(requestDescriptions(ids));
+    const next = descriptionsToFetch(state, askedDescriptions);
+    askedDescriptions = next.asked;
+    if (next.ids.length) send(requestDescriptions(next.ids));
   };
   // Avatars too (see texturesToFetch).
   let askedTextures: ReadonlySet<string> = new Set();
