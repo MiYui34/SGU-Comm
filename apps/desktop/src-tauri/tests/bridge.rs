@@ -10,6 +10,11 @@ use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 /// A TLS server with a self-signed certificate that echoes bytes back.
 /// Returns its port and certificate fingerprint.
 async fn tls_echo() -> (u16, String) {
+    tls_echo_after(std::time::Duration::ZERO).await
+}
+
+/// The same, but it waits before the TLS handshake.
+async fn tls_echo_after(delay: std::time::Duration) -> (u16, String) {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -27,6 +32,7 @@ async fn tls_echo() -> (u16, String) {
             let (tcp, _) = listener.accept().await.unwrap();
             let acceptor = acceptor.clone();
             tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
                 let mut tls = acceptor.accept(tcp).await.unwrap();
                 let mut buf = [0u8; 1024];
                 loop {
@@ -298,4 +304,32 @@ async fn the_close_reason_arrives_even_when_the_client_already_sent_data() {
     ws.send(Message::Binary(vec![0u8; 4096].into())).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert_eq!(close_reason(&mut ws).await, format!("certificate-unknown {fp}"));
+}
+
+#[tokio::test]
+async fn data_sent_while_the_bridge_connects_reaches_the_server() {
+    let (target, fp) = tls_echo_after(std::time::Duration::from_millis(300)).await;
+    let b = trusting(target, &fp).await;
+    let mut ws = connect(&b, &b.secret, target, ORIGIN).await.unwrap();
+    let msg = frame(3, &[1, 2, 3]);
+    ws.send(Message::Binary(msg.clone().into())).await.unwrap();
+    assert_eq!(read_bytes(&mut ws, msg.len()).await, msg);
+}
+
+#[tokio::test]
+async fn a_client_that_leaves_cancels_the_connection_to_the_server() {
+    // The server accepts TCP but never answers TLS.
+    let stalled = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target = stalled.local_addr().unwrap().port();
+    let b = bridge::start(vec![ORIGIN.into()], Arc::new(pins::PinStore::in_memory())).await.unwrap();
+    let ws = connect(&b, &b.secret, target, ORIGIN).await.unwrap();
+    let (mut upstream, _) = stalled.accept().await.unwrap();
+    drop(ws);
+    // Well before the 10 s timeout, the bridge closes its side (after its
+    // TLS hello).
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Ok(1..) = upstream.read(&mut [0u8; 1024]).await {}
+    })
+    .await;
+    assert!(closed.is_ok(), "still open");
 }

@@ -119,7 +119,11 @@ async fn serve(
     let mut ws = tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::accept_hdr_async(tcp, check)).await??;
     let (host, port) = target.ok_or("no target")?;
 
-    let (upstream, fp, trusted_ca, peer) = match connect_upstream(&host, port).await {
+    // A client that leaves cancels the connect.
+    let Some((connected, early)) = while_reading(&mut ws, connect_upstream(&host, port, HANDSHAKE_TIMEOUT)).await else {
+        return Ok(());
+    };
+    let (upstream, fp, trusted_ca, peer) = match connected {
         Ok(u) => u,
         Err(err) => {
             // Tell the client why, instead of just dropping the socket.
@@ -142,7 +146,8 @@ async fn serve(
     let voice = Mutex::new(UdpVoice::default());
     let (mut up_read, up_write) = tokio::io::split(upstream);
     let up_write = tokio::sync::Mutex::new(up_write);
-    let (ws_write, mut ws_read) = ws.split();
+    let (ws_write, ws_read) = ws.split();
+    let mut ws_read = futures_util::stream::iter(early.into_iter().map(Ok)).chain(ws_read);
     let ws_write = tokio::sync::Mutex::new(ws_write);
 
     // Browser to server: binary frames are the Mumble stream. Voice goes
@@ -251,6 +256,25 @@ async fn serve(
     Ok(())
 }
 
+/// Runs `work` while it reads the client: what the client sends meanwhile
+/// is kept for the server. None when the client leaves first.
+async fn while_reading<T>(
+    ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>,
+    work: impl std::future::Future<Output = T>,
+) -> Option<(T, Vec<Message>)> {
+    tokio::pin!(work);
+    let mut early = Vec::new();
+    loop {
+        tokio::select! {
+            done = &mut work => return Some((done, early)),
+            msg = ws.next() => match msg {
+                Some(Ok(Message::Close(_)) | Err(_)) | None => return None,
+                Some(Ok(msg)) => early.push(msg),
+            },
+        }
+    }
+}
+
 async fn udp_socket(peer: SocketAddr) -> std::io::Result<UdpSocket> {
     let local = if peer.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
     let socket = UdpSocket::bind(local).await?;
@@ -312,21 +336,28 @@ fn ca_valid(
     verifier.as_ref().is_some_and(|v| v.verify_server_cert(end_entity, intermediates, name, &[], now).is_ok())
 }
 
-/// Connects with TLS. Returns the server certificate's fingerprint, whether
-/// the web PKI trusts it, and the server address (for UDP).
+type Upstream = (tokio_rustls::client::TlsStream<TcpStream>, String, bool, SocketAddr);
+
+/// Connects with TLS, TCP and handshake within `limit`. Returns the server
+/// certificate's fingerprint, whether the web PKI trusts it, and the server
+/// address (for UDP).
 async fn connect_upstream(
     host: &str,
     port: u16,
-) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String, bool, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
-    let tcp = tokio::time::timeout(HANDSHAKE_TIMEOUT, TcpStream::connect((host, port))).await??;
-    tcp.set_nodelay(true)?;
-    let peer = tcp.peer_addr()?;
-    let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
-    let seen = Arc::new(Mutex::new(None));
-    let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(seen.clone())));
-    let stream = tls.connect(name, tcp).await?;
-    let (fp, trusted) = seen.lock().unwrap().take().ok_or("no server certificate")?;
-    Ok((stream, fp, trusted, peer))
+    limit: std::time::Duration,
+) -> Result<Upstream, Box<dyn std::error::Error + Send + Sync>> {
+    tokio::time::timeout(limit, async {
+        let tcp = TcpStream::connect((host, port)).await?;
+        tcp.set_nodelay(true)?;
+        let peer = tcp.peer_addr()?;
+        let name = rustls::pki_types::ServerName::try_from(host.to_string())?;
+        let seen = Arc::new(Mutex::new(None));
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(tls_config(seen.clone())));
+        let stream = tls.connect(name, tcp).await?;
+        let (fp, trusted) = seen.lock().unwrap().take().ok_or("no server certificate")?;
+        Ok((stream, fp, trusted, peer))
+    })
+    .await?
 }
 
 /// Mumble servers usually have self-signed certificates, so the CA check
@@ -405,10 +436,21 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn a_lets_encrypt_certificate_is_ca_valid() {
-        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 443).await.unwrap();
+        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 443, HANDSHAKE_TIMEOUT).await.unwrap();
         assert!(trusted);
-        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 64738).await.unwrap();
+        let (_, _, trusted, _) = connect_upstream("chat.kallisti.chat", 64738, HANDSHAKE_TIMEOUT).await.unwrap();
         assert!(trusted); // the Mumble port uses the web certificate too
+    }
+
+    #[tokio::test]
+    async fn a_stalled_tls_handshake_times_out() {
+        // The server accepts TCP but never answers TLS.
+        let stalled = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = stalled.local_addr().unwrap().port();
+        let limit = std::time::Duration::from_millis(200);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), connect_upstream("127.0.0.1", port, limit)).await;
+        assert!(matches!(result, Ok(Err(_))));
+        drop(stalled);
     }
 
     #[test]
