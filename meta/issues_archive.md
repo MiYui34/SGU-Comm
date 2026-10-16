@@ -117,3 +117,7 @@
 - [x] [Web: reply with an attachment](issues/web-reply-with-attachment.md)
 - [x] [Web: "Load older messages" keeps the scroll position](issues/web-load-older-keeps-position.md)
 - [x] [Web: Twemoji images for emoji](issues/web-twemoji.md)
+- [x] [Stored direct messages](issues/stored-direct-messages.md)
+  - [x] [Direct messages: store and sidecar](issues/direct-messages-server.md)
+  - [x] [Direct messages: web app](issues/direct-messages-web.md)
+  - [x] [Direct messages: Mumble clients](issues/direct-messages-mumble.md)
