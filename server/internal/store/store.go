@@ -32,6 +32,7 @@ type Message struct {
 	Text      string
 	CreatedAt time.Time
 	EditedAt  time.Time // zero: never edited
+	PinnedAt  time.Time // zero: not pinned
 	// The author was registered on the Mumble server (a verified name),
 	// with this user id (nil: not known, from before ids were kept).
 	Verified  bool
@@ -321,6 +322,7 @@ func migrate(db *sql.DB) error {
 		{"edited_at", "INTEGER"},
 		{"reply_to", "INTEGER"},
 		{"author_id", "INTEGER"}, // the Mumble user id of verified authors
+		{"pinned_at", "INTEGER"},
 	}); err != nil {
 		return err
 	}
@@ -676,7 +678,7 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 	return u, err
 }
 
-const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at,
+const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at, m.pinned_at,
 		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used,
 		m.reply_to, r.author, r.text
 	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
@@ -684,7 +686,7 @@ const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var at int64
-	var edited sql.NullInt64
+	var edited, pinned sql.NullInt64
 	var u struct {
 		id, size, at        sql.NullInt64
 		key, name, typ, who sql.NullString
@@ -692,7 +694,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	}
 	var replyTo, authorID sql.NullInt64
 	var replyAuthor, replyText sql.NullString
-	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited,
+	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited, &pinned,
 		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used,
 		&replyTo, &replyAuthor, &replyText); err != nil {
 		return Message{}, err
@@ -707,6 +709,9 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	m.CreatedAt = time.UnixMilli(at).UTC()
 	if edited.Valid {
 		m.EditedAt = time.UnixMilli(edited.Int64).UTC()
+	}
+	if pinned.Valid {
+		m.PinnedAt = time.UnixMilli(pinned.Int64).UTC()
 	}
 	if u.id.Valid {
 		m.Upload = &Upload{ID: u.id.Int64, Key: u.key.String, Name: u.name.String, Type: u.typ.String,

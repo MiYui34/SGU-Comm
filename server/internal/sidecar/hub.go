@@ -244,6 +244,7 @@ type wireMessage struct {
 	AuthorID  *uint32        `json:"authorId,omitempty"` // with verified (unknown for old messages)
 	Upload    *wireUpload    `json:"upload,omitempty"`
 	Edited    int64          `json:"edited,omitempty"` // Unix milliseconds
+	Pinned    int64          `json:"pinned,omitempty"` // Unix milliseconds
 	Reply     *wireQuote     `json:"reply,omitempty"`
 	Reactions []wireReaction `json:"reactions,omitempty"`
 }
@@ -282,6 +283,9 @@ func toWire(m store.Message) wireMessage {
 	if !m.EditedAt.IsZero() {
 		w.Edited = m.EditedAt.UnixMilli()
 	}
+	if !m.PinnedAt.IsZero() {
+		w.Pinned = m.PinnedAt.UnixMilli()
+	}
 	if r := m.Reply; r != nil {
 		w.Reply = &wireQuote{ID: r.ID, Author: r.Author, Text: shorten(r.Text, quoteLength)}
 	}
@@ -311,7 +315,7 @@ type request struct {
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
-	On        bool     `json:"on"`        // react: add (or remove)
+	On        bool     `json:"on"`        // react: add (or remove); pin
 }
 
 // Handle answers one request from the browser.
@@ -356,6 +360,9 @@ func (c *Conn) Handle(raw []byte) {
 	case "react":
 		c.react(*id, req)
 		return
+	case "pin":
+		c.pin(*id, req)
+		return
 	case "previews":
 		c.previews(*id, req)
 		return
@@ -376,7 +383,7 @@ func (c *Conn) Handle(raw []byte) {
 		}
 		return
 	}
-	if req.Type != "send" && req.Type != "history" && req.Type != "typing" {
+	if req.Type != "send" && req.Type != "history" && req.Type != "typing" && req.Type != "pins" {
 		c.sendError("unknown request type")
 		return
 	}
@@ -387,7 +394,7 @@ func (c *Conn) Handle(raw []byte) {
 		}
 		return
 	}
-	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type != "history") {
+	if isVoice && !c.hub.mayUse(id.Session, voice, req.Type != "history" && req.Type != "pins") {
 		if req.Type != "typing" { // only typing: no error to show
 			c.sendError("you may not use this channel's chat")
 		}
@@ -396,6 +403,8 @@ func (c *Conn) Handle(raw []byte) {
 	switch req.Type {
 	case "history":
 		c.history(req)
+	case "pins":
+		c.pins(req)
 	case "send":
 		c.post(*id, req, voice, isVoice)
 	case "typing":
