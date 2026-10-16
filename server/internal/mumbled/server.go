@@ -133,6 +133,8 @@ type client struct {
 	web       bool // a web client through the bridge (ServeConn), not a Mumble client
 	limiter   *rate.Limiter
 	bandwidth *rate.Limiter // voice bytes per second
+	// VoiceTarget messages: own limit, whisper keys send them often.
+	targetLimiter *rate.Limiter
 
 	// Guarded by Server.mu.
 	udpAddr  netip.AddrPort

@@ -149,7 +149,7 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		}
 	case mumble.TypeVoiceTarget:
 		var m pb.VoiceTarget
-		if proto.Unmarshal(body, &m) == nil {
+		if c.targetLimiter.Allow() && proto.Unmarshal(body, &m) == nil { // limited before parsing
 			s.voiceTargetMsg(c, &m)
 		}
 	case mumble.TypeRequestBlob:

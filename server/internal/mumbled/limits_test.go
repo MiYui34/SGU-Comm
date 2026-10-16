@@ -145,3 +145,22 @@ func TestSuperUserJoinsAFullServer(t *testing.T) {
 	dial(t, addr, "alice")
 	superUser(t, addr)
 }
+
+func TestVoiceTargetsAreRateLimited(t *testing.T) {
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{}, openACL)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	s.mu.Lock()
+	limiter := s.clients[alice.session].targetLimiter
+	s.mu.Unlock()
+	limiter.SetLimit(0)
+	limiter.SetBurst(0) // empty, and it does not fill up
+	alice.send(mumble.TypeVoiceTarget, &pb.VoiceTarget{Id: proto.Uint32(1), Targets: []*pb.VoiceTarget_Target{{Session: []uint32{bob.session}}}})
+	alice.send(mumble.TypePing, &pb.Ping{})
+	alice.expect(mumble.TypePing) // the target came first
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := len(s.state.Users[alice.session].Targets); n != 0 {
+		t.Fatalf("%d targets", n)
+	}
+}

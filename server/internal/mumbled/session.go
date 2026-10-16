@@ -275,16 +275,17 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 	}
 	key, clientNonce, serverNonce := random16(), random16(), random16()
 	c := &client{
-		conn:      conn,
-		out:       make(chan []byte, queueSize),
-		name:      id.name,
-		limiter:   rate.NewLimiter(messageLimit, messageBurst),
-		bandwidth: rate.NewLimiter(maxBandwidth/8, maxBandwidth/8),
-		crypt:     cryptstate.New(key, serverNonce, clientNonce),
-		lastGood:  time.Now(),
-		host:      host,
-		web:       !counted,
-		legacy:    h.legacy,
+		conn:          conn,
+		out:           make(chan []byte, queueSize),
+		name:          id.name,
+		limiter:       rate.NewLimiter(messageLimit, messageBurst),
+		bandwidth:     rate.NewLimiter(maxBandwidth/8, maxBandwidth/8),
+		targetLimiter: rate.NewLimiter(targetLimit, targetBurst),
+		crypt:         cryptstate.New(key, serverNonce, clientNonce),
+		lastGood:      time.Now(),
+		host:          host,
+		web:           !counted,
+		legacy:        h.legacy,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	if reject := s.join(c, id, setup); reject != nil {

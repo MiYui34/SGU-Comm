@@ -20,6 +20,9 @@ const (
 	maxTargetSessions = 100
 	maxTargetChannels = 50
 	maxListening      = 50
+	// VoiceTarget messages per second; a client may set all targets at once.
+	targetLimit = 10
+	targetBurst = maxTargetID
 	// Murmur's default bandwidth: what one user may send in voice.
 	maxBandwidth = 558000 // bits per second
 )
