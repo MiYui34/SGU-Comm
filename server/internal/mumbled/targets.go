@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"maps"
 	"slices"
 )
 
@@ -90,6 +91,21 @@ func (s *State) Listen(session, channel uint32, on bool) bool {
 	}
 	s.Changed()
 	return true
+}
+
+// DropListeners stops users listening where they may no longer listen
+// (after permission changes). It returns the channels each user stopped
+// listening to.
+func (s *State) DropListeners() map[uint32][]uint32 {
+	dropped := map[uint32][]uint32{}
+	for _, u := range s.Users {
+		for _, ch := range slices.Sorted(maps.Keys(u.Listening)) {
+			if !s.Has(u, ch, Listen) && s.Listen(u.Session, ch, false) {
+				dropped[u.Session] = append(dropped[u.Session], ch)
+			}
+		}
+	}
+	return dropped
 }
 
 // Receivers are the users who get a voice packet from sender to target

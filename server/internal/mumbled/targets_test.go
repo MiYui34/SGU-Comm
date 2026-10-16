@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"maps"
+	"slices"
 	"testing"
 )
 
@@ -113,6 +114,21 @@ func TestRemovedUsersLeaveTargetsAndListeners(t *testing.T) {
 	s.RemoveChannel(a.ID)
 	if len(s.Users[4].Listening) != 0 {
 		t.Fatal("listening to a removed channel")
+	}
+}
+
+func TestListenersWithoutListenAreDropped(t *testing.T) {
+	s, a, _, b := targetState(t)
+	s.Listen(1, a.ID, true)
+	s.Listen(1, b.ID, true)
+	s.Listen(4, a.ID, true)
+	a.ACLs = append(a.ACLs, ACL{ApplyHere: true, Group: "all", Deny: Listen})
+	got := s.DropListeners()
+	if !maps.EqualFunc(got, map[uint32][]uint32{1: {a.ID}, 4: {a.ID}}, slices.Equal) {
+		t.Fatalf("dropped %v", got)
+	}
+	if !maps.Equal(s.Users[1].Listening, map[uint32]bool{b.ID: true}) || len(s.Users[4].Listening) != 0 {
+		t.Fatalf("listening %v %v", s.Users[1].Listening, s.Users[4].Listening)
 	}
 }
 

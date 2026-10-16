@@ -84,6 +84,27 @@ func TestChannelListeners(t *testing.T) {
 	}
 }
 
+func TestListenersWhoLoseListenStopHearing(t *testing.T) {
+	addr, _ := adminServer(t)
+	su := superUser(t, addr)
+	games := su.createChannel(0, "Games", false)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	alice.move(alice.session, games)
+	bob.waitForMove(alice.session, games)
+	bob.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(bob.session), ListeningChannelAdd: []uint32{games}})
+	alice.waitForState(bob.session, func(m *pb.UserState) bool { return len(m.ListeningChannelAdd) > 0 })
+	alice.talk(0)
+	bob.expect(mumble.TypeUDPTunnel)
+	su.setACL(games, true, []*pb.ACL_ChanACL{chanACL("all", true, true, 0, Listen)}, nil)
+	m := alice.waitForState(bob.session, func(m *pb.UserState) bool { return len(m.ListeningChannelRemove) > 0 })
+	if len(m.ListeningChannelRemove) != 1 || m.ListeningChannelRemove[0] != games {
+		t.Fatalf("removed %v", m.ListeningChannelRemove)
+	}
+	alice.talk(0)
+	bob.expectNone(mumble.TypeUDPTunnel)
+}
+
 func TestADeafenedListenerStopsHearing(t *testing.T) {
 	addr := startOpen(t)
 	alice := dial(t, addr, "alice")

@@ -85,8 +85,8 @@ func (s *Server) moveLocked(u *User, channel, actor uint32) {
 
 // permissionsChangedLocked runs after ACLs, groups or registrations
 // changed: clients drop their cached permissions, suppress states follow
-// Speak, and (if a channel is given) everyone learns whether they may
-// enter it.
+// Speak, listeners without Listen stop, and (if a channel is given)
+// everyone learns whether they may enter it.
 func (s *Server) permissionsChangedLocked(changed *Channel) {
 	s.state.Changed()  // who may speak and whisper where
 	var below []uint32 // subchannels inherit the change
@@ -104,6 +104,12 @@ func (s *Server) permissionsChangedLocked(changed *Channel) {
 				})
 			}
 		}
+	}
+	dropped := s.state.DropListeners()
+	for _, session := range slices.Sorted(maps.Keys(dropped)) {
+		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
+			Session: proto.Uint32(session), ListeningChannelRemove: dropped[session],
+		}), nil)
 	}
 	for _, u := range s.state.Users {
 		if s.refreshLocked(u) {
