@@ -80,18 +80,13 @@ var (
 )
 
 // plainText removes HTML tags: the server does not allow HTML (as Murmur
-// with allowhtml off), and Mumble clients would render it. Until nothing
-// changes ("<<b>img ...>" leaves a tag after one pass), and a "<" that is
-// left is escaped, so no tag can form. Line breaks stay (as "\n").
+// with allowhtml off), and Mumble clients would render it. One pass: a
+// "<" that is left ("<<b>img ...>" leaves one) is escaped, so no tag can
+// form. Line breaks stay (as "\n"). Callers run it outside Server.mu
+// (comments can be big).
 func plainText(s string) string {
 	s = lineBreak.ReplaceAllString(s, "\n")
-	for {
-		next := htmlTag.ReplaceAllString(s, "")
-		if next == s {
-			break
-		}
-		s = next
-	}
+	s = htmlTag.ReplaceAllString(s, "")
 	return strings.TrimSpace(strings.ReplaceAll(s, "<", "&lt;"))
 }
 
@@ -228,6 +223,7 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 }
 
 func (s *Server) userStateMsg(c *client, m *pb.UserState) {
+	m.Comment = optionalPlainText(m.Comment)
 	if m.Comment != nil || m.Texture != nil {
 		s.saveMu.Lock() // the save below keeps the order of the changes
 		defer s.saveMu.Unlock()
@@ -405,6 +401,7 @@ func (s *Server) save(channels []*Channel, removed []uint32, lastID uint32) {
 }
 
 func (s *Server) channelStateMsg(c *client, m *pb.ChannelState) {
+	m.Description = optionalPlainText(m.Description)
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	if m.ChannelId == nil {
@@ -440,7 +437,7 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 	}
 	ch, err := s.state.AddChannel(m.GetParent(), m.GetName(), m.GetTemporary())
 	if err == nil {
-		err = s.state.EditChannel(ch.ID, ChannelEdit{Description: optionalPlainText(m.Description), Position: m.Position})
+		err = s.state.EditChannel(ch.ID, ChannelEdit{Description: m.Description, Position: m.Position})
 		if err != nil {
 			s.state.RemoveChannel(ch.ID)
 		}
@@ -493,7 +490,7 @@ func (s *Server) editChannel(c *client, m *pb.ChannelState) {
 		c.denyPerm(missing, where)
 		return
 	}
-	edit := ChannelEdit{Name: m.Name, Description: optionalPlainText(m.Description), Position: m.Position, Parent: m.Parent}
+	edit := ChannelEdit{Name: m.Name, Description: m.Description, Position: m.Position, Parent: m.Parent}
 	if err := s.state.EditChannel(id, edit); err != nil {
 		s.mu.Unlock()
 		c.deny(err)
@@ -709,11 +706,12 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 	case s.cfg.DB == nil:
 		err = deny(pb.PermissionDenied_Text, "this server does not register users")
 	}
-	if err == nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(u.Name)) {
-		err = deny(pb.PermissionDenied_UserName, "this name belongs to a Kallisti account")
-	}
 	name, hash := u.Name, u.Hash
 	s.mu.Unlock()
+	// A database query: not under mu.
+	if err == nil && s.cfg.ReservedName != nil && s.cfg.ReservedName(names.Key(name)) {
+		err = deny(pb.PermissionDenied_UserName, "this name belongs to a Kallisti account")
+	}
 	if err != nil {
 		c.deny(err)
 		return

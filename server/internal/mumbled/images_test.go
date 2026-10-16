@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -80,6 +81,19 @@ func TestNoUserHTMLGetsThrough(t *testing.T) {
 	}
 	if plainText("a < b") != "a &lt; b" {
 		t.Errorf("a < b: %q", plainText("a < b"))
+	}
+}
+
+func TestPlainTextIsLinear(t *testing.T) {
+	// Each removed tag exposes the next one: one pass, not one per tag.
+	n := 50000
+	start := time.Now()
+	out := plainText(strings.Repeat("<", n) + strings.Repeat("b>", n))
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("took %v", d)
+	}
+	if strings.Contains(out, "<") {
+		t.Fatalf("a tag is left: %q...", out[:20])
 	}
 }
 
