@@ -122,3 +122,5 @@
   - [x] [Direct messages: web app](issues/direct-messages-web.md)
   - [x] [Direct messages: Mumble clients](issues/direct-messages-mumble.md)
 - [x] [Web: notice when a new version is deployed](issues/web-update-notice.md)
+- [x] [Streaming: previews and viewer list](issues/streaming-previews.md)
+- [x] [Streaming: sound, also for Mumble clients](issues/streaming-sound.md)
