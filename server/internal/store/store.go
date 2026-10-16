@@ -351,6 +351,13 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	// Direct chats: the two users (see direct.go).
+	if err := addColumns(db, "channels", [][2]string{{"dm_low", "INTEGER"}, {"dm_high", "INTEGER"}}); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS channels_direct ON channels (dm_low, dm_high) WHERE dm_low IS NOT NULL`); err != nil {
+		return err
+	}
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'messages_fts'`).Scan(&n); err != nil {
 		return err
 	}
