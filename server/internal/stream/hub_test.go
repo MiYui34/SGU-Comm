@@ -224,3 +224,53 @@ func TestViewersAskForKeyframes(t *testing.T) {
 		t.Fatal("the viewer's request did not reach the streamer")
 	}
 }
+
+func lastViewers(s *sink) []any {
+	for i := len(s.texts) - 1; i >= 0; i-- {
+		if s.texts[i]["type"] == "viewers" {
+			return s.texts[i]["sessions"].([]any)
+		}
+	}
+	return nil
+}
+
+func TestTheStreamerSeesItsViewers(t *testing.T) {
+	h, v, sinks := setup()
+	v.channels[3] = 5
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	h.Watch(3, 1)
+	if got := lastViewers(sinks[1]); len(got) != 2 || got[0] != float64(2) || got[1] != float64(3) {
+		t.Fatalf("viewers %v", got)
+	}
+	h.Unwatch(2, 1)
+	h.Moved(3, 6)
+	if got := lastViewers(sinks[1]); len(got) != 0 {
+		t.Fatalf("viewers after leaving %v", got)
+	}
+}
+
+func TestPreviews(t *testing.T) {
+	h, _, _ := setup()
+	var got []Info
+	h.OnPreview = func(i Info) { got = append(got, i) }
+	img := "data:image/jpeg;base64,/9j/4AAQ"
+	if err := h.SetPreview(1, img); err == nil {
+		t.Fatal("a preview without a stream")
+	}
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	for _, bad := range []string{"data:image/svg+xml;base64,PHN2Zz4=", "javascript:alert(1)", "data:image/jpeg;base64," + strings.Repeat("A", 70000)} {
+		if err := h.SetPreview(1, bad); err == nil {
+			t.Fatalf("accepted %.40q", bad)
+		}
+	}
+	if err := h.SetPreview(1, img); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Preview != img || got[0].Channel != 5 {
+		t.Fatalf("previews %v", got)
+	}
+	if s := h.Streams(); s[0].Preview != img {
+		t.Fatalf("streams %v", s)
+	}
+}

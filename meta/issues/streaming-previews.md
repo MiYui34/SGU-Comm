@@ -8,3 +8,7 @@
 ## Acceptance Criteria
 
 - Server tests for the viewer list; checked in the browser.
+
+## Notes
+
+- Previews: a small JPEG from the streamer about every 15 s (turned off in the streamer's settings), kept by the server and sent only to people who may enter the stream's channel.

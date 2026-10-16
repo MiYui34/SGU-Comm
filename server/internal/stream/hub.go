@@ -9,6 +9,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,11 +36,18 @@ type Config struct {
 	Height int    `json:"height"`
 }
 
-// Info is a live stream, for everyone's channel list.
+// Info is a live stream, for everyone's channel list. Preview: its latest
+// thumbnail (a JPEG data URL), if any.
 type Info struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`
+	Preview string `json:"preview,omitempty"`
 }
+
+const (
+	previewPrefix = "data:image/jpeg;base64,"
+	maxPreview    = 64 << 10
+)
 
 // A frame from a streamer: flags (bit 0: keyframe), an 8-byte timestamp
 // (microseconds), the data. Viewers get it with the streamer's session (4
@@ -60,6 +68,7 @@ func (c Config) valid() bool {
 
 type stream struct {
 	channel  uint32
+	preview  string
 	config   Config
 	viewers  map[uint32]*viewer
 	askedKey time.Time
@@ -72,7 +81,9 @@ type Hub struct {
 	voice Voice
 	// OnChange gets the live streams after each change (outside the lock).
 	OnChange func([]Info)
-	now      func() time.Time
+	// OnPreview gets a stream's new thumbnail (outside the lock).
+	OnPreview func(Info)
+	now       func() time.Time
 
 	// changes keeps OnChange calls in order (taken before mu).
 	changes sync.Mutex
@@ -105,8 +116,8 @@ func (h *Hub) Disconnect(session uint32, s Sink) {
 		return
 	}
 	delete(h.sinks, session)
-	for _, st := range h.streams {
-		delete(st.viewers, session)
+	for s, st := range h.streams {
+		h.dropViewerLocked(s, st, session)
 	}
 	ended := h.endLocked(session)
 	h.mu.Unlock()
@@ -169,6 +180,7 @@ func (h *Hub) Watch(viewerSession, streamer uint32) error {
 		return errors.New("that is your own stream")
 	}
 	st.viewers[viewerSession] = &viewer{needKey: true}
+	h.viewersLocked(streamer, st)
 	h.text(viewerSession, streamText(streamer, st.config))
 	h.askKeyLocked(streamer, st)
 	return nil
@@ -178,8 +190,41 @@ func (h *Hub) Unwatch(viewerSession, streamer uint32) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if st := h.streams[streamer]; st != nil {
-		delete(st.viewers, viewerSession)
+		h.dropViewerLocked(streamer, st, viewerSession)
 	}
+}
+
+func (h *Hub) dropViewerLocked(streamer uint32, st *stream, viewer uint32) {
+	if st.viewers[viewer] != nil {
+		delete(st.viewers, viewer)
+		h.viewersLocked(streamer, st)
+	}
+}
+
+// viewersLocked tells the streamer who watches.
+func (h *Hub) viewersLocked(streamer uint32, st *stream) {
+	h.text(streamer, map[string]any{"type": "viewers", "sessions": append([]uint32{}, slices.Sorted(maps.Keys(st.viewers))...)})
+}
+
+// SetPreview keeps a stream's thumbnail (a small JPEG data URL) and passes
+// it on.
+func (h *Hub) SetPreview(session uint32, image string) error {
+	if !strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview {
+		return errors.New("bad preview")
+	}
+	h.mu.Lock()
+	st := h.streams[session]
+	if st == nil {
+		h.mu.Unlock()
+		return errors.New("no stream")
+	}
+	st.preview = image
+	info := Info{Session: session, Channel: st.channel, Preview: image}
+	h.mu.Unlock()
+	if h.OnPreview != nil {
+		h.OnPreview(info)
+	}
+	return nil
 }
 
 // Frame forwards a streamer's frame to its viewers. A viewer that is full
@@ -245,9 +290,9 @@ func (h *Hub) Moved(session, to uint32) {
 	if st := h.streams[session]; st != nil && st.channel != to {
 		ended = h.endLocked(session)
 	}
-	for _, st := range h.streams {
+	for s, st := range h.streams {
 		if st.channel != to {
-			delete(st.viewers, session)
+			h.dropViewerLocked(s, st, session)
 		}
 	}
 	h.mu.Unlock()
@@ -262,7 +307,7 @@ func (h *Hub) Streams() []Info {
 	defer h.mu.Unlock()
 	out := []Info{}
 	for _, s := range slices.Sorted(maps.Keys(h.streams)) {
-		out = append(out, Info{Session: s, Channel: h.streams[s].channel})
+		out = append(out, Info{Session: s, Channel: h.streams[s].channel, Preview: h.streams[s].preview})
 	}
 	return out
 }

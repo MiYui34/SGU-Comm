@@ -34,15 +34,16 @@ const (
 	writeTimeout = 10 * time.Second // a peer that takes longer is gone
 	outFrames    = 32               // frames queued per connection before it counts as full
 	outTexts     = 32
-	maxAuth      = 1024 // bytes, before the token is checked
-	maxText      = 4096 // a command
-	textsPerSec  = 10   // commands per second, steady
+	maxAuth      = 1024             // bytes, before the token is checked
+	maxText      = maxPreview + 256 // a command (a preview is the largest)
+	textsPerSec  = 10               // commands per second, steady
 )
 
 type command struct {
 	Type    string `json:"type"`
 	Token   string `json:"token"`
 	Session uint32 `json:"session"` // watch, unwatch: the streamer
+	Image   string `json:"image"`   // preview
 	Config
 }
 
@@ -117,6 +118,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		case "unwatch":
 			h.Hub.Unwatch(session, cmd.Session)
+		case "preview":
+			h.Hub.SetPreview(session, cmd.Image) // a bad one is dropped
 		case "keyframe": // a viewer's decoder needs one
 			h.Hub.RequestKey(session, cmd.Session)
 		}

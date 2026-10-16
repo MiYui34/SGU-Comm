@@ -92,11 +92,12 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		liveStreams := func(infos []stream.Info) []sidecar.LiveStream {
 			out := make([]sidecar.LiveStream, len(infos))
 			for i, s := range infos {
-				out[i] = sidecar.LiveStream{Session: s.Session, Channel: s.Channel}
+				out[i] = sidecar.LiveStream{Session: s.Session, Channel: s.Channel, Preview: s.Preview}
 			}
 			return out
 		}
 		streams.OnChange = func(infos []stream.Info) { hub.StreamsChanged(liveStreams(infos)) }
+		streams.OnPreview = func(i stream.Info) { hub.StreamPreview(liveStreams([]stream.Info{i})[0]) }
 		hub.LiveStreams = func() []sidecar.LiveStream { return liveStreams(streams.Streams()) }
 		hub.StreamToken = streamTokens.Issue
 		onText = func(t mumbled.ChannelText) {

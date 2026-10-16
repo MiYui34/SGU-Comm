@@ -76,11 +76,35 @@ type Voice interface {
 type LiveStream struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`
+	Preview string `json:"preview,omitempty"` // a JPEG data URL; for those who may enter the channel
 }
 
-// StreamsChanged sends everyone the live streams.
+// StreamsChanged sends everyone the live streams (previews come with
+// StreamPreview).
 func (h *Hub) StreamsChanged(streams []LiveStream) {
-	h.broadcast(map[string]any{"type": "streams", "streams": append([]LiveStream{}, streams...)})
+	out := make([]LiveStream, len(streams))
+	for i, s := range streams {
+		out[i] = LiveStream{Session: s.Session, Channel: s.Channel}
+	}
+	h.broadcast(map[string]any{"type": "streams", "streams": out})
+}
+
+// StreamPreview sends a stream's new thumbnail to those who may enter its
+// channel.
+func (h *Hub) StreamPreview(s LiveStream) {
+	h.sendTo(chat{voice: s.Channel, isVoice: true}, map[string]any{"type": "stream-preview", "session": s.Session, "image": s.Preview})
+}
+
+// liveStreams for one user: previews only of channels it may enter.
+func (h *Hub) liveStreams(id mumble.Identity) []LiveStream {
+	out := []LiveStream{}
+	for _, s := range h.LiveStreams() {
+		if !h.voice.MayRead(id.Session, s.Channel) {
+			s.Preview = ""
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // ListenOnlyChannel is a voice channel where only its speakers may speak.
@@ -237,7 +261,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
 			if c.hub.LiveStreams != nil {
-				ready["streams"] = append([]LiveStream{}, c.hub.LiveStreams()...)
+				ready["streams"] = c.hub.liveStreams(id)
 			}
 		}
 		if id.Registered {
