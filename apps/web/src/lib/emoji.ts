@@ -14,6 +14,16 @@ export const emojiParts = (text: string, base = EMOJI_BASE): EmojiPart[] => {
   let at = 0;
   for (const e of parse(text, { buildUrl: (code) => `${base}${code}.png` })) {
     const [from, to] = e.indices;
+    const last = parts.at(-1);
+    // A variation selector after an emoji that has its own image ("✅" +
+    // U+FE0F): the parser gives it alone, without one. It stays with the
+    // emoji (in the alt text).
+    if (/^\uFE0F+$/.test(e.text)) {
+      if (from === at && last && "emoji" in last) last.emoji += e.text;
+      else parts.push({ text: text.slice(at, to) });
+      at = to;
+      continue;
+    }
     if (from > at) parts.push({ text: text.slice(at, from) });
     parts.push({ emoji: e.text, url: e.url });
     at = to;
