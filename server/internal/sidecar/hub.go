@@ -60,6 +60,9 @@ type Voice interface {
 	SyncTextChannels(want []Mirror) ([]uint32, error)
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
+	// SendPrivateText sends plain text to a registered user's Mumble
+	// clients as a private message from a session; false: nobody got it.
+	SendPrivateText(from, toUser uint32, text string) bool
 	// UserNames: the names of registered users (unknown ids are left out).
 	UserNames(ids []uint32) map[uint32]string
 	// MumbleClient: the session is a Mumble client (not a web client), and
@@ -458,6 +461,12 @@ func (h *Hub) MumbleText(from mumble.Identity, channel uint32, text string, imag
 		}
 		where = chat{id: id, voice: channel, isVoice: true}
 	}
+	h.storeMumble(from, where, text, images)
+}
+
+// storeMumble stores a message from a Mumble client in a chat and sends it
+// to the chat's readers.
+func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images []Image) {
 	store1 := func(text string, upload int64) {
 		m, err := h.store.AddMessage(store.NewMessage{ChannelID: where.id, Author: from.Name, Verified: from.Registered, AuthorID: from.UserID, Text: text, At: h.now(), UploadID: upload})
 		if err != nil {
@@ -568,6 +577,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	}
 	if ch.direct {
 		c.hub.announceDirect(ch)
+		defer c.hub.relayDirect(id, ch, m)
 	}
 	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
 	if ch.isVoice {

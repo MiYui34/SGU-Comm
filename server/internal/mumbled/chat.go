@@ -49,6 +49,31 @@ func (s *Server) SendChannelText(from, channel uint32, text string) {
 	}
 }
 
+// SendPrivateText sends plain text to a registered user's Mumble clients
+// (not web clients) as a private message from a session (none if it is
+// gone). It reports whether any got it.
+func (s *Server) SendPrivateText(from, toUser uint32, text string) bool {
+	text = lineBreaks(html.EscapeString(strings.TrimSpace(text)))
+	if text == "" {
+		return false
+	}
+	msg := &pb.TextMessage{Message: proto.String(text)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Users[from] != nil {
+		msg.Actor = proto.Uint32(from)
+	}
+	delivered := false
+	for _, u := range s.state.Users {
+		if c := s.clients[u.Session]; u.Registered && u.UserID == toUser && c != nil && !c.web {
+			msg.Session = []uint32{u.Session}
+			c.send(mumble.MessageFrame(mumble.TypeTextMessage, msg), false)
+			delivered = true
+		}
+	}
+	return delivered
+}
+
 // MayManage: a user may manage the Kallisti server's text channels (Write
 // in root: admins).
 func (s *Server) MayManage(session uint32) bool {

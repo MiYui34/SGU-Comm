@@ -67,17 +67,18 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		return nil, err
 	}
 	var onText func(mumbled.ChannelText)
+	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly func()
 	var onMoved func(session, from, to uint32)
 	if hub != nil {
 		onRoles, onListenOnly, onMoved = hub.RolesChanged, hub.ListenOnlyChanged, hub.UserMoved
 		onText = func(t mumbled.ChannelText) {
-			imgs := make([]sidecar.Image, len(t.Images))
-			for i, img := range t.Images {
-				imgs[i] = sidecar.Image{Type: img.Type, Data: img.Data}
-			}
 			from := mumble.Identity{Session: t.From, Name: t.Name, Registered: t.Registered, UserID: t.UserID}
-			hub.MumbleText(from, t.Channel, t.Text, imgs)
+			hub.MumbleText(from, t.Channel, t.Text, sidecarImages(t.Images))
+		}
+		onPrivate = func(p mumbled.PrivateText) {
+			from := mumble.Identity{Session: p.From, Name: p.Name, Registered: true, UserID: p.UserID}
+			hub.MumblePrivateText(from, p.To, p.Text, sidecarImages(p.Images))
 		}
 	}
 	srv, err := mumbled.New(mumbled.Config{
@@ -89,6 +90,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 			return err == nil && accountCertHash(acc) == hash
 		},
 		OnChannelText:       onText,
+		OnPrivateText:       onPrivate,
 		OnRolesChanged:      onRoles,
 		OnListenOnlyChanged: onListenOnly,
 		OnUserMoved:         onMoved,
@@ -134,6 +136,14 @@ func mumbleTLS(cfg *config.Builtin) (*tls.Config, error) {
 		return nil, fmt.Errorf("Mumble certificate: %w", err)
 	}
 	return mumbled.TLSConfigFrom(files.GetCertificate), nil
+}
+
+func sidecarImages(images []mumbled.Image) []sidecar.Image {
+	out := make([]sidecar.Image, len(images))
+	for i, img := range images {
+		out[i] = sidecar.Image{Type: img.Type, Data: img.Data}
+	}
+	return out
 }
 
 // voiceServer is the built-in server as the sidecar's Voice.

@@ -38,6 +38,10 @@ type Config struct {
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
 	OnChannelText func(ChannelText)
+	// OnPrivateText gets private messages between registered users (once
+	// per recipient), to store them; web recipients get them from there,
+	// not from this server. It runs outside the server's lock.
+	OnPrivateText func(PrivateText)
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
@@ -88,6 +92,17 @@ type ChannelText struct {
 	Channel    uint32
 	Text       string
 	Images     []Image
+}
+
+// PrivateText is a private message between two registered users (see
+// Config.OnPrivateText), as plain text.
+type PrivateText struct {
+	From   uint32 // session
+	Name   string
+	UserID uint32
+	To     uint32 // the recipient's user id
+	Text   string
+	Images []Image
 }
 
 type Server struct {

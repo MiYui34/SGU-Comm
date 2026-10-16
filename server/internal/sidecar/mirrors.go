@@ -99,6 +99,9 @@ func (h *Hub) UserMoved(session, from, to uint32) {
 		v := &visit{seen: map[int64]int64{}}
 		v.user, v.native = h.voice.MumbleClient(session)
 		h.visits[session] = v
+		if v.native && v.user.Registered {
+			h.sendMissedDirects(session, v.user.UserID)
+		}
 	}
 	v := h.visits[session]
 	if to == noChannel {

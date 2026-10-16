@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,8 +32,27 @@ type fakeVoice struct {
 	gone  map[uint32]bool
 	// The last SetListenOnly.
 	listenOnly []ListenOnlyChannel
-	// Registered users' names.
-	names map[uint32]string
+	// Registered users' names, and those on a Mumble client (private
+	// texts reach them; sent: "from>to:text").
+	names  map[uint32]string
+	native map[uint32]bool
+	sentTo []string
+}
+
+func (f *fakeVoice) SendPrivateText(from, toUser uint32, text string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.native[toUser] {
+		return false
+	}
+	f.sentTo = append(f.sentTo, fmt.Sprintf("%d>%d:%s", from, toUser, text))
+	return true
+}
+
+func (f *fakeVoice) privateTexts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.sentTo)
 }
 
 func (f *fakeVoice) UserNames(ids []uint32) map[uint32]string {
