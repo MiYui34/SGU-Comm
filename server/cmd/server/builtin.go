@@ -18,6 +18,7 @@ import (
 	"kallisti.chat/server/internal/password"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
+	"kallisti.chat/server/internal/stream"
 )
 
 // builtin is the built-in Mumble server: native clients (Mumble, the
@@ -28,7 +29,17 @@ type builtin struct {
 	db  *mumbled.DB
 	ln  net.Listener
 	udp *net.UDPConn
+	// Screen shares in its voice channels (see /api/stream).
+	streams      *stream.Hub
+	streamTokens *stream.Tokens
 }
+
+// streamVoice is the built-in server as the stream hub's Voice (set once
+// the server exists: the hub follows moves from the start).
+type streamVoice struct{ srv *mumbled.Server }
+
+func (v *streamVoice) Channel(session uint32) (uint32, bool) { return v.srv.UserChannel(session) }
+func (v *streamVoice) MaySpeak(session, channel uint32) bool { return v.srv.MaySpeak(session, channel) }
 
 // accountExists: on a database error the name counts as taken.
 func accountExists(db *store.Store) func(name string) bool {
@@ -69,9 +80,25 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	var onText func(mumbled.ChannelText)
 	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly func()
-	var onMoved func(session, from, to uint32)
+	sv := &streamVoice{}
+	streams, streamTokens := stream.New(sv), stream.NewTokens()
+	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
-		onRoles, onListenOnly, onMoved = hub.RolesChanged, hub.ListenOnlyChanged, hub.UserMoved
+		onRoles, onListenOnly = hub.RolesChanged, hub.ListenOnlyChanged
+		onMoved = func(session, from, to uint32) {
+			hub.UserMoved(session, from, to)
+			streams.Moved(session, to)
+		}
+		liveStreams := func(infos []stream.Info) []sidecar.LiveStream {
+			out := make([]sidecar.LiveStream, len(infos))
+			for i, s := range infos {
+				out[i] = sidecar.LiveStream{Session: s.Session, Channel: s.Channel}
+			}
+			return out
+		}
+		streams.OnChange = func(infos []stream.Info) { hub.StreamsChanged(liveStreams(infos)) }
+		hub.LiveStreams = func() []sidecar.LiveStream { return liveStreams(streams.Streams()) }
+		hub.StreamToken = streamTokens.Issue
 		onText = func(t mumbled.ChannelText) {
 			from := mumble.Identity{Session: t.From, Name: t.Name, Registered: t.Registered, UserID: t.UserID}
 			hub.MumbleText(from, t.Channel, t.Text, sidecarImages(t.Images))
@@ -98,6 +125,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if err != nil {
 		return nil, err
 	}
+	sv.srv = srv
 	if hub != nil {
 		hub.SetVoice(voiceServer{srv}, publicBase) // before anyone connects
 	}
@@ -117,7 +145,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	go srv.Serve(ln)
 	go srv.ServeUDP(udp)
-	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp}, nil
+	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens}, nil
 }
 
 // mumbleTLS: the configured certificate files (reloaded when renewed), or

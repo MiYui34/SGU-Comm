@@ -29,7 +29,11 @@ import (
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
+	"kallisti.chat/server/internal/stream"
 )
+
+// A streamer's upload, at most: 8 Mbit/s (frames above it are dropped).
+const streamBytesPerSecond = 1 << 20
 
 func main() {
 	if err := run(); err != nil {
@@ -101,6 +105,7 @@ func run() error {
 	hub.OnUploadDeleted = fileHandler.Remove
 	hub.SaveFile = fileHandler.Save
 	dial, upstream := murmurDialer(cfg)
+	var builtinServer *builtin
 	cleanup := func(time.Time) {}                // guest accounts (built-in server)
 	var avatars http.Handler = mumbled.NoAvatars // Murmur's avatars are not ours to read
 	if cfg.Builtin != nil {
@@ -108,6 +113,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		builtinServer = mumble
 		defer mumble.close()
 		dial, upstream = mumble.dial, "built-in on "+cfg.Builtin.Listen
 		accounts.NameTaken = mumble.nameTaken
@@ -166,6 +172,12 @@ func run() error {
 	mux.Handle("/files/", fileHandler)
 	mux.Handle("/api/avatars/", avatars)
 	mux.Handle("/api/link-image/", linkImages)
+	if builtinServer != nil {
+		mux.Handle("/api/stream", &stream.Handler{
+			Hub: builtinServer.streams, Redeem: builtinServer.streamTokens.Redeem,
+			AllowedOrigins: cfg.AllowedOrigins, BytesPerSecond: streamBytesPerSecond,
+		})
+	}
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
 	// else to the web app.
 	mux.Handle("/", site.New(b, cfg.WebDir))

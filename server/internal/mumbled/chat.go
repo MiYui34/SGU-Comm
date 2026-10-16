@@ -19,6 +19,25 @@ func (s *Server) MayRead(session, channel uint32) bool {
 	return u != nil && s.state.Channels[channel] != nil && (u.Channel == channel || s.state.Has(u, channel, Enter))
 }
 
+// UserChannel is the channel a session is in.
+func (s *Server) UserChannel(session uint32) (uint32, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u := s.state.Users[session]; u != nil {
+		return u.Channel, true
+	}
+	return 0, false
+}
+
+// MaySpeak: a user may speak in a channel (and so stream there): Speak,
+// and not muted or suppressed by others.
+func (s *Server) MaySpeak(session, channel uint32) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.state.Users[session]
+	return u != nil && !u.Mute && !u.Suppress && s.state.Channels[channel] != nil && s.state.Has(u, channel, Speak)
+}
+
 // MayWrite: a user may write to a channel's chat.
 func (s *Server) MayWrite(session, channel uint32) bool {
 	s.mu.Lock()

@@ -131,3 +131,23 @@ func TestLineBreaksReachOtherClients(t *testing.T) {
 		t.Fatalf("bob got %q", m.GetMessage())
 	}
 }
+
+func TestUserChannelAndMaySpeak(t *testing.T) {
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{}, openACL)
+	c := dial(t, addr, "speaker")
+	if ch, ok := s.UserChannel(c.session); !ok || ch != 0 {
+		t.Fatalf("channel %d %v", ch, ok)
+	}
+	if _, ok := s.UserChannel(9999); ok {
+		t.Fatal("a session that is not there")
+	}
+	if !s.MaySpeak(c.session, 0) {
+		t.Fatal("may not speak with an open ACL")
+	}
+	s.mu.Lock()
+	s.state.Users[c.session].Suppress = true
+	s.mu.Unlock()
+	if s.MaySpeak(c.session, 0) {
+		t.Fatal("suppressed but may speak")
+	}
+}

@@ -71,6 +71,18 @@ type Voice interface {
 	MumbleClient(session uint32) (MumbleUser, bool)
 }
 
+// LiveStream is a screen share in a voice channel, by its streamer's
+// session.
+type LiveStream struct {
+	Session uint32 `json:"session"`
+	Channel uint32 `json:"channel"`
+}
+
+// StreamsChanged sends everyone the live streams.
+func (h *Hub) StreamsChanged(streams []LiveStream) {
+	h.broadcast(map[string]any{"type": "streams", "streams": append([]LiveStream{}, streams...)})
+}
+
 // ListenOnlyChannel is a voice channel where only its speakers may speak.
 type ListenOnlyChannel struct {
 	Channel  uint32    `json:"channel"`
@@ -108,6 +120,10 @@ type Hub struct {
 	OnUploadDeleted func(key string)
 	// Previews makes link previews (nil: none).
 	Previews Previewer
+	// Screen shares (built-in server): a token for the stream connection,
+	// and the live streams.
+	StreamToken func(session uint32) string
+	LiveStreams func() []LiveStream
 	// SaveFile stores a picture from a Mumble message as an upload.
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
 	// Per voice server session: the last message seen in each mirror.
@@ -220,6 +236,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
+			if c.hub.LiveStreams != nil {
+				ready["streams"] = append([]LiveStream{}, c.hub.LiveStreams()...)
+			}
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
@@ -385,6 +404,13 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "dm":
 		c.direct(*id, req.User)
+		return
+	case "stream-token":
+		if c.hub.StreamToken == nil {
+			c.sendError("screen sharing needs the built-in Mumble server")
+		} else {
+			c.send(map[string]any{"type": "stream-token", "token": c.hub.StreamToken(id.Session)})
+		}
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).
