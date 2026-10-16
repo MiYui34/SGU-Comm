@@ -146,8 +146,9 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
 
   // Made once. Shared promise, so two quick device switches cannot make two.
   let nodePromise: Promise<AudioWorkletNode> | null = null;
-  const workletNode = () =>
-    (nodePromise ??= (async () => {
+  const workletNode = () => {
+    if (nodePromise) return nodePromise;
+    nodePromise = (async () => {
       await ctx.audioWorklet.addModule(new URL("./capture.worklet.js", import.meta.url));
       node = new AudioWorkletNode(ctx, "capture", {
         numberOfOutputs: 1,
@@ -169,7 +170,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       };
       void applyNoise();
       return node;
-    })());
+    })();
+    nodePromise.catch(() => (nodePromise = null)); // a failed load may be tried again
+    return nodePromise;
+  };
 
   // RNNoise's bytes, fetched once, when first used.
   const loadRnnoise = () =>
@@ -229,9 +233,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     source.connect(dfn?.node ?? node);
   };
 
+  const stopTracks = (s: MediaStream | null) => s?.getTracks().forEach((t) => t.stop());
   const stopStream = () => {
     source?.disconnect();
-    stream?.getTracks().forEach((t) => t.stop());
+    stopTracks(stream);
     source = stream = null;
   };
 
@@ -240,8 +245,9 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     const mine = ++generation;
     device = deviceId;
     const stale = () => closed || mine !== generation;
+    let next: MediaStream | null = null; // stopped on failure until it is stream
     try {
-      const next = await navigator.mediaDevices.getUserMedia({
+      next = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation: true,
@@ -250,9 +256,9 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         },
       });
       // close() or another switch can run while the permission prompt is open.
-      if (stale()) return next.getTracks().forEach((t) => t.stop());
+      if (stale()) return stopTracks(next);
       await workletNode();
-      if (stale()) return next.getTracks().forEach((t) => t.stop());
+      if (stale()) return stopTracks(next);
       stopStream();
       stream = next;
       source = ctx.createMediaStreamSource(next);
@@ -266,6 +272,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         if (!stale() && deviceId !== null) void start(null).then(() => (fellBack = !micError));
       };
     } catch (err) {
+      if (next !== stream) stopTracks(next);
       if (stale()) return;
       if (shouldFallBack(err, deviceId)) {
         await start(null);
