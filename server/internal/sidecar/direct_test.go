@@ -103,3 +103,24 @@ func TestDirectChatRefusals(t *testing.T) {
 		}
 	}
 }
+
+// In a direct chat both users pin (not only moderators); others cannot.
+func TestBothUsersPinInADirectChat(t *testing.T) {
+	_, alice, bob, carol := directHub(t)
+	chat := openDirect(t, alice, 20)
+	alice.Handle([]byte(`{"type":"send","channel":` + chat + `,"text":"keep this"}`))
+	next(t, alice)
+	m := next(t, alice)
+	id := strconv.FormatFloat(m["message"].(map[string]any)["id"].(float64), 'f', -1, 64)
+	next(t, bob)
+	next(t, bob)
+	bob.Handle([]byte(`{"type":"pin","message":` + id + `,"on":true}`))
+	if m := next(t, bob); m["type"] != "message-pinned" {
+		t.Fatalf("bob pin: %v", m)
+	}
+	next(t, alice)
+	carol.Handle([]byte(`{"type":"pin","message":` + id + `,"on":false}`))
+	if m := next(t, carol); m["type"] != "error" {
+		t.Fatalf("carol unpinned: %v", m)
+	}
+}
