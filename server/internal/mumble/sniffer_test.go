@@ -121,6 +121,17 @@ func TestRegisteredUsers(t *testing.T) {
 	}
 }
 
+func TestUnregistrationOnline(t *testing.T) {
+	var s Sniffer
+	s.Feed(handshake(t))
+	s.Feed(frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), UserId: proto.Uint32(3)}))
+	// Murmur sends this id when the registration is removed.
+	id, changed, _ := s.Feed(frame(t, TypeUserState, &pb.UserState{Session: proto.Uint32(7), UserId: proto.Uint32(0xffffffff)}))
+	if !changed || id.Registered || id.UserID != 0 {
+		t.Fatalf("got %+v %v, want unregistered", id, changed)
+	}
+}
+
 func TestRegistrationLater(t *testing.T) {
 	var s Sniffer
 	s.Feed(handshake(t))

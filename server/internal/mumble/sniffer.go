@@ -37,6 +37,9 @@ const (
 	TypeSuggestConfig       = 25
 )
 
+// The UserId of a user whose registration was removed.
+const unregistered = 0xffffffff
+
 const (
 	headerSize = 6
 	// MaxPayload is the frame limit of the reference server.
@@ -90,7 +93,12 @@ func (s *Sniffer) handle(typ uint16, body []byte) bool {
 				id.Name = m.GetName()
 			}
 			if m.UserId != nil {
-				id.Registered, id.UserID = true, m.GetUserId()
+				// Murmur sends unregistered when a registration is removed.
+				if uid := m.GetUserId(); uid == unregistered {
+					id.Registered, id.UserID = false, 0
+				} else {
+					id.Registered, id.UserID = true, uid
+				}
 			}
 			return id
 		}

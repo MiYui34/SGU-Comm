@@ -132,6 +132,14 @@ describe("reduce", () => {
     expect(s.users[7]?.userId).toBe(0);
   });
 
+  it("treats a removed registration as unregistered", () => {
+    const s = run([
+      userState({ session: 7, name: "bob", userId: 4 }),
+      userState({ session: 7, userId: 0xffffffff }),
+    ]);
+    expect(s.users[7]?.userId).toBeNull();
+  });
+
   it("removes a user", () => {
     const s = run([
       userState({ session: 7, name: "bob" }),

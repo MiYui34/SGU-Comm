@@ -160,6 +160,9 @@ const without = <V>(record: Readonly<Record<number, V>>, key: number) => {
   return rest;
 };
 
+// The userId Murmur sends when a registration is removed.
+const UNREGISTERED = 0xffffffff;
+
 // As Murmur: from this size, data comes as a hash first.
 const BLOB_HASH_MIN = 128;
 
@@ -200,6 +203,7 @@ const applyUserState = (state: ServerState, msg: pb.UserState): ServerState => {
       "userId",
     ]),
   };
+  if (next.userId === UNREGISTERED) next.userId = null;
   if (isFieldSet(msg, pb.UserStateSchema.field.textureHash)) {
     const hash = hex(msg.textureHash);
     // The same picture again keeps its data.

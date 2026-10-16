@@ -1,10 +1,14 @@
 package sidecar
 
 import (
+	"encoding/binary"
 	"strconv"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/mumble/pb"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -79,6 +83,55 @@ func TestGuestsEditOnlyWhatTheyWroteThisVisit(t *testing.T) {
 	later.Handle([]byte(`{"type":"delete-message","message":` + id + `}`))
 	if m := next(t, later); m["type"] != "error" {
 		t.Fatalf("other guest deleted: %v", m)
+	}
+}
+
+// sniffed is the identity a sniffer finds in these Murmur messages.
+func sniffed(t *testing.T, msgs ...proto.Message) mumble.Identity {
+	t.Helper()
+	var s mumble.Sniffer
+	var b []byte
+	for _, m := range msgs {
+		typ := uint16(mumble.TypeUserState)
+		if _, ok := m.(*pb.ServerSync); ok {
+			typ = mumble.TypeServerSync
+		}
+		body, err := proto.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b = binary.BigEndian.AppendUint16(b, typ)
+		b = binary.BigEndian.AppendUint32(b, uint32(len(body)))
+		b = append(b, body...)
+	}
+	id, _, err := s.Feed(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestUsersUnregisteredOnlineAreGuests(t *testing.T) {
+	h := newHub(t, "general")
+	// Registered at login, then unregistered by an admin.
+	unregistered := func(session, userID uint32, name string) *Conn {
+		s := proto.Uint32(session)
+		return joinAs(t, h, sniffed(t,
+			&pb.UserState{Session: s, Name: proto.String(name), UserId: proto.Uint32(userID)},
+			&pb.ServerSync{Session: s},
+			&pb.UserState{Session: s, UserId: proto.Uint32(0xffffffff)}))
+	}
+	alice := unregistered(1, 435, "alice")
+	bob := unregistered(2, 504, "bob")
+	id := strconv.FormatInt(say(t, h, alice, "mine"), 10)
+	next(t, bob)
+	bob.Handle([]byte(`{"type":"edit-message","message":` + id + `,"text":"pwned"}`))
+	if m := next(t, bob); m["type"] != "error" {
+		t.Fatalf("bob edited: %v", m)
+	}
+	alice.Handle([]byte(`{"type":"edit-message","message":` + id + `,"text":"still mine"}`))
+	if m := next(t, alice); m["type"] != "message-edited" {
+		t.Fatalf("own edit: %v", m)
 	}
 }
 
