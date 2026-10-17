@@ -19,6 +19,23 @@
   import { untrack } from "svelte";
   import { checkForUpdate } from "./lib/update";
   import { voiceSupported } from "./lib/voice/support";
+  import { settings } from "./lib/settings.svelte";
+  import { themeOf } from "./lib/settings";
+
+  // The colour theme (see app.css), also before the login.
+  const systemDark = matchMedia("(prefers-color-scheme: dark)");
+  let isSystemDark = $state(systemDark.matches);
+  $effect(() => {
+    const update = () => (isSystemDark = systemDark.matches);
+    systemDark.addEventListener("change", update);
+    return () => systemDark.removeEventListener("change", update);
+  });
+  $effect(() => {
+    const theme = themeOf(settings.value.theme, isSystemDark);
+    document.documentElement.dataset.theme = theme;
+    const rail = getComputedStyle(document.documentElement).getPropertyValue("--bg-rail").trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", rail);
+  });
 
   const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? proxyUrl(location);
 

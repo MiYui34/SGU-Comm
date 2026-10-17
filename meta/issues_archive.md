@@ -135,3 +135,4 @@
 - [x] [Copy a link to a message](issues/message-links.md)
 - [x] [@here and @everyone](issues/mention-everyone.md)
 - [x] [Small gaps to Discord](issues/discord-small-gaps.md)
+- [x] [Light theme](issues/light-theme.md)

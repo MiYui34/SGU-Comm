@@ -314,11 +314,11 @@
   }
   .channel.current {
     background: var(--bg-active);
-    color: white;
+    color: var(--text-strong);
   }
-  /* New messages: white and bold, like Discord. */
+  /* New messages: bright and bold, like Discord. */
   .channel.unread {
-    color: white;
+    color: var(--text-strong);
     font-weight: 600;
   }
   .channel.muted:not(.current) {

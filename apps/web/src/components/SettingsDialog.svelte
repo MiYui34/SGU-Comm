@@ -3,7 +3,7 @@
   import ProfilePicture from "./ProfilePicture.svelte";
   import { notificationPermission } from "../lib/notify";
   import type { AccountActions } from "../lib/accounts";
-  import { keyLabel, meterPercent, METER_MIN_DB, type Settings } from "../lib/settings";
+  import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
   import { noiseLabel, type NoiseMode } from "../lib/voice/noise";
@@ -112,6 +112,15 @@
   {/if}
 
   {#if profile}<ProfilePicture {...profile} />{/if}
+
+  <label>
+    Theme
+    <select value={settings.theme} onchange={(e) => onChange({ theme: e.currentTarget.value as ThemeSetting })}>
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="system">As the system</option>
+    </select>
+  </label>
 
   <label>
     Input device

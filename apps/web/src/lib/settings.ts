@@ -16,7 +16,13 @@ export type Settings = {
   streamPreviews: boolean;
   // See voice/noise.ts.
   noiseSuppression: NoiseMode;
+  // Colours: "system" follows the system's light or dark setting.
+  theme: ThemeSetting;
 };
+
+export type ThemeSetting = "dark" | "light" | "system";
+export const themeOf = (setting: ThemeSetting, systemDark: boolean): "dark" | "light" =>
+  setting === "system" ? (systemDark ? "dark" : "light") : setting;
 
 export const METER_MIN_DB = -80;
 
@@ -30,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   closeMicWhenMuted: false,
   streamPreviews: true,
   noiseSuppression: "browser",
+  theme: "dark",
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -59,6 +66,7 @@ export const parseSettings = (raw: string | null): Settings => {
     closeMicWhenMuted: d.closeMicWhenMuted === true,
     streamPreviews: d.streamPreviews !== false,
     noiseSuppression: d.noiseSuppression === "strong" || d.noiseSuppression === "strongest" ? d.noiseSuppression : "browser",
+    theme: d.theme === "light" || d.theme === "system" ? d.theme : "dark",
   };
 };
 

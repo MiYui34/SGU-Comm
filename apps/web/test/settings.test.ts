@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction, pttBlocksDefault } from "../src/lib/settings";
+import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction, pttBlocksDefault, themeOf } from "../src/lib/settings";
 
 describe("parseSettings", () => {
   it("uses defaults for missing or broken input", () => {
@@ -19,6 +19,7 @@ describe("parseSettings", () => {
       closeMicWhenMuted: true,
       noiseSuppression: "strong",
       streamPreviews: false,
+      theme: "system",
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -90,5 +91,17 @@ describe("pttBlocksDefault", () => {
   it("never blocks typing or other keys", () => {
     expect(pttBlocksDefault(ev("Space", true), "Space")).toBe(false);
     expect(pttBlocksDefault(ev("Enter"), "Space")).toBe(false);
+  });
+});
+
+describe("theme", () => {
+  it("is dark unless chosen, light or as the system", () => {
+    expect(DEFAULT_SETTINGS.theme).toBe("dark");
+    expect(parseSettings('{"theme":"light"}').theme).toBe("light");
+    expect(parseSettings('{"theme":"system"}').theme).toBe("system");
+    expect(parseSettings('{"theme":"pink"}').theme).toBe("dark");
+    expect(themeOf("system", true)).toBe("dark");
+    expect(themeOf("system", false)).toBe("light");
+    expect(themeOf("light", true)).toBe("light");
   });
 });

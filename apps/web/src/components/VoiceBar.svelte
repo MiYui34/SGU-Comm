@@ -64,7 +64,7 @@
     color: var(--text-muted);
   }
   button:hover {
-    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+    background: var(--bg-hover);
     color: var(--danger);
   }
   .share:hover {

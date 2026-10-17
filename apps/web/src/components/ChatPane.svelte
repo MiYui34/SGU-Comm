@@ -1341,6 +1341,7 @@
   }
   .spoiler-file span {
     grid-area: 1 / 1;
+    color: #fff;
     z-index: 1;
     padding: 4px 12px;
     border-radius: 16px;
