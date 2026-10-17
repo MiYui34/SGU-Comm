@@ -262,6 +262,9 @@ func TestTimedBans(t *testing.T) {
 	if err := s.Ban(alice.session, su.session, "", time.Hour); err == nil {
 		t.Fatal("SuperUser was banned")
 	}
+	if err := s.Ban(alice.session, 999, "", time.Hour); err == nil {
+		t.Fatal("no error for a user who is gone")
+	}
 	if err := s.Ban(alice.session, guest.session, "spam", time.Hour); err != nil {
 		t.Fatal(err)
 	}

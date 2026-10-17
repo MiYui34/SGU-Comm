@@ -34,9 +34,11 @@ func timeoutKeyOf(u *User) timeoutKey {
 	return timeoutKey{guest: true, id: u.Session}
 }
 
+// keepMute: the user was server-muted before; the end does not unmute.
 type timeout struct {
-	until time.Time
-	timer *time.Timer
+	until    time.Time
+	timer    *time.Timer
+	keepMute bool
 }
 
 // Timeout is a running time-out: of a registered user (UserID) or a guest
@@ -89,6 +91,10 @@ func (s *Server) SetTimeout(actor, session uint32, d time.Duration) error {
 		return errors.New("you may not time out this user")
 	}
 	key := timeoutKeyOf(u)
+	if _, ok := s.timedOutLocked(u); !ok && d == 0 {
+		s.mu.Unlock()
+		return errors.New("this user is not timed out")
+	}
 	var until time.Time
 	if d > 0 {
 		until = time.Now().Add(d)
@@ -107,7 +113,7 @@ func (s *Server) expireTimeout(key timeoutKey, until time.Time) {
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	t := s.timeouts[key]
-	if t == nil || !t.until.Equal(until) {
+	if t == nil || !t.until.Equal(until) || s.closing.Load() {
 		s.mu.Unlock()
 		return
 	}
@@ -120,23 +126,34 @@ func (s *Server) expireTimeout(key timeoutKey, until time.Time) {
 // setTimeoutLocked replaces a time-out (zero: none) and mutes or unmutes
 // the user if online. actor 0: the server.
 func (s *Server) setTimeoutLocked(key timeoutKey, until time.Time, actor uint32) {
+	old := s.timeouts[key]
+	keep := old != nil && old.keepMute
 	s.dropTimeoutLocked(key)
-	if !until.IsZero() {
-		s.startTimeoutLocked(key, until)
-	}
 	on := !until.IsZero()
+	var online *User
 	for _, u := range s.state.Users {
-		if timeoutKeyOf(u) != key || u.Mute == on {
-			continue
+		if timeoutKeyOf(u) == key {
+			online = u
 		}
-		u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, &pb.UserState{Mute: proto.Bool(on)})
-		out := &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf)}
-		if actor != 0 {
-			out.Actor = proto.Uint32(actor)
-		}
-		s.state.Changed()
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
 	}
+	if on {
+		if old == nil && online != nil {
+			keep = online.Mute
+		}
+		s.startTimeoutLocked(key, until)
+		s.timeouts[key].keepMute = keep
+	}
+	if online == nil || online.Mute == on || (!on && keep) {
+		return
+	}
+	u := online
+	u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, &pb.UserState{Mute: proto.Bool(on)})
+	out := &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf)}
+	if actor != 0 {
+		out.Actor = proto.Uint32(actor)
+	}
+	s.state.Changed()
+	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
 }
 
 func (s *Server) startTimeoutLocked(key timeoutKey, until time.Time) {

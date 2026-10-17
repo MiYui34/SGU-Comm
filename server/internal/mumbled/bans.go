@@ -64,7 +64,7 @@ func banAddress(p netip.Prefix) ([]byte, uint32) {
 // userRemoveMsg kicks (Kick or Ban in root) or bans (Ban) a user. A ban
 // covers its certificate and address, as Murmur before 1.6.
 func (s *Server) userRemoveMsg(c *client, m *pb.UserRemove) {
-	if missing := s.removeUser(c.session, m, 0); missing != 0 {
+	if missing, _ := s.removeUser(c.session, m, 0); missing != 0 {
 		c.denyPerm(missing, 0)
 	}
 }
@@ -75,22 +75,26 @@ func (s *Server) Ban(actor, session uint32, reason string, d time.Duration) erro
 	if d < 0 {
 		return errors.New("invalid ban duration")
 	}
-	if s.removeUser(actor, &pb.UserRemove{Session: proto.Uint32(session), Reason: proto.String(reason), Ban: proto.Bool(true)}, d) != 0 {
+	missing, done := s.removeUser(actor, &pb.UserRemove{Session: proto.Uint32(session), Reason: proto.String(reason), Ban: proto.Bool(true)}, d)
+	switch {
+	case missing != 0:
 		return errors.New("you may not ban this user")
+	case !done:
+		return errors.New("cannot ban this user (gone, or nothing to ban by)")
 	}
 	return nil
 }
 
 // removeUser kicks or bans (for d, 0: forever); it returns the missing
-// permission, or 0.
-func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Duration) Perm {
+// permission, or whether it was done.
+func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Duration) (missing Perm, done bool) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	actor, u := s.state.Users[actorSession], s.state.Users[m.GetSession()]
 	if actor == nil || u == nil {
 		s.mu.Unlock()
-		return 0
+		return 0, false
 	}
 	need := Kick | Ban // either one
 	if m.GetBan() {
@@ -98,7 +102,7 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 	}
 	if !s.mayActOn(actor, u) || s.state.Permissions(actor, 0)&need == 0 {
 		s.mu.Unlock()
-		return need
+		return need, false
 	}
 	var ban *BanEntry
 	if m.GetBan() {
@@ -114,7 +118,7 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 		}
 		if !ban.Prefix.IsValid() && ban.Hash == "" {
 			s.mu.Unlock()
-			return 0 // nothing to ban by
+			return 0, false // nothing to ban by
 		}
 	}
 	s.kickLocked(u.Session, actorSession, m.GetReason(), ban != nil)
@@ -122,7 +126,7 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 	if ban != nil {
 		s.setBans(append(s.currentBans(), *ban))
 	}
-	return 0
+	return 0, true
 }
 
 // mayActOn: nobody acts on SuperUser, only admins (Write in root) on staff.

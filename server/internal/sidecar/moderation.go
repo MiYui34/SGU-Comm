@@ -6,8 +6,13 @@ import (
 	"kallisti.chat/server/internal/mumble"
 )
 
-// maxReasonLength: a kick or ban reason, in characters.
-const maxReasonLength = 200
+// maxReasonLength: a kick or ban reason, in characters; maxSeconds: the
+// longest ban or time-out asked for (the voice server limits time-outs
+// more).
+const (
+	maxReasonLength = 200
+	maxSeconds      = 366 * 24 * 3600
+)
 
 // ban bans a user for some seconds (0: forever) with the built-in server:
 // Mumble's UserRemove has no duration. The voice server checks the
@@ -17,7 +22,7 @@ func (c *Conn) ban(id mumble.Identity, req request) {
 		c.manageError("timed bans need the built-in Mumble server")
 		return
 	}
-	if req.Seconds < 0 {
+	if req.Seconds < 0 || req.Seconds > maxSeconds {
 		c.manageError("invalid ban duration")
 		return
 	}
@@ -49,7 +54,7 @@ func (c *Conn) timeOut(id mumble.Identity, req request) {
 		c.manageError("time-outs need the built-in Mumble server")
 		return
 	}
-	if req.Seconds < 0 {
+	if req.Seconds < 0 || req.Seconds > maxSeconds {
 		c.manageError("invalid time-out")
 		return
 	}

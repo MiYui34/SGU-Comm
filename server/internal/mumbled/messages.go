@@ -730,6 +730,8 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		s.mu.Unlock()
 		c.denyPerm(need, 0)
 		return
+	case s.timeouts[timeoutKeyOf(u)] != nil: // a guest's time-out would not follow
+		err = deny(pb.PermissionDenied_Text, "timed out users cannot register")
 	case u.Hash == "":
 		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")
 	case s.cfg.DB == nil:

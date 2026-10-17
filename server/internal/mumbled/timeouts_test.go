@@ -152,3 +152,49 @@ func TestGuestTimeOutsEndWhenTheyLeave(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func isMuted(s *Server, session uint32) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.Users[session].Mute
+}
+
+func TestEndingATimeOutKeepsAnEarlierMute(t *testing.T) {
+	s, addr, _, _ := timeoutServer(t)
+	su := superUser(t, addr)
+	guest := dial(t, addr, "guest")
+	if err := s.SetTimeout(su.session, guest.session, 0); err == nil {
+		t.Fatal("ended a time-out that was not there")
+	}
+	su.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(guest.session), Mute: proto.Bool(true)})
+	guest.waitForState(guest.session, muted(true))
+	s.SetTimeout(su.session, guest.session, time.Hour)
+	s.SetTimeout(su.session, guest.session, 2*time.Hour) // a new time keeps it too
+	if err := s.SetTimeout(su.session, guest.session, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !isMuted(s, guest.session) {
+		t.Fatal("unmuted")
+	}
+}
+
+func TestTimedOutGuestsCannotRegister(t *testing.T) {
+	s, addr, _, _ := timeoutServer(t)
+	su := superUser(t, addr)
+	guest := dialAs(t, addr, dialOpts{name: "guest", cert: clientCert(t)})
+	s.SetTimeout(su.session, guest.session, time.Hour)
+	guest.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(guest.session), UserId: proto.Uint32(0)})
+	guest.expectDenied(pb.PermissionDenied_Text)
+}
+
+func TestUnregisteringEndsATimeOut(t *testing.T) {
+	s, addr, _, _ := timeoutServer(t)
+	su := superUser(t, addr)
+	bob, bobID := registered(t, addr, "bob")
+	s.SetTimeout(su.session, bob.session, time.Hour)
+	su.send(mumble.TypeUserList, &pb.UserList{Users: []*pb.UserList_User{{UserId: proto.Uint32(bobID)}}})
+	bob.waitForState(bob.session, muted(false))
+	if len(s.Timeouts()) != 0 {
+		t.Fatalf("timeouts %+v", s.Timeouts())
+	}
+}
