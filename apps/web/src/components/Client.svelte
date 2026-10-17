@@ -39,7 +39,7 @@
   import type { Place, View } from "../lib/place";
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
-  import { MENTION_ALL, pingsMe } from "../lib/mentions";
+  import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
@@ -486,7 +486,7 @@
         if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
-      if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name, m.mentionAll)) return;
+      if (!pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll)) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
       const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
@@ -577,13 +577,13 @@
   // One upload at a time. Errors show where server errors show.
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
-  const upload = async (file: File, caption: string, reply?: number) => {
+  const upload = async (file: File, caption: string, reply?: number, noPing?: boolean) => {
     const channel = chatId;
     if (channel === null || uploading) return;
     uploading = true;
     uploadError = null;
     try {
-      connection.sendToTextChannel(channel, caption, await connection.uploadFile(file), reply);
+      connection.sendToTextChannel(channel, caption, await connection.uploadFile(file), reply, noPing);
     } catch (err) {
       uploadError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -630,9 +630,9 @@
     void view;
     uploadError = null;
   });
-  const send = (message: string, reply?: number) => {
+  const send = (message: string, reply?: number, noPing?: boolean) => {
     uploadError = null;
-    if (chatId !== null) connection.sendToTextChannel(chatId, message, undefined, reply);
+    if (chatId !== null) connection.sendToTextChannel(chatId, message, undefined, reply, noPing);
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };

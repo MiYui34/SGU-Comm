@@ -7,6 +7,7 @@ import {
   mentions,
   mentionsMe,
   pingsMe,
+  replyPing,
   suggestNames,
 } from "../src/lib/mentions";
 import { initialTextState, type TextMessage, type TextState } from "../src/lib/textChannels";
@@ -118,6 +119,13 @@ describe("replies ping", () => {
       messages: { 1: [{ id: 3, channel: 1, author: "bob", text: "sure", at: 0, reply: { id: 2, author: "lain", text: "q" } }] },
     };
     expect(mentionCounts(state, {}, "lain")).toEqual({ 1: 1 });
+  });
+
+  it("not when the reply has no ping", () => {
+    const quiet: TextMessage = { id: 3, channel: 1, author: "bob", text: "sure", at: 0, reply: { id: 2, author: "lain", text: "q" }, noPing: true };
+    expect(replyPing(quiet)).toBeUndefined();
+    expect(replyPing({ ...quiet, noPing: undefined })).toBe("lain");
+    expect(mentionCounts({ ...initialTextState, channels: [{ id: 1, name: "a" }], messages: { 1: [quiet] } }, {}, "lain")).toEqual({});
   });
 });
 

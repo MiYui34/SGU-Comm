@@ -10,7 +10,6 @@
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Discord gaps, second round](issues/discord-gaps-2.md)
-  - [ ] [Reply without a ping](issues/reply-without-ping.md)
   - [ ] [Notifications per channel, mute for a time](issues/channel-notifications.md)
   - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
   - [ ] [Suggestions in search and for #channels](issues/search-and-channel-suggestions.md)

@@ -43,6 +43,10 @@ export const pingsMe = (html: string, author: string | null, replyTo: string | u
   return mentionsMe(html, author, me) || (!mine && (!!all || (replyTo !== undefined && sameName(replyTo, me))));
 };
 
+// Whose message a reply pings: the original's author, unless sent
+// without a ping.
+export const replyPing = (m: { reply?: { author: string }; noPing?: boolean }) => (m.noPing ? undefined : m.reply?.author);
+
 export const highlightMentions = (html: string, name: string, all?: MentionAll): string => {
   const names = [name, all ?? ""].filter((n) => n !== "");
   return parts(html)
@@ -75,7 +79,7 @@ export const mentionCounts = (
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
       const m = msgs[i]!;
       if (blocked(m.author)) continue;
-      if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me, m.mentionAll)) n++;
+      if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, replyPing(m), me, m.mentionAll)) n++;
     }
     if (n) out[channel] = n;
   }

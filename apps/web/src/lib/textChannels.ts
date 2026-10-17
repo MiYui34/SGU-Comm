@@ -31,6 +31,7 @@ export type TextMessage = {
   reply?: Quote;
   reactions?: Reaction[];
   mentionAll?: MentionAll;
+  noPing?: boolean; // a reply that does not ping
 };
 export type Quote = { id: number; author: string; text: string };
 // A chat line for display: a text channel message can carry an attachment
@@ -46,6 +47,7 @@ export type DisplayMessage = ChatMessage & {
   reply?: Quote;
   reactions?: Reaction[];
   mentionAll?: MentionAll;
+  noPing?: boolean; // a reply that does not ping
 };
 
 export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
@@ -241,7 +243,8 @@ const isMessage = (v: unknown): v is TextMessage =>
   (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
   (v.upload === undefined || isAttachment(v.upload)) &&
   (v.reactions === undefined || isReactions(v.reactions)) &&
-  (v.mentionAll === undefined || isMentionAll(v.mentionAll));
+  (v.mentionAll === undefined || isMentionAll(v.mentionAll)) &&
+  (v.noPing === undefined || typeof v.noPing === "boolean");
 
 // Network input: anything unexpected is dropped.
 export const parseServerEvent = (raw: string): ServerEvent | null => {
@@ -452,8 +455,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
 export const historyRequest = (channel: number, before?: number) =>
   JSON.stringify(before === undefined ? { type: "history", channel } : { type: "history", channel, before });
 
-export const sendRequest = (channel: number, text: string, upload?: string, reply?: number) =>
-  JSON.stringify({ type: "send", channel, text, ...(upload ? { upload } : {}), ...(reply ? { reply } : {}) });
+export const sendRequest = (channel: number, text: string, upload?: string, reply?: number, noPing?: boolean) =>
+  JSON.stringify({ type: "send", channel, text, ...(upload ? { upload } : {}), ...(reply ? { reply } : {}), ...(reply && noPing ? { noPing } : {}) });
 
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
 
@@ -559,6 +562,7 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
       ...(m.reply && { reply: m.reply }),
       ...(m.reactions?.length && { reactions: m.reactions }),
       ...(m.mentionAll && { mentionAll: m.mentionAll }),
+      ...(m.noPing && { noPing: true }),
       ...(m.upload && url && { upload: spoilerUpload({ ...m.upload, url }) }),
     };
     chatCache.set(m, { chat, channels });

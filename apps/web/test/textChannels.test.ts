@@ -95,6 +95,8 @@ describe("requests", () => {
     expect(JSON.parse(historyRequest(1, 40))).toEqual({ type: "history", channel: 1, before: 40 });
     expect(JSON.parse(sendRequest(2, "hi"))).toEqual({ type: "send", channel: 2, text: "hi" });
     expect(JSON.parse(sendRequest(2, "yes", undefined, 7))).toEqual({ type: "send", channel: 2, text: "yes", reply: 7 });
+    expect(JSON.parse(sendRequest(2, "yes", undefined, 7, true))).toEqual({ type: "send", channel: 2, text: "yes", reply: 7, noPing: true });
+    expect(JSON.parse(sendRequest(2, "no reply", undefined, undefined, true))).toEqual({ type: "send", channel: 2, text: "no reply" });
   });
 });
 

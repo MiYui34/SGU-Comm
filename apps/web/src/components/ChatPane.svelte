@@ -16,7 +16,7 @@
   import { opensLightbox } from "../lib/lightbox";
   import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
   import type { LinkPreview } from "../lib/linkPreview";
-  import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
+  import { highlightMentions, insertMention, mentionQuery, pingsMe, replyPing, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
@@ -136,11 +136,11 @@
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
-    onUpload?: (file: File, caption: string, reply?: number) => void;
+    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => void;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
-    onSend?: (text: string, reply?: number) => void;
+    onSend?: (text: string, reply?: number, noPing?: boolean) => void;
     onClose?: () => void;
   } = $props();
 
@@ -261,14 +261,14 @@
     const text = draft.trim();
     if (pending && onUpload) {
       const { file, spoiler } = pending;
-      onUpload(asSpoiler(file, spoiler), text, replying?.id);
+      onUpload(asSpoiler(file, spoiler), text, replying?.id, replying ? !replying.ping : undefined);
       cancelPending();
       replying = null;
       draft = "";
       return;
     }
     if (!text || !onSend) return;
-    onSend(text, replying?.id);
+    onSend(text, replying?.id, replying ? !replying.ping : undefined);
     replying = null;
     draft = "";
   };
@@ -444,17 +444,17 @@
 
   // Stored messages carry their id and the message they answer.
   const idOf = (m: ChatMessage | DisplayMessage) => ("source" in m ? m.source?.id : undefined);
-  const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
   // Mentions as notifications see them: in the written text, not the
   // Markdown result (Mumble messages have no source: their HTML).
   const allOf = (m: ChatMessage | DisplayMessage) => (m as DisplayMessage).mentionAll; // @everyone, @here
   const pingText = (m: ChatMessage | DisplayMessage) => ("source" in m && m.source ? escapeHtml(m.source.text) : m.text);
   // Replies: the message we answer, and jumping to an original.
-  let replying = $state<{ id: number; author: string } | null>(null);
+  // ping: the original's author gets a mention (the "@" switch).
+  let replying = $state<{ id: number; author: string; ping: boolean } | null>(null);
   let flashed = $state<number | null>(null);
   const startReply = (m: ChatMessage | DisplayMessage) => {
     if (!("source" in m) || !m.source) return;
-    replying = { id: m.source.id, author: m.actorName ?? "" };
+    replying = { id: m.source.id, author: m.actorName ?? "", ping: true };
     messageInput?.focus();
   };
   const jumpTo = (id: number) => {
@@ -680,6 +680,14 @@
     {#if replying}
       <div class="replying">
         <span class="ellipsis">Replying to <strong>{replying.author}</strong></span>
+        <button
+          type="button"
+          class="ping"
+          class:off={!replying.ping}
+          aria-pressed={replying.ping}
+          title={replying.ping ? "The author gets a mention" : "The author gets no mention"}
+          onclick={() => replying && (replying.ping = !replying.ping)}>@ {replying.ping ? "On" : "Off"}</button
+        >
         <button type="button" aria-label="Cancel reply" onclick={() => (replying = null)}>×</button>
       </div>
     {/if}
@@ -816,7 +824,7 @@
 
 {#snippet lines(group: MessageGroup)}
   {#each group.messages as m, i (m)}
-    <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me, allOf(m))}
+    <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyPing(m as DisplayMessage), me, allOf(m))}
       class:flash={idOf(m) !== undefined && idOf(m) === flashed}
       class:sheet-open={sheetMessage === m}
       use:hold={() => openSheet(m)}
@@ -1598,6 +1606,15 @@
   .replying button {
     font-size: 18px;
     line-height: 1;
+    color: var(--text-muted);
+  }
+  .replying .ping {
+    margin-left: auto;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .replying .ping.off {
     color: var(--text-muted);
   }
   .quote {

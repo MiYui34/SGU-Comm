@@ -136,3 +136,4 @@
 - [x] [@here and @everyone](issues/mention-everyone.md)
 - [x] [Small gaps to Discord](issues/discord-small-gaps.md)
 - [x] [Light theme](issues/light-theme.md)
+- [x] [Reply without a ping](issues/reply-without-ping.md)
