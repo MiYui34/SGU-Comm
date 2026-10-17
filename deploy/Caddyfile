@@ -1,4 +1,0 @@
-# HTTPS with an automatic certificate. The microphone needs a secure context.
-{$DOMAIN} {
-	reverse_proxy kallisti:8080
-}

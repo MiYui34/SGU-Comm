@@ -1,4 +1,4 @@
-# Kallisti: the Go server with the built web app. See deploy/compose.yml.
+# Kallisti: the Go server with the built web app. See deploy/docker/compose.yml.
 
 FROM docker.io/library/node:24-alpine AS web
 RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
