@@ -40,8 +40,8 @@
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
-  import { blockedUsers, mutedChannels, settings, userAudio } from "../lib/settings.svelte";
-  import { mutedOn, withoutMuted } from "../lib/channelMute";
+  import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
+  import { mutedIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
@@ -417,7 +417,13 @@
     view = first ? { kind: "text", id: first.id } : { kind: "voice" };
   });
   // Muted text channels show no unread marker (mentions still count).
-  const mutedText = $derived(mutedOn(mutedChannels.value, connection.httpBase));
+  // Mutes end on their own: checked every half minute.
+  let muteNow = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (muteNow = Date.now()), 30_000);
+    return () => clearInterval(timer);
+  });
+  const mutedText = $derived(mutedIds(channelPrefs.value, connection.httpBase, muteNow));
   // Link previews of the open chat's messages: asked once per message.
   const previewsAsked = new Set<string>();
   $effect(() => {
@@ -480,13 +486,16 @@
     connection.onTextEvent((ev) => {
       if (ev.type !== "message" || !me) return;
       const m = ev.message;
-      if (blockedUsers.has(m.author)) return;
+      const own = m.author.toLowerCase() === me.name.toLowerCase();
+      if (own || blockedUsers.has(m.author)) return;
       const peer = text.directs[m.channel];
       if (peer) {
-        if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
+        notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
-      if (!pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll)) return;
+      // By the channel's setting (see lib/channelPrefs); not our own.
+      const mentioned = pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll);
+      if (!notifies(prefOf(channelPrefs.value, connection.httpBase, m.channel), mentioned, Date.now())) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
       const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
@@ -512,11 +521,14 @@
     });
   });
   // A short sound for new mentions outside the open channel (not while
-  // deafened).
+  // deafened, not in channels set to "nothing").
   let mentionTotal = 0;
   let knownSummary: unknown = null;
   $effect(() => {
-    const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (Number(id) === chatId ? a : a + n), 0);
+    // The settings as they are now; changing them alone plays nothing.
+    const channelSettings = untrack(() => channelPrefs.value);
+    const quiet = (id: number) => id === chatId || !notifies(prefOf(channelSettings, connection.httpBase, id), true, 0);
+    const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (quiet(Number(id)) ? a : a + n), 0);
     // Mentions from before (the summary at login or reconnect): no sound.
     const fresh = text.summary !== knownSummary;
     knownSummary = text.summary;
@@ -781,8 +793,8 @@
     canDelete={m.canDelete}
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
-    muted={m.kind === "text" ? mutedText.has(m.id) : undefined}
-    onToggleMute={() => mutedChannels.toggle(connection.httpBase, m.id)}
+    notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
+    onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
     onEdit={() => channels.startEdit(m.kind, m.id)}
     onMove={(step) => channels.move(m.kind, m.id, step)}
     onDelete={() => channels.startDelete(m.kind, m.id)}

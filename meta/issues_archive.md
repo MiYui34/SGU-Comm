@@ -137,3 +137,4 @@
 - [x] [Small gaps to Discord](issues/discord-small-gaps.md)
 - [x] [Light theme](issues/light-theme.md)
 - [x] [Reply without a ping](issues/reply-without-ping.md)
+- [x] [Notifications per channel, mute for a time](issues/channel-notifications.md)

@@ -1,5 +1,6 @@
 <script lang="ts">
   import ContextMenu from "./ContextMenu.svelte";
+  import { isMuted, levelOf, LEVELS, type ChannelPref } from "../lib/channelPrefs";
 
   // Right-click menu of a channel. Items show only when the user may use
   // them (the server checks again).
@@ -11,8 +12,8 @@
     canDelete,
     canMoveUp,
     canMoveDown,
-    muted,
-    onToggleMute,
+    notify,
+    onNotify,
     onEdit,
     onMove,
     onDelete,
@@ -25,9 +26,10 @@
     canDelete: boolean;
     canMoveUp: boolean;
     canMoveDown: boolean;
-    // Text channels: muted or not (undefined: cannot be muted).
-    muted?: boolean;
-    onToggleMute?: () => void;
+    // Text channels: notification settings (see lib/channelPrefs);
+    // undefined: none. desktop: desktop notifications are on.
+    notify?: { pref: ChannelPref; desktop: boolean };
+    onNotify?: (patch: ChannelPref) => void;
     onEdit: () => void;
     onMove: (step: -1 | 1) => void;
     onDelete: () => void;
@@ -38,11 +40,39 @@
     fn();
     onClose();
   };
+  const MUTE_FOR: [string, number][] = [
+    ["For 15 minutes", 15],
+    ["For 1 hour", 60],
+    ["For 8 hours", 8 * 60],
+    ["For 24 hours", 24 * 60],
+    ["Until I turn it back on", 0],
+  ];
+  const id = $props.id();
+  const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
-  {#if muted !== undefined && onToggleMute}
-    <button onclick={act(onToggleMute)}>{muted ? "Unmute channel" : "Mute channel"}</button>
+  {#if notify && onNotify}
+    {#if isMuted(notify.pref, Date.now())}
+      {@const end = until(notify.pref.mutedUntil)}
+      <button onclick={act(() => onNotify({ mutedUntil: undefined }))}>Unmute channel</button>
+      {#if end}<p class="none">Muted until {end}</p>{/if}
+    {:else}
+      <div role="group" aria-labelledby="{id}-mute">
+        <p class="heading" id="{id}-mute">Mute channel</p>
+        {#each MUTE_FOR as [label, minutes] (minutes)}
+          <button onclick={act(() => onNotify({ mutedUntil: minutes && Date.now() + minutes * 60_000 }))}>{label}</button>
+        {/each}
+      </div>
+    {/if}
+    <div class="sep"></div>
+    <div role="group" aria-labelledby="{id}-level">
+      <p class="heading" id="{id}-level">Notifications</p>
+      {#each LEVELS as [level, label] (level)}
+        <button class="choice" aria-pressed={levelOf(notify.pref) === level} onclick={act(() => onNotify({ level }))}>{label}</button>
+      {/each}
+      {#if !notify.desktop}<p class="none">Desktop notifications are off (Settings).</p>{/if}
+    </div>
     {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
   {/if}
   {#if canEdit || canMoveUp || canMoveDown}
@@ -53,7 +83,7 @@
       <div class="sep"></div>
       <button class="danger" onclick={act(onDelete)}>Delete channel</button>
     {/if}
-  {:else if muted === undefined}
+  {:else if !notify}
     <p class="none">You may not change this channel.</p>
   {/if}
 </ContextMenu>
@@ -82,6 +112,18 @@
   }
   .danger:hover {
     background: var(--danger);
+  }
+  .heading {
+    margin: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .choice[aria-pressed="true"]::after {
+    content: "✓" / "";
+    float: right;
   }
   .none {
     margin: 0;

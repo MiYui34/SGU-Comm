@@ -289,7 +289,7 @@
         onChange({ notifications: on });
       }}
     />
-    <span>Desktop notifications for mentions and private messages</span>
+    <span>Desktop notifications (mentions and direct messages; per channel in its menu)</span>
     {#if notificationNote}<span class="hint warn" role="status">{notificationNote}</span>{/if}
   </label>
   {#if account}

@@ -1,5 +1,5 @@
 import { isBlocked, parseBlocked, toggleBlocked } from "./blocked";
-import { parseMuted, toggleMuted } from "./channelMute";
+import { parseChannelPrefs, setChannelPref, type ChannelPref } from "./channelPrefs";
 import { persisted } from "./persisted.svelte";
 import { parseSettings, type Settings } from "./settings";
 import { parseUserAudio, updateUserAudio, type UserAudio } from "./userAudio";
@@ -23,13 +23,14 @@ export const userAudio = {
     userAudioStore.set(updateUserAudio(userAudioStore.value, name, patch)),
 };
 
-const mutedStore = persisted("mutedChannels", parseMuted);
+// The key from when only mutes were kept (parseChannelPrefs reads both).
+const channelStore = persisted("mutedChannels", parseChannelPrefs);
 
-export const mutedChannels = {
+export const channelPrefs = {
   get value() {
-    return mutedStore.value;
+    return channelStore.value;
   },
-  toggle: (server: string, id: number) => mutedStore.set(toggleMuted(mutedStore.value, server, id)),
+  set: (server: string, id: number, patch: ChannelPref) => channelStore.set(setChannelPref(channelStore.value, server, id, patch)),
 };
 
 const blockedStore = persisted("blockedUsers", parseBlocked);
