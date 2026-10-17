@@ -100,6 +100,8 @@ func run() error {
 		AllowedOrigins: cfg.AllowedOrigins,
 		Now:            time.Now,
 		Redeem:         hub.RedeemUploadToken,
+		RedeemEmoji:    hub.RedeemEmojiToken,
+		OnEmoji:        hub.EmojiChanged,
 	}
 	var linkImages http.Handler = http.NotFoundHandler()
 	if !cfg.NoLinkPreviews {
@@ -174,6 +176,8 @@ func run() error {
 		mux.Handle(path, accounts)
 	}
 	mux.Handle("/files/", fileHandler)
+	mux.Handle("/api/emoji", fileHandler)
+	mux.Handle("/api/emoji/", fileHandler)
 	mux.Handle("/api/avatars/", avatars)
 	mux.Handle("/api/link-image/", linkImages)
 	if builtinServer != nil {
