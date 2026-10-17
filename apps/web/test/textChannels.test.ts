@@ -273,6 +273,8 @@ describe("managing text channels", () => {
     expect(JSON.parse(manageRequest({ order: [3, 2] }))).toEqual({ type: "order-channels", channels: [3, 2] });
     expect(JSON.parse(manageRequest({ moderator: 5, on: true }))).toEqual({ type: "set-moderator", user: 5, moderator: true });
     expect(JSON.parse(manageRequest({ topic: 2, text: "hi" }))).toEqual({ type: "set-topic", channel: 2, text: "hi" });
+    expect(JSON.parse(manageRequest({ ban: 4, reason: "spam", seconds: 3600 }))).toEqual({ type: "ban", session: 4, text: "spam", seconds: 3600 });
+    expect(JSON.parse(manageRequest({ timeout: 4, seconds: 300 }))).toEqual({ type: "time-out", session: 4, seconds: 300 });
   });
 
   it("reads topics", () => {
@@ -291,6 +293,23 @@ describe("roles", () => {
     expect(parseServerEvent('{"type":"roles","admins":"x","moderators":[]}')).toBeNull();
   });
 
+});
+
+describe("time-outs", () => {
+  it("come with ready and change later", () => {
+    const ready = parseServerEvent('{"type":"ready","channels":[],"voiceChats":true,"timeouts":[{"user":3,"until":5000}]}');
+    const s = reduceText(initialTextState, ready!);
+    expect(s.timeouts).toEqual([{ user: 3, until: 5000 }]);
+    const changed = parseServerEvent('{"type":"timeouts","timeouts":[{"session":7,"until":6000}]}');
+    expect(reduceText(s, changed!).timeouts).toEqual([{ session: 7, until: 6000 }]);
+    expect(reduceText(s, parseServerEvent('{"type":"ready","channels":[]}')!).timeouts).toEqual([]);
+  });
+
+  it("drops broken lists", () => {
+    expect(parseServerEvent('{"type":"timeouts","timeouts":[{"until":"x"}]}')).toBeNull();
+    expect(parseServerEvent('{"type":"timeouts","timeouts":[{"until":1}]}')).toBeNull(); // nobody
+    expect(parseServerEvent('{"type":"timeouts"}')).toBeNull();
+  });
 });
 
 describe("edited and deleted messages", () => {
