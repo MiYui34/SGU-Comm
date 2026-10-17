@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { emojiParts } from "../src/lib/emoji";
 
 describe("emojiParts", () => {
+  it("finds text-style emoji with skin tones (parser 17.0.2 does not)", () => {
+    expect(emojiParts("✌\uFE0F ✌🏻", "/e/")).toEqual([
+      { emoji: "✌\uFE0F", url: "/e/270c.png" },
+      { text: " " },
+      { emoji: "✌🏻", url: "/e/270c-1f3fb.png" },
+    ]);
+  });
+
   it("splits text into text and emoji parts", () => {
     expect(emojiParts("a😀 👍🏽", "/e/")).toEqual([
       { text: "a" },

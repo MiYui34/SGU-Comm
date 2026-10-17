@@ -29,8 +29,8 @@ importers:
         specifier: ^2.4.1
         version: 2.4.1
       '@twemoji/parser':
-        specifier: 17.0.2
-        version: 17.0.2
+        specifier: 17.0.1
+        version: 17.0.1
       '@workadventure/noise-suppression':
         specifier: 0.2.0
         version: 0.2.0
@@ -425,8 +425,8 @@ packages:
   '@tauri-apps/plugin-global-shortcut@2.4.1':
     resolution: {integrity: sha512-NVCoQ0ShDFncsj9f8iAzhRBTnsJj5sf60vOjcV6emeQHzmEFd6+RXH+fUHHuJAbEYP4mdT2vGlvVOG7tMr/e8g==}
 
-  '@twemoji/parser@17.0.2':
-    resolution: {integrity: sha512-X/P7pHsGOxnrupQYUVetIeuxBGgffFu8CLwoPMMjH9CWmQvlXiCpbTW/BXxMOCWXQojgHdmgdvm6IsCqAQ5nxA==}
+  '@twemoji/parser@17.0.1':
+    resolution: {integrity: sha512-Uiq5sq1Wx91Y6C0DczMlu4Gj4nC/0z8UIhT7S53hi/JATaS1oLM5jXygjot7STtyVoIagfnpsBCWaNy3ayfyFw==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -1344,7 +1344,7 @@ snapshots:
     dependencies:
       '@tauri-apps/api': 2.12.3
 
-  '@twemoji/parser@17.0.2': {}
+  '@twemoji/parser@17.0.1': {}
 
   '@types/chai@5.2.3':
     dependencies:
