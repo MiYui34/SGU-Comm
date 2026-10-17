@@ -308,3 +308,21 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
   workers are blocked by the CSP: the worker is a file of its own).
 - Mumble clients hear the stream from a hidden user that is not in the
   server's user list (nobody can message, move or kick it).
+
+## Emoji picker (2026-10-17)
+
+- Data from emojibase (names, keywords, GitHub shortcodes), cut to the
+  Twemoji version and written to `public/emoji-data.json` at build time; the
+  picker fetches it when it first opens (51 KB gzipped).
+- emojibase's sequences are not always fully qualified (`🎓` with a
+  selector), so they are not a source for the selector rules. Reactions use
+  the fully qualified form from Unicode's `emoji-test.txt`: the selector
+  after code points with Emoji_Presentation=No (a list that no longer
+  grows), not before a skin tone. That rule reproduces all 3944 fully
+  qualified sequences. The old rule (a selector after every older symbol)
+  broke text-style emoji with skin tones; stored reactions move to the new
+  form at start.
+- Go's `unicode` tables are at Unicode 15: the emoji block counts as
+  symbols as a whole, or Emoji 16/17 would be rejected.
+- `@twemoji/parser` 17.0.2 does not find text-style emoji with skin tones
+  (✌️, 🖐️, ☝️ …); 17.0.1 does. 👁️‍🗨️ shows as two images with it.

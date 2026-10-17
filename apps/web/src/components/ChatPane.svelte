@@ -3,6 +3,9 @@
   import { mediaKind } from "../lib/media";
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
+  import EmojiPicker from "./EmojiPicker.svelte";
+  import { quickReactions } from "../lib/emojiPicker";
+  import { recentEmoji, usedEmoji } from "../lib/emojiPrefs.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
   import { opensLightbox } from "../lib/lightbox";
@@ -271,14 +274,18 @@
     selected = 0;
     if (!query || query.start !== dismissed) dismissed = null;
   };
+  // New text in the message box, with the caret at `at`.
+  const setDraft = async (text: string, at: number) => {
+    draft = text;
+    caret = at;
+    await tick();
+    messageInput?.focus();
+    messageInput?.setSelectionRange(at, at);
+  };
   const pick = async (name: string) => {
     if (!query) return;
     const next = insertMention(draft, query.start, caret, name);
-    draft = next.text;
-    caret = next.caret;
-    await tick();
-    messageInput?.focus();
-    messageInput?.setSelectionRange(next.caret, next.caret);
+    await setDraft(next.text, next.caret);
   };
   // Keys while the list is open; true: handled.
   const onSuggestionKey = (e: KeyboardEvent) => {
@@ -322,9 +329,32 @@
     await tick();
     inLine(id, ".actions .emoji")?.focus();
   };
+  // The message box's emoji picker, at its button; the choice goes in at
+  // the caret.
+  let draftEmoji = $state<DOMRect | null>(null);
+  const insertEmoji = (emoji: string) => {
+    usedEmoji(emoji);
+    draftEmoji = null;
+    const from = messageInput?.selectionStart ?? draft.length;
+    const to = messageInput?.selectionEnd ?? draft.length;
+    void setDraft(draft.slice(0, from) + emoji + draft.slice(to), from + emoji.length);
+  };
+  // The quick reactions; "+" opens all emoji (allEmoji: for that message).
+  const quick = $derived(quickReactions(recentEmoji.value, COMMON_EMOJI, 8));
+  let allEmoji = $state.raw<{ id: number; anchor: DOMRect } | null>(null);
+  // The current message (its reactions change while the picker is open).
+  const allEmojiFor = $derived(allEmoji && messages.find((m) => idOf(m) === allEmoji!.id));
+  const mineOf = (m: ChatMessage | DisplayMessage, emoji: string) =>
+    !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, myId)));
+  const react = (m: ChatMessage | DisplayMessage, id: number, emoji: string) => {
+    usedEmoji(emoji);
+    onReact?.(id, emoji, !mineOf(m, emoji));
+    void closePicker();
+  };
   const closePicker = async () => {
     const id = picking;
     picking = null;
+    allEmoji = null;
     await tick();
     inLine(id, '[aria-label="Add a reaction"]')?.focus();
   };
@@ -674,11 +704,34 @@
         disabled={!onSend}
         aria-label="Message"
       ></textarea>
+      {#if onSend}
+        <button
+          type="button"
+          class="emoji-button"
+          aria-label="Add an emoji"
+          title="Emoji"
+          onclick={(e) => (draftEmoji = e.currentTarget.getBoundingClientRect())}><Emoji text="🙂" /></button
+        >
+      {/if}
     </div>
     <p class="typing ellipsis" aria-live="polite">{typing}</p>
   </form>
 </main>
 
+{#if draftEmoji}
+  <EmojiPicker anchor={draftEmoji} onPick={insertEmoji} onClose={() => ((draftEmoji = null), messageInput?.focus())} />
+{/if}
+{#if allEmoji && allEmojiFor}
+  {@const { id, anchor } = allEmoji}
+  {@const m = allEmojiFor}
+  <EmojiPicker
+    {anchor}
+    label="Add a reaction"
+    selected={(emoji) => mineOf(m, emoji)}
+    onPick={(emoji) => react(m, id, emoji)}
+    onClose={() => ((allEmoji = null), inLine(id, '[aria-label="More emoji"]')?.focus())}
+  />
+{/if}
 {#if lightbox}
   <Lightbox url={lightbox.url} name={lightbox.name} onClose={() => (lightbox = null)} />
 {/if}
@@ -771,16 +824,21 @@
         }}
       >
         {#if picking === id}
-          {#each COMMON_EMOJI as emoji (emoji)}
-            {@const mine = !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, myId)))}
+          {#each quick as emoji (emoji)}
             <button
               type="button"
               class="emoji"
-              class:mine
+              class:mine={mineOf(m, emoji)}
               aria-label="React with {emoji}"
-              onclick={() => (onReact?.(id, emoji, !mine), closePicker())}><Emoji text={emoji} /></button
+              onclick={() => react(m, id, emoji)}><Emoji text={emoji} /></button
             >
           {/each}
+          <button
+            type="button"
+            aria-label="More emoji"
+            title="More emoji"
+            onclick={(e) => (allEmoji = { id, anchor: e.currentTarget.getBoundingClientRect() })}>+</button
+          >
           <button type="button" aria-label="Close" onclick={closePicker}>×</button>
         {:else if confirming === id}
           <span>Delete this message?</span>
@@ -1434,6 +1492,24 @@
     border-radius: 50%;
     background: var(--text-muted);
     color: var(--bg-input);
+  }
+  .emoji-button {
+    display: grid;
+    padding: 0;
+    margin: 9px 0;
+    place-items: center;
+    border: none;
+    background: none;
+    cursor: pointer;
+    filter: grayscale(1) opacity(0.6);
+  }
+  .emoji-button:hover,
+  .emoji-button:focus-visible {
+    filter: none;
+  }
+  .emoji-button :global(.emoji) {
+    width: 24px;
+    height: 24px;
   }
   .composer textarea {
     flex: 1;

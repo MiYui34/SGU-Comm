@@ -9,6 +9,5 @@
   - [ ] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
-- [ ] [Emoji picker](issues/emoji-picker.md)
 - [ ] [Phones: message actions on long press](issues/mobile-message-sheet.md)
 - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
