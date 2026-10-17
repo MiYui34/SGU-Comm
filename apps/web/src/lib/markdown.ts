@@ -76,6 +76,8 @@ export const markdown = (escaped: string, channels?: ReadonlyMap<string, number>
     const { html, rest } = link(url);
     return keep(html) + rest;
   });
+  // Custom emoji names (images come after sanitizing) keep their "_".
+  s = s.replace(/:[a-z0-9_]{2,32}:/g, keep);
   if (channels?.size) {
     s = s.replace(CHANNEL_PATTERN, (all, before: string, name: string) => {
       const id = channels.get(name.toLowerCase());
