@@ -65,6 +65,7 @@
   import { IS_MAC, navAction, stepPlace } from "../lib/switcher";
   import { mirrorIds } from "../lib/mirrors";
   import { tabTitle } from "../lib/title";
+  import { messageLink, parseMessageLink } from "../lib/messageLink";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
 
@@ -383,6 +384,27 @@
   // direct chat.
   const chatId = $derived(textId ?? voiceChatId ?? directChatId);
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
+  // Message links (see lib/messageLink), for text channels and direct
+  // chats: open the chat, then jump to the message. false: not here.
+  // Links use the page's address (the server's, except in development).
+  const site = location.origin;
+  const openMessage = (link: { chat: number; message: number } | null) => {
+    if (!link) return false;
+    const peer = text.directs[link.chat];
+    if (text.channels.some((c) => c.id === link.chat)) show({ kind: "text", id: link.chat });
+    else if (peer) openDirect(peer);
+    else return false;
+    jumpTarget = link.message;
+    return true;
+  };
+  // Opened with a message link: there once the channels are known.
+  let linked = untrack(() => parseMessageLink(location.href, site));
+  $effect(() => {
+    if (!linked || !text.available) return;
+    history.replaceState(history.state, "", "/");
+    untrack(() => openMessage(linked));
+    linked = null;
+  });
   $effect(() => {
     const first = text.channels[0];
     if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
@@ -400,7 +422,7 @@
   const previewsAsked = new Set<string>();
   $effect(() => {
     if (chatId === null) return;
-    const asks = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked);
+    const asks = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked, (url) => !!parseMessageLink(url, site));
     for (const m of asks) previewsAsked.add(previewKey(m));
     const ids = asks.map((m) => m.id);
     for (let i = 0; i < ids.length; i += 30) connection.previews(ids.slice(i, i + 30));
@@ -954,8 +976,13 @@
       {pinsOpen}
       mayPin={directChatId !== null || canManageText(server, text)}
       onPin={connection.pin}
-      {jumpTarget}
+      jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
       onJumped={() => (jumpTarget = null)}
+      linkTo={chatId !== null && voiceChatId === null ? (id) => messageLink(site, chatId!, id) : undefined}
+      onLink={(href) => {
+        const link = parseMessageLink(href, site);
+        return link && (openMessage(link) ? "opened" : "unavailable");
+      }}
       typing={typingText(typingHere)}
       {onTyping}
       onReact={connection.react}
@@ -970,12 +997,7 @@
       messages={(text.search?.messages ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
-      onOpen={(m) => {
-        const peer = text.directs[m.channel];
-        if (peer) openDirect(peer);
-        else show({ kind: "text", id: m.channel });
-        jumpTarget = m.id;
-      }}
+      onOpen={(m) => openMessage({ chat: m.channel, message: m.id })}
       onClose={() => {
         searchOpen = false;
         document.querySelector<HTMLInputElement>('input[aria-label="Search messages"]')?.focus();

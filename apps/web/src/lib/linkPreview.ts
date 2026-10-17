@@ -14,11 +14,17 @@ export const firstLink = (text: string): string | null => LINK.exec(withoutSpoil
 // A message's preview is asked once per link (an edit can change it).
 export const previewKey = (m: TextMessage) => `${m.id} ${firstLink(m.text)}`;
 
-// Messages with a link whose preview is neither known nor asked for.
+// Messages with a link whose preview is neither known nor asked for;
+// skip: links with no card (links to messages here).
 export const previewsToAsk = (
   msgs: readonly TextMessage[],
   known: Readonly<Record<number, LinkPreview | null>>,
   asked: ReadonlySet<string>,
-): TextMessage[] => msgs.filter((m) => !(m.id in known) && firstLink(m.text) && !asked.has(previewKey(m)));
+  skip: (url: string) => boolean = () => false,
+): TextMessage[] =>
+  msgs.filter((m) => {
+    const link = firstLink(m.text);
+    return !(m.id in known) && link && !skip(link) && !asked.has(previewKey(m));
+  });
 
 export const previewsRequest = (messages: number[]) => JSON.stringify({ type: "previews", messages });

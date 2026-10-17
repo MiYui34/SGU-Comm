@@ -16,6 +16,11 @@ describe("link previews", () => {
     expect(firstLink("https://x.org||x")).toBe("https://x.org");
   });
 
+  it("does not ask for links it skips (message links to this server)", () => {
+    const msgs = [msg(1, "https://chat.example/channels/1/2"), msg(2, "https://a.org")];
+    expect(previewsToAsk(msgs, {}, new Set(), (url) => url.startsWith("https://chat.example/"))).toEqual([msgs[1]]);
+  });
+
   it("asks once per message and link, for messages with no answer yet", () => {
     const msgs = [msg(1, "https://a.org"), msg(2, "plain"), msg(3, "https://b.org"), msg(4, "https://c.org")];
     const asked = new Set([previewKey(msgs[3]!)]);

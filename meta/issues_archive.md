@@ -132,3 +132,4 @@
 - [x] [Search filters](issues/search-filters.md)
 - [x] [Keyboard: quick switcher and channel keys](issues/keyboard-navigation.md)
 - [x] [Unread count in the tab, installable app](issues/tab-badge-pwa.md)
+- [x] [Copy a link to a message](issues/message-links.md)

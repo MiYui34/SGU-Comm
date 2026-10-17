@@ -11,5 +11,4 @@
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
 - [ ] [Small gaps to Discord](issues/discord-small-gaps.md)
-  - [ ] [Copy a link to a message](issues/message-links.md)
   - [ ] [@here and @everyone](issues/mention-everyone.md)

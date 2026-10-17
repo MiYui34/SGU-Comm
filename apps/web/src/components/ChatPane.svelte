@@ -18,6 +18,7 @@
   import type { LinkPreview } from "../lib/linkPreview";
   import { highlightMentions, insertMention, mentionQuery, pingsMe, suggestNames } from "../lib/mentions";
   import Lightbox from "./Lightbox.svelte";
+  import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
@@ -54,6 +55,8 @@
     onSearch,
     onPins,
     onOpenChannel,
+    linkTo,
+    onLink,
     stage,
     pinsOpen = false,
     mayPin = false,
@@ -106,6 +109,10 @@
     stage?: Snippet;
     // A "#name" link in a message was clicked.
     onOpenChannel?: (id: number) => void;
+    // A stored message's link ("Copy link"); onLink: a click on a link,
+    // for links to messages here (see lib/messageLink), else null.
+    linkTo?: (id: number) => string;
+    onLink?: (href: string) => "opened" | "unavailable" | null;
     // The pinned messages panel (undefined: none here).
     onPins?: () => void;
     pinsOpen?: boolean;
@@ -381,13 +388,22 @@
   const sheetMessage = $derived(
     sheetFor && (sheetFor.id === undefined ? sheetFor.m : messages.find((m) => idOf(m) === sheetFor!.id)),
   );
+  // A short notice at the bottom (copied, a link that cannot open).
+  let notice = $state({ n: 0, text: "" });
+  const notify = (text: string) => (notice = { n: notice.n + 1, text });
+  const copy = (text: string, done: string) =>
+    (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(
+      () => notify(done),
+      () => notify("Could not copy"),
+    );
   const sheetItems = (m: ChatMessage | DisplayMessage): SheetItem[] => {
     const may = allowed(m);
     const done = (f: () => void) => () => ((sheetFor = null), f());
     const text = "source" in m && m.source ? m.source.text : htmlToText(m.text);
     return [
       ...(may && canReply ? [{ label: "Reply", icon: "reply" as const, run: done(() => startReply(m)) }] : []),
-      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => navigator.clipboard?.writeText(text).catch(() => {})) }] : []),
+      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(text, "Text copied")) }] : []),
+      ...(may && linkTo ? [{ label: "Copy link", icon: "copy" as const, run: done(() => copy(linkTo(may.id), "Link copied")) }] : []),
       ...(may?.canPin
         ? [{ label: may.pinned ? "Unpin message" : "Pin message", icon: "pin" as const, run: done(() => onPin?.(may.id, !may.pinned)) }]
         : []),
@@ -562,6 +578,13 @@
     }}
     onclick={(e) => {
       if (revealSpoiler(e.target as Element)) return e.preventDefault();
+      const href = (e.target as Element).closest("a[href]")?.getAttribute("href");
+      const opened = href && !e.ctrlKey && !e.metaKey && !e.shiftKey ? onLink?.(href) : null;
+      if (opened) {
+        e.preventDefault();
+        if (opened === "unavailable") notify("You cannot open this message here");
+        return;
+      }
       const link = (e.target as Element).closest<HTMLElement>("a[data-channel]");
       if (!link || !isChannelLink(link)) return;
       e.preventDefault();
@@ -783,6 +806,9 @@
     onClose={() => ((allEmoji = null), inLine(id, '[aria-label="More emoji"]')?.focus())}
   />
 {/if}
+{#if notice.n}
+  {#key notice.n}<Toast text={notice.text} />{/key}
+{/if}
 {#if lightbox}
   <Lightbox url={lightbox.url} name={lightbox.name} onClose={() => (lightbox = null)} />
 {/if}
@@ -900,7 +926,7 @@
   {@const may = allowed(m)}
   {#if may}
     {@const { id, canEdit, canDelete, canPin, pinned } = may}
-    {#if canEdit || canDelete || canReply || canReact || canPin}
+    {#if canEdit || canDelete || canReply || canReact || canPin || linkTo}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="actions"
@@ -942,6 +968,9 @@
             <button type="button" aria-label={pinned ? "Unpin message" : "Pin message"} title={pinned ? "Unpin" : "Pin"} onclick={() => onPin?.(id, !pinned)}
               >{pinned ? "Unpin" : "Pin"}</button
             >
+          {/if}
+          {#if linkTo}
+            <button type="button" aria-label="Copy link to message" title="Copy link" onclick={() => copy(linkTo(id), "Link copied")}>Link</button>
           {/if}
           {#if canEdit}
             <button type="button" aria-label="Edit message" title="Edit" onclick={() => startEdit(m)}>Edit</button>
