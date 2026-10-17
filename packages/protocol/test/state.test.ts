@@ -470,3 +470,38 @@ describe("ban list and registered users", () => {
     expect(s.registered).toEqual([{ userId: 0, name: "SuperUser" }, { userId: 4, name: "alice" }]);
   });
 });
+
+describe("comments", () => {
+  const long = "a".repeat(200);
+
+  it("stores a short comment as it is", () => {
+    const s = run([userState({ session: 2, name: "a", comment: "hi" })]);
+    expect(s.users[2]).toMatchObject({ comment: "hi", commentHash: null });
+  });
+
+  it("stores the hash of a long one, then the text from the blob answer", () => {
+    let s = run([userState({ session: 2, name: "a", commentHash: new Uint8Array([0xab]) })]);
+    expect(s.users[2]).toMatchObject({ comment: "", commentHash: "ab" });
+    s = run([userState({ session: 2, comment: long })], s);
+    expect(s.users[2]).toMatchObject({ comment: long, commentHash: "ab" });
+    // The same hash again keeps the text; a new one drops it.
+    s = run([userState({ session: 2, commentHash: new Uint8Array([0xab]) })], s);
+    expect(s.users[2]?.comment).toBe(long);
+    s = run([userState({ session: 2, commentHash: new Uint8Array([0x01]) })], s);
+    expect(s.users[2]).toMatchObject({ comment: "", commentHash: "01" });
+  });
+
+  it("forgets the hash when a short or empty comment comes inline", () => {
+    let s = run([userState({ session: 2, name: "a", commentHash: new Uint8Array([0xab]) })]);
+    s = run([userState({ session: 2, comment: "short" })], s);
+    expect(s.users[2]).toMatchObject({ comment: "short", commentHash: null });
+    s = run([userState({ session: 2, comment: "" })], s);
+    expect(s.users[2]).toMatchObject({ comment: "", commentHash: null });
+  });
+
+  it("keeps the comment over other changes", () => {
+    let s = run([userState({ session: 2, name: "a", comment: "hi" })]);
+    s = run([userState({ session: 2, selfMute: true })], s);
+    expect(s.users[2]?.comment).toBe("hi");
+  });
+});

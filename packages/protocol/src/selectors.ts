@@ -70,13 +70,30 @@ export const missingDescriptions = (state: ServerState): number[] =>
     .filter((c) => c.descriptionHash !== null && c.description === "")
     .map((c) => c.id);
 
-// Long descriptions to fetch: once per channel and hash. Removed channels
-// are forgotten.
-export const descriptionsToFetch = (state: ServerState, asked: ReadonlySet<string>) => {
-  const key = (id: number) => `${id}:${state.channels[id]?.descriptionHash}`;
-  const kept = [...asked].filter((k) => state.channels[Number(k.split(":")[0])] !== undefined);
-  const ids = missingDescriptions(state).filter((id) => !asked.has(key(id)));
+// Long data known only by its hash, to fetch: once per id and hash.
+// hashOf is undefined for ids that are gone; they are forgotten (Murmur
+// reuses session numbers).
+export const blobsToFetch = (
+  missing: number[],
+  hashOf: (id: number) => string | null | undefined,
+  asked: ReadonlySet<string>,
+) => {
+  const key = (id: number) => `${id}:${hashOf(id)}`;
+  const kept = [...asked].filter((k) => hashOf(Number(k.split(":")[0])) !== undefined);
+  const ids = missing.filter((id) => !asked.has(key(id)));
   return { ids, asked: new Set([...kept, ...ids.map(key)]) };
+};
+
+// Long descriptions to fetch (all of them).
+export const descriptionsToFetch = (state: ServerState, asked: ReadonlySet<string>) =>
+  blobsToFetch(missingDescriptions(state), (id) => state.channels[id]?.descriptionHash, asked);
+
+// Long comments of some users (the ones on screen) to fetch: comments
+// can be big, and they are only shown in the user menu.
+export const commentsToFetch = (state: ServerState, sessions: number[], asked: ReadonlySet<string>) => {
+  const missing = sessions.filter((s) => state.users[s]?.commentHash != null && state.users[s]?.comment === "");
+  const { ids, asked: next } = blobsToFetch(missing, (s) => state.users[s]?.commentHash, asked);
+  return { sessions: ids, asked: next };
 };
 
 // Users whose avatar is known only by its hash.
