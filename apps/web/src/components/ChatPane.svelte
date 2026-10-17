@@ -10,6 +10,7 @@
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
+  import { customEmojiFor, customEntries, knownEmoji } from "../lib/customEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -296,6 +297,9 @@
   // a failure, again only for the next ":" word.
   let emojiData = $state.raw<EmojiData | null>(null);
   let emojiFailedAt = $state<number | null>(null);
+  // Custom server emoji (see Client).
+  const customEmoji = customEmojiFor();
+  const custom = $derived(customEmoji());
   const box = createCombobox({
     id: listId,
     text: () => draft,
@@ -304,7 +308,8 @@
     build: (typed): Suggestion[] => {
       if (typed.kind === "@") return suggestNames(people, typed.query, me).map((n) => ({ key: n, label: n, insert: `@${n}`, kind: "user" }));
       if (typed.kind === "#") return suggestNames(channelNames, typed.query, "").map((n) => ({ key: n, label: n, insert: `#${n}`, kind: "channel" }));
-      return searchEmoji(emojiData?.emoji ?? [], typed.query)
+      // Custom emoji first; they go in as ":name:".
+      return [...searchEmoji(customEntries(custom.list), typed.query), ...searchEmoji(emojiData?.emoji ?? [], typed.query)]
         .slice(0, SUGGESTIONS)
         .map((e) => {
           const emoji = normalEmoji(withTone(e, skinTone.value));
@@ -374,7 +379,13 @@
     void setDraft(draft.slice(0, from) + emoji + draft.slice(to), from + emoji.length);
   };
   // The quick reactions; "+" opens all emoji (allEmoji: for that message).
-  const quick = $derived(quickReactions(recentEmoji.value, COMMON_EMOJI, 8));
+  const quick = $derived(
+    quickReactions(
+      recentEmoji.value.filter((e) => knownEmoji(e, custom)),
+      COMMON_EMOJI,
+      8,
+    ),
+  );
   let allEmoji = $state.raw<{ id: number; anchor: DOMRect } | null>(null);
   // The current message (its reactions change while the picker is open).
   const allEmojiFor = $derived(allEmoji && messages.find((m) => idOf(m) === allEmoji!.id));
@@ -932,7 +943,7 @@
     </form>
   {:else if m.text}
     <div class="text">
-      {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok)}
+      {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok, custom.urls)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
