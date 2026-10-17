@@ -5,6 +5,7 @@
   import Avatar from "./Avatar.svelte";
   import RoleTag from "./RoleTag.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import { htmlToLines } from "../lib/htmlText";
 
   let {
     user,
@@ -40,6 +41,9 @@
     onClose: () => void;
   } = $props();
 
+  // The comment as text, never as HTML.
+  const bio = $derived(htmlToLines(user.comment));
+
   const act = (fn: () => void) => () => {
     fn();
     onClose();
@@ -52,6 +56,7 @@
     <span>{user.name}</span>
     <RoleTag {role} />
   </div>
+  {#if bio}<p class="bio">{bio}</p>{/if}
   <div class="sep"></div>
   {#if isMe}
     <button onclick={act(onSettings)}>Settings</button>
@@ -100,6 +105,18 @@
     gap: 10px;
     padding: 6px 8px;
     font-weight: 600;
+  }
+  /* Long ones (from Mumble apps) scroll. */
+  .bio {
+    max-width: 240px;
+    max-height: 120px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 8px 6px;
+    font-size: 13px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
   }
   .sep {
     height: 1px;
