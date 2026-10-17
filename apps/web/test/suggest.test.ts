@@ -9,6 +9,7 @@ describe("typedWord (message box)", () => {
     expect(typedWord("mail@la", 7)).toBeNull();
     expect(typedWord("hi @la x", 8)).toBeNull(); // the word ended
     expect(typedWord("hi @la x", 6)).toEqual({ start: 3, kind: "@", query: "la" });
+    expect(typedWord("cc:@bo", 6)).toEqual({ start: 3, kind: "@", query: "bo" }); // as mentions are found
   });
 
   it("finds #channel and :emoji (two letters at least, as Discord)", () => {
@@ -26,6 +27,7 @@ describe("typedFilter (search box)", () => {
     expect(typedFilter("pizza from:bo", 13)).toEqual({ start: 6, kind: "from", query: "bo" });
     expect(typedFilter("in:#ge", 6)).toEqual({ start: 0, kind: "in", query: "ge" });
     expect(typedFilter('in:"Lou', 7)).toEqual({ start: 0, kind: "in", query: "Lou" });
+    expect(typedFilter('in:@"Bob S', 10)).toEqual({ start: 0, kind: "in", query: "Bob S" });
     expect(typedFilter("pizza", 5)).toBeNull();
     expect(typedFilter("xfrom:bo", 8)).toBeNull();
   });

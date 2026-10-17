@@ -12,6 +12,7 @@ describe("parseSearch", () => {
     expect(parseSearch("FROM:@Bob", chats)).toEqual({ text: "", author: "Bob" });
     expect(parseSearch('in:"Lounge 2" from:"two words"', chats)).toEqual({ text: "", author: "two words", channel: 7 });
     expect(parseSearch("in:@General", chats)).toEqual({ text: "", channel: 1 }); // direct chats by name
+    expect(parseSearch('in:@"Lounge 2" hi', chats)).toEqual({ text: "hi", channel: 7 });
   });
 
   it("finds nothing in a chat that does not exist", () => {

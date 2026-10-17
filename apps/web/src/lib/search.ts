@@ -5,7 +5,7 @@ export type SearchQuery = { text: string; author?: string; channel?: number };
 // A chat "in:" can name, for suggestions.
 export type SearchPlace = { name: string; kind: "text" | "voice" | "dm"; id: number };
 
-const FILTER = /(^|\s)(from|in):(?:"([^"]+)"|(\S+))/gi;
+const FILTER = /(^|\s)(from|in):(?:[#@]?"([^"]+)"|(\S+))/gi;
 
 // chats: chat ids by lower-case name (text channels, voice channels,
 // direct chats).

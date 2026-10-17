@@ -54,9 +54,12 @@
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
     z-index: 5;
   }
+  /* Under a narrow field (the search box). */
   .below {
     top: calc(100% + 6px);
+    right: auto;
     bottom: auto;
+    min-width: 240px;
   }
   li {
     display: flex;

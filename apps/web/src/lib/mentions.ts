@@ -86,7 +86,7 @@ export const mentionCounts = (
   return out;
 };
 
-const SUGGESTIONS = 8;
+export const SUGGESTIONS = 8; // at most, in a suggestion list
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
 
 // Names to offer: those starting with the query first, then those that

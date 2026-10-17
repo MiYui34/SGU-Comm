@@ -6,7 +6,8 @@ export type Typed<K extends string> = { start: number; kind: K; query: string };
 
 // After a space or an opening mark, not inside a word, an address or a URL.
 // ":emoji" needs two letters, as in Discord (no list for "10:30" or ":)").
-const WORD = /(?:^|[\s(\[{,])(?:(@)([^\s@]*)|(#)([\p{L}\p{N}_-]*)|(:)([\w+-]{2,}))$/u;
+// "@" also after ":" ("cc:@bob"), as lib/mentions finds mentions.
+const WORD = /(?:(?:^|[\s(\[{,:])(@)([^\s@]*)|(?:^|[\s(\[{,])(?:(#)([\p{L}\p{N}_-]*)|(:)([\w+-]{2,})))$/u;
 
 export const typedWord = (text: string, caret: number): Typed<"@" | "#" | ":"> | null => {
   const m = WORD.exec(text.slice(0, caret));
@@ -16,7 +17,7 @@ export const typedWord = (text: string, caret: number): Typed<"@" | "#" | ":"> |
   return { start: caret - query.length - 1, kind, query };
 };
 
-const FILTER = /(?:^|\s)(from|in):(?:"([^"]*)|(\S*))$/i;
+const FILTER = /(?:^|\s)(from|in):(?:[#@]?"([^"]*)|(\S*))$/i;
 
 export const typedFilter = (text: string, caret: number): Typed<"from" | "in"> | null => {
   const m = FILTER.exec(text.slice(0, caret));
