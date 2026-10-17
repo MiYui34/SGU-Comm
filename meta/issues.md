@@ -9,3 +9,4 @@
   - [ ] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
+- [ ] [Jump to the newest messages](issues/jump-to-present.md)
