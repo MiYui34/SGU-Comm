@@ -371,6 +371,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	if !s.state.Has(u, u.Channel, Enter) {
 		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
 	}
+	_, u.Mute = s.timedOutLocked(u)
 	s.state.Refresh(u)
 	c.send(s.state.snapshot(u), false)
 	if !c.web {
@@ -450,6 +451,9 @@ func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 		delete(s.byAddr, c.udpAddr)
 	}
 	removed := s.state.RemoveUser(c.session)
+	if !u.Registered && s.dropTimeoutLocked(timeoutKeyOf(&u)) {
+		go s.timeoutsChanged()
+	}
 	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserRemove, msg), nil)
 	s.broadcastRemovedLocked(removed)
 	return u

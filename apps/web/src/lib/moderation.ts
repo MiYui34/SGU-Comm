@@ -1,4 +1,20 @@
-import { may, Perm, type ServerState } from "@kallisti/protocol";
+import {
+  channelTree,
+  isLobby,
+  joinChannel,
+  may,
+  moderateUser,
+  Perm,
+  removeUser,
+  type Channel,
+  type Bytes,
+  type ChannelNode,
+  type ServerState,
+  type User,
+} from "@kallisti/protocol";
+import { mirrorIds, withoutMirrors } from "./mirrors";
+import { roleOf } from "./roles";
+import type { ManageAction, TextState, Timeout } from "./textChannels";
 
 // What the server settings may show (the server checks again): the ban
 // list with Ban in root, changing it with Write too (admins); registered
@@ -7,4 +23,105 @@ export const moderationRights = (server: ServerState) => {
   const bans = may(server, 0, Perm.Ban);
   const users = may(server, 0, Perm.Register);
   return { any: bans || users, bans, editBans: bans && may(server, 0, Perm.Write), users };
+};
+
+// Time choices in seconds: bans (0: for ever) and time-outs.
+export const BAN_TIMES = [
+  { label: "1 hour", seconds: 3600 },
+  { label: "1 day", seconds: 86400 },
+  { label: "7 days", seconds: 7 * 86400 },
+  { label: "Forever", seconds: 0 },
+] as const;
+export const TIMEOUT_TIMES = [
+  { label: "5 minutes", seconds: 300 },
+  { label: "1 hour", seconds: 3600 },
+  { label: "1 day", seconds: 86400 },
+  { label: "1 week", seconds: 7 * 86400 },
+] as const;
+
+// What we may do to another user (the server checks again).
+// timedBans: bans for a time (built-in server; else only for ever).
+// moveTo: the voice channels we may move the user to.
+export type UserModeration = {
+  kick: boolean;
+  ban: boolean;
+  timedBans: boolean;
+  mute: boolean;
+  moveTo: Channel[];
+  timeout: boolean;
+};
+
+const flatten = (n: ChannelNode): Channel[] => [n.channel, ...n.children.flatMap(flatten)];
+
+// Voice channels in tree order: without text channel mirrors, and without
+// root where it is a lobby.
+const voiceChannels = (server: ServerState, text: TextState): Channel[] => {
+  const tree = withoutMirrors(channelTree(server), mirrorIds(server, text.channels));
+  return tree ? flatten(tree).filter((c) => c.id !== 0 || !isLobby(server)) : [];
+};
+
+// Mumble's rules: nothing on oneself or SuperUser; kick, ban (Kick or Ban
+// in root) and time-outs (MuteDeafen in root: a mute everywhere) on
+// admins and moderators only by admins (Write in root); server mute in
+// the user's channel; moves with Move there, into channels where we may
+// Move or Enter. Null: nothing.
+export const userModeration = (server: ServerState, text: TextState, user: User): UserModeration | null => {
+  if (user.session === server.session || user.userId === 0) return null;
+  const overStaff = roleOf(text.roles, user.userId) === null || may(server, 0, Perm.Write);
+  const ban = overStaff && may(server, 0, Perm.Ban);
+  const m: UserModeration = {
+    kick: overStaff && (ban || may(server, 0, Perm.Kick)),
+    ban,
+    timedBans: ban && text.voiceChats,
+    mute: may(server, user.channelId, Perm.MuteDeafen),
+    moveTo: may(server, user.channelId, Perm.Move)
+      ? voiceChannels(server, text).filter((c) => c.id !== user.channelId && (may(server, c.id, Perm.Move) || may(server, c.id, Perm.Enter)))
+      : [],
+    timeout: overStaff && text.voiceChats && may(server, 0, Perm.MuteDeafen),
+  };
+  return m.kick || m.mute || m.moveTo.length || m.timeout ? m : null;
+};
+
+// Channels whose permissions the user menu needs and does not know: the
+// user's channel and the voice channels (to move to).
+export const permissionsToAsk = (server: ServerState, text: TextState, user: User): number[] =>
+  [...new Set([user.channelId, ...voiceChannels(server, text).map((c) => c.id)])].filter(
+    (id) => id !== 0 && server.channelPermissions[id] === undefined,
+  );
+
+// When a user's time-out ends (Unix milliseconds), or null: registered
+// users by user id, guests by session.
+export const timedOutUntil = (timeouts: readonly Timeout[], user: Pick<User, "session" | "userId">): number | null =>
+  timeouts.find((t) => (user.userId !== null ? t.user === user.userId : t.session === user.session))?.until ?? null;
+
+// For people: the end of a time-out.
+export const untilText = (until: number) => new Date(until).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+// An action from the user menu or its confirmation dialog.
+export type ModerationAction =
+  | { kind: "kick"; reason: string }
+  | { kind: "ban"; reason: string; seconds: number } // 0: for ever
+  | { kind: "timeout"; seconds: number } // 0: end it
+  | { kind: "mute" | "deaf"; on: boolean }
+  | { kind: "move"; channel: number };
+
+// What an action sends: a Mumble message, or a request to the Kallisti
+// server (timed bans and time-outs: Mumble has neither).
+export const moderationRequest = (session: number, a: ModerationAction): { mumble: Bytes } | { manage: ManageAction } => {
+  switch (a.kind) {
+    case "kick":
+      return { mumble: removeUser(session, a.reason) };
+    case "ban":
+      return a.seconds
+        ? { manage: { ban: session, reason: a.reason, seconds: a.seconds } }
+        : { mumble: removeUser(session, a.reason, { ban: true }) };
+    case "timeout":
+      return { manage: { timeout: session, seconds: a.seconds } };
+    case "mute":
+      return { mumble: moderateUser(session, { mute: a.on }) };
+    case "deaf":
+      return { mumble: moderateUser(session, { deaf: a.on }) };
+    case "move":
+      return { mumble: joinChannel(session, a.channel) };
+  }
 };

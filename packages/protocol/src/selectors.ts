@@ -110,6 +110,8 @@ export const Perm = {
   Write: 0x1,
   Enter: 0x4,
   Speak: 0x8,
+  MuteDeafen: 0x10,
+  Move: 0x20,
   MakeChannel: 0x40,
   MakeTempChannel: 0x400,
   Kick: 0x10000,

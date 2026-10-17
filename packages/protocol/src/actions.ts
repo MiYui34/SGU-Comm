@@ -62,6 +62,14 @@ export const editChannel = (
 
 export const removeChannel = (channelId: number) => encodeMessage("ChannelRemove", { channelId });
 
+// Moderation (the server checks the permissions): kick or ban (for ever;
+// Mumble has no duration here), and server mute or deafen. Moves use
+// joinChannel with the other user's session.
+export const removeUser = (session: number, reason: string, opts: { ban?: boolean } = {}) =>
+  encodeMessage("UserRemove", { session, reason, ...(opts.ban ? { ban: true } : {}) });
+export const moderateUser = (session: number, state: { mute: boolean } | { deaf: boolean }) =>
+  encodeMessage("UserState", { session, ...state });
+
 // What the own user may do in a channel; the answer is a PermissionQuery.
 export const queryPermissions = (channelId: number) => encodeMessage("PermissionQuery", { channelId });
 

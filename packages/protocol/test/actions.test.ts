@@ -8,6 +8,8 @@ import {
   editChannel,
   escapeHtml,
   joinChannel,
+  moderateUser,
+  removeUser,
   queryPermissions,
   queryBans,
   queryRegistered,
@@ -149,6 +151,30 @@ describe("ban list and registered users", () => {
     if (gone.type !== "UserList") throw new Error();
     expect(gone.message.users[0]?.userId).toBe(4);
     expect(isFieldSet(gone.message.users[0]!, pb.UserList_UserSchema.field.name)).toBe(false);
+  });
+});
+
+describe("moderation", () => {
+  it("kicks and bans with a reason", () => {
+    const kick = decodeOne(removeUser(5, "spam"));
+    if (kick.type !== "UserRemove") throw new Error();
+    expect(kick.message).toMatchObject({ session: 5, reason: "spam" });
+    expect(isFieldSet(kick.message, pb.UserRemoveSchema.field.ban)).toBe(false);
+    const ban = decodeOne(removeUser(5, "", { ban: true }));
+    if (ban.type !== "UserRemove") throw new Error();
+    expect(ban.message.ban).toBe(true);
+  });
+
+  it("server-mutes and deafens only what is given", () => {
+    const mute = decodeOne(moderateUser(5, { mute: false }));
+    if (mute.type !== "UserState") throw new Error();
+    expect(mute.message.session).toBe(5);
+    expect(isFieldSet(mute.message, pb.UserStateSchema.field.mute)).toBe(true);
+    expect(isFieldSet(mute.message, pb.UserStateSchema.field.deaf)).toBe(false);
+    const deaf = decodeOne(moderateUser(5, { deaf: true }));
+    if (deaf.type !== "UserState") throw new Error();
+    expect(deaf.message.deaf).toBe(true);
+    expect(isFieldSet(deaf.message, pb.UserStateSchema.field.mute)).toBe(false);
   });
 });
 

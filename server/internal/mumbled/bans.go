@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"errors"
 	"log/slog"
 	"net/netip"
 	"slices"
@@ -63,30 +64,52 @@ func banAddress(p netip.Prefix) ([]byte, uint32) {
 // userRemoveMsg kicks (Kick or Ban in root) or bans (Ban) a user. A ban
 // covers its certificate and address, as Murmur before 1.6.
 func (s *Server) userRemoveMsg(c *client, m *pb.UserRemove) {
+	if missing, _ := s.removeUser(c.session, m, 0); missing != 0 {
+		c.denyPerm(missing, 0)
+	}
+}
+
+// Ban bans a user for a time (0: forever), by certificate and address:
+// Mumble's UserRemove has no duration (for the web client).
+func (s *Server) Ban(actor, session uint32, reason string, d time.Duration) error {
+	if d < 0 {
+		return errors.New("invalid ban duration")
+	}
+	missing, done := s.removeUser(actor, &pb.UserRemove{Session: proto.Uint32(session), Reason: proto.String(reason), Ban: proto.Bool(true)}, d)
+	switch {
+	case missing != 0:
+		return errors.New("you may not ban this user")
+	case !done:
+		return errors.New("cannot ban this user (gone, or nothing to ban by)")
+	}
+	return nil
+}
+
+// removeUser kicks or bans (for d, 0: forever); it returns the missing
+// permission, or whether it was done.
+func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Duration) (missing Perm, done bool) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
-	actor, u := s.state.Users[c.session], s.state.Users[m.GetSession()]
+	actor, u := s.state.Users[actorSession], s.state.Users[m.GetSession()]
 	if actor == nil || u == nil {
 		s.mu.Unlock()
-		return
+		return 0, false
 	}
 	need := Kick | Ban // either one
 	if m.GetBan() {
 		need = Ban
 	}
-	staff := s.state.isStaff(u) && !s.state.Has(actor, 0, Write)
-	if isSuperUser(u) || staff || s.state.Permissions(actor, 0)&need == 0 {
+	if !s.mayActOn(actor, u) || s.state.Permissions(actor, 0)&need == 0 {
 		s.mu.Unlock()
-		c.denyPerm(need, 0)
-		return
+		return need, false
 	}
 	var ban *BanEntry
 	if m.GetBan() {
 		// Clients before 1.6 send neither option: both, as Murmur.
 		byCert := (m.BanCertificate == nil || m.GetBanCertificate()) && u.Hash != ""
 		byIP := m.BanIp == nil || m.GetBanIp()
-		ban = &BanEntry{Name: u.Name, Reason: m.GetReason(), Start: time.Now().UTC().Truncate(time.Second)}
+		ban = &BanEntry{Name: u.Name, Reason: m.GetReason(), Start: time.Now().UTC().Truncate(time.Second), Duration: d}
 		if byCert {
 			ban.Hash = u.Hash
 		}
@@ -95,14 +118,20 @@ func (s *Server) userRemoveMsg(c *client, m *pb.UserRemove) {
 		}
 		if !ban.Prefix.IsValid() && ban.Hash == "" {
 			s.mu.Unlock()
-			return // nothing to ban by
+			return 0, false // nothing to ban by
 		}
 	}
-	s.kickLocked(u.Session, c.session, m.GetReason(), ban != nil)
+	s.kickLocked(u.Session, actorSession, m.GetReason(), ban != nil)
 	s.mu.Unlock()
 	if ban != nil {
 		s.setBans(append(s.currentBans(), *ban))
 	}
+	return 0, true
+}
+
+// mayActOn: nobody acts on SuperUser, only admins (Write in root) on staff.
+func (s *Server) mayActOn(actor, u *User) bool {
+	return !isSuperUser(u) && (!s.state.isStaff(u) || s.state.Has(actor, 0, Write))
 }
 
 // currentBans is the ban list; callers must not change it.

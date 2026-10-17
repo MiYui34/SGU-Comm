@@ -47,6 +47,9 @@ type Config struct {
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
 	// ListenOnly).
 	OnListenOnlyChanged func()
+	// OnTimeoutsChanged runs after a time-out began or ended (see
+	// Timeouts).
+	OnTimeoutsChanged func()
 	// OnUserMoved hears users join (from NoChannel), change channels and
 	// leave (to NoChannel), in order, outside the server lock.
 	OnUserMoved func(session, from, to uint32)
@@ -137,6 +140,8 @@ type Server struct {
 	byAddr  map[netip.AddrPort]*client
 	next    uint32
 	udp     *net.UDPConn
+	// Time-outs by user (see timeouts.go). Under mu.
+	timeouts map[timeoutKey]*timeout
 }
 
 type client struct {
@@ -199,6 +204,9 @@ func New(cfg Config) (*Server, error) {
 		streams: map[uint32]*streamUser{},
 	}
 	srv.bans.Store(&bans)
+	if err := srv.loadTimeouts(); err != nil {
+		return nil, err
+	}
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
 	if cfg.OnUserMoved != nil {
 		srv.events = newEventQueue()
@@ -259,6 +267,7 @@ func (s *Server) Close() {
 	for _, c := range clients {
 		c.close()
 	}
+	s.stopTimeouts()
 	done := make(chan struct{})
 	go func() {
 		s.sessions.Wait()

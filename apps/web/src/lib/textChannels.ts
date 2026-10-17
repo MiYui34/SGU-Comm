@@ -60,6 +60,9 @@ export type DirectChat = { channel: number; peer: Peer };
 export type LiveStream = { session: number; channel: number; preview?: string };
 
 export type SessionStatus = PresenceView & { session: number };
+// A running time-out (built-in server): of a registered user (user id) or
+// a guest (session); until: Unix milliseconds.
+export type Timeout = { user?: number; session?: number; until: number };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
@@ -71,6 +74,7 @@ export type ServerEvent =
       voiceChats?: boolean;
       roles?: Roles;
       listenOnly?: ListenOnlyChannel[];
+      timeouts?: Timeout[];
       // Registered users' direct chats (with messages).
       directs?: DirectChat[];
       streams?: LiveStream[];
@@ -100,6 +104,8 @@ export type ServerEvent =
   | { type: "stream-token"; token: string }
   // The listen-only voice channels changed.
   | { type: "listen-only"; channels: ListenOnlyChannel[] }
+  // The running time-outs changed.
+  | { type: "timeouts"; timeouts: Timeout[] }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
@@ -138,6 +144,7 @@ export type TextState = {
   roles: Roles;
   // Listen-only voice channels: their speakers.
   listenOnly: Readonly<Record<number, Speaker[]>>;
+  timeouts: readonly Timeout[];
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
   // Live screen shares, and their thumbnails by streamer session.
@@ -172,6 +179,7 @@ export const initialTextState: TextState = {
   voiceChats: false,
   roles: { admins: [], moderators: [] },
   listenOnly: {},
+  timeouts: [],
   directs: {},
   streams: [],
   streamPreviews: {},
@@ -219,6 +227,8 @@ const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr
 const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && Array.isArray(c.speakers) && c.speakers.every(isSpeaker));
 const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
+const isTimeouts = (v: unknown): v is Timeout[] =>
+  Array.isArray(v) && v.every((t) => isObj(t) && isNum(t.until) && (isNum(t.user) !== isNum(t.session)));
 const isStreamPreview = (v: unknown): v is string => isStr(v) && v.startsWith("data:image/jpeg;base64,");
 const isStreams = (v: unknown): v is LiveStream[] =>
   Array.isArray(v) && v.every((s) => isObj(s) && isNum(s.session) && isNum(s.channel) && (s.preview === undefined || isStreamPreview(s.preview)));
@@ -300,6 +310,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(roles ? { roles } : {}),
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
+        ...(isTimeouts(v.timeouts) ? { timeouts: v.timeouts } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
@@ -327,6 +338,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const p = parsePresence(v);
       return p && { type: "own-status", ...p };
     }
+    case "timeouts":
+      return isTimeouts(v.timeouts) ? { type: "timeouts", timeouts: v.timeouts } : null;
     case "streams":
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
@@ -407,6 +420,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
+        timeouts: event.timeouts ?? [],
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
         streamPreviews: keepPreviews({}, event.streams ?? []),
@@ -434,6 +448,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       const { type: _, ...v } = event;
       return { ...state, ownStatus: v };
     }
+    case "timeouts":
+      return { ...state, timeouts: event.timeouts };
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
     case "stream-preview": {
@@ -543,7 +559,11 @@ export type ManageAction =
   | { order: number[] }
   | { moderator: number; on: boolean }
   | { listenOnly: number; on: boolean; users: number[] }
-  | { topic: number; text: string };
+  | { topic: number; text: string }
+  // Moderation, by voice server session: a ban for some seconds (0: for
+  // ever), a time-out (0: end it).
+  | { ban: number; reason: string; seconds: number }
+  | { timeout: number; seconds: number };
 
 export const manageRequest = (a: ManageAction) =>
   JSON.stringify(
@@ -559,7 +579,11 @@ export const manageRequest = (a: ManageAction) =>
               ? { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users }
               : "topic" in a
                 ? { type: "set-topic", channel: a.topic, text: a.text }
-                : { type: "order-channels", channels: a.order },
+                : "ban" in a
+                  ? { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds }
+                  : "timeout" in a
+                    ? { type: "time-out", session: a.timeout, seconds: a.seconds }
+                    : { type: "order-channels", channels: a.order },
   );
 
 export const searchRequest = (q: SearchQuery) => JSON.stringify({ type: "search", ...q });

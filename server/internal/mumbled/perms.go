@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -468,6 +469,10 @@ func (s *Server) accountRegistration(id uint32) bool {
 // registrationChangedLocked updates an online user after a rename (name
 // given) or after it was unregistered, and forgets its ACL entries.
 func (s *Server) registrationChangedLocked(id uint32, name *string, actor uint32) {
+	if key := (timeoutKey{id: id}); name == nil && s.timeouts[key] != nil {
+		s.setTimeoutLocked(key, time.Time{}, actor) // the database row is gone too
+		go s.timeoutsChanged()
+	}
 	if name == nil {
 		for _, ch := range s.state.Channels {
 			ch.ACLs = slices.DeleteFunc(ch.ACLs, func(a ACL) bool { return a.HasUser && a.UserID == id })

@@ -287,6 +287,12 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 			c.denyPerm(missing, where)
 			return
 		}
+		if until, ok := s.timedOutLocked(u); ok {
+			if mute, _ := serverMuteState(u.Mute, u.Deaf, m); !mute {
+				c.deny(timedOutText(u.Name+" is", until))
+				return
+			}
+		}
 	}
 	dest := s.state.Channels[m.GetChannelId()]
 	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel
@@ -604,6 +610,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	if actor == nil {
 		return
 	}
+	if until, ok := s.timedOutLocked(actor); ok {
+		c.deny(timedOutText("you are", until))
+		return
+	}
 	// TextMessage in every target channel, tree and user's channel, or
 	// nothing is sent (as Murmur). Inside a tree, channels without it are
 	// skipped.
@@ -720,6 +730,8 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		s.mu.Unlock()
 		c.denyPerm(need, 0)
 		return
+	case s.timeouts[timeoutKeyOf(u)] != nil: // a guest's time-out would not follow
+		err = deny(pb.PermissionDenied_Text, "timed out users cannot register")
 	case u.Hash == "":
 		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")
 	case s.cfg.DB == nil:

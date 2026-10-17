@@ -4,6 +4,7 @@
   import type { UserStatus } from "../lib/presence";
   import Emoji from "./Emoji.svelte";
   import { MAX_VOLUME, type UserAudio } from "../lib/userAudio";
+  import { untilText, type ModerationAction, type UserModeration } from "../lib/moderation";
   import Avatar from "./Avatar.svelte";
   import RoleTag from "./RoleTag.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -24,6 +25,10 @@
     status = null,
     moderator = null,
     onModerator,
+    moderation = null,
+    timedOutUntil = null,
+    onModerate,
+    onConfirm,
     onClose,
   }: {
     user: User;
@@ -42,6 +47,12 @@
     // What we may do about the user's role (see moderatorAction).
     moderator?: "make" | "remove" | null;
     onModerator?: (on: boolean) => void;
+    // What we may do to the user (see userModeration): onModerate acts at
+    // once, onConfirm asks first (kick, ban, time-out).
+    moderation?: UserModeration | null;
+    timedOutUntil?: number | null;
+    onModerate?: (a: ModerationAction) => void;
+    onConfirm?: (kind: "kick" | "ban" | "timeout") => void;
     onClose: () => void;
   } = $props();
 
@@ -102,6 +113,45 @@
       <button onclick={act(() => onModerator(moderator === "make"))}>
         {moderator === "make" ? "Make moderator" : "Remove moderator"}
       </button>
+    {/if}
+    {#if timedOutUntil !== null}
+      <p class="note">Timed out until {untilText(timedOutUntil)}</p>
+    {/if}
+    {#if moderation && onModerate && onConfirm}
+      <div class="sep"></div>
+      {#if moderation.mute}
+        <!-- A time-out keeps the user muted. -->
+        <button role="switch" aria-checked={user.mute} disabled={timedOutUntil !== null} onclick={() => onModerate({ kind: "mute", on: !user.mute })}>
+          Server mute
+          <span class="box" class:on={user.mute} aria-hidden="true"></span>
+        </button>
+        <button role="switch" aria-checked={user.deaf} onclick={() => onModerate({ kind: "deaf", on: !user.deaf })}>
+          Server deafen
+          <span class="box" class:on={user.deaf} aria-hidden="true"></span>
+        </button>
+      {/if}
+      {#if moderation.moveTo.length}
+        <label class="volume">
+          Move to
+          <select value="" onchange={(e) => act(() => onModerate({ kind: "move", channel: Number(e.currentTarget.value) }))()}>
+            <option value="" disabled>Choose a voice channel…</option>
+            {#each moderation.moveTo as c (c.id)}<option value={String(c.id)}>{c.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+      {#if moderation.timeout}
+        {#if timedOutUntil !== null}
+          <button onclick={act(() => onModerate({ kind: "timeout", seconds: 0 }))}>Remove time-out</button>
+        {:else}
+          <button class="danger" onclick={act(() => onConfirm("timeout"))}>Time out…</button>
+        {/if}
+      {/if}
+      {#if moderation.kick}
+        <button class="danger" onclick={act(() => onConfirm("kick"))}>Kick…</button>
+      {/if}
+      {#if moderation.ban}
+        <button class="danger" onclick={act(() => onConfirm("ban"))}>Ban…</button>
+      {/if}
     {/if}
   {/if}
 </ContextMenu>
@@ -183,6 +233,28 @@
   }
   input[type="range"] {
     accent-color: var(--accent);
+  }
+  select {
+    padding: 6px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    text-transform: none;
+  }
+  .note {
+    margin: 0;
+    padding: 4px 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .danger {
+    color: var(--danger);
+  }
+  .danger:hover {
+    background: var(--danger);
   }
   .box {
     width: 18px;
