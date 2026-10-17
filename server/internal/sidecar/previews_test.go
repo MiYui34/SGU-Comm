@@ -61,11 +61,14 @@ func TestNoPreviewsOfChatsWeMayNotRead(t *testing.T) {
 
 func TestFirstLink(t *testing.T) {
 	for text, want := range map[string]string{
-		"see https://x.org/a?b=1.":       "https://x.org/a?b=1",
-		"<https://x.org/a> and http://y": "https://x.org/a",
-		"**https://x.org**":              "https://x.org",
-		"no link here":                   "",
-		"javascript:alert(1)":            "",
+		"see https://x.org/a?b=1.":            "https://x.org/a?b=1",
+		"<https://x.org/a> and http://y":      "https://x.org/a",
+		"**https://x.org**":                   "https://x.org",
+		"no link here":                        "",
+		"javascript:alert(1)":                 "",
+		"||https://x.org|| and https://y.org": "https://y.org",
+		"||https://x.org||":                   "",
+		"https://x.org||x":                    "https://x.org",
 	} {
 		if got := firstLink(text); got != want {
 			t.Errorf("%q: %q", text, got)

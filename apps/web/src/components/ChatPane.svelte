@@ -1,12 +1,13 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
-  import { mediaKind } from "../lib/media";
+  import { asSpoiler, mediaKind } from "../lib/media";
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
   import { hold } from "../lib/longPress";
   import { htmlToText } from "../lib/htmlText";
+  import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { quickReactions } from "../lib/emojiPicker";
   import { recentEmoji, usedEmoji } from "../lib/emojiPrefs.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
@@ -190,7 +191,9 @@
   const dragging = $derived(dragDepth > 0);
   // A chosen file waits above the message box until it is sent with Enter
   // (with the typed text as caption) or cancelled.
-  let pending = $state<{ file: File; preview: string | null } | null>(null);
+  // Spoiler attachments shown (by URL).
+  let shownFiles = $state<ReadonlySet<string>>(new Set());
+  let pending = $state<{ file: File; preview: string | null; spoiler: boolean } | null>(null);
   const cancelPending = () => {
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
     pending = null;
@@ -199,7 +202,7 @@
     const file = files?.[0];
     if (!file || !onUpload) return;
     cancelPending();
-    pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null };
+    pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
   };
   // Another conversation: drop a waiting file.
   $effect(() => {
@@ -245,7 +248,8 @@
     event.preventDefault();
     const text = draft.trim();
     if (pending && onUpload) {
-      onUpload(pending.file, text, replying?.id);
+      const { file, spoiler } = pending;
+      onUpload(asSpoiler(file, spoiler), text, replying?.id);
       cancelPending();
       replying = null;
       draft = "";
@@ -537,13 +541,18 @@
   </header>
   {@render stage?.()}
 
-  <!-- Clicks on "#name" links open the channel (see markdown). -->
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <!-- Clicks on "#name" links open the channel, clicks on spoilers show
+       them (see markdown). -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="scroller"
     bind:this={list}
     onscroll={trackBottom}
+    onkeydown={(e) => {
+      if ((e.key === "Enter" || e.key === " ") && revealSpoiler(e.target as Element)) e.preventDefault();
+    }}
     onclick={(e) => {
+      if (revealSpoiler(e.target as Element)) return e.preventDefault();
       const link = (e.target as Element).closest<HTMLElement>("a[data-channel]");
       if (!link || !isChannelLink(link)) return;
       e.preventDefault();
@@ -655,6 +664,9 @@
         {/if}
         <span class="pending-name ellipsis">{pending.file.name}</span>
         <span class="file-size">{formatSize(pending.file.size)}</span>
+        <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={() => pending && (pending.spoiler = !pending.spoiler)}
+          >Spoiler</button
+        >
         <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>
       </div>
     {/if}
@@ -795,7 +807,7 @@
   {#if "reply" in m && m.reply}
     {@const quote = m.reply}
     <button type="button" class="quote" onclick={() => quote.author && (seeking = quote.id)}>
-      {#if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{quote.text}</span>
+      {#if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{hideSpoilers(quote.text)}</span>
       {:else}<em>The original message was deleted.</em>{/if}
     </button>
   {/if}
@@ -922,7 +934,13 @@
 
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
-    {#if m.upload.type.startsWith("image/")}
+    {#if m.upload.spoiler && !shownFiles.has(m.upload.url)}
+      {@const upload = m.upload}
+      <button type="button" class="spoiler-file" aria-label="Spoiler, show the attachment" onclick={() => (shownFiles = new Set([...shownFiles, upload.url]))}>
+        {#if upload.type.startsWith("image/")}<img src={upload.url} alt="" loading="lazy" onload={keepBottom} />{/if}
+        <span>Spoiler</span>
+      </button>
+    {:else if m.upload.type.startsWith("image/")}
       {@const upload = m.upload}
       <a
         class="image"
@@ -1213,6 +1231,69 @@
     margin: 2px 0;
     padding-left: 10px;
     border-left: 4px solid var(--border-subtle);
+  }
+  .text :global(.spoiler) {
+    border-radius: 4px;
+    background: var(--bg-rail);
+  }
+  .text :global(.spoiler:not(.shown)) {
+    color: transparent;
+    cursor: pointer;
+    user-select: none;
+  }
+  .text :global(.spoiler:not(.shown) *) {
+    color: transparent;
+    visibility: hidden;
+  }
+  .text :global(.spoiler:not(.shown):hover) {
+    background: var(--bg-active);
+  }
+  .spoiler-file {
+    position: relative;
+    display: grid;
+    min-width: 160px;
+    min-height: 80px;
+    max-width: 400px;
+    margin-top: 4px;
+    padding: 0;
+    place-items: center;
+    border: none;
+    border-radius: 8px;
+    background: var(--bg-rail);
+    overflow: hidden;
+    color: inherit;
+    cursor: pointer;
+  }
+  .spoiler-file img {
+    grid-area: 1 / 1;
+    max-width: 100%;
+    max-height: 300px;
+    filter: blur(32px);
+  }
+  .spoiler-file span {
+    grid-area: 1 / 1;
+    z-index: 1;
+    padding: 4px 12px;
+    border-radius: 16px;
+    background: rgb(0 0 0 / 0.6);
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .pending-spoiler {
+    padding: 2px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .pending-spoiler[aria-pressed="true"] {
+    border-color: transparent;
+    background: var(--accent-strong);
+    color: #fff;
   }
   .send {
     flex-shrink: 0;

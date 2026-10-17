@@ -1,3 +1,4 @@
+import { withoutSpoilers } from "./markdown";
 import type { TextMessage } from "./textChannels";
 
 // Link previews: the server fetches the first link of a message and sends a
@@ -5,9 +6,10 @@ import type { TextMessage } from "./textChannels";
 export type LinkPreview = { url: string; title: string; description?: string; site?: string; image?: string };
 
 // The same rule as the server's (sidecar firstLink).
-const LINK = /https?:\/\/[^\s<>"]+[^\s<>".,:;!?)\]'*_~]/;
+// Links in spoilers do not count: the card would show them.
+const LINK = /https?:\/\/[^\s<>"|]+[^\s<>".,:;!?)\]'*_~|]/;
 
-export const firstLink = (text: string): string | null => LINK.exec(text)?.[0] ?? null;
+export const firstLink = (text: string): string | null => LINK.exec(withoutSpoilers(text))?.[0] ?? null;
 
 // A message's preview is asked once per link (an edit can change it).
 export const previewKey = (m: TextMessage) => `${m.id} ${firstLink(m.text)}`;

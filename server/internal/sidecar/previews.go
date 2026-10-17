@@ -30,9 +30,15 @@ type wirePreview struct {
 
 // The first http(s) link of a message text, as the web client links it:
 // trailing punctuation, brackets and Markdown markers are not part of it.
-var linkPattern = regexp.MustCompile(`https?://[^\s<>"]+[^\s<>".,:;!?)\]'*_~]`)
+// Links in ||spoilers|| do not count: the card would show them.
+var (
+	linkPattern    = regexp.MustCompile(`https?://[^\s<>"|]+[^\s<>".,:;!?)\]'*_~|]`)
+	spoilerPattern = regexp.MustCompile(`\|\|[^|](?s:.*?)\|\|`)
+)
 
-func firstLink(text string) string { return linkPattern.FindString(text) }
+func firstLink(text string) string {
+	return linkPattern.FindString(spoilerPattern.ReplaceAllString(text, " "))
+}
 
 // previews answers with a "preview" event per asked message that has a
 // link and that the user may read (preview null: none), as each is ready.

@@ -10,6 +10,10 @@ describe("link previews", () => {
     expect(firstLink("<https://x.org/a> and http://y")).toBe("https://x.org/a");
     expect(firstLink("**https://x.org**")).toBe("https://x.org");
     expect(firstLink("javascript:alert(1)")).toBeNull();
+    // Not in spoilers: the card would show what is hidden.
+    expect(firstLink("||https://x.org|| and https://y.org")).toBe("https://y.org");
+    expect(firstLink("||https://x.org||")).toBeNull();
+    expect(firstLink("https://x.org||x")).toBe("https://x.org");
   });
 
   it("asks once per message and link, for messages with no answer yet", () => {

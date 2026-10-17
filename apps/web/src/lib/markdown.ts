@@ -4,7 +4,7 @@
 // http(s) URLs become links. Trailing punctuation, a closing bracket and
 // Markdown markers stay outside, like in Discord; so does an escaped
 // closing bracket or quote ("<https://…>").
-const URL_PATTERN = /https?:\/\/[^\s<\u0000]+[^\s<.,:;!?)\]'"*_~\u0000]/g;
+const URL_PATTERN = /https?:\/\/[^\s<|\u0000]+[^\s<.,:;!?)\]'"*_~|\u0000]/g;
 
 const link = (url: string) => {
   const entity = /&(?:gt|quot|#39)$/.exec(url)?.[0] ?? "";
@@ -20,8 +20,20 @@ export const linkify = (escaped: string) =>
 
 const NUL = "\u0000";
 
+// ||text|| (also over lines): hidden until clicked (see ChatPane).
+const SPOILER = /\|\|([^|][\s\S]*?)\|\|/g;
+const SPOILER_HTML = '<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">$1</span>';
+
+// For plain text that shows the message (reply quotes, notifications,
+// search results). Also an open spoiler at the end: the server cuts reply
+// quotes.
+export const hideSpoilers = (text: string) => text.replace(SPOILER, "▒▒▒▒").replace(/(?<!\|)\|\|[^|][\s\S]*$/, "▒▒▒▒");
+// Links in spoilers do not count for link previews (as on the server).
+export const withoutSpoilers = (text: string) => text.replace(SPOILER, " ");
+
 const inline = (s: string) =>
   s
+    .replace(SPOILER, SPOILER_HTML)
     .replace(/\*\*\*(?=\S)([^\n]*?\S)\*\*\*/g, "<strong><em>$1</em></strong>")
     .replace(/\*\*(?=\S)([^\n]*?\S)\*\*/g, "<strong>$1</strong>")
     .replace(/~~(?=\S)([^\n]*?\S)~~/g, "<del>$1</del>")
@@ -72,4 +84,16 @@ export const markdown = (escaped: string, channels?: ReadonlyMap<string, number>
   }
   s = blocks(s);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[Number(i)]!);
+};
+
+// A click (or Enter) on a hidden spoiler shows it; true: it was hidden, so
+// the click does nothing else (no link opens).
+export const revealSpoiler = (target: Element): boolean => {
+  const spoiler = target.closest(".spoiler:not(.shown)");
+  if (!spoiler) return false;
+  spoiler.classList.add("shown");
+  spoiler.removeAttribute("role");
+  spoiler.removeAttribute("aria-label");
+  spoiler.setAttribute("tabindex", "-1"); // it may have focus: keep it
+  return true;
 };

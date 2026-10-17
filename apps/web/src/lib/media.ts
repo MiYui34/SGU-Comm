@@ -32,3 +32,13 @@ export const onlyOne = (el: HTMLMediaElement) => {
   if (playing && playing !== el) playing.pause();
   playing = el;
 };
+
+// Spoiler attachments are marked by name, as in Discord (no extra field on
+// the server); they show without the prefix, hidden until clicked.
+const SPOILER_PREFIX = "SPOILER_";
+
+export const asSpoiler = (file: File, on: boolean): File =>
+  on && !file.name.startsWith(SPOILER_PREFIX) ? new File([file], SPOILER_PREFIX + file.name, { type: file.type }) : file;
+
+export const spoilerUpload = <T extends { name: string }>(u: T): T & { spoiler?: true } =>
+  u.name.startsWith(SPOILER_PREFIX) ? { ...u, name: u.name.slice(SPOILER_PREFIX.length), spoiler: true } : u;

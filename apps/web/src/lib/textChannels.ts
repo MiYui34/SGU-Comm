@@ -1,5 +1,6 @@
 import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
 import { markdown } from "./markdown";
+import { spoilerUpload } from "./media";
 import type { Reaction } from "./reactions";
 import type { LinkPreview } from "./linkPreview";
 import type { Speaker } from "./listenOnly";
@@ -33,7 +34,7 @@ export type Quote = { id: number; author: string; text: string };
 // and a verified mark.
 // source: the stored message (id and plain text), for editing.
 export type DisplayMessage = ChatMessage & {
-  upload?: Attachment;
+  upload?: Attachment & { spoiler?: true };
   verified?: boolean;
   authorId?: number;
   edited?: number;
@@ -552,7 +553,7 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
       ...(m.pinned !== undefined && { pinned: m.pinned }),
       ...(m.reply && { reply: m.reply }),
       ...(m.reactions?.length && { reactions: m.reactions }),
-      ...(m.upload && url && { upload: { ...m.upload, url } }),
+      ...(m.upload && url && { upload: spoilerUpload({ ...m.upload, url }) }),
     };
     chatCache.set(m, { chat, channels });
   }

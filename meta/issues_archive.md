@@ -127,3 +127,4 @@
 - [x] [Clicking a reply quote jumps to the original](issues/reply-quote-jump.md)
 - [x] [Emoji picker](issues/emoji-picker.md)
 - [x] [Phones: message actions on long press](issues/mobile-message-sheet.md)
+- [x] [Spoilers](issues/spoilers.md)

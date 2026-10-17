@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { escapeHtml } from "@kallisti/protocol";
-import { markdown } from "../src/lib/markdown";
+import { hideSpoilers, markdown } from "../src/lib/markdown";
 
 const md = (text: string) => markdown(escapeHtml(text));
 
@@ -89,5 +89,29 @@ describe("channel links with other letters", () => {
     expect(markdown(escapeHtml("#café and #_misc"), channels)).toBe(
       '<a href="#" data-channel="3">#café</a> and <a href="#" data-channel="4">#_misc</a>',
     );
+  });
+});
+
+describe("spoilers", () => {
+  const spoiler = (html: string) => `<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">${html}</span>`;
+
+  it("hides text between || until clicked", () => {
+    expect(md("the end: ||he dies|| sorry")).toBe(`the end: ${spoiler("he dies")} sorry`);
+    expect(md("||**bold** and https://x.org||")).toBe(spoiler('<strong>bold</strong> and <a href="https://x.org">https://x.org</a>'));
+    expect(md("||one\ntwo||")).toBe(spoiler("one<br>two"));
+    expect(md("||https://a.b||x")).toBe(`${spoiler('<a href="https://a.b">https://a.b</a>')}x`);
+  });
+
+  it("needs text between the bars, not inside code", () => {
+    expect(md("a |||| b")).toBe("a |||| b");
+    expect(md("`a || b || c`")).toBe("<code>a || b || c</code>");
+    expect(md("a || b")).toBe("a || b");
+  });
+
+  it("hides spoilers in plain text (quotes, notifications, search)", () => {
+    expect(hideSpoilers("the end: ||he dies|| sorry")).toBe("the end: ▒▒▒▒ sorry");
+    expect(hideSpoilers("a |||| b")).toBe("a |||| b");
+    // Cut by the server (reply quotes): the end is gone.
+    expect(hideSpoilers("ok ||a long secret…")).toBe("ok ▒▒▒▒");
   });
 });

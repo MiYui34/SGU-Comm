@@ -28,6 +28,7 @@
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
+  import { hideSpoilers } from "../lib/markdown";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -449,14 +450,14 @@
       const m = ev.message;
       const peer = text.directs[m.channel];
       if (peer) {
-        if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(m.text), chatId === m.channel, () => openDirect(peer));
+        if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
       if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name)) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
       const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
-      notify(`${m.author || "Server"} in ${where}`, m.text.trim().slice(0, 140), chatId === m.channel, () => {
+      notify(`${m.author || "Server"} in ${where}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel, () => {
         if (textChannel) show({ kind: "text", id: textChannel.id });
       });
     }),
