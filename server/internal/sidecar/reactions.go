@@ -33,7 +33,10 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		return
 	}
 	normal := emoji.Normal(req.Emoji)
-	if !emoji.Valid(normal) {
+	if name, custom := emoji.CustomName(normal); custom && !c.hub.hasEmoji(name) {
+		c.sendError("no such emoji on this server")
+		return
+	} else if !custom && !emoji.Valid(normal) {
 		c.sendError("not an emoji")
 		return
 	}
