@@ -147,3 +147,5 @@
 - [x] [Discord gaps, second round](issues/discord-gaps-2.md)
 - [x] [Jump to the newest messages](issues/jump-to-present.md)
 - [x] [Sending while scrolled back: notice, no jump](issues/sent-while-scrolled-back.md)
+- [x] [Server: access tokens for the desktop app](issues/desktop-access-tokens.md)
+- [x] [Kallisti accounts: password login from Mumble clients](issues/mumble-password-for-accounts.md)

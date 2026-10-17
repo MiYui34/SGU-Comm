@@ -373,3 +373,21 @@ From `meta/research/discord-comparison.md`.
 - Time-outs mute in the built-in server and block chat in the sidecar.
   Guests are timed out by session, so reconnecting ends it for them; a ban
   is the tool for guests.
+
+## Desktop app as a Kallisti client (2026-10-18)
+
+- The desktop app's page has its own origin (tauri://localhost, or
+  http(s)://tauri.localhost on Windows), so the server's session cookie is
+  third-party there (WebKit blocks it). The app asks for the session token
+  at login (`X-Kallisti-Session: token`) and sends it as
+  `Authorization: Bearer`, and on the WebSocket as a subprotocol
+  (`kallisti.session.<token>`; the server answers `kallisti`, as browsers
+  require one): browsers cannot set WebSocket headers, and URLs end up in
+  logs.
+- The app origins are allowed on every server, and the cross-site guard
+  skips them only without a cookie: other Tauri apps share the origins, and
+  a local web server can pose as http://tauri.localhost.
+- The app tells a Kallisti server by its exact answer to /api/me, without
+  redirects. A timeout or offline is "cannot reach", not "Mumble server".
+- Mumble clients can log in to Kallisti accounts with the account password
+  (the built-in server asks the account store; no server password needed).
