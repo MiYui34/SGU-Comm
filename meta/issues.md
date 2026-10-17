@@ -2,6 +2,10 @@
 
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
   - [ ] [Desktop: global push-to-talk](issues/desktop-global-push-to-talk.md)
+  - [ ] [Desktop app as a Kallisti client](issues/desktop-kallisti-client.md)
+    - [ ] [Server: access tokens for the desktop app](issues/desktop-access-tokens.md)
+    - [ ] [Desktop: Kallisti mode](issues/desktop-kallisti-mode.md)
+    - [ ] [Kallisti accounts: password login from Mumble clients](issues/mumble-password-for-accounts.md)
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
