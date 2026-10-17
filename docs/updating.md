@@ -23,11 +23,21 @@ Uploads and the server certificate do not change at updates.
 
 ## Docker or Podman
 
+If upgrading from the old `deploy/compose*.yml` layout, move your existing
+`deploy/.env` to `deploy/docker/.env` before running these commands. Do not
+create a new password or remove the data volume: the moved Compose files keep
+the old project names (`deploy`, or `kallisti` for `compose.behind-proxy.yml`)
+and therefore reuse the existing named volumes. If you previously used `-p`
+or `COMPOSE_PROJECT_NAME`, keep using that same project name. The Murmur
+variant now verifies its upstream TLS certificate; if your Murmur uses a
+self-signed certificate, configure trusted TLS or explicitly set
+`MUMBLE_INSECURE_TLS=1` before upgrading.
+
 ```sh
 git pull
-docker compose -f deploy/compose.yml build --pull
-docker compose -f deploy/compose.yml up -d --pull always --remove-orphans
-docker compose -f deploy/compose.yml logs -f kallisti
+docker compose -f deploy/docker/compose.yml build --pull
+docker compose -f deploy/docker/compose.yml up -d --pull always --remove-orphans
+docker compose -f deploy/docker/compose.yml logs -f kallisti
 ```
 
 (With your compose file: `compose.behind-proxy.yml` or
@@ -51,8 +61,14 @@ journalctl -u kallisti -f
 
 Stop first: a running program cannot be replaced on every system. Replace
 the web app folder as a whole: the new `index.html` must come with the new
-program. When `deploy/kallisti.service` changed, copy it again and run
-`systemctl daemon-reload`.
+program. When the service or certificate timer changes, copy the changed files from
+`deploy/systemd/` to `/etc/systemd/system/`, and the shared copier from
+`deploy/docker/sync-certificate.sh` to `/opt/kallisti/sync-certificate`
+(mode 0755, owned by root); then run `systemctl daemon-reload`. Compare
+`deploy/systemd/Caddyfile` with your installed Caddyfile before merging
+changes: do not overwrite your real domain with the example hostname.
+Validate it with `caddy validate --config /etc/caddy/Caddyfile --adapter
+caddyfile` before `systemctl reload caddy`.
 
 ## Going back
 
@@ -101,7 +117,7 @@ that has it.
 
 ### 2026-10-14
 
-- `deploy/compose.yml` now runs the built-in Mumble server, not Murmur.
+- `deploy/docker/compose.yml` now runs the built-in Mumble server, not Murmur.
   Murmur's data is not taken over: to keep Murmur, use
   `compose.murmur.yml`. Update with `--remove-orphans`, or the old Murmur
   container keeps port 64738 and Kallisti cannot start.

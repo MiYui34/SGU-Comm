@@ -6,8 +6,8 @@ brackets.
 - With the systemd service: `/etc/kallisti.env`.
 - With compose: only the variables in the `environment:` section of the
   compose file reach Kallisti (some of them take their value from
-  `deploy/.env`). A setting that is only in `deploy/.env` does nothing: add
-  it to `environment:` too.
+  `deploy/docker/.env`). A setting only in that file does nothing: add it to
+  `environment:` too.
 
 ## Web and general
 
@@ -61,8 +61,9 @@ Used unless `MUMBLE_HOST` is set.
 - `MUMBLE_HOST`: the Murmur server (this turns the built-in server off).
 - `MUMBLE_PORT` (64738).
 - `MUMBLE_INSECURE_TLS=1`: accept Murmur's self-signed certificate. Off by
-  default (the certificate is checked); `compose.murmur.yml` sets 1. Most
-  Murmur servers have a self-signed certificate.
+  default (the certificate is checked); `compose.murmur.yml` keeps this
+  default. Set 1 explicitly only if Murmur has a self-signed certificate
+  that you cannot replace with a trusted one.
 
 ## Development
 

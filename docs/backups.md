@@ -17,7 +17,10 @@
   ```
 - With the built-in server, its certificate (`cert.pem` and `key.pem` in
   `CERT_DIR`). Without it Mumble clients see a new server and warn.
-- Your settings (the compose `.env`, or `/etc/kallisti.env`).
+- Your settings (the compose `.env`, or `/etc/kallisti.env`; the systemd
+  certificate timer also uses `/etc/kallisti-cert.env`). When using Caddy,
+  retain its data volume or directory if you need its ACME account and web
+  certificate; the copied Mumble certificate can be restored from Caddy.
 
 ## Database backups
 
@@ -57,10 +60,10 @@ With Docker, in Kallisti's own image (so the files keep the `kallisti`
 user):
 
 ```sh
-docker compose -f deploy/compose.yml stop kallisti
-docker compose -f deploy/compose.yml run --rm --no-deps --entrypoint sh kallisti -c \
+docker compose -f deploy/docker/compose.yml stop kallisti
+docker compose -f deploy/docker/compose.yml run --rm --no-deps --entrypoint sh kallisti -c \
   'cp /data/backups/kallisti-20261015-171302.db /data/kallisti.db && rm -f /data/kallisti.db-wal /data/kallisti.db-shm'
-docker compose -f deploy/compose.yml start kallisti
+docker compose -f deploy/docker/compose.yml start kallisti
 ```
 
 Upload files from after the backup stay on the disk; nothing removes them,
