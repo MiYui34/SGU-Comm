@@ -155,6 +155,9 @@ type Hub struct {
 	visits   map[uint32]*visit
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
+	// One status change at a time, from the change to its broadcast (taken
+	// before mu and Conn.mu; see status.go).
+	statusMu sync.Mutex
 }
 
 type uploadToken struct {
@@ -201,6 +204,10 @@ type Conn struct {
 	lagged bool
 	// The last typing signal passed on, per channel (see typing).
 	typed map[int64]time.Time
+	// The chosen status (kept for registered users) and no input for a
+	// while (see status.go).
+	status store.UserStatus
+	away   bool
 	// Ends with the connection (work on its behalf stops); previewing:
 	// previews on their way.
 	ctx        context.Context
@@ -233,11 +240,12 @@ func (c *Conn) Close() {
 	}
 	c.hub.mu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.closed {
 		c.closed = true
 		close(c.out)
 	}
+	c.mu.Unlock()
+	c.statusGone()
 }
 
 // SetIdentity is called when the Mumble identity is known or changes. The
@@ -270,7 +278,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 				ready["directs"] = c.hub.directs(id)
 			}
 		}
-		c.send(ready)
+		c.sendReady(id, ready)
 	}
 }
 
@@ -371,7 +379,9 @@ type request struct {
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
-	On        bool     `json:"on"`        // react: add (or remove); pin
+	On        bool     `json:"on"`        // react: add (or remove); pin; away
+	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
+	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
 }
 
 // Handle answers one request from the browser.
@@ -432,6 +442,12 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "dm":
 		c.direct(*id, req.User)
+		return
+	case "set-status":
+		c.setStatus(*id, req)
+		return
+	case "away":
+		c.setAway(*id, req.On)
 		return
 	case "stream-token":
 		if c.hub.StreamToken == nil {

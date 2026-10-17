@@ -16,6 +16,9 @@
   /* Backgrounds with white text (4.5:1, see test/contrast.test.ts). */
   --accent-strong: #2d8177;
   --online: #3fa66b;
+  /* Status dots: idle and do not disturb. */
+  --idle: #e0a63b;
+  --dnd: #e5534b;
   --danger: #e98184;
   --border: #1d1d21;
   --border-subtle: #3a3a41;
@@ -45,6 +48,8 @@
   --accent: #1d7268;
   --accent-strong: #1d7268;
   --online: #2c8653;
+  --idle: #c98a12;
+  --dnd: #d83c3e;
   --danger: #b8283f;
   --border: #d0d2d6;
   --border-subtle: #d8dade;

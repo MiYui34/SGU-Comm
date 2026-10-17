@@ -1,15 +1,16 @@
 import { htmlToText } from "./htmlText";
 
 // Desktop notifications for mentions and private messages: only when the
-// user turned them on and the browser allows it, not while deafened, and
-// not for the chat that is open in a visible tab.
+// user turned them on and the browser allows it, not while deafened or in
+// do not disturb, and not for the chat that is open in a visible tab.
 export const shouldNotify = (s: {
   enabled: boolean;
   permission: NotificationPermission;
   visible: boolean;
   deaf: boolean;
   open: boolean; // the message's chat is the open one
-}) => s.enabled && s.permission === "granted" && !s.deaf && !(s.visible && s.open);
+  dnd?: boolean;
+}) => s.enabled && s.permission === "granted" && !s.deaf && !s.dnd && !(s.visible && s.open);
 
 const BODY_LENGTH = 140;
 

@@ -7,6 +7,7 @@ import type { Speaker } from "./listenOnly";
 import type { Roles } from "./roles";
 import { isMentionAll, type MentionAll } from "./mentions";
 import type { SearchQuery } from "./search";
+import { parsePresence, type PresenceView } from "./presence";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -57,6 +58,8 @@ export type DirectChat = { channel: number; peer: Peer };
 // A screen share in a voice channel, by its streamer's session.
 export type LiveStream = { session: number; channel: number; preview?: string };
 
+export type SessionStatus = PresenceView & { session: number };
+
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
 export type ServerEvent =
@@ -74,7 +77,14 @@ export type ServerEvent =
       // and unread mentions (voice: the voice channel of a voice chat).
       reads?: Record<number, number>;
       summary?: SummaryEntry[];
+      // Web clients that are not plainly online, and our chosen status.
+      statuses?: SessionStatus[];
+      ownStatus?: PresenceView;
     }
+  // A web client's status (see lib/presence); plain online: none.
+  | ({ type: "status" } & SessionStatus)
+  // Our chosen status changed (here or on another device).
+  | ({ type: "own-status" } & PresenceView)
   | ({ type: "roles" } & Roles)
   // A direct chat with a user (asked for, or a new one's first message).
   | ({ type: "dm" } & DirectChat)
@@ -144,6 +154,10 @@ export type TextState = {
   pins: Readonly<Record<number, TextMessage[]>>;
   // Counts resync events, so views can reload.
   resyncs: number;
+  // Statuses of web clients by session (plain online: none), and ours as
+  // chosen.
+  statuses: Readonly<Record<number, PresenceView>>;
+  ownStatus: PresenceView;
 };
 
 export const initialTextState: TextState = {
@@ -167,6 +181,8 @@ export const initialTextState: TextState = {
   previews: {},
   pins: {},
   resyncs: 0,
+  statuses: {},
+  ownStatus: { status: "online" },
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -184,6 +200,13 @@ const parseRoles = (v: unknown): Roles | null =>
     : null;
 
 const isStr = (v: unknown): v is string => typeof v === "string";
+const parseSessionStatus = (v: unknown): SessionStatus | null => {
+  const p = parsePresence(v);
+  return p && isNum((v as SessionStatus).session) ? { ...p, session: (v as SessionStatus).session } : null;
+};
+const statusMap = (list: readonly SessionStatus[]) =>
+  Object.fromEntries(list.map(({ session, ...v }) => [session, v])) as Record<number, PresenceView>;
+const isPlain = (v: PresenceView) => v.status === "online" && !v.emoji && !v.text;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr(v.name);
 const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
@@ -261,6 +284,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const roles = parseRoles(v.roles);
       const reads = isObj(v.reads) && Object.values(v.reads).every(isNum) ? (v.reads as Record<number, number>) : undefined;
       const summary = Array.isArray(v.summary) ? v.summary.filter(isSummaryEntry) : undefined;
+      const statuses = Array.isArray(v.statuses) ? v.statuses.flatMap((s) => parseSessionStatus(s) ?? []) : undefined;
+      const ownStatus = parsePresence(v.ownStatus);
       return {
         type: "ready",
         channels: v.channels,
@@ -271,6 +296,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
         ...(summary ? { summary } : {}),
+        ...(statuses ? { statuses } : {}),
+        ...(ownStatus ? { ownStatus } : {}),
       };
     }
     case "roles": {
@@ -279,6 +306,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "listen-only":
       return isListenOnly(v.channels) ? { type: "listen-only", channels: v.channels } : null;
+    case "status": {
+      const s = parseSessionStatus(v);
+      return s && { type: "status", ...s };
+    }
+    case "own-status": {
+      const p = parsePresence(v);
+      return p && { type: "own-status", ...p };
+    }
     case "streams":
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
@@ -362,6 +397,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         streams: event.streams ?? [],
         streamPreviews: keepPreviews({}, event.streams ?? []),
         reads: event.reads ?? {},
+        statuses: statusMap(event.statuses ?? []),
+        ownStatus: event.ownStatus ?? initialTextState.ownStatus,
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
         voiceChannels: {
           ...state.voiceChannels,
@@ -372,6 +409,15 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
+    case "status": {
+      const { type: _, session, ...v } = event;
+      const { [session]: __, ...rest } = state.statuses;
+      return { ...state, statuses: isPlain(v) ? rest : { ...rest, [session]: v } };
+    }
+    case "own-status": {
+      const { type: _, ...v } = event;
+      return { ...state, ownStatus: v };
+    }
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
     case "stream-preview": {
@@ -450,6 +496,13 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "resync":
       return { ...state, messages: {}, loaded: {}, more: {}, pins: {}, resyncs: state.resyncs + 1 };
   }
+};
+
+// A user left: its status goes (Murmur reuses session numbers).
+export const forgetStatus = (state: TextState, session: number): TextState => {
+  if (!state.statuses[session]) return state;
+  const { [session]: _, ...statuses } = state.statuses;
+  return { ...state, statuses };
 };
 
 export const historyRequest = (channel: number, before?: number) =>
