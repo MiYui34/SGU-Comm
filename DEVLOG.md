@@ -326,3 +326,26 @@ Go server (`pnpm --filter @kallisti/web build`, then the server with
   symbols as a whole, or Emoji 16/17 would be rejected.
 - `@twemoji/parser` 17.0.2 does not find text-style emoji with skin tones
   (✌️, 🖐️, ☝️ …); 17.0.1 does. 👁️‍🗨️ shows as two images with it.
+
+## Small gaps to Discord (2026-10-17)
+
+From `meta/research/discord-comparison.md`.
+
+- Spoiler attachments are marked by the file name (`SPOILER_` prefix), as
+  in Discord: no new field on the server. Links inside `||spoilers||` get no
+  preview card (client and server skip them), or the card would show them.
+- Blocking is local to the browser, by lower-case name, like the voice
+  mute. The server does not know the list, so a channel's unread dot and
+  the mention count from before the login still include blocked users.
+- `@here` reaches only who is online when it is sent: the server's summary
+  at login counts `@everyone`, not `@here`, and the client counts `@here`
+  only in live messages. The server stores which one a message has, and
+  only for moderators; for others both stay plain text. An edit can take
+  the ping away but not add one.
+- Message links are `/channels/<chat>/<message>`; the server already sends
+  the app for unknown paths. A jump into a chat waits for its first history
+  page, or the jump gave up at once (also for search results).
+- Search without words: an `OR` in the FTS condition made SQLite scan the
+  whole table (0.1 ms became 13 ms at 300k rows), so the query has two forms.
+- Chrome needs no service worker to install a web app any more; the
+  manifest and icons are enough.
