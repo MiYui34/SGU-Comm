@@ -89,9 +89,12 @@ export const descriptionsToFetch = (state: ServerState, asked: ReadonlySet<strin
   blobsToFetch(missingDescriptions(state), (id) => state.channels[id]?.descriptionHash, asked);
 
 // Long comments of some users (the ones on screen) to fetch: comments
-// can be big, and they are only shown in the user menu.
+// can be big, and they are only shown in the user menu. Missing: known
+// only by the hash.
+export const commentMissing = (u: User | undefined) => !!u && u.commentHash !== null && u.comment === "";
+
 export const commentsToFetch = (state: ServerState, sessions: number[], asked: ReadonlySet<string>) => {
-  const missing = sessions.filter((s) => state.users[s]?.commentHash != null && state.users[s]?.comment === "");
+  const missing = sessions.filter((s) => commentMissing(state.users[s]));
   const { ids, asked: next } = blobsToFetch(missing, (s) => state.users[s]?.commentHash, asked);
   return { sessions: ids, asked: next };
 };
