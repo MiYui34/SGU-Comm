@@ -1,5 +1,5 @@
 // Package files handles uploads (POST /api/upload) and serves stored files
-// (GET /files/{key}/{name}).
+// (GET /files/{key}/{name}), and the same for custom emoji (/api/emoji).
 package files
 
 import (
@@ -50,27 +50,41 @@ type Handler struct {
 	Now            func() time.Time
 	// Redeem checks an upload token and returns the uploader's name.
 	Redeem func(token string) (string, bool)
+	// RedeemEmoji checks a custom emoji upload token: who adds which
+	// emoji. OnEmoji: one was added.
+	RedeemEmoji func(token string) (author, name string, ok bool)
+	OnEmoji     func()
 
 	mu       sync.Mutex
 	reserved map[string]int64 // by author: bytes of uploads in progress
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	get := r.Method == http.MethodGet || r.Method == http.MethodHead
 	switch {
 	case r.URL.Path == "/api/upload":
-		h.cors(w, r)
-		switch r.Method {
-		case http.MethodOptions:
-			w.WriteHeader(http.StatusNoContent)
-		case http.MethodPost:
-			h.upload(w, r)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	case strings.HasPrefix(r.URL.Path, "/files/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		h.post(w, r, h.upload)
+	case r.URL.Path == "/api/emoji" && h.RedeemEmoji != nil:
+		h.post(w, r, h.uploadEmoji)
+	case strings.HasPrefix(r.URL.Path, "/files/") && get:
 		h.serve(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/emoji/") && get:
+		h.serveEmoji(w, r)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// post answers an upload with CORS headers.
+func (h *Handler) post(w http.ResponseWriter, r *http.Request, upload http.HandlerFunc) {
+	h.cors(w, r)
+	switch r.Method {
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodPost:
+		upload(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -138,8 +152,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "cannot store file", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, map[string]any{
 		"key": u.Key, "name": u.Name, "type": u.Type, "size": u.Size, "url": sidecar.FileURL(u),
 	})
 }
@@ -264,6 +277,11 @@ func randomKey() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(v)
 }
 
 func jsonError(w http.ResponseWriter, msg string, status int) {

@@ -158,10 +158,15 @@ type Hub struct {
 	// One status change at a time, from the change to its broadcast (taken
 	// before mu and Conn.mu; see status.go).
 	statusMu sync.Mutex
+	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time.
+	emoji   []wireEmoji
+	emojiMu sync.Mutex
 }
 
+// emoji: a token for adding this custom emoji (not for a file).
 type uploadToken struct {
 	author  string
+	emoji   string
 	expires time.Time
 }
 
@@ -170,7 +175,8 @@ func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Hub{store: s, now: now, channels: toWireChannels(channels, false), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}, nil
+	h := &Hub{store: s, now: now, channels: toWireChannels(channels, false), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}
+	return h, h.loadEmoji()
 }
 
 // SetVoice turns on stored voice channel chats. Call it before clients
@@ -265,7 +271,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
 	if becomesReady {
-		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
+		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji()}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
 			if c.hub.LiveStreams != nil {
@@ -363,7 +369,7 @@ func toWire(m store.Message) wireMessage {
 
 type request struct {
 	Type      string   `json:"type"`
-	Name      string   `json:"name"`     // create-channel, rename-channel
+	Name      string   `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
 	Channels  []int64  `json:"channels"` // order-channels
 	Voice     uint32   `json:"voice"`    // voice-chat: the Mumble channel
 	Channel   int64    `json:"channel"`
@@ -403,7 +409,7 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	if req.Type == "upload-token" {
-		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name)})
+		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name, "")})
 		return
 	}
 	if req.Type == "voice-chat" {
@@ -448,6 +454,12 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "away":
 		c.setAway(*id, req.On)
+		return
+	case "emoji-token":
+		c.emojiToken(*id, req.Name)
+		return
+	case "delete-emoji":
+		c.deleteEmoji(*id, req.Name)
 		return
 	case "stream-token":
 		if c.hub.StreamToken == nil {
@@ -772,7 +784,7 @@ func (c *Conn) send(v any) {
 	}
 }
 
-func (h *Hub) issueUploadToken(author string) string {
+func (h *Hub) issueUploadToken(author, emoji string) string {
 	b := make([]byte, 24)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
@@ -784,21 +796,26 @@ func (h *Hub) issueUploadToken(author string) string {
 			delete(h.tokens, t)
 		}
 	}
-	h.tokens[token] = uploadToken{author: author, expires: now.Add(tokenLifetime)}
+	h.tokens[token] = uploadToken{author: author, emoji: emoji, expires: now.Add(tokenLifetime)}
 	return token
 }
 
-// RedeemUploadToken returns the author a token was issued to. A token works
-// once and only before it expires.
+// RedeemUploadToken returns the author a file upload token was issued to.
 func (h *Hub) RedeemUploadToken(token string) (string, bool) {
+	t, ok := h.redeem(token)
+	if !ok || t.emoji != "" {
+		return "", false
+	}
+	return t.author, true
+}
+
+// redeem: a token works once and only before it expires.
+func (h *Hub) redeem(token string) (uploadToken, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	t, ok := h.tokens[token]
 	delete(h.tokens, token)
-	if !ok || h.now().After(t.expires) {
-		return "", false
-	}
-	return t.author, true
+	return t, ok && !h.now().After(t.expires)
 }
 
 // Text channel names as Discord has them: lower case, "-" for spaces.

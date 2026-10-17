@@ -24,8 +24,10 @@ import {
   type TextTarget,
 } from "@kallisti/protocol";
 import {
+  deleteEmojiRequest,
   deleteMessageRequest,
   editMessageRequest,
+  emojiTokenRequest,
   historyRequest,
   httpBase,
   markReadRequest,
@@ -81,7 +83,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // One upload token request at a time (the UI uploads one file at a time).
   // Live text events for the UI (notifications), after the state took them.
   const textListeners = new Set<(ev: ServerEvent) => void>();
-  let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void } | null = null;
+  // emoji: for a custom emoji (a refusal comes as a manage error).
+  let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void; emoji: boolean } | null = null;
   // Screen sharing (built-in server): its own connection, with a token
   // asked for here.
   // Answered in order; a waiter that timed out leaves the queue, so a late
@@ -172,6 +175,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     if (typeof event.data === "string") {
       const ev = parseServerEvent(event.data);
       if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
+      else if (ev?.type === "error" && ev.about === "manage" && tokenWaiter?.emoji) tokenWaiter.reject(new Error(ev.message));
       else if (ev?.type === "stream-token") streamTokenWaiters.shift()?.(ev.token);
       else if (ev) text = reduceText(text, ev);
       if (ev) textListeners.forEach((fn) => fn(ev));
@@ -200,6 +204,40 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     streams?.close();
     playback?.close(); // the audio context stays: the app may reconnect with it
     closed = true;
+  };
+
+  // An upload: a token over the WebSocket, then the file over HTTP.
+  const upload = async (tokenRequest: string, path: string, file: File, emoji: boolean) => {
+    if (ws.readyState !== WebSocket.OPEN) throw new Error("not connected");
+    if (tokenWaiter) throw new Error("an upload is already starting");
+    const token = await new Promise<string>((resolve, reject) => {
+      // The server may answer with an error instead (rate limit): give up
+      // after a while, so the next upload can try again.
+      const timeout = setTimeout(() => done(() => reject(new Error("no upload token from the server"))), 10_000);
+      const done = (settle: () => void) => {
+        clearTimeout(timeout);
+        tokenWaiter = null;
+        settle();
+      };
+      tokenWaiter = {
+        resolve: (t) => done(() => resolve(t)),
+        reject: (err) => done(() => reject(err)),
+        emoji,
+      };
+      ws.send(tokenRequest);
+    });
+    const res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Filename": encodeURIComponent(file.name),
+        "X-Upload-Token": token,
+      },
+      body: file,
+    });
+    const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };
+    if (!res.ok) throw new Error(body.error ?? `upload failed (${res.status})`);
+    return body;
   };
 
   return {
@@ -276,35 +314,17 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     httpBase: base,
     // Uploads a file and returns its key, to attach with sendToTextChannel.
     uploadFile: async (file: File): Promise<string> => {
-      if (ws.readyState !== WebSocket.OPEN) throw new Error("not connected");
-      if (tokenWaiter) throw new Error("an upload is already starting");
-      const token = await new Promise<string>((resolve, reject) => {
-        // The server may answer with an error instead (rate limit): give up
-        // after a while, so the next upload can try again.
-        const timeout = setTimeout(() => done(() => reject(new Error("no upload token from the server"))), 10_000);
-        const done = (settle: () => void) => {
-          clearTimeout(timeout);
-          tokenWaiter = null;
-          settle();
-        };
-        tokenWaiter = {
-          resolve: (t) => done(() => resolve(t)),
-          reject: (err) => done(() => reject(err)),
-        };
-        ws.send(uploadTokenRequest());
-      });
-      const res = await fetch(`${base}/api/upload`, {
-        method: "POST",
-        headers: {
-          "Content-Type": file.type || "application/octet-stream",
-          "X-Filename": encodeURIComponent(file.name),
-          "X-Upload-Token": token,
-        },
-        body: file,
-      });
-      const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };
-      if (!res.ok || !body.key) throw new Error(body.error ?? `upload failed (${res.status})`);
+      const body = await upload(uploadTokenRequest(), "/api/upload", file, false);
+      if (!body.key) throw new Error("upload failed");
       return body.key;
+    },
+    // Adds a custom emoji (admins and moderators); the list comes as an
+    // event.
+    uploadEmoji: async (name: string, file: File): Promise<void> => {
+      await upload(emojiTokenRequest(name), "/api/emoji", file, true);
+    },
+    deleteEmoji: (name: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(deleteEmojiRequest(name));
     },
     playback,
     capture,

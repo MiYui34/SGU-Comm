@@ -1,9 +1,11 @@
 <script lang="ts">
   import { banAddress, type Ban, type Registered } from "@kallisti/protocol";
   import { untrack } from "svelte";
+  import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
 
-  // Server settings for moderators and admins: the ban list and the
-  // registered users (the server checks every change again).
+  // Server settings for moderators and admins: the ban list, the
+  // registered users and the custom emoji (the server checks every change
+  // again).
   let {
     bans,
     registered,
@@ -12,24 +14,57 @@
     onSetBans,
     onRename,
     onUnregister,
+    emoji,
+    onAddEmoji,
+    onDeleteEmoji,
     onClose,
   }: {
     bans: readonly Ban[] | null;
     registered: readonly Registered[] | null;
-    rights: { bans: boolean; editBans: boolean; users: boolean };
+    rights: { bans: boolean; editBans: boolean; users: boolean; emoji: boolean };
     onLoad: (what: "bans" | "users") => void;
     onSetBans: (bans: Ban[]) => void;
     onRename: (userId: number, name: string) => void;
     onUnregister: (userId: number) => void;
+    emoji: readonly CustomEmoji[];
+    onAddEmoji: (name: string, file: File) => Promise<void>;
+    onDeleteEmoji: (name: string) => void;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users">(untrack(() => (rights.bans ? "bans" : "users")));
+  let tab = $state<"bans" | "users" | "emoji">(untrack(() => (rights.bans ? "bans" : rights.users ? "users" : "emoji")));
   let renaming = $state<{ id: number; name: string } | null>(null);
   let confirming = $state<number | null>(null);
   $effect(() => dialog?.showModal());
-  $effect(() => onLoad(tab));
+  $effect(() => {
+    if (tab !== "emoji") onLoad(tab);
+  });
+
+  // A new emoji: name and image; a message says what is wrong.
+  let emojiName = $state("");
+  let emojiFile = $state<File | null>(null);
+  let emojiError = $state<string | null>(null);
+  let adding = $state(false);
+  let confirmingEmoji = $state<string | null>(null);
+  let fileInput: HTMLInputElement | undefined = $state();
+  const addEmoji = async (e: SubmitEvent) => {
+    e.preventDefault();
+    const name = emojiName.trim();
+    emojiError = emojiFormError(name, emojiFile, emoji);
+    if (emojiError || !emojiFile) return;
+    adding = true;
+    try {
+      await onAddEmoji(name, emojiFile);
+      emojiName = "";
+      emojiFile = null;
+      if (fileInput) fileInput.value = "";
+    } catch (err) {
+      emojiError = err instanceof Error ? err.message : String(err);
+    } finally {
+      adding = false;
+    }
+  };
 
   const duration = (seconds: number) =>
     seconds === 0 ? "for ever" : seconds >= 86400 ? `${Math.round(seconds / 86400)} days` : `${Math.round(seconds / 3600)} hours`;
@@ -46,6 +81,9 @@
     {/if}
     {#if rights.users}
       <button role="tab" aria-selected={tab === "users"} onclick={() => (tab = "users")}>Registered users</button>
+    {/if}
+    {#if rights.emoji}
+      <button role="tab" aria-selected={tab === "emoji"} onclick={() => (tab = "emoji")}>Emoji</button>
     {/if}
   </div>
 
@@ -72,6 +110,42 @@
         {/each}
       </ul>
       {#if !rights.editBans}<p class="note">Only admins change the ban list.</p>{/if}
+    {/if}
+  {:else if tab === "emoji"}
+    <form class="add-emoji" onsubmit={addEmoji}>
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept={EMOJI_TYPES.join(",")}
+        aria-label="Emoji image"
+        onchange={(e) => {
+          emojiFile = e.currentTarget.files?.[0] ?? null;
+          if (emojiFile && !emojiName) emojiName = emojiNameFromFile(emojiFile.name);
+          emojiError = null;
+        }}
+      />
+      <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" oninput={() => (emojiError = null)} />
+      <button type="submit" disabled={adding}>{adding ? "Adding…" : "Add"}</button>
+    </form>
+    <p class="note">PNG, GIF, WebP or JPEG, at most 256 KB. Names: 2 to 32 lower case letters, digits or _.</p>
+    {#if emojiError}<p class="error" role="alert">{emojiError}</p>{/if}
+    {#if emoji.length === 0}
+      <p class="note">This server has no custom emoji yet.</p>
+    {:else}
+      <ul>
+        {#each emoji as e (e.name)}
+          <li>
+            <img class="emoji-image" src={e.url} alt="" />
+            <div class="what"><strong>:{e.name}:</strong></div>
+            {#if confirmingEmoji === e.name}
+              <button type="button" class="danger" onclick={() => (onDeleteEmoji(e.name), (confirmingEmoji = null))}>Delete</button>
+              <button type="button" onclick={() => (confirmingEmoji = null)}>Cancel</button>
+            {:else}
+              <button type="button" onclick={() => (confirmingEmoji = e.name)}>Delete…</button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
     {/if}
   {:else if registered === null}
     <p class="note">Loading…</p>
@@ -204,5 +278,39 @@
   .note {
     color: var(--text-muted);
     font-size: 14px;
+  }
+  .add-emoji {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .add-emoji input:not([type="file"]) {
+    flex: 1;
+    min-width: 8em;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+  }
+  .add-emoji input[type="file"] {
+    max-width: 100%;
+  }
+  .add-emoji button {
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text);
+  }
+  .error {
+    color: var(--danger);
+    font-size: 14px;
+  }
+  .emoji-image {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
   }
 </style>

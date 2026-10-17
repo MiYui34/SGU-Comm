@@ -8,6 +8,7 @@ import type { Roles } from "./roles";
 import { isMentionAll, type MentionAll } from "./mentions";
 import type { SearchQuery } from "./search";
 import { parsePresence, type PresenceView } from "./presence";
+import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -80,11 +81,14 @@ export type ServerEvent =
       // Web clients that are not plainly online, and our chosen status.
       statuses?: SessionStatus[];
       ownStatus?: PresenceView;
+      emoji?: CustomEmoji[];
     }
   // A web client's status (see lib/presence); plain online: none.
   | ({ type: "status" } & SessionStatus)
   // Our chosen status changed (here or on another device).
   | ({ type: "own-status" } & PresenceView)
+  // The custom emoji changed.
+  | { type: "emoji"; emoji: CustomEmoji[] }
   | ({ type: "roles" } & Roles)
   // A direct chat with a user (asked for, or a new one's first message).
   | ({ type: "dm" } & DirectChat)
@@ -158,6 +162,8 @@ export type TextState = {
   // chosen.
   statuses: Readonly<Record<number, PresenceView>>;
   ownStatus: PresenceView;
+  // Custom server emoji (image URLs relative to the server).
+  emoji: readonly CustomEmoji[];
 };
 
 export const initialTextState: TextState = {
@@ -183,6 +189,7 @@ export const initialTextState: TextState = {
   resyncs: 0,
   statuses: {},
   ownStatus: { status: "online" },
+  emoji: [],
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -286,6 +293,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const summary = Array.isArray(v.summary) ? v.summary.filter(isSummaryEntry) : undefined;
       const statuses = Array.isArray(v.statuses) ? v.statuses.flatMap((s) => parseSessionStatus(s) ?? []) : undefined;
       const ownStatus = parsePresence(v.ownStatus);
+      const emoji = parseCustomEmoji(v.emoji);
       return {
         type: "ready",
         channels: v.channels,
@@ -298,7 +306,12 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(summary ? { summary } : {}),
         ...(statuses ? { statuses } : {}),
         ...(ownStatus ? { ownStatus } : {}),
+        ...(emoji ? { emoji } : {}),
       };
+    }
+    case "emoji": {
+      const emoji = parseCustomEmoji(v.emoji);
+      return emoji && { type: "emoji", emoji };
     }
     case "roles": {
       const roles = parseRoles(v);
@@ -392,6 +405,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         channels: event.channels,
         voiceChats: event.voiceChats === true,
         roles: event.roles ?? initialTextState.roles,
+        emoji: event.emoji ?? [],
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
@@ -407,6 +421,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       };
     case "roles":
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
+    case "emoji":
+      return { ...state, emoji: event.emoji };
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "status": {
@@ -512,6 +528,10 @@ export const sendRequest = (channel: number, text: string, upload?: string, repl
   JSON.stringify({ type: "send", channel, text, ...(upload ? { upload } : {}), ...(reply ? { reply } : {}), ...(reply && noPing ? { noPing } : {}) });
 
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
+// Custom emoji (admins and moderators; the server checks): a token to
+// upload one, and deleting one.
+export const emojiTokenRequest = (name: string) => JSON.stringify({ type: "emoji-token", name });
+export const deleteEmojiRequest = (name: string) => JSON.stringify({ type: "delete-emoji", name });
 
 export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice-chat", voice });
 

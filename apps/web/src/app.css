@@ -143,3 +143,7 @@ img.emoji {
   margin: 0 0.05em;
   vertical-align: -0.3em;
 }
+/* Custom server emoji may not be square. */
+img.emoji.custom {
+  object-fit: contain;
+}

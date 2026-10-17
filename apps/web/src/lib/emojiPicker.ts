@@ -1,4 +1,5 @@
 import { TEXT_STYLE } from "./emojiText";
+import { customName } from "./customEmoji";
 
 // The emoji picker's data (public/emoji-data.json, see
 // scripts/emojidata.mjs) and the logic around it.
@@ -58,8 +59,10 @@ const skinTone = (cp: number | undefined) => cp !== undefined && cp >= 0x1f3fb &
 
 // The server's form of an emoji (server/internal/emoji Normal): the fully
 // qualified one, with the variation selector after symbols that look like
-// text without it, except before a skin tone.
+// text without it, except before a skin tone. Custom emoji (":name:")
+// stay as they are.
 export const normalEmoji = (s: string): string => {
+  if (customName(s) !== null) return s;
   const cps = [...s].map((c) => c.codePointAt(0)!).filter((cp) => cp !== 0xfe0f && cp !== 0xfe0e);
   return cps
     .map((cp, i) => String.fromCodePoint(cp) + (textStyle(cp) && !skinTone(cps[i + 1]) ? "\uFE0F" : ""))

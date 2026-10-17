@@ -23,6 +23,7 @@
   import { canManageText } from "../lib/channelManagement";
   import type { Connection } from "../lib/connection.svelte";
   import { pictureLookup, pictureUrl, setAvatarPictures } from "../lib/avatar";
+  import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
@@ -373,6 +374,9 @@
   });
   const statusOf = (session: number) =>
     statusOfSession({ statuses: text.statuses, own: text.ownStatus, me: server.session, away, now: statusNow }, session);
+  // Custom server emoji, for messages, reactions and pickers below.
+  const customEmoji = $derived(customEmojiSet(text.emoji, connection.httpBase));
+  setCustomEmoji(() => customEmoji);
   const textId = $derived(view.kind === "text" ? view.id : null);
   // A voice channel's stored chat (built-in server): the channel that holds
   // it, once the server told us. Not for the lobby.
@@ -583,7 +587,7 @@
   );
   // Server settings (bans, registered users) for moderators and admins.
   let showModeration = $state(false);
-  const moderation = $derived(moderationRights(server));
+  const moderation = $derived({ ...moderationRights(server), emoji: canManageText(server, text) });
   // Search: the results panel, and a message to scroll to.
   let searchOpen = $state(false);
   // Where a stored message is: "#general", or a voice channel's name.
@@ -883,6 +887,9 @@
       connection.send(unregister(id));
       connection.send(queryRegistered());
     }}
+    emoji={customEmoji.list}
+    onAddEmoji={connection.uploadEmoji}
+    onDeleteEmoji={connection.deleteEmoji}
     onClose={() => (showModeration = false)}
   />
 {/if}
@@ -924,7 +931,7 @@
   <div class="sidebar">
     <header>
       <span class="ellipsis">{serverName}</span>
-      {#if moderation.any}
+      {#if moderation.any || moderation.emoji}
         <button type="button" class="settings" title="Server settings" aria-label="Server settings" onclick={() => (showModeration = true)}>
           <Icon name="gear" size={18} />
         </button>

@@ -1,3 +1,5 @@
+import { CUSTOM_NAME } from "./customEmoji";
+
 // A small Markdown subset for chat messages, on text that is already
 // escaped: the only tags in the result are the ones made here.
 
@@ -19,6 +21,7 @@ export const linkify = (escaped: string) =>
   });
 
 const NUL = "\u0000";
+const CUSTOM_EMOJI = new RegExp(`:${CUSTOM_NAME}:`, "g");
 
 // ||text|| (also over lines): hidden until clicked (see ChatPane).
 const SPOILER = /\|\|([^|][\s\S]*?)\|\|/g;
@@ -76,6 +79,9 @@ export const markdown = (escaped: string, channels?: ReadonlyMap<string, number>
     const { html, rest } = link(url);
     return keep(html) + rest;
   });
+  // What may be a custom emoji (images come after sanitizing) keeps its
+  // "_" (unknown names stay text anyway).
+  s = s.replace(CUSTOM_EMOJI, keep);
   if (channels?.size) {
     s = s.replace(CHANNEL_PATTERN, (all, before: string, name: string) => {
       const id = channels.get(name.toLowerCase());

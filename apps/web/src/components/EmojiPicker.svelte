@@ -4,6 +4,7 @@
   import { fitMenu } from "../lib/menu";
   import { gridMove, loadEmojiData, normalEmoji, searchEmoji, withTone, type EmojiData, type EmojiEntry } from "../lib/emojiPicker";
   import { recentEmoji, skinTone } from "../lib/emojiPrefs.svelte";
+  import { customEmojiFor, customEntries } from "../lib/customEmoji";
 
   // All emoji: search, recently used, categories, skin tone. A popup at
   // `anchor` (the button that opened it); on phones a sheet at the bottom.
@@ -38,20 +39,29 @@
   let search: HTMLInputElement | undefined = $state();
   let grid: HTMLElement | undefined = $state();
 
-  // Recent emoji show as they were used (with their skin tone, if any).
+  // The server's custom emoji (":name:"), first in the list and in results.
+  const customEmoji = customEmojiFor();
+  const custom = $derived(customEntries(customEmoji().list));
+  // Recent emoji show as they were used (with their skin tone, if any);
+  // custom ones only while this server has them.
   const byEmoji = $derived(
-    new Map(
-      (data?.emoji ?? []).flatMap((e) =>
+    new Map([
+      ...custom.map((e) => [e.emoji, e] as const),
+      ...(data?.emoji ?? []).flatMap((e) =>
         [e.emoji, ...(e.skins ?? [])].map((emoji) => [normalEmoji(emoji), { ...e, emoji, skins: undefined }] as const),
       ),
-    ),
+    ]),
   );
-  const results = $derived(data && query.trim() ? searchEmoji(data.emoji, query) : null);
+  const results = $derived(data && query.trim() ? [...searchEmoji(custom, query), ...searchEmoji(data.emoji, query)] : null);
   const sections = $derived.by(() => {
     if (!data) return [];
     const recent = recentEmoji.value.flatMap((e) => byEmoji.get(normalEmoji(e)) ?? []);
     const groups = data.groups.map((g, i) => ({ ...g, emoji: data!.emoji.filter((e) => e.group === i) }));
-    return [...(recent.length ? [{ name: "Recently used", icon: "🕒", emoji: recent }] : []), ...groups];
+    return [
+      ...(custom.length ? [{ name: "Server", icon: custom[0]!.emoji, emoji: custom }] : []),
+      ...(recent.length ? [{ name: "Recently used", icon: "🕒", emoji: recent }] : []),
+      ...groups,
+    ];
   });
 
   const placement = $derived.by(() => {
