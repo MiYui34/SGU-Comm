@@ -92,6 +92,25 @@ func TestSearch(t *testing.T) {
 	if m := next(t, bob); len(m["messages"].([]any)) != 0 {
 		t.Fatalf("by carol: %v", m)
 	}
+	// Filters without words; a channel the user may not read finds nothing.
+	bob.Handle([]byte(`{"type":"search","text":"","author":"alice"}`))
+	if m := next(t, bob); len(m["messages"].([]any)) != 1 {
+		t.Fatalf("from alice: %v", m)
+	}
+	bob.Handle([]byte(`{"type":"search","text":"","channel":` + strconv.FormatInt(general, 10) + `}`))
+	if m := next(t, bob); len(m["messages"].([]any)) != 1 {
+		t.Fatalf("in general: %v", m)
+	}
+	bob.Handle([]byte(`{"type":"search","text":"pizza","channel":` + strconv.FormatInt(secret, 10) + `}`))
+	if m := next(t, bob); len(m["messages"].([]any)) != 0 {
+		t.Fatalf("in a secret chat: %v", m)
+	}
+	for _, text := range []string{" ", "!!!"} {
+		bob.Handle([]byte(`{"type":"search","text":"` + text + `"}`))
+		if m := next(t, bob); len(m["messages"].([]any)) != 0 {
+			t.Fatalf("nothing (%q): %v", text, m)
+		}
+	}
 }
 
 func TestSearchTextHasALimit(t *testing.T) {

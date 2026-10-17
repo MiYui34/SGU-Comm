@@ -623,8 +623,12 @@ func TestSearch(t *testing.T) {
 	if got, _ := s.Search("unique", []int64{g}, "", 10); len(got) != 0 {
 		t.Fatalf("after delete: %v", ids(got))
 	}
-	if got, _ := s.Search("   ", []int64{g}, "", 10); len(got) != 0 {
-		t.Fatalf("empty query: %v", ids(got))
+	// No words: all messages (by the author), newest first.
+	if got, _ := s.Search("   ", []int64{g}, "alice", 10); len(got) != 1 || got[0].Author != "alice" {
+		t.Fatalf("no words, by alice: %v", ids(got))
+	}
+	if got, _ := s.Search("", []int64{r}, "", 10); len(got) != 1 {
+		t.Fatalf("no words, in random: %v", ids(got))
 	}
 }
 

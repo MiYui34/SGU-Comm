@@ -8,6 +8,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/names"
+	"kallisti.chat/server/internal/store"
 )
 
 // Read state for registered users: the newest message read per channel,
@@ -70,18 +71,25 @@ const (
 	maxSearchLength = 200
 )
 
-// search finds messages in the chats the user may read.
+// search finds messages in the chats the user may read (or in one of
+// them), optionally by one author.
 func (c *Conn) search(id mumble.Identity, req request) {
-	if utf8.RuneCountInString(req.Text) > maxSearchLength {
+	if utf8.RuneCountInString(req.Text) > maxSearchLength || utf8.RuneCountInString(req.Author) > maxSearchLength {
 		c.sendError("a search has at most 200 characters")
 		return
 	}
-	chats := c.hub.readableChats(id)
-	ids := make([]int64, len(chats))
-	for i, e := range chats {
-		ids[i] = e.Channel
+	author := strings.TrimSpace(req.Author)
+	var ids []int64
+	for _, e := range c.hub.readableChats(id) {
+		if req.Channel == 0 || req.Channel == e.Channel {
+			ids = append(ids, e.Channel)
+		}
 	}
-	msgs, err := c.hub.store.Search(req.Text, ids, strings.TrimSpace(req.Author), searchResults)
+	// No words and no filter: nothing (not the newest messages).
+	if !store.HasSearchWords(req.Text) && author == "" && req.Channel == 0 {
+		ids = nil
+	}
+	msgs, err := c.hub.store.Search(req.Text, ids, author, searchResults)
 	if err != nil {
 		slog.Error("search", "err", err)
 		c.sendError("cannot search")

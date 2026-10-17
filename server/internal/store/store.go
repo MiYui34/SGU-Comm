@@ -836,20 +836,28 @@ func ftsQuery(text string) string {
 	return strings.Join(terms, " ")
 }
 
+// HasSearchWords tells if text has words to search for (not only
+// punctuation).
+func HasSearchWords(text string) bool { return ftsQuery(text) != "" }
+
 // Search finds messages in the given channels whose text has all words of
-// text (as prefixes), optionally by one author (any case); newest first.
+// text (as prefixes; no words: all), optionally by one author (any case);
+// newest first.
 func (s *Store) Search(text string, channels []int64, author string, limit int) ([]Message, error) {
-	q := ftsQuery(text)
-	if q == "" || len(channels) == 0 {
+	if len(channels) == 0 {
 		return nil, nil
 	}
-	args := []any{q}
+	// Two forms: with an OR, SQLite would scan the table, not the index.
+	where, args := `1`, []any{}
+	if q := ftsQuery(text); q != "" {
+		where, args = `m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)`, append(args, q)
+	}
 	marks := make([]string, len(channels))
 	for i, c := range channels {
 		marks[i], args = "?", append(args, c)
 	}
 	args = append(args, author, author, limit)
-	rows, err := s.db.Query(messageSelect+`WHERE m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)
+	rows, err := s.db.Query(messageSelect+`WHERE `+where+`
 		AND m.channel_id IN (`+strings.Join(marks, ",")+`)
 		AND (? = '' OR lower(m.author) = lower(?)) ORDER BY m.id DESC LIMIT ?`, args...)
 	if err != nil {
