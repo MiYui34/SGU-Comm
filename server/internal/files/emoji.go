@@ -55,7 +55,9 @@ func (h *Handler) uploadEmoji(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "cannot store the emoji", http.StatusInternalServerError)
 		return
 	}
-	h.OnEmoji()
+	if h.OnEmoji != nil {
+		h.OnEmoji()
+	}
 	writeJSON(w, map[string]any{"name": e.Name, "url": sidecar.EmojiURL(e.ID)})
 }
 

@@ -33,7 +33,8 @@ func (c *Conn) react(id mumble.Identity, req request) {
 		return
 	}
 	normal := emoji.Normal(req.Emoji)
-	if name, custom := emoji.CustomName(normal); custom && !c.hub.hasEmoji(name) {
+	// A deleted custom emoji's reactions can still be taken back.
+	if name, custom := emoji.CustomName(normal); custom && req.On && !c.hub.hasEmoji(name) {
 		c.sendError("no such emoji on this server")
 		return
 	} else if !custom && !emoji.Valid(normal) {

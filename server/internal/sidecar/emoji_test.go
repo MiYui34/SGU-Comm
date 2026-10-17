@@ -166,4 +166,12 @@ func TestCustomEmojiReactions(t *testing.T) {
 	if rs := m["reactions"].([]any); m["type"] != "reactions" || rs[0].(map[string]any)["emoji"] != ":top10:" {
 		t.Fatalf("got %v", m)
 	}
+	// Deleted: no new reactions, but the old ones can go.
+	h.store.DeleteEmoji("top10")
+	h.EmojiChanged()
+	next(t, alice)
+	react(alice, id, ":top10:", false)
+	if m := next(t, alice); m["type"] != "reactions" || len(m["reactions"].([]any)) != 0 {
+		t.Fatalf("taking back: %v", m)
+	}
 }

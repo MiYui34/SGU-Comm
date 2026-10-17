@@ -155,8 +155,9 @@ type Hub struct {
 	visits   map[uint32]*visit
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
-	// Custom emoji (see emoji.go). Under mu.
-	emoji []wireEmoji
+	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time.
+	emoji   []wireEmoji
+	emojiMu sync.Mutex
 }
 
 // emoji: a token for adding this custom emoji (not for a file).

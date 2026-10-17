@@ -52,8 +52,11 @@ func (h *Hub) hasEmoji(name string) bool {
 	return false
 }
 
-// EmojiChanged sends everyone the custom emoji (after an upload).
+// EmojiChanged sends everyone the custom emoji (after an upload). One
+// change at a time, so the newest list is the one kept.
 func (h *Hub) EmojiChanged() {
+	h.emojiMu.Lock()
+	defer h.emojiMu.Unlock()
 	if err := h.loadEmoji(); err != nil {
 		slog.Error("load custom emoji", "err", err)
 		return
