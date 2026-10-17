@@ -44,6 +44,7 @@ import {
   type TextState,
 } from "./textChannels";
 import { texturesToFetch } from "./avatar";
+import type { SearchQuery } from "./search";
 import { reactRequest } from "./reactions";
 import { previewsRequest } from "./linkPreview";
 import { createCapture } from "./voice/capture.svelte";
@@ -212,7 +213,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
     },
-    search: (query: string) => {
+    search: (query: SearchQuery) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       text = startSearch(text); // the old results go
       ws.send(searchRequest(query));

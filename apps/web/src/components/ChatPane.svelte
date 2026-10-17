@@ -521,7 +521,7 @@
             if (searchText.trim()) onSearch(searchText.trim());
           }}
         >
-          <input bind:value={searchText} placeholder="Search" aria-label="Search messages" />
+          <input bind:value={searchText} placeholder="Search" aria-label="Search messages" title="Filters: from:name, in:#channel" />
         </form>
       {/if}
       {#if onPins}

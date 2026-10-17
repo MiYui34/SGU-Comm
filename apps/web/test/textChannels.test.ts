@@ -362,7 +362,8 @@ describe("search", () => {
     expect(ev).toEqual({ type: "search-results", text: "pizza", messages: [msg(3)] });
     const s = reduceText(initialTextState, ev!);
     expect(s.search).toEqual({ text: "pizza", messages: [msg(3)] });
-    expect(JSON.parse(searchRequest("pizza"))).toEqual({ type: "search", text: "pizza" });
+    expect(JSON.parse(searchRequest({ text: "pizza" }))).toEqual({ type: "search", text: "pizza" });
+    expect(JSON.parse(searchRequest({ text: "", author: "bob", channel: 3 }))).toEqual({ type: "search", text: "", author: "bob", channel: 3 });
   });
 });
 

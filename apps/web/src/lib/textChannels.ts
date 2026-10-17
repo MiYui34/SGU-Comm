@@ -5,6 +5,7 @@ import type { Reaction } from "./reactions";
 import type { LinkPreview } from "./linkPreview";
 import type { Speaker } from "./listenOnly";
 import type { Roles } from "./roles";
+import type { SearchQuery } from "./search";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -481,7 +482,7 @@ export const manageRequest = (a: ManageAction) =>
                 : { type: "order-channels", channels: a.order },
   );
 
-export const searchRequest = (text: string) => JSON.stringify({ type: "search", text });
+export const searchRequest = (q: SearchQuery) => JSON.stringify({ type: "search", ...q });
 export const directRequest = (user: number) => JSON.stringify({ type: "dm", user });
 
 // The direct chat with a user, if known.

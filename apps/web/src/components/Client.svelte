@@ -29,6 +29,7 @@
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
   import { hideSpoilers } from "../lib/markdown";
+  import { parseSearch } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -491,6 +492,20 @@
     if (!fresh && total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
     mentionTotal = total;
   });
+  // The search as typed (the server answers with the words only), and
+  // chats by name for "in:" (text channels before voice channels before
+  // direct chats).
+  let searchQuery = $state("");
+  const searchChats = $derived(
+    new Map([
+      ...Object.entries(text.directs).map(([chat, peer]) => [peer.name.toLowerCase(), Number(chat)] as const),
+      ...Object.entries(text.voiceChannels).flatMap(([voice, chat]) => {
+        const name = server.channels[Number(voice)]?.name;
+        return name ? [[name.toLowerCase(), chat] as const] : [];
+      }),
+      ...text.channels.map((c) => [c.name.toLowerCase(), c.id] as const),
+    ]),
+  );
   // Text channel ids by name, for "#name" links. Derived from the list
   // itself: a new map (and new chat lines) only when the channels change.
   const textChannelList = $derived(text.channels);
@@ -850,7 +865,8 @@
       onDelete={connection.deleteMessage}
       onSearch={text.available
         ? (q) => {
-            connection.search(q);
+            searchQuery = q;
+            connection.search(parseSearch(q, searchChats));
             searchOpen = true;
             pinsOpen = false;
           }
@@ -879,7 +895,7 @@
   </div>
   {#if searchOpen}
     <SearchPanel
-      text={text.search?.text ?? null}
+      text={text.search ? searchQuery : null}
       messages={(text.search?.messages ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
