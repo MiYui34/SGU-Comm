@@ -4,6 +4,9 @@
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
+  import { hold } from "../lib/longPress";
+  import { htmlToText } from "../lib/htmlText";
   import { quickReactions } from "../lib/emojiPicker";
   import { recentEmoji, usedEmoji } from "../lib/emojiPrefs.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
@@ -351,6 +354,45 @@
     onReact?.(id, emoji, !mineOf(m, emoji));
     void closePicker();
   };
+  // What we may do with a stored message (the server checks again).
+  const allowed = (m: ChatMessage | DisplayMessage) => {
+    if (!("source" in m) || !m.source || editing?.id === m.source.id) return null;
+    return {
+      id: m.source.id,
+      canEdit: !!(mayEdit?.(m) && onEdit),
+      canDelete: !!(mayDelete?.(m) && onDelete),
+      canPin: !!(mayPin && onPin),
+      pinned: "pinned" in m && !!m.pinned,
+    };
+  };
+
+  // Phones: a long press opens the message's actions in a sheet. sheetFor: that
+  // message (by id when stored, so it follows updates).
+  let sheetFor = $state.raw<{ id?: number; m: ChatMessage | DisplayMessage } | null>(null);
+  const sheetMessage = $derived(
+    sheetFor && (sheetFor.id === undefined ? sheetFor.m : messages.find((m) => idOf(m) === sheetFor!.id)),
+  );
+  const sheetItems = (m: ChatMessage | DisplayMessage): SheetItem[] => {
+    const may = allowed(m);
+    const done = (f: () => void) => () => ((sheetFor = null), f());
+    const text = "source" in m && m.source ? m.source.text : htmlToText(m.text);
+    return [
+      ...(may && canReply ? [{ label: "Reply", icon: "reply" as const, run: done(() => startReply(m)) }] : []),
+      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => navigator.clipboard?.writeText(text).catch(() => {})) }] : []),
+      ...(may?.canPin
+        ? [{ label: may.pinned ? "Unpin message" : "Pin message", icon: "pin" as const, run: done(() => onPin?.(may.id, !may.pinned)) }]
+        : []),
+      ...(may?.canEdit ? [{ label: "Edit message", icon: "edit" as const, run: done(() => void startEdit(m)) }] : []),
+      ...(may?.canDelete
+        ? [{ label: "Delete message", icon: "trash" as const, danger: true, confirm: "Delete this message?", run: done(() => onDelete?.(may.id)) }]
+        : []),
+    ];
+  };
+  // Not for a message without actions (an unstored image, read-only).
+  const openSheet = (m: ChatMessage | DisplayMessage) => {
+    const id = idOf(m);
+    if (sheetItems(m).length || (canReact && id !== undefined)) sheetFor = { id, m };
+  };
   const closePicker = async () => {
     const id = picking;
     picking = null;
@@ -547,6 +589,8 @@
           {#each group.messages as m, i (m)}
             <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me)}
               class:flash={idOf(m) !== undefined && idOf(m) === flashed}
+              class:sheet-open={sheetMessage === m}
+              use:hold={() => openSheet(m)}
               data-message={idOf(m)}>
               {#if i === 0}
                 <div class="gutter">
@@ -718,6 +762,17 @@
   </form>
 </main>
 
+{#if sheetMessage}
+  {@const m = sheetMessage}
+  {@const id = idOf(m)}
+  <MessageSheet
+    {quick}
+    mine={(emoji) => mineOf(m, emoji)}
+    onReact={canReact && id !== undefined ? (emoji) => (react(m, id, emoji), (sheetFor = null)) : undefined}
+    items={sheetItems(m)}
+    onClose={() => (sheetFor = null)}
+  />
+{/if}
 {#if draftEmoji}
   <EmojiPicker anchor={draftEmoji} onPick={insertEmoji} onClose={() => ((draftEmoji = null), messageInput?.focus())} />
 {/if}
@@ -807,12 +862,9 @@
 {/snippet}
 
 {#snippet actions(m: ChatMessage | DisplayMessage)}
-  {#if "source" in m && m.source && editing?.id !== m.source.id}
-    {@const id = m.source.id}
-    {@const canEdit = mayEdit?.(m) && onEdit}
-    {@const canDelete = mayDelete?.(m) && onDelete}
-    {@const canPin = mayPin && onPin}
-    {@const pinned = "pinned" in m && !!m.pinned}
+  {@const may = allowed(m)}
+  {#if may}
+    {@const { id, canEdit, canDelete, canPin, pinned } = may}
     {#if canEdit || canDelete || canReply || canReact || canPin}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -1241,15 +1293,23 @@
   .actions.confirming {
     opacity: 1;
   }
-  /* Phones: no hover, so the actions always show. */
+  /* Touch screens: a long press opens the actions (MessageSheet); no
+     text selection, "Copy text" is there instead. */
   @media (hover: none) {
     .actions {
-      position: static;
-      flex-wrap: wrap;
-      opacity: 1;
-      box-shadow: none;
-      background: none;
-      justify-content: flex-end;
+      display: none;
+    }
+    .line {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .line textarea {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .line.sheet-open {
+      background: var(--bg-active);
     }
   }
   .actions span {

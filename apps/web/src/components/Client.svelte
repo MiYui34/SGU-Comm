@@ -174,7 +174,7 @@
   let panel = $state<Panel>("chat");
   // Swipes do not count in dialogs, text fields, the hold button, or with
   // two fingers (pinch).
-  const NO_SWIPE = "dialog, input, textarea, .hold, [role=dialog]";
+  const NO_SWIPE = "dialog, input, textarea, .hold, [role=dialog], [data-no-swipe]";
   let touch: { x: number; y: number; t: number } | null = null;
   const touchStart = (e: TouchEvent) => {
     const t = e.touches[0];
