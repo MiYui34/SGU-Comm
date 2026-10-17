@@ -144,7 +144,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		}
 		e.Latest = latest
 		for _, m := range msgs {
-			repliesToMe := m.Reply != nil && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
+			repliesToMe := m.Reply != nil && !m.NoPing && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
 			// @here only reached who was there (live).
 			all := m.MentionAll == "everyone"
 			if !byUser(id, m) && (e.Direct != nil || all || mention.MatchString(m.Text) || repliesToMe) {

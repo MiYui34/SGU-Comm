@@ -42,6 +42,7 @@ type Message struct {
 	Reactions []Reaction
 	// "everyone" or "here": the message mentions all (by a moderator).
 	MentionAll string
+	NoPing     bool // a reply that does not ping the original's author
 }
 
 // Quote is the message a reply answers (Author empty: deleted since).
@@ -62,6 +63,7 @@ type NewMessage struct {
 	UploadID   int64
 	ReplyTo    int64  // 0: not a reply; else a message in the same channel
 	MentionAll string // "", "here" or "everyone" (see Message)
+	NoPing     bool   // see Message
 }
 
 // Upload is a stored file. Key is the random, unguessable part of its URL.
@@ -327,6 +329,7 @@ func migrate(db *sql.DB) error {
 		{"author_id", "INTEGER"}, // the Mumble user id of verified authors
 		{"pinned_at", "INTEGER"},
 		{"mention_all", "TEXT NOT NULL DEFAULT ''"},
+		{"no_ping", "INTEGER NOT NULL DEFAULT 0"},
 	}); err != nil {
 		return err
 	}
@@ -649,11 +652,11 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to, mention_all) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply, n.MentionAll); err != nil {
+	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to, mention_all, no_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply, n.MentionAll, n.NoPing); err != nil {
 		return Message{}, err
 	}
-	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote, MentionAll: n.MentionAll}
+	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote, MentionAll: n.MentionAll, NoPing: n.NoPing}
 	if upload.Valid {
 		u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, n.UploadID))
 		if err != nil {
@@ -691,7 +694,7 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 
 const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at, m.pinned_at,
 		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used,
-		m.reply_to, r.author, r.text, m.mention_all
+		m.reply_to, r.author, r.text, m.mention_all, m.no_ping
 	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
@@ -707,7 +710,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var replyAuthor, replyText sql.NullString
 	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited, &pinned,
 		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used,
-		&replyTo, &replyAuthor, &replyText, &m.MentionAll); err != nil {
+		&replyTo, &replyAuthor, &replyText, &m.MentionAll, &m.NoPing); err != nil {
 		return Message{}, err
 	}
 	if authorID.Valid {

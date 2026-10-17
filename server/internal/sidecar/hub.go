@@ -300,6 +300,7 @@ type wireMessage struct {
 	Reply      *wireQuote     `json:"reply,omitempty"`
 	Reactions  []wireReaction `json:"reactions,omitempty"`
 	MentionAll string         `json:"mentionAll,omitempty"` // "here" or "everyone"
+	NoPing     bool           `json:"noPing,omitempty"`     // a reply that does not ping
 }
 
 // wireQuote is the start of the message a reply answers (author empty:
@@ -348,7 +349,7 @@ func toWire(m store.Message) wireMessage {
 	if len(m.Reactions) > 0 {
 		w.Reactions = toWireReactions(m.Reactions)
 	}
-	w.MentionAll = m.MentionAll
+	w.MentionAll, w.NoPing = m.MentionAll, m.NoPing
 	return w
 }
 
@@ -363,6 +364,7 @@ type request struct {
 	Upload    string   `json:"upload"`    // key of an upload to attach
 	Message   int64    `json:"message"`   // edit-message, delete-message
 	Reply     int64    `json:"reply"`     // send: the message it answers
+	NoPing    bool     `json:"noPing"`    // send: the reply does not ping
 	Author    string   `json:"author"`    // search: only this author
 	User      uint32   `json:"user"`      // set-moderator: registered user id
 	Moderator bool     `json:"moderator"` // set-moderator
@@ -608,7 +610,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		c.sendError(textError)
 		return
 	}
-	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply}
+	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply, NoPing: req.NoPing && req.Reply != 0}
 	// Not in direct chats: there every message counts already.
 	if !ch.direct && c.hub.voice != nil && c.hub.voice.MayManage(id.Session) {
 		n.MentionAll = mentionAllOf(text)
