@@ -201,6 +201,10 @@ type Conn struct {
 	lagged bool
 	// The last typing signal passed on, per channel (see typing).
 	typed map[int64]time.Time
+	// The chosen status (kept for registered users) and no input for a
+	// while (see status.go).
+	status store.UserStatus
+	away   bool
 	// Ends with the connection (work on its behalf stops); previewing:
 	// previews on their way.
 	ctx        context.Context
@@ -219,8 +223,9 @@ func (c *Conn) Outbox() <-chan []byte { return c.out }
 func (c *Conn) Close() {
 	c.stop()
 	c.mu.Lock()
-	id := c.identity
+	id, wasReady := c.identity, c.ready
 	c.mu.Unlock()
+	shown := c.shown()
 	c.hub.mu.Lock()
 	delete(c.hub.conns, c)
 	// Murmur reuses session numbers: the next guest owns none of these.
@@ -233,10 +238,14 @@ func (c *Conn) Close() {
 	}
 	c.hub.mu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.closed {
 		c.closed = true
 		close(c.out)
+	}
+	c.mu.Unlock()
+	// Its status leaves with it.
+	if wasReady && !shown.plain() {
+		c.hub.statusChanged(id.Session, statusView{Status: "online"})
 	}
 }
 
@@ -257,7 +266,18 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
 	if becomesReady {
-		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
+		var st store.UserStatus
+		if id.Registered {
+			var err error
+			if st, err = c.hub.store.UserStatus(id.UserID); err != nil {
+				slog.Error("load a status", "err", err)
+			}
+			c.mu.Lock()
+			c.status = st
+			c.mu.Unlock()
+		}
+		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil,
+			"statuses": c.hub.statuses(), "ownStatus": view(st, c.hub.now())}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
 			if c.hub.LiveStreams != nil {
@@ -271,6 +291,13 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 			}
 		}
 		c.send(ready)
+		if v := c.shown(); !v.plain() {
+			for _, other := range c.hub.all() {
+				if other != c {
+					other.send(sessionStatus{Type: "status", Session: id.Session, statusView: v})
+				}
+			}
+		}
 	}
 }
 
@@ -371,7 +398,9 @@ type request struct {
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
-	On        bool     `json:"on"`        // react: add (or remove); pin
+	On        bool     `json:"on"`        // react: add (or remove); pin; away
+	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
+	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
 }
 
 // Handle answers one request from the browser.
@@ -432,6 +461,12 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "dm":
 		c.direct(*id, req.User)
+		return
+	case "set-status":
+		c.setStatus(*id, req)
+		return
+	case "away":
+		c.setAway(*id, req.On)
 		return
 	case "stream-token":
 		if c.hub.StreamToken == nil {
