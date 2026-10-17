@@ -10,7 +10,7 @@ import {
   setStatusRequest,
   statusOfSession,
 } from "../src/lib/presence";
-import { initialTextState, parseServerEvent, reduceText } from "../src/lib/textChannels";
+import { forgetStatus, initialTextState, parseServerEvent, reduceText } from "../src/lib/textChannels";
 import { shouldNotify } from "../src/lib/notify";
 
 describe("effectivePresence", () => {
@@ -85,6 +85,8 @@ describe("status events", () => {
     expect(state.statuses[3]).toBeUndefined();
     state = reduceText(state, parseServerEvent('{"type":"own-status","status":"dnd","emoji":"","text":"","until":0}')!);
     expect(state.ownStatus).toEqual({ status: "dnd" });
+    expect(forgetStatus(state, 5).statuses[5]).toBeUndefined();
+    expect(forgetStatus(state, 42)).toBe(state);
     expect(parseServerEvent('{"type":"status","session":"x","status":"idle"}')).toBeNull();
     expect(parseServerEvent('{"type":"own-status","status":"invisible"}')).toBeNull();
   });

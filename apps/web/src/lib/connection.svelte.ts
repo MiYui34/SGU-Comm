@@ -36,6 +36,7 @@ import {
   manageRequest,
   parseServerEvent,
   reduceText,
+  forgetStatus,
   sendRequest,
   uploadTokenRequest,
   voiceChatRequest,
@@ -165,6 +166,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     try {
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
       messages.forEach(routeAudio);
+      for (const m of messages) if (m.type === "UserRemove") text = forgetStatus(text, m.message.session);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
       if (state.status === "synced") wasSynced = true;
       fetchDescriptions();

@@ -5,24 +5,29 @@
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
 
-  // Set a custom status: an emoji, a text, and when it goes.
+  // Set a custom status: an emoji, a text, and when it goes. start: the
+  // custom status there is (an edit keeps its end unless changed).
   let {
     start,
     onSave,
     onClose,
-  }: { start: { emoji: string; text: string } | null; onSave: (c: CustomStatus) => void; onClose: () => void } = $props();
+  }: { start: CustomStatus | null; onSave: (c: CustomStatus) => void; onClose: () => void } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
   const first = untrack(() => start);
   let emoji = $state(first?.emoji ?? "");
   let text = $state(first?.text ?? "");
-  let clearAfter = $state<ClearAfter>("today");
+  const keep = first?.until;
+  const options = keep
+    ? [{ value: "keep" as const, label: `Keep (${new Date(keep).toLocaleString([], { dateStyle: "short", timeStyle: "short" })})` }, ...CLEAR_AFTER]
+    : CLEAR_AFTER;
+  let clearAfter = $state<ClearAfter | "keep">(keep ? "keep" : first ? "never" : "today");
   let picker = $state<DOMRect | null>(null);
   $effect(() => dialog?.showModal());
 
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
-    const until = clearAfterUntil(clearAfter, Date.now());
+    const until = clearAfter === "keep" ? keep : clearAfterUntil(clearAfter, Date.now());
     onSave({ ...(emoji && { emoji }), ...(text.trim() && { text: text.trim() }), ...(until && { until }) });
     dialog?.close();
   };
@@ -62,7 +67,7 @@
     <label>
       Clear after
       <select bind:value={clearAfter}>
-        {#each CLEAR_AFTER as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+        {#each options as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
       </select>
     </label>
     <footer>

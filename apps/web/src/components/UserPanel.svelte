@@ -53,7 +53,7 @@
   <button
     class="me"
     disabled={!onStatus}
-    aria-haspopup="dialog"
+    aria-haspopup="menu"
     title={onStatus ? "Set your status" : undefined}
     onclick={(e) => (menu = menuAnchor(e, e.currentTarget.getBoundingClientRect()))}
   >
@@ -106,7 +106,7 @@
   </ContextMenu>
 {/if}
 {#if editing}
-  <StatusDialog start={custom} onSave={(c) => onStatus?.({ status: own.status, ...c })} onClose={() => (editing = false)} />
+  <StatusDialog start={custom && { ...custom, until: own.until }} onSave={(c) => onStatus?.({ status: own.status, ...c })} onClose={() => (editing = false)} />
 {/if}
 
 <style>

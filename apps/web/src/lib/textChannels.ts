@@ -498,6 +498,13 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
   }
 };
 
+// A user left: its status goes (Murmur reuses session numbers).
+export const forgetStatus = (state: TextState, session: number): TextState => {
+  if (!state.statuses[session]) return state;
+  const { [session]: _, ...statuses } = state.statuses;
+  return { ...state, statuses };
+};
+
 export const historyRequest = (channel: number, before?: number) =>
   JSON.stringify(before === undefined ? { type: "history", channel } : { type: "history", channel, before });
 
