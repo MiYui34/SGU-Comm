@@ -28,7 +28,7 @@
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
-  import { nextScrollTop } from "../lib/scroll";
+  import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
   import { tick, untrack, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
@@ -181,8 +181,21 @@
   // Images load after the scroll and make the content taller. A reader at
   // the bottom stays there.
   let atBottom = true;
+  // Up in the history: "Jump to present", with the messages that came since
+  // (leftAt: the newest message's time when the reader left the bottom).
+  let away = $state(false);
+  let leftAt = $state<number | null>(null);
+  const newCount = $derived(newSince(messages.map((m) => m.at), leftAt));
   const trackBottom = () => {
-    if (list) atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 80;
+    if (!list) return;
+    atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 80;
+    away = awayFromBottom(list);
+    if (!away) leftAt = null;
+    else leftAt ??= messages.at(-1)?.at ?? 0;
+  };
+  const toPresent = (smooth: boolean) => {
+    const motion = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    list?.scrollTo({ top: list.scrollHeight, behavior: motion ? "smooth" : "auto" });
   };
   const keepBottom = () => {
     if (list && atBottom) list.scrollTop = list.scrollHeight;
@@ -276,6 +289,7 @@
     if (pending && onUpload) {
       const { file, spoiler } = pending;
       onUpload(asSpoiler(file, spoiler), text, replying?.id, replying ? !replying.ping : undefined);
+      toPresent(false);
       cancelPending();
       replying = null;
       draft = "";
@@ -283,6 +297,7 @@
     }
     if (!text || !onSend) return;
     onSend(text, replying?.id, replying ? !replying.ping : undefined);
+    toPresent(false); // to see it arrive, as in Discord
     replying = null;
     draft = "";
   };
@@ -738,6 +753,12 @@
     </button>
   {/if}
   <form class="send" onsubmit={submit}>
+    {#if away}
+      <div class="present">
+        <span>{newCount ? `${newCount} new ${newCount === 1 ? "message" : "messages"}` : "You are viewing older messages"}</span>
+        <button type="button" onclick={() => toPresent(true)}>Jump to present</button>
+      </div>
+    {/if}
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
@@ -1428,7 +1449,37 @@
     background: var(--accent-strong);
     color: #fff;
   }
+  .present {
+    position: absolute;
+    right: 16px;
+    bottom: calc(100% + 4px);
+    left: 16px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 4px 4px 12px;
+    border-radius: 8px;
+    background: var(--accent-strong);
+    color: #fff;
+    font-size: 14px;
+  }
+  .present button {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 0.15);
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .present button:hover {
+    background: rgb(255 255 255 / 0.25);
+  }
   .send {
+    position: relative; /* for the "Jump to present" bar */
     flex-shrink: 0;
     padding: 0 16px;
   }

@@ -18,3 +18,11 @@ export const nextScrollTop = (
   if (switched || fromBottom <= AT_BOTTOM_PX) return newScrollHeight - before.clientHeight;
   return prepended ? before.scrollTop + (newScrollHeight - before.scrollHeight) : before.scrollTop;
 };
+
+// Far enough up in the history to offer "Jump to present": more than half
+// a screen above the bottom.
+export const awayFromBottom = (s: ScrollState) => s.scrollHeight - s.scrollTop - s.clientHeight > s.clientHeight / 2;
+
+// Messages that came after the reader left the bottom (at: the newest
+// message's time then; null: still at the bottom).
+export const newSince = (times: readonly number[], at: number | null) => (at === null ? 0 : times.filter((t) => t > at).length);

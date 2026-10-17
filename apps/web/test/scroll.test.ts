@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextScrollTop } from "../src/lib/scroll";
+import { awayFromBottom, newSince, nextScrollTop } from "../src/lib/scroll";
 
 // A 500 px high view.
 const before = { scrollHeight: 2000, scrollTop: 1500, clientHeight: 500 };
@@ -31,5 +31,18 @@ describe("nextScrollTop without a snapshot", () => {
   it("leaves the reader where they are (a re-run without new content), unless the conversation changed", () => {
     expect(nextScrollTop(null, 2654, false)).toBeNull();
     expect(nextScrollTop(null, 2654, true)).toBe(2654);
+  });
+});
+
+describe("jump to present", () => {
+  it("shows when more than half a screen above the bottom", () => {
+    expect(awayFromBottom({ scrollHeight: 2000, scrollTop: 1500, clientHeight: 500 })).toBe(false);
+    expect(awayFromBottom({ scrollHeight: 2000, scrollTop: 1300, clientHeight: 500 })).toBe(false);
+    expect(awayFromBottom({ scrollHeight: 2000, scrollTop: 1200, clientHeight: 500 })).toBe(true);
+  });
+
+  it("counts messages newer than the newest one when the reader left the bottom", () => {
+    expect(newSince([1, 2, 3, 4], 2)).toBe(2);
+    expect(newSince([1, 2], null)).toBe(0);
   });
 });
