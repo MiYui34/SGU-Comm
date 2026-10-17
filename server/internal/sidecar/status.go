@@ -1,6 +1,8 @@
 package sidecar
 
 import (
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -51,6 +53,12 @@ func effective(st store.UserStatus, away bool, now time.Time) statusView {
 	return v
 }
 
+func (c *Conn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 func (v statusView) plain() bool { return v == statusView{Status: "online"} }
 
 // shown is the connection's status as others see it.
@@ -81,6 +89,50 @@ func (h *Hub) statusChanged(session uint32, v statusView) {
 	h.broadcast(sessionStatus{Type: "status", Session: session, statusView: v})
 }
 
+// sendReady sends ready with the statuses (and our own, kept for
+// registered users), and tells the others ours. Under statusMu: no status
+// event slips in before ready, and a connection that closed meanwhile
+// announces nothing.
+func (c *Conn) sendReady(id mumble.Identity, ready map[string]any) {
+	c.hub.statusMu.Lock()
+	defer c.hub.statusMu.Unlock()
+	var st store.UserStatus
+	if id.Registered {
+		var err error
+		if st, err = c.hub.store.UserStatus(id.UserID); err != nil {
+			slog.Error("load a status", "err", err)
+		}
+	}
+	c.mu.Lock()
+	c.status = st
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
+		return
+	}
+	ready["statuses"], ready["ownStatus"] = c.hub.statuses(), view(st, c.hub.now())
+	c.send(ready)
+	if v := c.shown(); !v.plain() {
+		for _, other := range c.hub.all() {
+			if other != c {
+				other.send(sessionStatus{Type: "status", Session: id.Session, statusView: v})
+			}
+		}
+	}
+}
+
+// statusGone: a closed connection's status leaves with it.
+func (c *Conn) statusGone() {
+	c.hub.statusMu.Lock()
+	defer c.hub.statusMu.Unlock()
+	c.mu.Lock()
+	id, ready := c.identity, c.ready
+	c.mu.Unlock()
+	if ready && !c.shown().plain() {
+		c.hub.statusChanged(id.Session, statusView{Status: "online"})
+	}
+}
+
 // parseStatus checks a set-status request.
 func parseStatus(req request, now time.Time) (store.UserStatus, string) {
 	st := store.UserStatus{Status: req.Status, Text: strings.Join(strings.Fields(req.Text), " "), Until: req.Until}
@@ -98,7 +150,7 @@ func parseStatus(req request, now time.Time) (store.UserStatus, string) {
 		}
 	}
 	if utf8.RuneCountInString(st.Text) > maxStatusText {
-		return st, "a custom status has at most 128 characters"
+		return st, fmt.Sprintf("a custom status has at most %d characters", maxStatusText)
 	}
 	if st.Emoji == "" && st.Text == "" || st.Until < 0 || st.Until != 0 && st.Until <= now.UnixMilli() {
 		st.Emoji, st.Text, st.Until = "", "", 0
@@ -114,6 +166,8 @@ func (c *Conn) setStatus(id mumble.Identity, req request) {
 		c.sendError(problem)
 		return
 	}
+	c.hub.statusMu.Lock()
+	defer c.hub.statusMu.Unlock()
 	conns := []*Conn{c}
 	if id.Registered {
 		if err := c.hub.store.SetUserStatus(id.UserID, st); err != nil {
@@ -125,7 +179,7 @@ func (c *Conn) setStatus(id mumble.Identity, req request) {
 			other.mu.Lock()
 			oid := other.identity
 			other.mu.Unlock()
-			if oid != nil && oid.Registered && oid.UserID == id.UserID {
+			if oid != nil && oid.Registered && oid.UserID == id.UserID && !other.isClosed() {
 				conns = append(conns, other)
 			}
 		}
@@ -154,6 +208,11 @@ func (c *Conn) setStatus(id mumble.Identity, req request) {
 
 // setAway: the client had no input for a while (or again). Not kept.
 func (c *Conn) setAway(id mumble.Identity, on bool) {
+	c.hub.statusMu.Lock()
+	defer c.hub.statusMu.Unlock()
+	if c.isClosed() {
+		return
+	}
 	before := c.shown()
 	c.mu.Lock()
 	c.away = on
