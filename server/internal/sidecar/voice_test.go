@@ -37,6 +37,8 @@ type fakeVoice struct {
 	names  map[uint32]string
 	native map[uint32]bool
 	sentTo []string
+	// Bans by Ban.
+	bans []string
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

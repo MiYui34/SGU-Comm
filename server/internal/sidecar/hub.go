@@ -69,6 +69,8 @@ type Voice interface {
 	// MumbleClient: the session is a Mumble client (not a web client), and
 	// who it is.
 	MumbleClient(session uint32) (MumbleUser, bool)
+	// Ban bans a user for a time (0: forever), if the actor may.
+	Ban(actor, session uint32, reason string, d time.Duration) error
 }
 
 // LiveStream is a screen share in a voice channel, by its streamer's
@@ -370,6 +372,8 @@ type request struct {
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
 	On        bool     `json:"on"`        // react: add (or remove); pin
+	Session   uint32   `json:"session"`   // ban: the user's voice server session
+	Seconds   int64    `json:"seconds"`   // ban: how long (0: forever)
 }
 
 // Handle answers one request from the browser.
@@ -427,6 +431,9 @@ func (c *Conn) Handle(raw []byte) {
 		} else if err := c.hub.voice.SetModerator(id.Session, req.User, req.Moderator); err != nil {
 			c.manageError(err.Error())
 		}
+		return
+	case "ban":
+		c.ban(*id, req)
 		return
 	case "dm":
 		c.direct(*id, req.User)

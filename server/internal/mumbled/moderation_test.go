@@ -242,3 +242,35 @@ func TestRecordingIsShown(t *testing.T) {
 	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), Recording: proto.Bool(true)})
 	bob.expectNone(mumble.TypeUserState) // no change, no message
 }
+
+func TestTimedBans(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	alice, aliceID := registered(t, addr, "alice")
+	s.SetModerator(su.session, aliceID, true)
+	carol, carolID := registered(t, addr, "carol")
+	s.SetModerator(su.session, carolID, true)
+	bob := dial(t, addr, "bob")
+	guest := dial(t, addr, "guest")
+	// Without Ban in root; on staff without Write in root; on SuperUser.
+	if err := s.Ban(bob.session, guest.session, "", time.Hour); err == nil {
+		t.Fatal("a plain user banned")
+	}
+	if err := s.Ban(alice.session, carol.session, "", time.Hour); err == nil {
+		t.Fatal("a moderator banned a moderator")
+	}
+	if err := s.Ban(alice.session, su.session, "", time.Hour); err == nil {
+		t.Fatal("SuperUser was banned")
+	}
+	if err := s.Ban(alice.session, guest.session, "spam", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	var m pb.UserRemove
+	proto.Unmarshal(guest.expect(mumble.TypeUserRemove), &m)
+	if !m.GetBan() || m.GetReason() != "spam" {
+		t.Fatalf("guest got %v", &m)
+	}
+	if bans := s.currentBans(); len(bans) != 1 || bans[0].Duration != time.Hour || bans[0].Reason != "spam" || !bans[0].Prefix.IsValid() {
+		t.Fatalf("bans %+v", bans)
+	}
+}
