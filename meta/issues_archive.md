@@ -124,3 +124,4 @@
 - [x] [Web: notice when a new version is deployed](issues/web-update-notice.md)
 - [x] [Streaming: previews and viewer list](issues/streaming-previews.md)
 - [x] [Streaming: sound, also for Mumble clients](issues/streaming-sound.md)
+- [x] [Clicking a reply quote jumps to the original](issues/reply-quote-jump.md)

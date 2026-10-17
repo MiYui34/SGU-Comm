@@ -14,6 +14,7 @@
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
+  import { jumpStep } from "../lib/jump";
   import { tick, untrack, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
@@ -362,30 +363,33 @@
     const line = list?.querySelector(`[data-message="${id}"]`);
     if (!line) return; // not loaded
     line.scrollIntoView({ block: "center" });
+    trackBottom(); // now, before an image load could pull it back down
     flashed = id;
     setTimeout(() => (flashed = flashed === id ? null : flashed), 1500);
   };
 
   let searchText = $state("");
-  // Jump to a search result: page back until it is loaded (a few pages at
-  // most), then scroll there.
-  const MAX_JUMP_PAGES = 10;
+  // Jump to a search result (jumpTarget) or a reply's original (seeking)
+  // once it is loaded (see jumpStep).
+  let seeking = $state<number | null>(null);
+  const wanted = $derived(jumpTarget ?? seeking);
   let jumpPages = 0;
   $effect(() => {
-    void jumpTarget;
+    void wanted;
     jumpPages = 0;
   });
   $effect(() => {
-    const id = jumpTarget;
+    const id = wanted;
     if (id === null) return;
-    if (messages.some((m) => idOf(m) === id)) {
-      void tick().then(() => {
-        jumpTo(id);
-        onJumped?.();
-      });
-    } else if (more && onLoadOlder && !loadingOlder && jumpPages < MAX_JUMP_PAGES) {
+    const loaded = messages.some((m) => idOf(m) === id);
+    const step = jumpStep({ loaded, more: more && !!onLoadOlder, loading: loadingOlder, pages: jumpPages });
+    if (step === "load") {
       jumpPages++;
-      onLoadOlder();
+      onLoadOlder?.();
+    } else if (step !== "wait") {
+      seeking = null;
+      onJumped?.();
+      if (step === "jump") void tick().then(() => jumpTo(id));
     }
   });
 </script>
@@ -682,7 +686,7 @@
 {#snippet body(m: ChatMessage | DisplayMessage)}
   {#if "reply" in m && m.reply}
     {@const quote = m.reply}
-    <button type="button" class="quote" onclick={() => jumpTo(quote.id)}>
+    <button type="button" class="quote" onclick={() => quote.author && (seeking = quote.id)}>
       {#if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{quote.text}</span>
       {:else}<em>The original message was deleted.</em>{/if}
     </button>
