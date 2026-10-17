@@ -16,6 +16,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/password"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -63,5 +64,30 @@ func TestWebAccountsJoinTheBuiltInServer(t *testing.T) {
 	// free for new accounts.
 	if !b.nameTaken("alice") || b.nameTaken("nobody") {
 		t.Fatal("nameTaken")
+	}
+}
+
+func TestAccountLoginChecksTheAccountPassword(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	certPEM, keyPEM, _ := certs.Generate("alice")
+	hash, _ := password.Hash("secret pw")
+	alice, _ := db.CreateAccount(store.Account{Name: "Alice", PasswordHash: hash, CertPEM: certPEM, KeyPEM: keyPEM}, time.Now())
+	db.CreateAccount(store.Account{Name: "gus", CertPEM: certPEM, KeyPEM: keyPEM, Temporary: true}, time.Now())
+	login := accountLogin(db)
+	if a, ok := login("alice", "secret pw"); !ok || a == nil || a.Name != "Alice" || a.CertHash != accountCertHash(alice) {
+		t.Fatalf("right password: %+v %v", a, ok)
+	}
+	if a, ok := login("Alice", "wrong"); ok || a != nil {
+		t.Fatalf("wrong password: %+v %v", a, ok)
+	}
+	// Guest accounts and unknown names: no account to log in to.
+	for _, name := range []string{"gus", "nobody"} {
+		if a, ok := login(name, "secret pw"); !ok || a != nil {
+			t.Fatalf("%s: %+v %v", name, a, ok)
+		}
 	}
 }

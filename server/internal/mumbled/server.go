@@ -35,6 +35,10 @@ type Config struct {
 	// still exists (a guest account can be deleted while it connects).
 	// Nil: yes.
 	WebAccountExists func(name, certHash string) bool
+	// AccountLogin checks a Kallisti account's password, for Mumble clients
+	// that log in with it. It returns the account, or nil if the name has
+	// no account with a password; ok false: wrong password. Nil: none.
+	AccountLogin func(name, password string) (a *WebAccount, ok bool)
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
 	OnChannelText func(ChannelText)

@@ -49,6 +49,25 @@ func accountExists(db *store.Store) func(name string) bool {
 	}
 }
 
+// accountLogin: Mumble clients may log in with an account's password.
+// Guest accounts have none; on a database error the name stays reserved.
+// Names without an account skip argon2: ReservedName tells them anyway.
+func accountLogin(db *store.Store) func(name, pw string) (*mumbled.WebAccount, bool) {
+	return func(name, pw string) (*mumbled.WebAccount, bool) {
+		acc, err := db.AccountByName(name)
+		if err != nil || acc.Temporary || acc.PasswordHash == "" {
+			return nil, true
+		}
+		release := password.Limit()
+		ok := password.Check(acc.PasswordHash, pw)
+		release()
+		if !ok {
+			return nil, false
+		}
+		return &mumbled.WebAccount{Name: acc.Name, CertHash: accountCertHash(acc)}, true
+	}
+}
+
 // startBuiltin starts the server. With a hub, voice channels get stored
 // chats (publicBase: the server's address, for upload links).
 func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, publicBase string) (*builtin, error) {
@@ -128,6 +147,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 			acc, err := db.AccountByName(name)
 			return err == nil && accountCertHash(acc) == hash
 		},
+		AccountLogin:        accountLogin(db),
 		OnChannelText:       onText,
 		OnPrivateText:       onPrivate,
 		OnRolesChanged:      onRoles,

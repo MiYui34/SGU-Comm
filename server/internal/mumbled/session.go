@@ -135,12 +135,8 @@ func (s *Server) identify(h hello, hash string, host netip.Addr, account *WebAcc
 	if s.logins.blocked(host) {
 		return identity{}, mumble.RejectFrame(pb.Reject_None, "Too many failed logins. Please try again later.")
 	}
-	if b := s.banned(host, hash); b != nil {
-		reason := "You are banned from this server."
-		if b.Reason != "" {
-			reason = "You are banned from this server: " + b.Reason
-		}
-		return identity{}, mumble.RejectFrame(pb.Reject_None, reason)
+	if reject := s.bannedReject(host, hash); reject != nil {
+		return identity{}, reject
 	}
 	if account != nil {
 		return s.identifyAccount(h, account)
@@ -155,10 +151,27 @@ func (s *Server) identify(h hello, hash string, host netip.Addr, account *WebAcc
 			return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "Please try again later.")
 		}
 	}
-	r, ok := authenticate(byName, byHash, h.password, hash, checkPassword)
-	if !ok {
+	wrongPassword := func() (identity, []byte) {
 		s.logins.failed(host)
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongUserPW, "Wrong certificate or password for existing user.")
+	}
+	// A Kallisti account's name and password: the account (as on the web,
+	// without the server password). Registrations with a password first.
+	if s.cfg.AccountLogin != nil && h.password != "" && (byName == nil || byName.PasswordHash == "") {
+		a, ok := s.cfg.AccountLogin(h.name, h.password)
+		if !ok {
+			return wrongPassword()
+		}
+		if a != nil {
+			if reject := s.bannedReject(host, a.CertHash); reject != nil {
+				return identity{}, reject
+			}
+			return s.identifyAccount(h, a)
+		}
+	}
+	r, ok := authenticate(byName, byHash, h.password, hash, checkPassword)
+	if !ok {
+		return wrongPassword()
 	}
 	if r != nil {
 		comment, texture, err := s.cfg.DB.UserContent(r.ID)
@@ -179,6 +192,19 @@ func (s *Server) identify(h hello, hash string, host netip.Addr, account *WebAcc
 		return identity{}, mumble.RejectFrame(pb.Reject_WrongServerPW, "Wrong server password.")
 	}
 	return identity{name: h.name, hash: hash, tokens: h.tokens}, nil
+}
+
+// bannedReject is the Reject for a banned address or certificate, or nil.
+func (s *Server) bannedReject(host netip.Addr, hash string) []byte {
+	b := s.banned(host, hash)
+	if b == nil {
+		return nil
+	}
+	reason := "You are banned from this server."
+	if b.Reason != "" {
+		reason = "You are banned from this server: " + b.Reason
+	}
+	return mumble.RejectFrame(pb.Reject_None, reason)
 }
 
 // identifyAccount: a Kallisti account is a registered user, made on its
