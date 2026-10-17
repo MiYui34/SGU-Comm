@@ -131,3 +131,4 @@
 - [x] [Hide a user's messages (block)](issues/block-user.md)
 - [x] [Search filters](issues/search-filters.md)
 - [x] [Keyboard: quick switcher and channel keys](issues/keyboard-navigation.md)
+- [x] [Unread count in the tab, installable app](issues/tab-badge-pwa.md)

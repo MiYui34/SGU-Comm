@@ -13,4 +13,3 @@
 - [ ] [Small gaps to Discord](issues/discord-small-gaps.md)
   - [ ] [Copy a link to a message](issues/message-links.md)
   - [ ] [@here and @everyone](issues/mention-everyone.md)
-  - [ ] [Unread count in the tab, installable app](issues/tab-badge-pwa.md)
