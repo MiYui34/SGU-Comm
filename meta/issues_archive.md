@@ -133,3 +133,5 @@
 - [x] [Keyboard: quick switcher and channel keys](issues/keyboard-navigation.md)
 - [x] [Unread count in the tab, installable app](issues/tab-badge-pwa.md)
 - [x] [Copy a link to a message](issues/message-links.md)
+- [x] [@here and @everyone](issues/mention-everyone.md)
+- [x] [Small gaps to Discord](issues/discord-small-gaps.md)

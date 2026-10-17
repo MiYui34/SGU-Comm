@@ -120,3 +120,26 @@ describe("replies ping", () => {
     expect(mentionCounts(state, {}, "lain")).toEqual({ 1: 1 });
   });
 });
+
+describe("@everyone and @here (flagged by the server)", () => {
+  it("ping all but the author", () => {
+    expect(pingsMe("@everyone hi", "mod", undefined, "lain", "everyone")).toBe(true);
+    expect(pingsMe("@here hi", "mod", undefined, "lain", "here")).toBe(true);
+    expect(pingsMe("@everyone hi", "lain", undefined, "lain", "everyone")).toBe(false);
+    expect(pingsMe("@everyone hi", "bob", undefined, "lain")).toBe(false); // not a moderator: plain text
+  });
+
+  it("are highlighted when flagged", () => {
+    expect(highlightMentions("@everyone hi", "lain", "everyone")).toBe('<span class="mention">@everyone</span> hi');
+    expect(highlightMentions("@everyone hi", "lain")).toBe("@everyone hi");
+  });
+
+  it("are in the counts", () => {
+    const state: TextState = {
+      ...initialTextState,
+      channels: [{ id: 1, name: "a" }],
+      messages: { 1: [{ id: 3, channel: 1, author: "mod", text: "@here now", at: 0, mentionAll: "here" }] },
+    };
+    expect(mentionCounts(state, {}, "lain")).toEqual({ 1: 1 });
+  });
+});

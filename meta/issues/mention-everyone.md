@@ -10,3 +10,11 @@ text.
 
 - Server checks the permission; tests.
 - Mentioned users get the mention badge and notification.
+
+## Notes
+
+- Only Kallisti users: Mumble clients cannot use them and are not pinged.
+- `@here` counts only for who is online when it is sent. A reload or a
+  reconnect before reading drops its badge (the server's summary at login
+  counts `@everyone` only).
+- Not in direct chats (every message there counts already).

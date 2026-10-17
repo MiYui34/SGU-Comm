@@ -447,6 +447,7 @@
   const replyOf = (m: ChatMessage | DisplayMessage) => ("reply" in m ? m.reply : undefined);
   // Mentions as notifications see them: in the written text, not the
   // Markdown result (Mumble messages have no source: their HTML).
+  const allOf = (m: ChatMessage | DisplayMessage) => (m as DisplayMessage).mentionAll; // @everyone, @here
   const pingText = (m: ChatMessage | DisplayMessage) => ("source" in m && m.source ? escapeHtml(m.source.text) : m.text);
   // Replies: the message we answer, and jumping to an original.
   let replying = $state<{ id: number; author: string } | null>(null);
@@ -815,7 +816,7 @@
 
 {#snippet lines(group: MessageGroup)}
   {#each group.messages as m, i (m)}
-    <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me)}
+    <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me, allOf(m))}
       class:flash={idOf(m) !== undefined && idOf(m) === flashed}
       class:sheet-open={sheetMessage === m}
       use:hold={() => openSheet(m)}
@@ -883,7 +884,7 @@
     </form>
   {:else if m.text}
     <div class="text">
-      {@html safe(highlightMentions(m.text, me), emojiImages.ok)}
+      {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}

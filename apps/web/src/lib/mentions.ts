@@ -6,14 +6,16 @@ import type { TextState } from "./textChannels";
 // Messages here are escaped HTML, so the name is matched escaped too; tags
 // are skipped.
 const NAME_CHAR = "[\\p{L}\\p{N}_-]";
-let cached: { name: string; re: RegExp } | null = null;
+const cached = new Map<string, RegExp>(); // a few names: mine, everyone, here
 const pattern = (name: string) => {
-  if (cached?.name !== name) {
+  let re = cached.get(name);
+  if (!re) {
     const escaped = escapeHtml(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    cached = { name, re: new RegExp(`(?<=^|[\\s(\\[{,:])@${escaped}(?!${NAME_CHAR})`, "giu") };
+    re = new RegExp(`(?<=^|[\\s(\\[{,:])@${escaped}(?!${NAME_CHAR})`, "giu");
+    cached.set(name, re);
   }
-  cached.re.lastIndex = 0;
-  return cached.re;
+  re.lastIndex = 0;
+  return re;
 };
 
 // Text outside tags, then tags, alternating.
@@ -28,16 +30,25 @@ const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export const mentionsMe = (html: string, author: string | null, me: string): boolean =>
   (author === null || !sameName(author, me)) && mentions(html, me);
 
-// A message that pings me: it mentions me, or answers a message of mine.
-export const pingsMe = (html: string, author: string | null, replyTo: string | undefined, me: string): boolean =>
-  mentionsMe(html, author, me) || (replyTo !== undefined && sameName(replyTo, me) && !(author !== null && sameName(author, me)));
+// "everyone" or "here": the server marked the message as a mention of all
+// (only moderators can).
+export const MENTION_ALL = ["everyone", "here"] as const;
+export type MentionAll = (typeof MENTION_ALL)[number];
+export const isMentionAll = (v: unknown): v is MentionAll => MENTION_ALL.includes(v as MentionAll);
 
-export const highlightMentions = (html: string, name: string): string =>
-  name === ""
-    ? html
-    : parts(html)
-        .map((p, i) => (i % 2 === 0 ? p.replace(pattern(name), (m) => `<span class="mention">${m}</span>`) : p))
-        .join("");
+// A message that pings me: it mentions me (or all), or answers a message
+// of mine.
+export const pingsMe = (html: string, author: string | null, replyTo: string | undefined, me: string, all?: MentionAll): boolean => {
+  const mine = author !== null && sameName(author, me);
+  return mentionsMe(html, author, me) || (!mine && (!!all || (replyTo !== undefined && sameName(replyTo, me))));
+};
+
+export const highlightMentions = (html: string, name: string, all?: MentionAll): string => {
+  const names = [name, all ?? ""].filter((n) => n !== "");
+  return parts(html)
+    .map((p, i) => (i % 2 === 0 ? names.reduce((s, n) => s.replace(pattern(n), (m) => `<span class="mention">${m}</span>`), p) : p))
+    .join("");
+};
 
 // Unseen messages per channel that mention me (not my own), for badges:
 // the server's count up to its summary (if not read that far), plus
@@ -64,7 +75,7 @@ export const mentionCounts = (
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
       const m = msgs[i]!;
       if (blocked(m.author)) continue;
-      if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me)) n++;
+      if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me, m.mentionAll)) n++;
     }
     if (n) out[channel] = n;
   }

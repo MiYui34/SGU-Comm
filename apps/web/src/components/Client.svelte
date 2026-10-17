@@ -39,7 +39,7 @@
   import type { Place, View } from "../lib/place";
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
-  import { pingsMe } from "../lib/mentions";
+  import { MENTION_ALL, pingsMe } from "../lib/mentions";
   import { blockedUsers, mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
@@ -486,7 +486,7 @@
         if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
-      if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name)) return;
+      if (!pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me.name, m.mentionAll)) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
       const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
@@ -568,9 +568,11 @@
   let jumpTarget = $state<number | null>(null);
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
-  // Names "@" suggests: who is online, and who wrote in the open chat.
+  // Names "@" suggests: who is online, and who wrote in the open chat;
+  // for moderators also everyone and here (stored chats, see lib/mentions).
   const people = $derived([
     ...new Set([...users.map((u) => u.name), ...textChat.flatMap((m) => (m.actorName ? [m.actorName] : []))]),
+    ...((textId ?? voiceChatId) !== null && canManageText(server, text) ? MENTION_ALL : []),
   ]);
   // One upload at a time. Errors show where server errors show.
   let uploading = $state(false);

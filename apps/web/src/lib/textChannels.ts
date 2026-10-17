@@ -5,6 +5,7 @@ import type { Reaction } from "./reactions";
 import type { LinkPreview } from "./linkPreview";
 import type { Speaker } from "./listenOnly";
 import type { Roles } from "./roles";
+import { isMentionAll, type MentionAll } from "./mentions";
 import type { SearchQuery } from "./search";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -29,6 +30,7 @@ export type TextMessage = {
   // The message it answers (author empty: deleted since).
   reply?: Quote;
   reactions?: Reaction[];
+  mentionAll?: MentionAll;
 };
 export type Quote = { id: number; author: string; text: string };
 // A chat line for display: a text channel message can carry an attachment
@@ -43,6 +45,7 @@ export type DisplayMessage = ChatMessage & {
   source?: { id: number; text: string };
   reply?: Quote;
   reactions?: Reaction[];
+  mentionAll?: MentionAll;
 };
 
 export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
@@ -237,7 +240,8 @@ const isMessage = (v: unknown): v is TextMessage =>
   (v.pinned === undefined || isNum(v.pinned)) &&
   (v.reply === undefined || (isObj(v.reply) && isNum(v.reply.id) && isStr(v.reply.author) && isStr(v.reply.text))) &&
   (v.upload === undefined || isAttachment(v.upload)) &&
-  (v.reactions === undefined || isReactions(v.reactions));
+  (v.reactions === undefined || isReactions(v.reactions)) &&
+  (v.mentionAll === undefined || isMentionAll(v.mentionAll));
 
 // Network input: anything unexpected is dropped.
 export const parseServerEvent = (raw: string): ServerEvent | null => {
@@ -554,6 +558,7 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
       ...(m.pinned !== undefined && { pinned: m.pinned }),
       ...(m.reply && { reply: m.reply }),
       ...(m.reactions?.length && { reactions: m.reactions }),
+      ...(m.mentionAll && { mentionAll: m.mentionAll }),
       ...(m.upload && url && { upload: spoilerUpload({ ...m.upload, url }) }),
     };
     chatCache.set(m, { chat, channels });
