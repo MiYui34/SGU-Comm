@@ -9,8 +9,3 @@
   - [ ] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
-- [ ] [Discord gaps, second round](issues/discord-gaps-2.md)
-  - [ ] [Custom server emoji](issues/custom-emoji.md)
-  - [ ] [Idle, do not disturb, custom status](issues/presence.md)
-  - [ ] [Bio in the profile](issues/bio.md)
-  - [ ] [Moderation in the web app](issues/web-moderation.md)

@@ -349,3 +349,27 @@ From `meta/research/discord-comparison.md`.
   whole table (0.1 ms became 13 ms at 300k rows), so the query has two forms.
 - Chrome needs no service worker to install a web app any more; the
   manifest and icons are enough.
+
+## Discord gaps, second round (2026-10-17)
+
+- Built partly by parallel agents in git worktrees, merged at the end. The
+  merges conflicted only where each branch added to the same lists (ready
+  event fields, request types, the user menu); resolving meant keeping both.
+- Light theme: a plain script in `<head>` (`public/theme.js`, allowed by
+  `script-src 'self'`) sets the theme before the CSS paints; the app sets it
+  again from the settings. The default stays dark.
+- Channel notifications keep the old localStorage key: the parser reads
+  the old list of muted ids as mutes "until turned off".
+- Custom emoji images are blobs in SQLite, not files in UPLOAD_DIR: the
+  cleanup of unattached uploads would delete them. Their ids are never used
+  again, so the image URLs can be cached for ever. `:name:` images are added
+  after sanitizing, like Twemoji, so message HTML cannot forge them.
+- The bio is the Mumble user comment. Long comments come only as a hash;
+  the web client fetches them when shown (user menu, settings), not all at
+  once like avatars.
+- Statuses: "invisible" does not fit Mumble (everyone sees who is
+  connected). Away is sent by the client and not stored; the chosen status
+  is stored for registered users.
+- Time-outs mute in the built-in server and block chat in the sidecar.
+  Guests are timed out by session, so reconnecting ends it for them; a ban
+  is the tool for guests.

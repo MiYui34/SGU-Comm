@@ -140,3 +140,8 @@
 - [x] [Notifications per channel, mute for a time](issues/channel-notifications.md)
 - [x] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
 - [x] [Suggestions in search and for #channels](issues/search-and-channel-suggestions.md)
+- [x] [Custom server emoji](issues/custom-emoji.md)
+- [x] [Idle, do not disturb, custom status](issues/presence.md)
+- [x] [Bio in the profile](issues/bio.md)
+- [x] [Moderation in the web app](issues/web-moderation.md)
+- [x] [Discord gaps, second round](issues/discord-gaps-2.md)
