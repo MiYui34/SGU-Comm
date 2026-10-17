@@ -73,6 +73,7 @@
     myId = null,
     previewOf,
     httpBase = "",
+    cannotWrite = null,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -135,6 +136,8 @@
     // Link previews of stored messages; images are on the server (httpBase).
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
+    // Why we cannot write now (a time-out); the message box says it.
+    cannotWrite?: string | null;
     // Text channels: attach a file (button, paste or drop), with a caption.
     onUpload?: (file: File, caption: string, reply?: number) => void;
     uploading?: boolean;
@@ -683,7 +686,7 @@
         <button type="button" aria-label="Cancel reply" onclick={() => (replying = null)}>×</button>
       </div>
     {/if}
-    <div class="composer" class:disabled={!onSend}>
+    <div class="composer" class:disabled={!onSend || cannotWrite}>
       <button
         type="button"
         class="attach"
@@ -764,8 +767,8 @@
         aria-controls={suggestions.length ? listId : undefined}
         aria-activedescendant={suggestions.length ? `${listId}-${active}` : undefined}
         bind:value={draft}
-        placeholder={pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`}
-        disabled={!onSend}
+        placeholder={cannotWrite ?? (pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`)}
+        disabled={!onSend || !!cannotWrite}
         aria-label="Message"
       ></textarea>
       {#if onSend}

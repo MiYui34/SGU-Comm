@@ -12,6 +12,7 @@
     setBans,
     unregister,
     privateMessagesWith,
+    queryPermissions,
     registerSelf,
     setSelfState,
     usersSorted,
@@ -37,7 +38,15 @@
   import { playPing } from "../lib/ping";
   import { ownsMessage } from "../lib/messages";
   import type { Place, View } from "../lib/place";
-  import { moderationRights } from "../lib/moderation";
+  import {
+    moderationRequest,
+    moderationRights,
+    permissionsToAsk,
+    timedOutUntil,
+    untilText,
+    userModeration,
+    type ModerationAction,
+  } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { MENTION_ALL, pingsMe } from "../lib/mentions";
   import { blockedUsers, mutedChannels, settings, userAudio } from "../lib/settings.svelte";
@@ -60,6 +69,7 @@
   import SettingsDialog from "./SettingsDialog.svelte";
   import Toast from "./Toast.svelte";
   import UserMenu from "./UserMenu.svelte";
+  import UserActionDialog from "./UserActionDialog.svelte";
   import QuickSwitcher, { type Place as SwitcherPlace } from "./QuickSwitcher.svelte";
   import Shortcuts from "./Shortcuts.svelte";
   import { IS_MAC, navAction, stepPlace } from "../lib/switcher";
@@ -597,11 +607,28 @@
   const openMenu = (session: number, event: MouseEvent) => {
     event.preventDefault();
     menu = { session, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
+    // Moderation needs our permissions in their channel and where to move them.
+    const user = server.users[session];
+    if (user && session !== server.session) for (const id of permissionsToAsk(server, text, user)) connection.send(queryPermissions(id));
   };
   // The user left: close their menu (Murmur reuses session numbers).
   $effect(() => {
     if (menu && !menuUser) menu = null;
   });
+  const menuModeration = $derived(menuUser ? userModeration(server, text, menuUser) : null);
+  const moderate = (session: number, a: ModerationAction) => {
+    const r = moderationRequest(session, a);
+    if ("mumble" in r) connection.send(r.mumble);
+    else connection.manage(r.manage);
+  };
+  // A kick, ban or time-out to confirm; closed when the user leaves (the
+  // session number may go to someone else).
+  let confirming = $state<{ kind: "kick" | "ban" | "timeout"; session: number; name: string; timedBans: boolean } | null>(null);
+  $effect(() => {
+    if (confirming && server.users[confirming.session]?.name !== confirming.name) confirming = null;
+  });
+  // Our own time-out: the message box says so.
+  const myTimeout = $derived(me ? timedOutUntil(text.timeouts, me) : null);
 
   // Unread direct messages per sender name, marked read while open.
   let readCounts = $state<Record<string, number>>({});
@@ -811,7 +838,23 @@
     role={roleOf(text.roles, menuUser.userId)}
     moderator={moderatorAction(server, text, menuUser)}
     onModerator={(on) => menuUser.userId !== null && connection.manage({ moderator: menuUser.userId, on })}
+    moderation={menuModeration}
+    timedOutUntil={timedOutUntil(text.timeouts, menuUser)}
+    onModerate={(a) => moderate(menuUser.session, a)}
+    onConfirm={(kind) =>
+      (confirming = { kind, session: menuUser.session, name: menuUser.name, timedBans: menuModeration?.timedBans ?? false })}
     onClose={() => (menu = null)}
+  />
+{/if}
+
+{#if confirming}
+  {@const c = confirming}
+  <UserActionDialog
+    kind={c.kind}
+    name={c.name}
+    timedBans={c.timedBans}
+    onSubmit={(a) => moderate(c.session, a)}
+    onClose={() => (confirming = null)}
   />
 {/if}
 
@@ -954,6 +997,7 @@
       {...pane}
       me={me?.name ?? ""}
       {people}
+      cannotWrite={myTimeout === null ? null : `You are timed out until ${untilText(myTimeout)}.`}
       mayEdit={mine}
       mayDelete={(m) => mine(m) || canManageText(server, text)}
       onEdit={connection.editMessage}

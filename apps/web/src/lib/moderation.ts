@@ -7,6 +7,7 @@ import {
   Perm,
   removeUser,
   type Channel,
+  type Bytes,
   type ChannelNode,
   type ServerState,
   type User,
@@ -106,7 +107,7 @@ export type ModerationAction =
 
 // What an action sends: a Mumble message, or a request to the Kallisti
 // server (timed bans and time-outs: Mumble has neither).
-export const moderationRequest = (session: number, a: ModerationAction): { mumble: Uint8Array } | { manage: ManageAction } => {
+export const moderationRequest = (session: number, a: ModerationAction): { mumble: Bytes } | { manage: ManageAction } => {
   switch (a.kind) {
     case "kick":
       return { mumble: removeUser(session, a.reason) };
