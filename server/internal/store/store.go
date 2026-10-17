@@ -40,6 +40,8 @@ type Message struct {
 	Upload    *Upload // optional attachment
 	Reply     *Quote  // the message it answers
 	Reactions []Reaction
+	// "everyone" or "here": the message mentions all (by a moderator).
+	MentionAll string
 }
 
 // Quote is the message a reply answers (Author empty: deleted since).
@@ -51,14 +53,15 @@ type Quote struct {
 
 // NewMessage is a message to store. UploadID 0: no attachment.
 type NewMessage struct {
-	ChannelID int64
-	Author    string
-	Verified  bool
-	AuthorID  uint32 // with Verified: the Mumble user id
-	Text      string
-	At        time.Time
-	UploadID  int64
-	ReplyTo   int64 // 0: not a reply; else a message in the same channel
+	ChannelID  int64
+	Author     string
+	Verified   bool
+	AuthorID   uint32 // with Verified: the Mumble user id
+	Text       string
+	At         time.Time
+	UploadID   int64
+	ReplyTo    int64  // 0: not a reply; else a message in the same channel
+	MentionAll string // "", "here" or "everyone" (see Message)
 }
 
 // Upload is a stored file. Key is the random, unguessable part of its URL.
@@ -323,6 +326,7 @@ func migrate(db *sql.DB) error {
 		{"reply_to", "INTEGER"},
 		{"author_id", "INTEGER"}, // the Mumble user id of verified authors
 		{"pinned_at", "INTEGER"},
+		{"mention_all", "TEXT NOT NULL DEFAULT ''"},
 	}); err != nil {
 		return err
 	}
@@ -645,11 +649,11 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply); err != nil {
+	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to, mention_all) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply, n.MentionAll); err != nil {
 		return Message{}, err
 	}
-	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote}
+	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote, MentionAll: n.MentionAll}
 	if upload.Valid {
 		u, err := scanUpload(tx.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE id = ?`, n.UploadID))
 		if err != nil {
@@ -687,7 +691,7 @@ func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 
 const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at, m.pinned_at,
 		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used,
-		m.reply_to, r.author, r.text
+		m.reply_to, r.author, r.text, m.mention_all
 	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
@@ -703,7 +707,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var replyAuthor, replyText sql.NullString
 	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited, &pinned,
 		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used,
-		&replyTo, &replyAuthor, &replyText); err != nil {
+		&replyTo, &replyAuthor, &replyText, &m.MentionAll); err != nil {
 		return Message{}, err
 	}
 	if authorID.Valid {
@@ -766,9 +770,9 @@ func (s *Store) MessageByID(id int64) (Message, error) {
 	return msgs[0], nil
 }
 
-// EditMessage replaces a message's text and returns it.
-func (s *Store) EditMessage(id int64, text string, at time.Time) (Message, error) {
-	res, err := s.db.Exec(`UPDATE messages SET text = ?, edited_at = ? WHERE id = ?`, text, at.UnixMilli(), id)
+// EditMessage replaces a message's text (and its MentionAll) and returns it.
+func (s *Store) EditMessage(id int64, text, mentionAll string, at time.Time) (Message, error) {
+	res, err := s.db.Exec(`UPDATE messages SET text = ?, edited_at = ?, mention_all = ? WHERE id = ?`, text, at.UnixMilli(), mentionAll, id)
 	if err != nil {
 		return Message{}, err
 	}

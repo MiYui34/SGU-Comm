@@ -447,10 +447,18 @@ func TestEditAndDeleteMessages(t *testing.T) {
 	chans, _ := s.Channels()
 	at := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	m, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "alice", Verified: true, Text: "helo", At: at})
-	edited, err := s.EditMessage(m.ID, "hello", at.Add(time.Minute))
+	edited, err := s.EditMessage(m.ID, "hello", "", at.Add(time.Minute))
 	if err != nil || edited.Text != "hello" || !edited.EditedAt.Equal(at.Add(time.Minute)) || edited.Author != "alice" {
 		t.Fatalf("edit: %+v %v", edited, err)
 	}
+	all, _ := s.AddMessage(NewMessage{ChannelID: chans[0].ID, Author: "mod", Text: "@here hi", At: at, MentionAll: "here"})
+	if got, _ := s.MessageByID(all.ID); got.MentionAll != "here" || all.MentionAll != "here" {
+		t.Fatalf("mention all: %+v", got)
+	}
+	if got, _ := s.EditMessage(all.ID, "hi", "", at); got.MentionAll != "" {
+		t.Fatalf("mention all after edit: %+v", got)
+	}
+	s.DeleteMessage(all.ID)
 	hist, _ := s.History(chans[0].ID, 0, 10)
 	if hist[0].Text != "hello" || hist[0].EditedAt.IsZero() {
 		t.Fatalf("history: %+v", hist[0])
@@ -472,7 +480,7 @@ func TestEditAndDeleteMessages(t *testing.T) {
 	if _, err := s.MessageByID(withFile.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted message: %v", err)
 	}
-	if _, err := s.EditMessage(withFile.ID, "x", at); !errors.Is(err, ErrNotFound) {
+	if _, err := s.EditMessage(withFile.ID, "x", "", at); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("edit deleted: %v", err)
 	}
 }
@@ -614,7 +622,7 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("syntax: %v %v", ids(got), err)
 	}
 	// Edits and deletes reach the index.
-	s.EditMessage(pizza.ID, "burgers", at)
+	s.EditMessage(pizza.ID, "burgers", "", at)
 	if got, _ := s.Search("pizzas", []int64{r}, "", 10); len(got) != 0 {
 		t.Fatalf("after edit: %v", ids(got))
 	}

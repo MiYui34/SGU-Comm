@@ -287,18 +287,19 @@ type wireChannel struct {
 }
 
 type wireMessage struct {
-	ID        int64          `json:"id"`
-	Channel   int64          `json:"channel"`
-	Author    string         `json:"author"`
-	Text      string         `json:"text"`
-	At        int64          `json:"at"` // Unix milliseconds
-	Verified  bool           `json:"verified"`
-	AuthorID  *uint32        `json:"authorId,omitempty"` // with verified (unknown for old messages)
-	Upload    *wireUpload    `json:"upload,omitempty"`
-	Edited    int64          `json:"edited,omitempty"` // Unix milliseconds
-	Pinned    int64          `json:"pinned,omitempty"` // Unix milliseconds
-	Reply     *wireQuote     `json:"reply,omitempty"`
-	Reactions []wireReaction `json:"reactions,omitempty"`
+	ID         int64          `json:"id"`
+	Channel    int64          `json:"channel"`
+	Author     string         `json:"author"`
+	Text       string         `json:"text"`
+	At         int64          `json:"at"` // Unix milliseconds
+	Verified   bool           `json:"verified"`
+	AuthorID   *uint32        `json:"authorId,omitempty"` // with verified (unknown for old messages)
+	Upload     *wireUpload    `json:"upload,omitempty"`
+	Edited     int64          `json:"edited,omitempty"` // Unix milliseconds
+	Pinned     int64          `json:"pinned,omitempty"` // Unix milliseconds
+	Reply      *wireQuote     `json:"reply,omitempty"`
+	Reactions  []wireReaction `json:"reactions,omitempty"`
+	MentionAll string         `json:"mentionAll,omitempty"` // "here" or "everyone"
 }
 
 // wireQuote is the start of the message a reply answers (author empty:
@@ -347,6 +348,7 @@ func toWire(m store.Message) wireMessage {
 	if len(m.Reactions) > 0 {
 		w.Reactions = toWireReactions(m.Reactions)
 	}
+	w.MentionAll = m.MentionAll
 	return w
 }
 
@@ -607,6 +609,10 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		return
 	}
 	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply}
+	// Not in direct chats: there every message counts already.
+	if !ch.direct && c.hub.voice != nil && c.hub.voice.MayManage(id.Session) {
+		n.MentionAll = mentionAllOf(text)
+	}
 	if req.Reply != 0 {
 		if orig, err := c.hub.store.MessageByID(req.Reply); err != nil || orig.ChannelID != req.Channel {
 			c.sendError("the message to answer is not in this channel")

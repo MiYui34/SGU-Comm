@@ -70,7 +70,12 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		case !valid:
 			c.sendError(textError)
 		default:
-			if m, err = h.store.EditMessage(m.ID, text, h.now()); err != nil {
+			// No new pings by an edit; one taken out is gone.
+			all := m.MentionAll
+			if all != "" && mentionAllOf(text) != all {
+				all = ""
+			}
+			if m, err = h.store.EditMessage(m.ID, text, all, h.now()); err != nil {
 				c.sendError("cannot edit the message")
 				return
 			}

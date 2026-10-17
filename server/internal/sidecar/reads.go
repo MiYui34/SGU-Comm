@@ -25,6 +25,23 @@ func mentionPattern(name string) *regexp.Regexp {
 
 func mentionsName(text, name string) bool { return mentionPattern(name).MatchString(text) }
 
+// mentionAll: @everyone first (it wins), then @here.
+var mentionAll = []struct {
+	name    string
+	pattern *regexp.Regexp
+}{{"everyone", mentionPattern("everyone")}, {"here", mentionPattern("here")}}
+
+// mentionAllOf is "everyone" for @everyone, "here" for @here (moderators
+// only: the caller checks), else "".
+func mentionAllOf(text string) string {
+	for _, all := range mentionAll {
+		if all.pattern.MatchString(text) {
+			return all.name
+		}
+	}
+	return ""
+}
+
 type summaryEntry struct {
 	Channel  int64   `json:"channel"`
 	Voice    uint32  `json:"voice,omitempty"`  // a voice channel's chat
@@ -128,7 +145,9 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 		e.Latest = latest
 		for _, m := range msgs {
 			repliesToMe := m.Reply != nil && m.Reply.Author != "" && names.Key(m.Reply.Author) == user
-			if !byUser(id, m) && (e.Direct != nil || mention.MatchString(m.Text) || repliesToMe) {
+			// @here only reached who was there (live).
+			all := m.MentionAll == "everyone"
+			if !byUser(id, m) && (e.Direct != nil || all || mention.MatchString(m.Text) || repliesToMe) {
 				e.Mentions++
 			}
 		}
