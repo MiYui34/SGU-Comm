@@ -47,6 +47,7 @@ import { texturesToFetch } from "./avatar";
 import type { SearchQuery } from "./search";
 import { reactRequest } from "./reactions";
 import { previewsRequest } from "./linkPreview";
+import { awayRequest, setStatusRequest, type CustomStatus, type Presence } from "./presence";
 import { createCapture } from "./voice/capture.svelte";
 import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
@@ -226,6 +227,13 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     typing: (channel: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(typingRequest(channel));
+    },
+    // Our status and custom status (see lib/presence).
+    setStatus: (status: Presence, custom?: CustomStatus) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(setStatusRequest(status, custom));
+    },
+    setAway: (on: boolean) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(awayRequest(on));
     },
     markRead: (channel: number, message: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(markReadRequest(channel, message));
