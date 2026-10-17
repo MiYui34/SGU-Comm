@@ -27,8 +27,8 @@ pages. The quickest start, with Docker and the built-in server:
 
 ```sh
 umask 077
-printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/docker/.env
-docker compose -f deploy/docker/compose.yml up -d --remove-orphans
+printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/.env
+docker compose -f deploy/compose.yml up -d --remove-orphans
 ```
 
 - [Installing with Docker or Podman](docs/install-docker.md) (both ways)

@@ -90,6 +90,8 @@ spec:
           volumeMounts:
             - name: app-data
               mountPath: /data
+            - name: app-tmp
+              mountPath: /tmp
         - name: caddy
           image: {{ .Values.images.caddy | quote }}
           imagePullPolicy: IfNotPresent
@@ -154,6 +156,8 @@ spec:
         - name: app-data
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-app
+        - name: app-tmp
+          emptyDir: {}
         - name: caddy-data
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-caddy

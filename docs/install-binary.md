@@ -25,14 +25,14 @@ another machine: add `GOOS=linux GOARCH=amd64` (or `arm64`) for the server.
 ## Install
 
 On the server, as root, from the repository root (or a copy of `kallisti`,
-`apps/web/dist` and `deploy/systemd/`):
+`apps/web/dist` and `deploy/`):
 
 ```sh
 useradd --system --home /var/lib/kallisti --shell /usr/sbin/nologin kallisti
 mkdir -p /opt/kallisti
 cp kallisti /opt/kallisti/kallisti
 cp -r apps/web/dist /opt/kallisti/web
-install -o root -g root -m 0644 deploy/systemd/kallisti.service /etc/systemd/system/kallisti.service
+install -o root -g root -m 0644 deploy/kallisti.service /etc/systemd/system/kallisti.service
 ```
 
 Settings go into `/etc/kallisti.env` (readable by root only: it holds the

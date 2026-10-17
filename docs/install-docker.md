@@ -1,20 +1,20 @@
 # Installing with Docker or Podman
 
-The compose files in `deploy/docker/` run Kallisti and Caddy, which gets the HTTPS
+The compose files in `deploy/` run Kallisti and Caddy, which gets the HTTPS
 certificate by itself. Browsers allow the microphone only on secure pages,
 so Kallisti needs a domain with HTTPS. Run the commands below from the
-repository root. Existing installations moving from `deploy/` should follow
+repository root. Existing installations should follow
 [the upgrade instructions](updating.md#docker-or-podman) to keep their data.
 
 ## Built-in Mumble server (recommended)
 
-`deploy/docker/compose.yml` runs Kallisti (web app, voice, text channels, uploads)
+`deploy/compose.yml` runs Kallisti (web app, voice, text channels, uploads)
 and Caddy:
 
 ```sh
 umask 077
-printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/docker/.env
-docker compose -f deploy/docker/compose.yml up -d --remove-orphans
+printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" > deploy/.env
+docker compose -f deploy/compose.yml up -d --remove-orphans
 ```
 
 - Open `https://chat.example.org`. Mumble clients and the desktop app
@@ -26,12 +26,12 @@ docker compose -f deploy/docker/compose.yml up -d --remove-orphans
   copies a validated certificate and key to Kallisti's volume on startup
   and checks for renewals every minute. Until Caddy has a certificate,
   native Mumble clients see Kallisti's self-signed one. Check
-  `docker compose -f deploy/docker/compose.yml logs cert-sync` if that
+  `docker compose -f deploy/compose.yml logs cert-sync` if that
   warning persists after HTTPS is working. The copier needs read-only
   access to Caddy's private key and write access to Kallisti's data; keep
   Docker access restricted to trusted administrators.
 - Behind a reverse proxy that already runs in Docker, use
-  `deploy/docker/compose.behind-proxy.yml`: set `PROXY_NETWORK` to the proxy's
+  `deploy/compose.behind-proxy.yml`: set `PROXY_NETWORK` to the proxy's
   Docker network and point the proxy at `kallisti:8080`. This file has its
   own project name (`kallisti`), so it gets a new, empty volume
   (`kallisti_kallisti-data`): when you change from `compose.yml`, copy the
@@ -46,18 +46,17 @@ docker compose -f deploy/docker/compose.yml up -d --remove-orphans
 
 ## In front of an existing Murmur
 
-`deploy/docker/compose.murmur.yml` runs Kallisti and Caddy, without a Mumble port:
+`deploy/compose.murmur.yml` runs Kallisti and Caddy, without a Mumble port:
 
 ```sh
 umask 077
-printf 'DOMAIN=chat.example.org\nMUMBLE_HOST=voice.example.org\n' > deploy/docker/.env
-docker compose -f deploy/docker/compose.murmur.yml up -d
+printf 'DOMAIN=chat.example.org\nMUMBLE_HOST=voice.example.org\n' > deploy/.env
+docker compose -f deploy/compose.murmur.yml up -d
 ```
 
-- Murmur's TLS certificate is verified by default. If it is self-signed
-  and you cannot install a trusted certificate, set
-  `MUMBLE_INSECURE_TLS=1` in `deploy/docker/.env`; this disables upstream
-  identity checks. Earlier Compose files disabled them by default.
+- The Murmur variant keeps the previous default of accepting self-signed
+  certificates. Set `MUMBLE_INSECURE_TLS=0` in `deploy/.env` if Murmur has
+  a trusted certificate and you want Kallisti to verify it.
 - Each web user gets their own Mumble session on your Murmur, made by the
   Kallisti server. Murmur therefore sees all web users at the Kallisti
   server's address: set `autobanAttempts=0` in `murmur.ini`, or Murmur may
@@ -82,7 +81,7 @@ network, or pasta keep it.
 On Fedora and other SELinux systems, add `,z` to the Caddyfile mount
 (`./Caddyfile:/etc/caddy/Caddyfile:ro,z`), or Caddy cannot read it. If you
 raise `UPLOAD_MAX_MB` above 10, also raise the 11 MB request-body limit in
-`deploy/docker/Caddyfile`. For ports, volumes, backups and checks, see the
+`deploy/Caddyfile`. For ports, volumes, backups and checks, see the
 [Docker deployment guide](deploy/docker.md).
 
 ## Updates

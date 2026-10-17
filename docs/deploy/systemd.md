@@ -1,6 +1,6 @@
 # systemd deployment
 
-Follow [Installing without containers](../install-binary.md) for the build and host installation. The files in `deploy/systemd/` include the Kallisti service, a Caddyfile and a certificate-copy service and timer. The copier reuses `deploy/docker/sync-certificate.sh`; there is one validation and copy path for both deployment modes. The units target systemd 249 or newer.
+Follow [Installing without containers](../install-binary.md) for the build and host installation. The original Kallisti service stays at `deploy/kallisti.service`; `deploy/systemd/` has the host Caddyfile and new certificate-copy service and timer. The copier reuses `deploy/docker/sync-certificate.sh`; there is one validation and copy path for both deployment modes. The units target systemd 249 or newer.
 
 ## Boundaries and storage
 
