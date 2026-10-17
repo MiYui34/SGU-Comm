@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     type ChatMessage,
+    commentMissing,
     inVoice,
     isLobby,
     joinChannel,
@@ -27,7 +28,7 @@
   import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
-  import { htmlToText } from "../lib/htmlText";
+  import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
@@ -613,6 +614,11 @@
   $effect(() => {
     if (menu && !menuUser) menu = null;
   });
+  // Long comments (bios) load when shown: in the menu, ours in the settings.
+  $effect(() => {
+    if (menuUser) connection.fetchComment(menuUser.session);
+    if (showSettings && me) connection.fetchComment(me.session);
+  });
 
   // Unread direct messages per sender name, marked read while open.
   let readCounts = $state<Record<string, number>>({});
@@ -872,6 +878,11 @@
       hasPicture: me.texture !== null || me.textureHash !== null,
       registered: me.userId !== null,
       onSet: connection.setTexture,
+    }}
+    bio={me && {
+      text: htmlToLines(me.comment),
+      loading: commentMissing(me),
+      onSave: connection.setComment,
     }}
     onClose={() => (showSettings = false)}
   />

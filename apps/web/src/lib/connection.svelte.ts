@@ -1,6 +1,7 @@
 import {
   addOwnMessage,
   audioFormat,
+  commentsToFetch,
   createMessageStream,
   decodeAudio,
   descriptionsToFetch,
@@ -10,9 +11,11 @@ import {
   initialState,
   ping,
   reduce,
+  requestComments,
   requestDescriptions,
   requestTextures,
   sendText,
+  setSelfComment,
   setSelfTexture,
   type Bytes,
   type MumbleMessage,
@@ -43,6 +46,7 @@ import {
   type ServerEvent,
   type TextState,
 } from "./textChannels";
+import { untrack } from "svelte";
 import { texturesToFetch } from "./avatar";
 import type { SearchQuery } from "./search";
 import { reactRequest } from "./reactions";
@@ -118,6 +122,16 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     askedTextures = next.asked;
     if (next.sessions.length) send(requestTextures(next.sessions));
   };
+  // Comments only for users the UI shows one of (see commentsToFetch).
+  let askedComments: ReadonlySet<string> = new Set();
+  // Untracked: an effect that calls it should not rerun on each state change.
+  const fetchComment = (session: number) =>
+    untrack(() => {
+      if (state.status !== "synced") return;
+      const next = commentsToFetch(state, [session], askedComments);
+      askedComments = next.asked;
+      if (next.sessions.length) send(requestComments(next.sessions));
+    });
 
   const send = (bytes: Bytes) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
@@ -299,6 +313,11 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     setTexture: (texture: Uint8Array) => {
       if (state.session !== null) send(setSelfTexture(state.session, texture));
     },
+    // Our comment (the bio), from plain text; a user's long comment.
+    setComment: (text: string) => {
+      if (state.session !== null) send(setSelfComment(state.session, text));
+    },
+    fetchComment,
     close: () => ws.close(),
   };
 };

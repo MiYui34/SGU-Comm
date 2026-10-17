@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
   import ProfilePicture from "./ProfilePicture.svelte";
+  import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notificationPermission } from "../lib/notify";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
@@ -21,6 +22,7 @@
     onEcho,
     account,
     profile,
+    bio,
   }: {
     settings: Settings;
     level: number;
@@ -41,7 +43,20 @@
     account?: AccountActions;
     // Our avatar picture.
     profile?: ComponentProps<typeof ProfilePicture>;
+    // Our bio as plain text (loading: a long one is not here yet).
+    bio?: { text: string; loading: boolean; onSave: (text: string) => void };
   } = $props();
+
+  // Saved when the field loses focus or the settings close. The draft
+  // follows changes of the text only (not of the rest of our state), and
+  // keeps the last text while a new long one loads (after our own save).
+  let lastBio = "";
+  const bioText = $derived.by(() => (bio && !bio.loading ? (lastBio = bio.text) : lastBio));
+  let bioDraft = $derived(bioText);
+  const saveBio = () => {
+    const text = bio ? bioToSave(bioDraft, bioText) : null;
+    if (text !== null) bio?.onSave(text);
+  };
 
   let dialog: HTMLDialogElement | undefined = $state();
   let echo = $state(false);
@@ -102,7 +117,13 @@
 
 <svelte:window onkeydowncapture={recordKey} />
 
-<dialog bind:this={dialog} onclose={onClose} aria-labelledby="settings-title">
+<dialog
+  bind:this={dialog}
+  onclose={() => {
+    saveBio();
+    onClose();
+  }}
+  aria-labelledby="settings-title">
   <header>
     <h2 id="settings-title">Settings</h2>
     <button class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
@@ -112,6 +133,14 @@
   {/if}
 
   {#if profile}<ProfilePicture {...profile} />{/if}
+
+  {#if bio}
+    <label class="bio">
+      <span class="label-row">About me <span class="count">{bioDraft.length}/{BIO_MAX}</span></span>
+      <textarea rows="3" maxlength={BIO_MAX} disabled={bio.loading && !bioText} bind:value={bioDraft} onblur={saveBio}></textarea>
+      <span class="hint">Everyone on the server sees it, in Mumble apps too.</span>
+    </label>
+  {/if}
 
   <label>
     Theme
@@ -486,6 +515,29 @@
   }
   .logout:hover {
     background: var(--bg-hover);
+  }
+  .bio {
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .label-row {
+    display: flex;
+    justify-content: space-between;
+  }
+  .count {
+    font-weight: normal;
+    color: var(--text-faint);
+  }
+  textarea {
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    text-transform: none;
+    resize: vertical;
   }
   .hint {
     margin: 0;

@@ -3,6 +3,7 @@ import {
   audioFormat,
   channelSiblings,
   channelTree,
+  commentsToFetch,
   descriptionsToFetch,
   inVoice,
   isLobby,
@@ -236,5 +237,30 @@ describe("missingTextures", () => {
       },
     };
     expect(missingTextures(s)).toEqual([1]);
+  });
+});
+
+describe("commentsToFetch", () => {
+  const withHash = (hash: string): ServerState => ({
+    ...initialState,
+    users: { 2: { ...emptyUser(2), commentHash: hash }, 3: { ...emptyUser(3), commentHash: "cc" } },
+  });
+
+  it("asks for the given users only, once per user and hash", () => {
+    const first = commentsToFetch(withHash("aa"), [2, 4], new Set());
+    expect(first.sessions).toEqual([2]);
+    expect(commentsToFetch(withHash("aa"), [2], first.asked).sessions).toEqual([]);
+    expect(commentsToFetch(withHash("bb"), [2], first.asked).sessions).toEqual([2]);
+  });
+
+  it("does not ask when the text is there", () => {
+    const s = withHash("aa");
+    const loaded = { ...s, users: { ...s.users, 2: { ...s.users[2]!, comment: "long text" } } };
+    expect(commentsToFetch(loaded, [2], new Set()).sessions).toEqual([]);
+  });
+
+  it("forgets users who left", () => {
+    const { asked } = commentsToFetch(withHash("aa"), [2], new Set());
+    expect(commentsToFetch(initialState, [], asked).asked.size).toBe(0);
   });
 });

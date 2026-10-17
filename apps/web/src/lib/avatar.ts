@@ -1,4 +1,4 @@
-import { missingTextures, type ServerState } from "@kallisti/protocol";
+import { blobsToFetch, missingTextures, type ServerState } from "@kallisti/protocol";
 import { getContext, setContext } from "svelte";
 
 const COLORS = ["#e2745b", "#d9a33b", "#5aa469", "#3ba99c", "#4f8fd6", "#8a6fd1", "#c763a6", "#7c8794"];
@@ -105,11 +105,8 @@ export const pictureLookup =
         ? `${httpBase}/api/avatars/${encodeURIComponent(name)}`
         : null;
 
-// Avatars known only by their hash, to fetch: once per user and picture.
-// Users who left are forgotten (Murmur reuses session numbers).
+// Avatars known only by their hash, to fetch (all of them, see blobsToFetch).
 export const texturesToFetch = (state: ServerState, asked: ReadonlySet<string>) => {
-  const key = (session: number) => `${session}:${state.users[session]?.textureHash}`;
-  const kept = [...asked].filter((k) => state.users[Number(k.split(":")[0])] !== undefined);
-  const sessions = missingTextures(state).filter((s) => !asked.has(key(s)));
-  return { sessions, asked: new Set([...kept, ...sessions.map(key)]) };
+  const { ids, asked: next } = blobsToFetch(missingTextures(state), (s) => state.users[s]?.textureHash, asked);
+  return { sessions: ids, asked: next };
 };

@@ -32,6 +32,10 @@ export type User = {
   // come as a hash first: fetch them with a RequestBlob (missingTextures).
   texture: Uint8Array | null;
   textureHash: string | null;
+  // The comment (the bio, HTML). Long ones come as a hash first, with the
+  // text "" until fetched (see commentsToFetch).
+  comment: string;
+  commentHash: string | null;
 };
 
 export type ChatMessage = {
@@ -140,6 +144,8 @@ export const emptyUser = (session: number): User => ({
   recording: false,
   texture: null,
   textureHash: null,
+  comment: "",
+  commentHash: null,
 });
 
 const parseVersion = (msg: pb.Version): Version =>
@@ -168,9 +174,9 @@ const BLOB_HASH_MIN = 128;
 
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 
-const isShortDescription = (msg: pb.ChannelState) =>
-  isFieldSet(msg, pb.ChannelStateSchema.field.description) &&
-  new TextEncoder().encode(msg.description).length < BLOB_HASH_MIN;
+// Text that is set and short: it always comes inline.
+const isShortText = (msg: Message, field: DescField, text: string) =>
+  isFieldSet(msg, field) && new TextEncoder().encode(text).length < BLOB_HASH_MIN;
 
 const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerState => {
   const prev = state.channels[msg.channelId] ?? emptyChannel(msg.channelId);
@@ -189,7 +195,7 @@ const applyChannelState = (state: ServerState, msg: pb.ChannelState): ServerStat
       "temporary",
     ]),
     // Short texts always come inline, so any earlier hash is out of date.
-    descriptionHash: isShortDescription(msg) ? null : hash,
+    descriptionHash: isShortText(msg, pb.ChannelStateSchema.field.description, msg.description) ? null : hash,
   };
   return { ...state, channels: { ...state.channels, [msg.channelId]: next } };
 };
@@ -211,6 +217,11 @@ const applyUserState = (state: ServerState, msg: pb.UserState): ServerState => {
       "userId",
     ]),
   };
+  // Comments work as channel descriptions (see applyChannelState).
+  const commentHash = isFieldSet(msg, pb.UserStateSchema.field.commentHash) ? hex(msg.commentHash) : prev.commentHash;
+  if (commentHash !== prev.commentHash) next.comment = "";
+  if (isFieldSet(msg, pb.UserStateSchema.field.comment)) next.comment = msg.comment;
+  next.commentHash = isShortText(msg, pb.UserStateSchema.field.comment, msg.comment) ? null : commentHash;
   if (next.userId === UNREGISTERED) next.userId = null;
   if (isFieldSet(msg, pb.UserStateSchema.field.textureHash)) {
     const hash = hex(msg.textureHash);

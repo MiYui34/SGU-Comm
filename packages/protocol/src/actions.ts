@@ -15,9 +15,12 @@ export const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => HTML
 // A channel, or one user for a private message.
 export type TextTarget = { channelId: number } | { session: number };
 
+// Plain text as Mumble's HTML: escaped, line breaks as tags.
+export const textToHtml = (text: string) => escapeHtml(text).replaceAll("\n", "<br>");
+
 export const textMessageInit = (target: TextTarget, text: string) => ({
   ...("channelId" in target ? { channelId: [target.channelId] } : { session: [target.session] }),
-  message: escapeHtml(text).replaceAll("\n", "<br>"), // HTML: line breaks need tags
+  message: textToHtml(text),
 });
 
 export const sendText = (target: TextTarget, text: string) =>
@@ -40,6 +43,11 @@ export const requestDescriptions = (channelIds: number[]) =>
 export const requestTextures = (sessions: number[]) => encodeMessage("RequestBlob", { sessionTexture: sessions });
 export const setSelfTexture = (session: number, texture: Uint8Array) =>
   encodeMessage("UserState", { session, texture });
+
+// Comments (the bio): fetch long ones; set ours from plain text.
+export const requestComments = (sessions: number[]) => encodeMessage("RequestBlob", { sessionComment: sessions });
+export const setSelfComment = (session: number, text: string) =>
+  encodeMessage("UserState", { session, comment: textToHtml(text) });
 
 export const registerSelf = (session: number) => encodeMessage("UserState", { session, userId: 0 });
 

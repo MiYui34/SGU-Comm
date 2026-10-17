@@ -20,8 +20,11 @@ import {
   requestTextures,
   sendText,
   setSelfState,
+  setSelfComment,
   setSelfTexture,
   textMessageInit,
+  textToHtml,
+  requestComments,
 } from "../src/actions";
 
 const decodeOne = (bytes: Uint8Array) => {
@@ -152,5 +155,20 @@ describe("ban list and registered users", () => {
 describe("textMessageInit", () => {
   it("sends line breaks as <br> (Mumble text is HTML)", () => {
     expect(textMessageInit({ session: 3 }, "a < b\nc").message).toBe("a &lt; b<br>c");
+  });
+});
+
+describe("comments", () => {
+  it("sends plain text as HTML: escaped, line breaks as <br>", () => {
+    expect(textToHtml("a < b & 'c'\nd")).toBe("a &lt; b &amp; &#39;c&#39;<br>d");
+  });
+
+  it("sets our comment and asks for long ones", () => {
+    const set = decodeOne(setSelfComment(7, "hi\nthere"));
+    if (set.type !== "UserState") throw new Error();
+    expect(set.message).toMatchObject({ session: 7, comment: "hi<br>there" });
+    const ask = decodeOne(requestComments([3]));
+    if (ask.type !== "RequestBlob") throw new Error();
+    expect(ask.message.sessionComment).toEqual([3]);
   });
 });
