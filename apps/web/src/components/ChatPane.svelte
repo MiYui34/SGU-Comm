@@ -10,6 +10,7 @@
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { quickReactions } from "../lib/emojiPicker";
   import { recentEmoji, usedEmoji } from "../lib/emojiPrefs.svelte";
+  import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
   import { opensLightbox } from "../lib/lightbox";
@@ -19,7 +20,7 @@
   import Lightbox from "./Lightbox.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { chatItems, formatDay, formatTime, formatTimestamp } from "../lib/chat";
+  import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
   import { nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
   import { tick, untrack, type Snippet } from "svelte";
@@ -140,7 +141,7 @@
   let list: HTMLElement | undefined = $state();
   // "Today at" must turn into "Yesterday at" after midnight.
   let now = $state(Date.now());
-  const items = $derived(chatItems(messages));
+  const items = $derived(chatItems(messages, blockedUsers.has));
   const target = $derived(kind === "dm" ? `@${title}` : kind === "text" ? `#${title}` : title);
 
   $effect(() => {
@@ -189,10 +190,14 @@
   // Counted: dragging over child elements fires enter/leave pairs.
   let dragDepth = $state(0);
   const dragging = $derived(dragDepth > 0);
-  // A chosen file waits above the message box until it is sent with Enter
-  // (with the typed text as caption) or cancelled.
+  // Groups of messages from blocked users that were shown anyway.
+  let unblocked = $state<ReadonlySet<string>>(new Set());
+  const groupKey = (g: MessageGroup) => `${g.actorName} ${g.at}`;
+  const unblock = (groups: MessageGroup[]) => (unblocked = new Set([...unblocked, ...groups.map(groupKey)]));
   // Spoiler attachments shown (by URL).
   let shownFiles = $state<ReadonlySet<string>>(new Set());
+  // A chosen file waits above the message box until it is sent with Enter
+  // (with the typed text as caption) or cancelled.
   let pending = $state<{ file: File; preview: string | null; spoiler: boolean } | null>(null);
   const cancelPending = () => {
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
@@ -465,7 +470,11 @@
     } else if (step !== "wait") {
       seeking = null;
       onJumped?.();
-      if (step === "jump") void tick().then(() => jumpTo(id));
+      if (step !== "jump") return;
+      // In hidden messages of a blocked user: shown first.
+      const hidden = items.find((i) => i.kind === "blocked" && i.groups.some((g) => g.messages.some((m) => idOf(m) === id)));
+      if (hidden?.kind === "blocked") unblock(hidden.groups);
+      void tick().then(() => jumpTo(id));
     }
   });
 </script>
@@ -590,46 +599,20 @@
     {/if}
 
     <ol class="messages">
-      {#each items as item (item.kind === "day" ? `day-${item.at}` : item.group.messages[0])}
+      {#each items as item (item.kind === "day" ? `day-${item.at}` : (item.kind === "group" ? item.group : item.groups[0]!).messages[0])}
         {#if item.kind === "day"}
           <li class="divider" role="separator"><span>{formatDay(item.at)}</span></li>
+        {:else if item.kind === "group"}
+          {@render lines(item.group)}
+        {:else if item.groups.some((g) => unblocked.has(groupKey(g)))}
+          {#each item.groups as group (group.messages[0])}{@render lines(group)}{/each}
         {:else}
-          {@const group = item.group}
-          {#each group.messages as m, i (m)}
-            <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me)}
-              class:flash={idOf(m) !== undefined && idOf(m) === flashed}
-              class:sheet-open={sheetMessage === m}
-              use:hold={() => openSheet(m)}
-              data-message={idOf(m)}>
-              {#if i === 0}
-                <div class="gutter">
-                  {#if group.actorName}
-                    <Avatar name={group.actorName} size={40} registered={"verified" in m && m.verified === true} />
-                  {:else}
-                    <span class="system-avatar"></span>
-                  {/if}
-                </div>
-                <div class="body">
-                  <div class="meta">
-                    <span class="author">{group.actorName ?? "Server"}</span>
-                    {#if "verified" in m && m.verified}
-                      <span class="verified" title="Registered on the server">✓<span class="sr-only">registered</span></span>
-                    {/if}
-                    <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
-                  </div>
-                  {@render body(m)}
-                </div>
-              {:else}
-                <div class="gutter">
-                  <time class="hover-time" datetime={new Date(m.at).toISOString()}>{formatTime(m.at)}</time>
-                </div>
-                <div class="body">
-                  {@render body(m)}
-                </div>
-              {/if}
-              {@render actions(m)}
-            </li>
-          {/each}
+          {@const n = item.groups.reduce((a, g) => a + g.messages.length, 0)}
+          {@const users = new Set(item.groups.map((g) => g.actorName)).size}
+          <li class="blocked-line">
+            {n === 1 ? "A message" : `${n} messages`} from {users === 1 ? "a blocked user" : "blocked users"}.
+            <button type="button" onclick={() => unblock(item.groups)}>Show</button>
+          </li>
         {/if}
       {/each}
     </ol>
@@ -803,11 +786,50 @@
   <Lightbox url={lightbox.url} name={lightbox.name} onClose={() => (lightbox = null)} />
 {/if}
 
+{#snippet lines(group: MessageGroup)}
+  {#each group.messages as m, i (m)}
+    <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyOf(m)?.author, me)}
+      class:flash={idOf(m) !== undefined && idOf(m) === flashed}
+      class:sheet-open={sheetMessage === m}
+      use:hold={() => openSheet(m)}
+      data-message={idOf(m)}>
+      {#if i === 0}
+        <div class="gutter">
+          {#if group.actorName}
+            <Avatar name={group.actorName} size={40} registered={"verified" in m && m.verified === true} />
+          {:else}
+            <span class="system-avatar"></span>
+          {/if}
+        </div>
+        <div class="body">
+          <div class="meta">
+            <span class="author">{group.actorName ?? "Server"}</span>
+            {#if "verified" in m && m.verified}
+              <span class="verified" title="Registered on the server">✓<span class="sr-only">registered</span></span>
+            {/if}
+            <time datetime={new Date(m.at).toISOString()}>{formatTimestamp(m.at, now)}</time>
+          </div>
+          {@render body(m)}
+        </div>
+      {:else}
+        <div class="gutter">
+          <time class="hover-time" datetime={new Date(m.at).toISOString()}>{formatTime(m.at)}</time>
+        </div>
+        <div class="body">
+          {@render body(m)}
+        </div>
+      {/if}
+      {@render actions(m)}
+    </li>
+  {/each}
+{/snippet}
+
 {#snippet body(m: ChatMessage | DisplayMessage)}
   {#if "reply" in m && m.reply}
     {@const quote = m.reply}
     <button type="button" class="quote" onclick={() => quote.author && (seeking = quote.id)}>
-      {#if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{hideSpoilers(quote.text)}</span>
+      {#if blockedUsers.has(quote.author)}<em>A message from a blocked user.</em>
+      {:else if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{hideSpoilers(quote.text)}</span>
       {:else}<em>The original message was deleted.</em>{/if}
     </button>
   {/if}
@@ -1247,6 +1269,22 @@
   }
   .text :global(.spoiler:not(.shown):hover) {
     background: var(--bg-active);
+  }
+  .blocked-line {
+    padding: 4px 16px 4px 72px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .blocked-line button {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--link);
+    font: inherit;
+    cursor: pointer;
+  }
+  .blocked-line button:hover {
+    text-decoration: underline;
   }
   .spoiler-file {
     position: relative;

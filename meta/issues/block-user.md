@@ -9,4 +9,7 @@ Discord. Local only (this browser), by user name, like the voice mute.
 ## Acceptance Criteria
 
 - Unit tests for the setting; manual check in chat, DMs and search.
-- No notifications and no unread badge for blocked users' messages.
+- No notifications, no mention badge and no mention sound for blocked
+  users' messages. (The unread dot of a channel and the server's mention
+  count from before the login still count them: the server does not know
+  the list.)

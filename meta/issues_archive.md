@@ -128,3 +128,4 @@
 - [x] [Emoji picker](issues/emoji-picker.md)
 - [x] [Phones: message actions on long press](issues/mobile-message-sheet.md)
 - [x] [Spoilers](issues/spoilers.md)
+- [x] [Hide a user's messages (block)](issues/block-user.md)

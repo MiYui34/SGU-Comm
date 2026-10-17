@@ -11,7 +11,6 @@
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
 - [ ] [Small gaps to Discord](issues/discord-small-gaps.md)
-  - [ ] [Hide a user's messages (block)](issues/block-user.md)
   - [ ] [Keyboard: quick switcher and channel keys](issues/keyboard-navigation.md)
   - [ ] [Copy a link to a message](issues/message-links.md)
   - [ ] [Search filters](issues/search-filters.md)

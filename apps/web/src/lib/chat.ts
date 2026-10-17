@@ -28,15 +28,26 @@ export const groupMessages = (messages: readonly ChatMessage[]): MessageGroup[] 
   return groups;
 };
 
-export type ChatItem = { kind: "day"; at: number } | { kind: "group"; group: MessageGroup };
+export type ChatItem =
+  | { kind: "day"; at: number }
+  | { kind: "group"; group: MessageGroup }
+  | { kind: "blocked"; groups: MessageGroup[] };
 
-// Groups with a date divider before the first group of each day.
-export const chatItems = (messages: readonly ChatMessage[]): ChatItem[] =>
-  groupMessages(messages).flatMap((group, i, all) => {
-    const prev = all[i - 1];
-    const item: ChatItem = { kind: "group", group };
-    return prev && sameDay(prev.at, group.at) ? [item] : [{ kind: "day", at: group.at }, item];
-  });
+// Groups with a date divider before the first group of each day. Groups
+// of blocked users in a row (on one day) are one "blocked" item.
+export const chatItems = (messages: readonly ChatMessage[], blocked: (name: string) => boolean = () => false): ChatItem[] => {
+  const items: ChatItem[] = [];
+  let prev: MessageGroup | undefined;
+  for (const group of groupMessages(messages)) {
+    const hidden = group.actorName !== null && blocked(group.actorName);
+    if (!prev || !sameDay(prev.at, group.at)) items.push({ kind: "day", at: group.at });
+    prev = group;
+    const last = items.at(-1);
+    if (hidden && last?.kind === "blocked") last.groups.push(group);
+    else items.push(hidden ? { kind: "blocked", groups: [group] } : { kind: "group", group });
+  }
+  return items;
+};
 
 export const formatTime = (at: number, locale?: string) =>
   new Date(at).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });

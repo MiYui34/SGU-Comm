@@ -13,6 +13,8 @@
     x,
     y,
     onAudio,
+    blocked,
+    onBlock,
     onMessage,
     onSettings,
     role = null,
@@ -26,6 +28,9 @@
     x: number;
     y: number;
     onAudio: (patch: Partial<UserAudio>) => void;
+    // Their text messages hidden for me (see lib/blocked).
+    blocked: boolean;
+    onBlock: () => void;
     onMessage: () => void;
     onSettings: () => void;
     role?: Role | null;
@@ -74,6 +79,10 @@
     >
       Mute
       <span class="box" class:on={audio.muted} aria-hidden="true"></span>
+    </button>
+    <button role="switch" aria-checked={blocked} onclick={onBlock}>
+      Block messages
+      <span class="box" class:on={blocked} aria-hidden="true"></span>
     </button>
     {#if moderator && onModerator}
       <div class="sep"></div>

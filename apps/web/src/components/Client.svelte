@@ -39,7 +39,7 @@
   import { moderationRights } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { pingsMe } from "../lib/mentions";
-  import { mutedChannels, settings, userAudio } from "../lib/settings.svelte";
+  import { blockedUsers, mutedChannels, settings, userAudio } from "../lib/settings.svelte";
   import { mutedOn, withoutMuted } from "../lib/channelMute";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
@@ -408,7 +408,7 @@
       } else if (ev.type === "message") typers = stoppedTyping(typers, ev.message.channel, ev.message.author);
     }),
   );
-  const typingHere = $derived(chatId === null ? [] : typingNames(typers, chatId, typingNow, me?.name ?? ""));
+  const typingHere = $derived(chatId === null ? [] : typingNames(typers, chatId, typingNow, me?.name ?? "").filter((n) => !blockedUsers.has(n)));
   const anyoneTyping = $derived(typingHere.length > 0);
   // Another channel opened: names that ran out meanwhile go at once.
   $effect(() => {
@@ -427,7 +427,7 @@
     typingSent[chatId] = now;
     connection.typing(chatId);
   };
-  const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "");
+  const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "", blockedUsers.has);
   // Mentions in voice channel chats, by voice channel.
   const mentionVoice = $derived(
     Object.fromEntries(
@@ -448,6 +448,7 @@
     connection.onTextEvent((ev) => {
       if (ev.type !== "message" || !me) return;
       const m = ev.message;
+      if (blockedUsers.has(m.author)) return;
       const peer = text.directs[m.channel];
       if (peer) {
         if (m.author.toLowerCase() !== me.name.toLowerCase()) notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
@@ -467,7 +468,7 @@
     const counts = server.privateCounts;
     untrack(() => {
       for (const [peer, n] of Object.entries(counts)) {
-        if (n <= (privateSeen[peer] ?? 0)) continue;
+        if (n <= (privateSeen[peer] ?? 0) || blockedUsers.has(peer)) continue;
         const last = privateMessagesWith(server, peer).at(-1);
         const user = Object.values(server.users).find((u) => u.name === peer);
         if (last)
@@ -556,7 +557,7 @@
 
   // Unread direct messages per sender name, marked read while open.
   let readCounts = $state<Record<string, number>>({});
-  const unread = $derived(unreadCounts(server.privateCounts, readCounts));
+  const unread = $derived(Object.fromEntries(Object.entries(unreadCounts(server.privateCounts, readCounts)).filter(([name]) => !blockedUsers.has(name))));
   $effect(() => {
     if (dm === null) return;
     const [name, count] = [dm.name, server.privateCounts[dm.name] ?? 0];
@@ -700,6 +701,8 @@
     x={menu.x}
     y={menu.y}
     onAudio={(patch) => userAudio.update(menuUser.name, patch)}
+    blocked={blockedUsers.has(menuUser.name)}
+    onBlock={() => blockedUsers.toggle(menuUser.name)}
     onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
     onSettings={() => (showSettings = true)}
     role={roleOf(text.roles, menuUser.userId)}
@@ -877,7 +880,7 @@
   {#if searchOpen}
     <SearchPanel
       text={text.search?.text ?? null}
-      messages={text.search?.messages ?? []}
+      messages={(text.search?.messages ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
       onOpen={(m) => {
@@ -897,7 +900,7 @@
       heading="Pinned messages"
       label="Pinned messages"
       none="No pinned messages here yet."
-      messages={text.pins[chatId] ?? []}
+      messages={(text.pins[chatId] ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={() => true}
       onOpen={(m) => (jumpTarget = m.id)}

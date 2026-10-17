@@ -9,7 +9,13 @@ import { unreadTextIds } from "./textChannels";
 // `me` is our name, for mentions.
 const MARK_DELAY_MS = 2000;
 
-export const createTextView = (connection: () => Connection, currentId: () => number | null, me: () => string) => {
+// blocked: users whose messages do not count as mentions.
+export const createTextView = (
+  connection: () => Connection,
+  currentId: () => number | null,
+  me: () => string,
+  blocked: (name: string) => boolean,
+) => {
   const text = $derived(connection().text);
   const requested = new Set<number>();
   let seen = $state<Record<number, number>>({});
@@ -81,7 +87,7 @@ export const createTextView = (connection: () => Connection, currentId: () => nu
   });
   const unread = $derived(unreadTextIds(text, read));
   // Unseen mentions of us per channel (text channels and voice chats).
-  const mentions = $derived(mentionCounts(text, read, me()));
+  const mentions = $derived(mentionCounts(text, read, me(), blocked));
 
   return {
     get unread() {

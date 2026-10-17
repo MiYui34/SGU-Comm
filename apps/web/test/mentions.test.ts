@@ -58,6 +58,10 @@ describe("mentionCounts", () => {
     expect(mentionCounts(state, { 1: 1 }, "lain")).toEqual({ 1: 1, 2: 1 });
     expect(mentionCounts(state, { 1: 3, 2: 5 }, "lain")).toEqual({});
   });
+
+  it("does not count blocked users", () => {
+    expect(mentionCounts(state, {}, "lain", (name) => name === "carol")).toEqual({ 1: 2 });
+  });
 });
 
 describe("autocomplete", () => {

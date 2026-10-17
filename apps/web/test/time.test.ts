@@ -48,13 +48,34 @@ describe("chatItems", () => {
       msg(2, at(2026, 10, 13, 11)),
       msg(1, at(2026, 10, 14, 9)),
     ]);
-    expect(items.map((i) => (i.kind === "day" ? `day:${i.at}` : `group:${i.group.actor}`))).toEqual([
+    expect(items.map((i) => (i.kind === "group" ? `group:${i.group.actor}` : i.kind === "day" ? `day:${i.at}` : "blocked"))).toEqual([
       `day:${at(2026, 10, 13, 10)}`,
       "group:1",
       "group:2",
       `day:${at(2026, 10, 14, 9)}`,
       "group:1",
     ]);
+  });
+});
+
+describe("chatItems with blocked users", () => {
+  it("puts a blocked user's groups in a row into one item", () => {
+    const named = (name: string, h: number, min = 0) => ({ ...msg(1, at(2026, 10, 13, h, min)), actor: null, actorName: name });
+    const items = chatItems(
+      [named("eve", 9), named("eve", 10), named("mallory", 11), named("bob", 12), named("eve", 13)],
+      (name) => name === "eve" || name === "mallory",
+    );
+    expect(items.map((i) => (i.kind === "blocked" ? i.groups.map((g) => g.actorName).join("+") : i.kind))).toEqual([
+      "day",
+      "eve+eve+mallory",
+      "group",
+      "eve",
+    ]);
+  });
+
+  it("keeps the days apart", () => {
+    const eve = (d: number) => ({ ...msg(1, at(2026, 10, d)), actor: null, actorName: "eve" });
+    expect(chatItems([eve(13), eve(14)], () => true).map((i) => i.kind)).toEqual(["day", "blocked", "day", "blocked"]);
   });
 });
 

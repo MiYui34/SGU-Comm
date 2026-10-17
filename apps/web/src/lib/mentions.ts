@@ -42,7 +42,14 @@ export const highlightMentions = (html: string, name: string): string =>
 // Unseen messages per channel that mention me (not my own), for badges:
 // the server's count up to its summary (if not read that far), plus
 // loaded messages after both. Messages are sorted by id.
-export const mentionCounts = (state: TextState, seen: Record<number, number>, me: string): Record<number, number> => {
+// blocked: authors whose messages do not count (the server's summary from
+// before the login still does).
+export const mentionCounts = (
+  state: TextState,
+  seen: Record<number, number>,
+  me: string,
+  blocked: (name: string) => boolean = () => false,
+): Record<number, number> => {
   const out: Record<number, number> = {};
   // Only chats that still exist: text channels, known voice chats and
   // direct chats (there every message from the other user counts).
@@ -56,6 +63,7 @@ export const mentionCounts = (state: TextState, seen: Record<number, number>, me
     const msgs = state.messages[channel] ?? [];
     for (let i = msgs.length - 1; i >= 0 && msgs[i]!.id > after; i--) {
       const m = msgs[i]!;
+      if (blocked(m.author)) continue;
       if (direct ? m.author.toLowerCase() !== me.toLowerCase() : pingsMe(escapeHtml(m.text), m.author, m.reply?.author, me)) n++;
     }
     if (n) out[channel] = n;
