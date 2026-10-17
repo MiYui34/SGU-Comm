@@ -14,6 +14,7 @@
   - [ ] [Reply without a ping](issues/reply-without-ping.md)
   - [ ] [Notifications per channel, mute for a time](issues/channel-notifications.md)
   - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
+  - [ ] [Suggestions in search and for #channels](issues/search-and-channel-suggestions.md)
   - [ ] [Custom server emoji](issues/custom-emoji.md)
   - [ ] [Idle, do not disturb, custom status](issues/presence.md)
   - [ ] [Bio in the profile](issues/bio.md)
