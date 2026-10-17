@@ -64,6 +64,7 @@
   import Shortcuts from "./Shortcuts.svelte";
   import { IS_MAC, navAction, stepPlace } from "../lib/switcher";
   import { mirrorIds } from "../lib/mirrors";
+  import { tabTitle } from "../lib/title";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
 
@@ -581,6 +582,12 @@
   // Unread direct messages per sender name, marked read while open.
   let readCounts = $state<Record<string, number>>({});
   const unread = $derived(Object.fromEntries(Object.entries(unreadCounts(server.privateCounts, readCounts)).filter(([name]) => !blockedUsers.has(name))));
+  // The tab title: mentions and direct messages not read (see lib/title).
+  $effect(() => {
+    const sum = (r: Record<string | number, number>) => Object.values(r).reduce((a, n) => a + n, 0);
+    document.title = tabTitle(serverName, sum(textView.mentions) + sum(unread));
+    return () => (document.title = "Kallisti");
+  });
   $effect(() => {
     if (dm === null) return;
     const [name, count] = [dm.name, server.privateCounts[dm.name] ?? 0];
