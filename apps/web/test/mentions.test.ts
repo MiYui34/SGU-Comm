@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   highlightMentions,
-  insertMention,
   mentionCounts,
-  mentionQuery,
   mentions,
   mentionsMe,
   pingsMe,
@@ -66,25 +64,11 @@ describe("mentionCounts", () => {
 });
 
 describe("autocomplete", () => {
-  it("finds the @word before the caret", () => {
-    expect(mentionQuery("hi @la", 6)).toEqual({ start: 3, query: "la" });
-    expect(mentionQuery("@", 1)).toEqual({ start: 0, query: "" });
-    expect(mentionQuery("(@b", 3)).toEqual({ start: 1, query: "b" });
-    expect(mentionQuery("mail@la", 7)).toBeNull();
-    expect(mentionQuery("hi @la x", 8)).toBeNull(); // the word ended
-    expect(mentionQuery("hi @la x", 6)).toEqual({ start: 3, query: "la" });
-  });
-
   it("suggests names that start with the text first, not me, at most 8", () => {
     const names = ["Carla", "lain", "Larry", "bob", "lain", "Alan"];
     expect(suggestNames(names, "la", "bob")).toEqual(["lain", "Larry", "Alan", "Carla"]);
     expect(suggestNames(names, "", "lain")).toEqual(["Alan", "bob", "Carla", "Larry"]);
     expect(suggestNames(Array.from({ length: 20 }, (_, i) => `u${i}`), "u", "x")).toHaveLength(8);
-  });
-
-  it("inserts @Name and a space, caret after it", () => {
-    expect(insertMention("hi @la there", 3, 6, "lain")).toEqual({ text: "hi @lain there", caret: 9 });
-    expect(insertMention("@", 0, 1, "lain soy")).toEqual({ text: "@lain soy ", caret: 10 });
   });
 });
 

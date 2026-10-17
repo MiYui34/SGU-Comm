@@ -10,8 +10,6 @@
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Discord gaps, second round](issues/discord-gaps-2.md)
-  - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
-  - [ ] [Suggestions in search and for #channels](issues/search-and-channel-suggestions.md)
   - [ ] [Custom server emoji](issues/custom-emoji.md)
   - [ ] [Idle, do not disturb, custom status](issues/presence.md)
   - [ ] [Bio in the profile](issues/bio.md)

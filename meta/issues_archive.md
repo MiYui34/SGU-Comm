@@ -138,3 +138,5 @@
 - [x] [Light theme](issues/light-theme.md)
 - [x] [Reply without a ping](issues/reply-without-ping.md)
 - [x] [Notifications per channel, mute for a time](issues/channel-notifications.md)
+- [x] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
+- [x] [Suggestions in search and for #channels](issues/search-and-channel-suggestions.md)

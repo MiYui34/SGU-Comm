@@ -29,7 +29,7 @@
   import { unreadCounts } from "../lib/chat";
   import { htmlToText } from "../lib/htmlText";
   import { hideSpoilers } from "../lib/markdown";
-  import { parseSearch } from "../lib/search";
+  import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
   import { moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -539,16 +539,15 @@
   // chats by name for "in:" (text channels before voice channels before
   // direct chats).
   let searchQuery = $state("");
-  const searchChats = $derived(
-    new Map([
-      ...Object.entries(text.directs).map(([chat, peer]) => [peer.name.toLowerCase(), Number(chat)] as const),
-      ...Object.entries(text.voiceChannels).flatMap(([voice, chat]) => {
-        const name = server.channels[Number(voice)]?.name;
-        return name ? [[name.toLowerCase(), chat] as const] : [];
-      }),
-      ...text.channels.map((c) => [c.name.toLowerCase(), c.id] as const),
-    ]),
-  );
+  const searchPlaces = $derived<SearchPlace[]>([
+    ...text.channels.map((c) => ({ name: c.name, kind: "text" as const, id: c.id })),
+    ...Object.entries(text.voiceChannels).flatMap(([voice, chat]) => {
+      const name = server.channels[Number(voice)]?.name;
+      return name ? [{ name, kind: "voice" as const, id: chat }] : [];
+    }),
+    ...Object.entries(text.directs).map(([chat, peer]) => ({ name: peer.name, kind: "dm" as const, id: Number(chat) })),
+  ]);
+  const searchChats = $derived(new Map(searchPlaces.toReversed().map((p) => [p.name.toLowerCase(), p.id]))); // the first wins
   // Text channel ids by name, for "#name" links. Derived from the list
   // itself: a new map (and new chat lines) only when the channels change.
   const textChannelList = $derived(text.channels);
@@ -992,6 +991,8 @@
       onPin={connection.pin}
       jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
       onJumped={() => (jumpTarget = null)}
+      channelNames={text.channels.map((c) => c.name)}
+      {searchPlaces}
       linkTo={chatId !== null && voiceChatId === null ? (id) => messageLink(site, chatId!, id) : undefined}
       onLink={(href) => {
         const link = parseMessageLink(href, site);

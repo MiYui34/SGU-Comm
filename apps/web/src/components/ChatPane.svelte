@@ -8,15 +8,19 @@
   import { hold } from "../lib/longPress";
   import { htmlToText } from "../lib/htmlText";
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
-  import { quickReactions } from "../lib/emojiPicker";
-  import { recentEmoji, usedEmoji } from "../lib/emojiPrefs.svelte";
+  import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
+  import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
   import { opensLightbox } from "../lib/lightbox";
   import { COMMON_EMOJI, reactedBy } from "../lib/reactions";
   import type { LinkPreview } from "../lib/linkPreview";
-  import { highlightMentions, insertMention, mentionQuery, pingsMe, replyPing, suggestNames } from "../lib/mentions";
+  import { highlightMentions, pingsMe, replyPing, suggestNames } from "../lib/mentions";
+  import { listKey, quoted, replaceTyped, typedFilter, typedWord } from "../lib/suggest";
+  import { matchPlaces } from "../lib/switcher";
+  import type { SearchPlace } from "../lib/search";
+  import Suggestions, { type Suggestion } from "./Suggestions.svelte";
   import Lightbox from "./Lightbox.svelte";
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
@@ -52,6 +56,8 @@
     onClose,
     me = "",
     people = [],
+    channelNames = [],
+    searchPlaces = [],
     onSearch,
     onPins,
     onOpenChannel,
@@ -102,6 +108,9 @@
     me?: string;
     // Names "@" suggests (online users, recent authors).
     people?: readonly string[];
+    // Text channel names, for "#" suggestions; chats for "in:" in the search.
+    channelNames?: readonly string[];
+    searchPlaces?: readonly SearchPlace[];
     // Searching stored messages; jumpTarget: a message to scroll to once
     // it is loaded (then onJumped).
     onSearch?: (text: string) => void;
@@ -278,20 +287,36 @@
   // Media attachments that cannot play: shown as files.
   let unplayable = $state(new Set<string>());
 
-  // "@" autocomplete (see mentionQuery). Escape hides the list until the
-  // "@word" changes.
+  // Suggestions while typing "@name", "#channel" or ":emoji" (see
+  // lib/suggest). Escape hides the list until the typed word changes.
   let messageInput: HTMLTextAreaElement | undefined = $state();
   let caret = $state(0);
   let selected = $state(0);
   let dismissed = $state<number | null>(null);
   const listId = $props.id();
-  const query = $derived(mentionQuery(draft, caret));
-  const suggestions = $derived(query && query.start !== dismissed ? suggestNames(people, query.query, me) : []);
+  const SUGGESTED_EMOJI = 8;
+  const typed = $derived(typedWord(draft, caret));
+  // Emoji data: loaded when ":" is first typed (as for the picker).
+  let emojiData = $state.raw<EmojiData | null>(null);
+  $effect(() => {
+    if (typed?.kind === ":" && !emojiData) loadEmojiData().then((d) => (emojiData = d), () => {});
+  });
+  const suggestions = $derived.by((): Suggestion[] => {
+    if (!typed || typed.start === dismissed) return [];
+    if (typed.kind === "@") return suggestNames(people, typed.query, me).map((n) => ({ key: n, label: n, insert: `@${n}`, kind: "user" }));
+    if (typed.kind === "#") return suggestNames(channelNames, typed.query, "").map((n) => ({ key: n, label: n, insert: `#${n}`, kind: "channel" }));
+    return searchEmoji(emojiData?.emoji ?? [], typed.query)
+      .slice(0, SUGGESTED_EMOJI)
+      .map((e) => {
+        const emoji = normalEmoji(withTone(e, skinTone.value));
+        return { key: e.emoji, label: e.name, insert: emoji, kind: "emoji", emoji };
+      });
+  });
   const active = $derived(Math.min(selected, suggestions.length - 1));
   const updateCaret = () => {
     caret = messageInput?.selectionStart ?? draft.length;
     selected = 0;
-    if (!query || query.start !== dismissed) dismissed = null;
+    if (!typed || typed.start !== dismissed) dismissed = null;
   };
   // New text in the message box, with the caret at `at`.
   const setDraft = async (text: string, at: number) => {
@@ -301,18 +326,19 @@
     messageInput?.focus();
     messageInput?.setSelectionRange(at, at);
   };
-  const pick = async (name: string) => {
-    if (!query) return;
-    const next = insertMention(draft, query.start, caret, name);
+  const pick = async (s: Suggestion) => {
+    if (!typed) return;
+    if (s.emoji) usedEmoji(s.emoji);
+    const next = replaceTyped(draft, typed.start, caret, s.insert);
     await setDraft(next.text, next.caret);
   };
   // Keys while the list is open; true: handled.
   const onSuggestionKey = (e: KeyboardEvent) => {
-    const n = suggestions.length;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") selected = (active + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-    else if (e.key === "Enter" || e.key === "Tab") void pick(suggestions[active]!);
-    else if (e.key === "Escape") dismissed = query?.start ?? null;
-    else return false;
+    const k = listKey(e.key, suggestions.length, active);
+    if (!k) return false;
+    if (k === "pick") void pick(suggestions[active]!);
+    else if (k === "close") dismissed = typed?.start ?? null;
+    else selected = k.active;
     e.preventDefault();
     return true;
   };
@@ -467,6 +493,41 @@
   };
 
   let searchText = $state("");
+  // Suggestions after "from:" and "in:" (see lib/suggest).
+  let searchInput: HTMLInputElement | undefined = $state();
+  let searchCaret = $state(0);
+  let searchSelected = $state(0);
+  let searchDismissed = $state<number | null>(null);
+  const searchListId = `${listId}-search`;
+  const filterTyped = $derived(typedFilter(searchText, searchCaret));
+  const searchSuggestions = $derived.by((): Suggestion[] => {
+    if (!filterTyped || filterTyped.start === searchDismissed) return [];
+    if (filterTyped.kind === "from")
+      return suggestNames(people, filterTyped.query, "").map((n) => ({ key: n, label: n, insert: `from:${quoted(n)}`, kind: "user" }));
+    return matchPlaces(searchPlaces, filterTyped.query)
+      .slice(0, 8)
+      .map((p) => ({
+        key: `${p.kind}${p.id}`,
+        label: p.name,
+        insert: `in:${p.kind === "text" ? `#${p.name}` : p.kind === "dm" ? `@${quoted(p.name)}` : quoted(p.name)}`,
+        kind: p.kind === "text" ? "channel" : p.kind === "dm" ? "user" : "voice",
+      }));
+  });
+  const searchActive = $derived(Math.min(searchSelected, searchSuggestions.length - 1));
+  const updateSearchCaret = () => {
+    searchCaret = searchInput?.selectionStart ?? searchText.length;
+    searchSelected = 0;
+    if (!filterTyped || filterTyped.start !== searchDismissed) searchDismissed = null;
+  };
+  const pickSearch = async (s: Suggestion) => {
+    if (!filterTyped) return;
+    const next = replaceTyped(searchText, filterTyped.start, searchCaret, s.insert);
+    searchText = next.text;
+    searchCaret = next.caret;
+    await tick();
+    searchInput?.focus();
+    searchInput?.setSelectionRange(next.caret, next.caret);
+  };
   // Jump to a search result (jumpTarget) or a reply's original (seeking)
   // once it is loaded (see jumpStep).
   let seeking = $state<number | null>(null);
@@ -538,7 +599,35 @@
             if (searchText.trim()) onSearch(searchText.trim());
           }}
         >
-          <input bind:value={searchText} placeholder="Search" aria-label="Search messages" title="Filters: from:name, in:#channel" />
+          <input
+            bind:this={searchInput}
+            bind:value={searchText}
+            placeholder="Search"
+            aria-label="Search messages"
+            title="Filters: from:name, in:#channel"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={searchSuggestions.length > 0}
+            aria-controls={searchSuggestions.length ? searchListId : undefined}
+            aria-activedescendant={searchSuggestions.length ? `${searchListId}-${searchActive}` : undefined}
+            oninput={updateSearchCaret}
+            onclick={updateSearchCaret}
+            onkeyup={(e) => {
+              if (!(searchSuggestions.length && (e.key === "ArrowUp" || e.key === "ArrowDown"))) updateSearchCaret();
+            }}
+            onkeydown={(e) => {
+              if (e.isComposing || !searchSuggestions.length) return;
+              const k = listKey(e.key, searchSuggestions.length, searchActive);
+              if (!k) return;
+              e.preventDefault();
+              if (k === "pick") void pickSearch(searchSuggestions[searchActive]!);
+              else if (k === "close") searchDismissed = filterTyped?.start ?? null;
+              else searchSelected = k.active;
+            }}
+          />
+          {#if searchSuggestions.length}
+            <Suggestions id={searchListId} label="Suggestions" items={searchSuggestions} active={searchActive} onPick={pickSearch} below />
+          {/if}
         </form>
       {/if}
       {#if onPins}
@@ -714,23 +803,7 @@
       />
       {#if uploading}<span class="uploading">Uploading…</span>{/if}
       {#if suggestions.length}
-        <ul class="suggestions" id={listId} role="listbox" aria-label="People to mention">
-          {#each suggestions as name, i (name)}
-            <!-- The keyboard works through the message box (a combobox). -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <li
-              id="{listId}-{i}"
-              role="option"
-              aria-selected={i === active}
-              class:selected={i === active}
-              onmousedown={(e) => e.preventDefault()}
-              onclick={() => pick(name)}
-            >
-              <Avatar {name} size={20} />
-              <span class="ellipsis">{name}</span>
-            </li>
-          {/each}
-        </ul>
+        <Suggestions id={listId} label="Suggestions" items={suggestions} {active} onPick={pick} />
       {/if}
       <textarea
         rows="1"
@@ -1402,32 +1475,6 @@
   .chat.dragging .scroller {
     outline: 2px dashed var(--accent);
     outline-offset: -8px;
-  }
-  .suggestions {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: calc(100% + 6px);
-    margin: 0;
-    padding: 6px;
-    list-style: none;
-    border-radius: 8px;
-    background: var(--bg-rail);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
-    z-index: 5;
-  }
-  .suggestions li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    --avatar-cutout: var(--bg-rail);
-  }
-  .suggestions li.selected,
-  .suggestions li:hover {
-    background: var(--bg-active);
   }
   .line {
     position: relative;
