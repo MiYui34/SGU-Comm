@@ -23,9 +23,22 @@ export const isAway = (s: { lastInput: number; hiddenSince: number | null; now: 
 export const customOf = (v: PresenceView | undefined, now: number): { emoji: string; text: string } | null =>
   v && (v.emoji || v.text) && !(v.until && v.until <= now) ? { emoji: v.emoji ?? "", text: v.text ?? "" } : null;
 
+// What the member list and menus show of a user.
+export type UserStatus = { presence: Presence; custom: { emoji: string; text: string } | null };
+
 // A session's status (web clients that are not plainly online are listed).
 export const presenceOf = (statuses: Readonly<Record<number, PresenceView>>, session: number): Presence =>
   statuses[session]?.status ?? "online";
+
+// A user's status. Our own: as we chose it, with away at once (the server's
+// echo comes later).
+export const statusOfSession = (
+  s: { statuses: Readonly<Record<number, PresenceView>>; own: PresenceView; me: number | null; away: boolean; now: number },
+  session: number,
+): UserStatus =>
+  session === s.me
+    ? { presence: effectivePresence(s.own.status, s.away), custom: customOf(s.own, s.now) }
+    : { presence: presenceOf(s.statuses, session), custom: customOf(s.statuses[session], s.now) };
 
 export type ClearAfter = "30m" | "1h" | "4h" | "today" | "never";
 export const CLEAR_AFTER: { value: ClearAfter; label: string }[] = [

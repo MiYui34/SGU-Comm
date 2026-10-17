@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Role } from "../lib/roles";
+  import type { UserStatus } from "../lib/presence";
   import type { User } from "@kallisti/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
+  import Emoji from "./Emoji.svelte";
   import RoleTag from "./RoleTag.svelte";
 
   let {
@@ -13,6 +15,7 @@
     speaking,
     onUserMenu,
     roleOf = () => null,
+    statusOf = () => ({ presence: "online", custom: null }),
     inert = false,
   }: {
     here: User[];
@@ -23,6 +26,7 @@
     speaking: ReadonlySet<number>;
     onUserMenu: (session: number, event: MouseEvent) => void;
     roleOf?: (user: User) => Role | null;
+    statusOf?: (user: User) => UserStatus;
     inert?: boolean;
   } = $props();
 </script>
@@ -32,15 +36,23 @@
     <h2>{title} — {users.length}</h2>
     <ul>
       {#each users as user (user.session)}
+        {@const status = statusOf(user)}
         <li>
           <button
             class="hover-row"
             onclick={(e) => onUserMenu(user.session, e)}
             oncontextmenu={(e) => onUserMenu(user.session, e)}
           >
-            <Avatar name={user.name} size={32} online speaking={speaking.has(user.session)} />
-            <span class="ellipsis">{user.name}</span>
-            <RoleTag role={roleOf(user)} />
+            <Avatar name={user.name} size={32} status={status.presence} speaking={speaking.has(user.session)} />
+            <span class="who">
+              <span class="line">
+                <span class="ellipsis">{user.name}</span>
+                <RoleTag role={roleOf(user)} />
+              </span>
+              {#if status.custom}
+                <span class="custom ellipsis" title={status.custom.text}><Emoji text={status.custom.emoji} lazy /> {status.custom.text}</span>
+              {/if}
+            </span>
             <span class="unread"><Badge count={unread[user.name]} /></span>
           </button>
         </li>
@@ -93,6 +105,21 @@
   }
   button:hover {
     --avatar-cutout: var(--bg-hover);
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .custom {
+    font-size: 12px;
+    font-weight: 400;
   }
   .unread {
     margin-left: auto;

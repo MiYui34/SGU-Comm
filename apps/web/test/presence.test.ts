@@ -8,6 +8,7 @@ import {
   isAway,
   presenceOf,
   setStatusRequest,
+  statusOfSession,
 } from "../src/lib/presence";
 import { initialTextState, parseServerEvent, reduceText } from "../src/lib/textChannels";
 import { shouldNotify } from "../src/lib/notify";
@@ -86,6 +87,16 @@ describe("status events", () => {
     expect(state.ownStatus).toEqual({ status: "dnd" });
     expect(parseServerEvent('{"type":"status","session":"x","status":"idle"}')).toBeNull();
     expect(parseServerEvent('{"type":"own-status","status":"invisible"}')).toBeNull();
+  });
+});
+
+describe("statusOfSession", () => {
+  it("ours from our choice and away, others from the server", () => {
+    const s = { statuses: { 2: { status: "dnd" as const, text: "busy", until: 10 } }, own: { status: "online" as const, emoji: "🍕" }, me: 1, away: true, now: 5 };
+    expect(statusOfSession(s, 1)).toEqual({ presence: "idle", custom: { emoji: "🍕", text: "" } });
+    expect(statusOfSession(s, 2)).toEqual({ presence: "dnd", custom: { emoji: "", text: "busy" } });
+    expect(statusOfSession({ ...s, now: 10 }, 2)).toEqual({ presence: "dnd", custom: null });
+    expect(statusOfSession(s, 3)).toEqual({ presence: "online", custom: null });
   });
 });
 

@@ -35,6 +35,8 @@
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
+  import { watchAway } from "../lib/away";
+  import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
   import type { Place, View } from "../lib/place";
   import { moderationRights } from "../lib/moderation";
@@ -347,6 +349,29 @@
   // Text channels (Kallisti server only). Like Discord, open the first one
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
+  // Statuses (Kallisti server): away after a while without input (sent,
+  // not kept), and do not disturb (no notifications or sounds).
+  let away = $state(false);
+  // Own derived: `text` is a new object on every server event.
+  const textReady = $derived(text.available);
+  $effect(() => {
+    if (!textReady) return;
+    const conn = connection;
+    away = false;
+    return watchAway((on) => {
+      away = on;
+      conn.setAway(on);
+    });
+  });
+  const dnd = $derived(text.ownStatus.status === "dnd");
+  // Custom statuses end by themselves: look again now and then.
+  let statusNow = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (statusNow = Date.now()), 30_000);
+    return () => clearInterval(timer);
+  });
+  const statusOf = (session: number) =>
+    statusOfSession({ statuses: text.statuses, own: text.ownStatus, me: server.session, away, now: statusNow }, session);
   const textId = $derived(view.kind === "text" ? view.id : null);
   // A voice channel's stored chat (built-in server): the channel that holds
   // it, once the server told us. Not for the lobby.
@@ -479,7 +504,7 @@
   const notify = (title: string, body: string, open: boolean, onOpen: () => void) => {
     const visible = document.visibilityState === "visible";
     const enabled = prefs.notifications;
-    if (shouldNotify({ enabled, permission: notificationPermission(), visible, deaf: me?.selfDeaf ?? false, open }))
+    if (shouldNotify({ enabled, permission: notificationPermission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
       showNotification(title, body, onOpen);
   };
   $effect(() =>
@@ -521,7 +546,7 @@
     });
   });
   // A short sound for new mentions outside the open channel (not while
-  // deafened, not in channels set to "nothing").
+  // deafened or in do not disturb, not in channels set to "nothing").
   let mentionTotal = 0;
   let knownSummary: unknown = null;
   $effect(() => {
@@ -532,7 +557,7 @@
     // Mentions from before (the summary at login or reconnect): no sound.
     const fresh = text.summary !== knownSummary;
     knownSummary = text.summary;
-    if (!fresh && total > mentionTotal && !me?.selfDeaf) playPing(prefs.outputDeviceId);
+    if (!fresh && total > mentionTotal && !me?.selfDeaf && !dnd) playPing(prefs.outputDeviceId);
     mentionTotal = total;
   });
   // The search as typed (the server answers with the words only), and
@@ -820,6 +845,7 @@
     onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
     onSettings={() => (showSettings = true)}
     role={roleOf(text.roles, menuUser.userId)}
+    status={statusOf(menuUser.session)}
     moderator={moderatorAction(server, text, menuUser)}
     onModerator={(on) => menuUser.userId !== null && connection.manage({ moderator: menuUser.userId, on })}
     onClose={() => (menu = null)}
@@ -940,6 +966,10 @@
         noVoice={!capture && !!noVoice}
         onSelfState={updateSelf}
         onSettings={() => (showSettings = true)}
+        presence={statusOf(me.session).presence}
+        own={text.ownStatus}
+        now={statusNow}
+        onStatus={text.available ? ({ status, ...custom }) => connection.setStatus(status, custom) : undefined}
       />
     {/if}
   </div>
@@ -1038,6 +1068,7 @@
       {speaking}
       onUserMenu={openMenu}
       roleOf={(u) => roleOf(text.roles, u.userId)}
+      statusOf={(u) => statusOf(u.session)}
       here={users.filter((u) => u.channelId === channelId)}
       elsewhere={users.filter((u) => u.channelId !== channelId)}
     />

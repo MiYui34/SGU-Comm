@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Role } from "../lib/roles";
   import type { User } from "@kallisti/protocol";
+  import type { UserStatus } from "../lib/presence";
+  import Emoji from "./Emoji.svelte";
   import { MAX_VOLUME, type UserAudio } from "../lib/userAudio";
   import Avatar from "./Avatar.svelte";
   import RoleTag from "./RoleTag.svelte";
@@ -18,6 +20,7 @@
     onMessage,
     onSettings,
     role = null,
+    status = null,
     moderator = null,
     onModerator,
     onClose,
@@ -34,6 +37,7 @@
     onMessage: () => void;
     onSettings: () => void;
     role?: Role | null;
+    status?: UserStatus | null;
     // What we may do about the user's role (see moderatorAction).
     moderator?: "make" | "remove" | null;
     onModerator?: (on: boolean) => void;
@@ -48,9 +52,13 @@
 
 <ContextMenu {x} {y} label="Actions for {user.name}" {onClose}>
   <div class="who">
-    <Avatar name={user.name} size={32} />
-    <span>{user.name}</span>
-    <RoleTag {role} />
+    <Avatar name={user.name} size={32} status={status?.presence} />
+    <span class="names">
+      <span class="line"><span>{user.name}</span><RoleTag {role} /></span>
+      {#if status?.custom}
+        <span class="custom"><Emoji text={status.custom.emoji} /> {status.custom.text}</span>
+      {/if}
+    </span>
   </div>
   <div class="sep"></div>
   {#if isMe}
@@ -100,6 +108,23 @@
     gap: 10px;
     padding: 6px 8px;
     font-weight: 600;
+  }
+  .names {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .custom {
+    max-width: 220px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
   }
   .sep {
     height: 1px;
