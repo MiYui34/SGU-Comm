@@ -26,9 +26,8 @@ const set = customEmojiSet(list, "https://chat.example");
 describe("custom emoji from the server", () => {
   it("parses the list; images must be on the server under /api/emoji/", () => {
     expect(parseCustomEmoji(list)).toEqual(list);
-    expect(parseCustomEmoji([{ name: "x", url: "/api/emoji/1" }])).toBeNull();
-    expect(parseCustomEmoji([{ name: "ok", url: "https://evil.example/a.png" }])).toBeNull();
-    expect(parseCustomEmoji([{ name: "ok", url: "/files/a" }])).toBeNull();
+    const bad = [{ name: "x", url: "/api/emoji/1" }, { name: "ok", url: "https://evil.example/a.png" }, { name: "ok", url: "/files/a" }];
+    expect(parseCustomEmoji([...bad, list[0]])).toEqual([list[0]]);
     expect(parseCustomEmoji("nope")).toBeNull();
   });
 

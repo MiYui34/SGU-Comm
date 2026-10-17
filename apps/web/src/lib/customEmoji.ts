@@ -9,10 +9,12 @@ export type CustomEmojiSet = { list: CustomEmoji[]; urls: ReadonlyMap<string, st
 
 // As the server checks them (server/internal/emoji ValidName), and its
 // limits (store.MaxEmoji, files.MaxEmojiBytes, the inline image types).
-const NAME = /^[a-z0-9_]{2,32}$/;
+export const CUSTOM_NAME = "[a-z0-9_]{2,32}";
+const NAME = new RegExp(`^${CUSTOM_NAME}$`);
+const IN_COLONS = new RegExp(`^:(${CUSTOM_NAME}):$`);
 const MAX_EMOJI = 200;
 const MAX_BYTES = 256 * 1024;
-const TYPES = ["image/png", "image/gif", "image/webp", "image/jpeg"];
+export const EMOJI_TYPES = ["image/png", "image/gif", "image/webp", "image/jpeg"];
 
 // The images must be on the server: anything else could track readers.
 const isEmoji = (v: unknown): v is CustomEmoji =>
@@ -22,7 +24,8 @@ const isEmoji = (v: unknown): v is CustomEmoji =>
   typeof (v as CustomEmoji).url === "string" &&
   /^\/api\/emoji\/\d+$/.test((v as CustomEmoji).url);
 
-export const parseCustomEmoji = (v: unknown): CustomEmoji[] | null => (Array.isArray(v) && v.every(isEmoji) ? v : null);
+// A broken entry is left out (null: no list at all).
+export const parseCustomEmoji = (v: unknown): CustomEmoji[] | null => (Array.isArray(v) ? v.filter(isEmoji) : null);
 
 export const customEmojiSet = (list: readonly CustomEmoji[], base: string): CustomEmojiSet => {
   const abs = list.map((e) => ({ name: e.name, url: base + e.url }));
@@ -30,7 +33,7 @@ export const customEmojiSet = (list: readonly CustomEmoji[], base: string): Cust
 };
 
 export const customName = (emoji: string): string | null => {
-  const m = /^:([a-z0-9_]{2,32}):$/.exec(emoji);
+  const m = IN_COLONS.exec(emoji);
   return m ? m[1]! : null;
 };
 
@@ -60,7 +63,7 @@ export const addCustomEmojiImages = (root: Node, urls: ReadonlyMap<string, strin
     if (!n.parentElement?.closest("code, pre, a")) texts.push(n as Text);
   }
   for (const node of texts) {
-    const parts = node.data.split(/:([a-z0-9_]{2,32}):/);
+    const parts = node.data.split(new RegExp(`:(${CUSTOM_NAME}):`));
     if (parts.length === 1 || !parts.some((p, i) => i % 2 === 1 && urls.has(p))) continue;
     // Odd parts are names: unknown ones stay text.
     node.replaceWith(...parts.map((p, i) => (i % 2 === 0 ? p : urls.has(p) ? customImage(p, urls.get(p)!) : `:${p}:`)));
@@ -78,7 +81,7 @@ export const emojiFormError = (name: string, file: { size: number; type: string 
   if (list.some((e) => e.name === name)) return "An emoji with this name exists.";
   if (list.length >= MAX_EMOJI) return `This server has the most emoji it can have (${MAX_EMOJI}).`;
   if (!file) return "Choose an image.";
-  if (!TYPES.includes(file.type)) return "The image must be PNG, GIF, WebP or JPEG.";
+  if (!EMOJI_TYPES.includes(file.type)) return "The image must be PNG, GIF, WebP or JPEG.";
   if (file.size > MAX_BYTES) return "The image can be at most 256 KB.";
   return null;
 };
