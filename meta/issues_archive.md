@@ -146,3 +146,4 @@
 - [x] [Moderation in the web app](issues/web-moderation.md)
 - [x] [Discord gaps, second round](issues/discord-gaps-2.md)
 - [x] [Jump to the newest messages](issues/jump-to-present.md)
+- [x] [Sending while scrolled back: notice, no jump](issues/sent-while-scrolled-back.md)

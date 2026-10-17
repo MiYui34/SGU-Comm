@@ -185,16 +185,18 @@
   // (leftAt: the newest message's time when the reader left the bottom).
   let away = $state(false);
   let leftAt = $state<number | null>(null);
+  // Sent while up there: the place stays, the bar says so.
+  let sentAway = $state(false);
   const newCount = $derived(newSince(messages.map((m) => m.at), leftAt));
   const trackBottom = () => {
     if (!list) return;
     atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 80;
     away = awayFromBottom(list);
-    if (!away) leftAt = null;
+    if (!away) [leftAt, sentAway] = [null, false];
     else leftAt ??= messages.at(-1)?.at ?? 0;
   };
-  const toPresent = (smooth: boolean) => {
-    const motion = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const toPresent = () => {
+    const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
     list?.scrollTo({ top: list.scrollHeight, behavior: motion ? "smooth" : "auto" });
   };
   const keepBottom = () => {
@@ -289,7 +291,7 @@
     if (pending && onUpload) {
       const { file, spoiler } = pending;
       onUpload(asSpoiler(file, spoiler), text, replying?.id, replying ? !replying.ping : undefined);
-      toPresent(false);
+      sentAway ||= away;
       cancelPending();
       replying = null;
       draft = "";
@@ -297,7 +299,7 @@
     }
     if (!text || !onSend) return;
     onSend(text, replying?.id, replying ? !replying.ping : undefined);
-    toPresent(false); // to see it arrive, as in Discord
+    sentAway ||= away;
     replying = null;
     draft = "";
   };
@@ -755,8 +757,10 @@
   <form class="send" onsubmit={submit}>
     {#if away}
       <div class="present">
-        <span>{newCount ? `${newCount} new ${newCount === 1 ? "message" : "messages"}` : "You are viewing older messages"}</span>
-        <button type="button" onclick={() => toPresent(true)}>Jump to present</button>
+        <span
+          >{sentAway ? "Message sent" : newCount ? `${newCount} new ${newCount === 1 ? "message" : "messages"}` : "You are viewing older messages"}</span
+        >
+        <button type="button" onclick={toPresent}>{sentAway ? "Jump to your message" : "Jump to present"}</button>
       </div>
     {/if}
     {#if error}
