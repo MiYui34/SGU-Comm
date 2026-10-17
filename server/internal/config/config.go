@@ -175,5 +175,12 @@ func Parse(getenv func(string) string) (Config, error) {
 // OriginAllowed reports whether a browser origin may connect. An empty
 // origin (non-browser client) only passes with "*".
 func OriginAllowed(allowed []string, origin string) bool {
-	return slices.Contains(allowed, "*") || (origin != "" && slices.Contains(allowed, origin))
+	return slices.Contains(allowed, "*") || IsAppOrigin(origin) || (origin != "" && slices.Contains(allowed, origin))
 }
+
+// appOrigins are the Kallisti desktop app's pages (Tauri: macOS and Linux,
+// Windows). No web page can send them, so every server allows them; the app
+// logs in with a token, not a cookie (see auth).
+var appOrigins = []string{"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"}
+
+func IsAppOrigin(origin string) bool { return slices.Contains(appOrigins, origin) }

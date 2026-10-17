@@ -116,6 +116,11 @@ func TestOriginAllowed(t *testing.T) {
 		{[]string{"https://a.example"}, "https://a.example", true},
 		{[]string{"https://a.example"}, "https://b.example", false},
 		{[]string{"https://a.example"}, "", false},
+		// The desktop app (Tauri), on every server.
+		{[]string{"https://a.example"}, "tauri://localhost", true},
+		{[]string{"https://a.example"}, "http://tauri.localhost", true},
+		{[]string{"https://a.example"}, "https://tauri.localhost", true},
+		{[]string{"https://a.example"}, "tauri://evil.example", false},
 	}
 	for _, c := range cases {
 		if got := OriginAllowed(c.allowed, c.origin); got != c.want {

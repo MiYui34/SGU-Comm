@@ -116,7 +116,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "send JSON"})
 			return
 		}
-		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		// The desktop app is cross-site by nature (and cannot be a form).
+		if r.Header.Get("Sec-Fetch-Site") == "cross-site" && !config.IsAppOrigin(r.Header.Get("Origin")) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-site requests are not allowed"})
 			return
 		}
@@ -145,23 +146,43 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AccountFor returns the account of a request's session cookie.
+// sessionToken is a request's session: the cookie (web app), else the
+// token the desktop app got at login, in a header or (WebSockets cannot
+// have headers in browsers) as a subprotocol. "": none.
+func sessionToken(r *http.Request) string {
+	if c, err := r.Cookie(CookieName); err == nil {
+		return c.Value
+	}
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		return token
+	}
+	for _, p := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		if token, ok := strings.CutPrefix(strings.TrimSpace(p), SessionProtocol); ok {
+			return token
+		}
+	}
+	return ""
+}
+
+// SessionProtocol: the desktop app's WebSocket subprotocol with its token.
+const SessionProtocol = "kallisti.session."
+
+// AccountFor returns the account of a request's session.
 func (a *Service) AccountFor(r *http.Request) (store.Account, bool) {
-	c, err := r.Cookie(CookieName)
-	if err != nil {
+	token := sessionToken(r)
+	if token == "" {
 		return store.Account{}, false
 	}
-	acc, err := a.Store.AccountBySession(tokenHash(c.Value), a.Now())
+	acc, err := a.Store.AccountBySession(tokenHash(token), a.Now())
 	return acc, err == nil
 }
 
 // SessionKey is the stored key of a request's session, or "".
 func SessionKey(r *http.Request) string {
-	c, err := r.Cookie(CookieName)
-	if err != nil {
-		return ""
+	if token := sessionToken(r); token != "" {
+		return tokenHash(token)
 	}
-	return tokenHash(c.Value)
+	return ""
 }
 
 func (a *Service) revoke(match func(accountID int64, session string) bool) {
@@ -208,8 +229,8 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
 		return
 	}
-	if acc, ok := a.newAccount(w, r, store.Account{Name: name, PasswordHash: hash}); ok {
-		writeJSON(w, http.StatusCreated, map[string]string{"name": acc.Name})
+	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, PasswordHash: hash}); ok {
+		writeJSON(w, http.StatusCreated, withToken(map[string]any{"name": acc.Name}, token))
 	}
 }
 
@@ -238,8 +259,8 @@ func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many guests from your address, try again later"})
 		return
 	}
-	if acc, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}); ok {
-		writeJSON(w, http.StatusCreated, map[string]any{"name": acc.Name, "temporary": true})
+	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}); ok {
+		writeJSON(w, http.StatusCreated, withToken(map[string]any{"name": acc.Name, "temporary": true}, token))
 	}
 }
 
@@ -260,10 +281,10 @@ func (a *Service) checkName(w http.ResponseWriter, raw string) (string, bool) {
 
 // newAccount stores an account with a new certificate and logs it in; on
 // failure it answers the request.
-func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.Account) (store.Account, bool) {
-	fail := func() (store.Account, bool) {
+func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.Account) (store.Account, string, bool) {
+	fail := func() (store.Account, string, bool) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
-		return store.Account{}, false
+		return store.Account{}, "", false
 	}
 	var err error
 	if acc.CertPEM, acc.KeyPEM, err = certs.Generate(acc.Name); err != nil {
@@ -272,13 +293,14 @@ func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.A
 	acc, err = a.Store.CreateAccount(acc, a.Now())
 	if errors.Is(err, store.ErrNameTaken) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
-		return store.Account{}, false
+		return store.Account{}, "", false
 	}
 	if err != nil {
 		slog.Error("create account", "err", err)
 		return fail()
 	}
-	return acc, a.startSession(w, r, acc)
+	token, ok := a.startSession(w, r, acc)
+	return acc, token, ok
 }
 
 func (a *Service) login(w http.ResponseWriter, r *http.Request) {
@@ -318,10 +340,11 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
 		return
 	}
-	if !a.startSession(w, r, acc) {
+	token, ok := a.startSession(w, r, acc)
+	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"name": acc.Name})
+	writeJSON(w, http.StatusOK, withToken(map[string]any{"name": acc.Name}, token))
 }
 
 // logout ends this session. A guest account cannot be reached again
@@ -412,13 +435,15 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *Service) startSession(w http.ResponseWriter, r *http.Request, acc store.Account) bool {
+// startSession sets the cookie; the token for clients that asked for it
+// (the desktop app, header X-Kallisti-Session: token), else "".
+func (a *Service) startSession(w http.ResponseWriter, r *http.Request, acc store.Account) (string, bool) {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
 	if err := a.Store.CreateSession(tokenHash(token), acc.ID, a.Now().Add(sessionLifetime)); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot log in"})
-		return false
+		return "", false
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
@@ -429,7 +454,10 @@ func (a *Service) startSession(w http.ResponseWriter, r *http.Request, acc store
 		Secure:   a.secure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	return true
+	if r.Header.Get("X-Kallisti-Session") != "token" {
+		token = ""
+	}
+	return token, true
 }
 
 func (a *Service) secure(r *http.Request) bool {
@@ -445,14 +473,17 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 	if origin == "" || !config.OriginAllowed(a.AllowedOrigins, origin) {
 		return
 	}
-	if !slices.Contains(a.AllowedOrigins, origin) && !isLocalhost(origin) {
+	if !slices.Contains(a.AllowedOrigins, origin) && !isLocalhost(origin) && !config.IsAppOrigin(origin) {
 		return
 	}
 	h := w.Header()
 	h.Set("Access-Control-Allow-Origin", origin)
-	h.Set("Access-Control-Allow-Credentials", "true")
 	h.Set("Access-Control-Allow-Methods", "GET, POST")
-	h.Set("Access-Control-Allow-Headers", "Content-Type")
+	h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kallisti-Session")
+	// The desktop app sends its token, never cookies.
+	if !config.IsAppOrigin(origin) {
+		h.Set("Access-Control-Allow-Credentials", "true")
+	}
 }
 
 func (a *Service) allow(r *http.Request) bool {
@@ -481,6 +512,14 @@ func isLocalhost(origin string) bool {
 func tokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// withToken adds the session token for the desktop app (see startSession).
+func withToken(v map[string]any, token string) map[string]any {
+	if token != "" {
+		v["token"] = token
+	}
+	return v
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

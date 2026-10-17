@@ -302,3 +302,21 @@ func TestClosesBrowsersThatDoNotAnswerPings(t *testing.T) {
 	_ = c
 	eventually(t, func() bool { return b.count() == 0 })
 }
+
+// The desktop app sends its session token as a WebSocket subprotocol next
+// to "kallisti"; browsers close the connection unless one is chosen.
+func TestDesktopSubprotocol(t *testing.T) {
+	url := startBridge(t, Options{Dial: dialer(startEcho(t).addr)})
+	ctx := testCtx(t)
+	c, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		HTTPHeader:   http.Header{"Origin": {"tauri://localhost"}},
+		Subprotocols: []string{"kallisti", "kallisti.session.abc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if c.Subprotocol() != "kallisti" {
+		t.Fatalf("subprotocol %q", c.Subprotocol())
+	}
+}

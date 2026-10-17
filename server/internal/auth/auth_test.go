@@ -328,3 +328,66 @@ func TestLoginWithAMumbleRegistration(t *testing.T) {
 		t.Fatalf("web account: %d", resp.StatusCode)
 	}
 }
+
+// The desktop app (another origin: the cookie is third-party there) asks
+// for its session token and sends it in a header, or on the WebSocket as a
+// subprotocol.
+func TestDesktopAppTokens(t *testing.T) {
+	_, srv := setup(t)
+	post(t, srv, "/api/accounts", map[string]string{"name": "lain", "password": "long enough"}, nil)
+	login := func(want bool) map[string]any {
+		b, _ := json.Marshal(map[string]string{"name": "lain", "password": "long enough"})
+		req, _ := http.NewRequest("POST", srv.URL+"/api/login", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "tauri://localhost")
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		if want {
+			req.Header.Set("X-Kallisti-Session", "token")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var v map[string]any
+		json.NewDecoder(resp.Body).Decode(&v)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("login from the app: %d %v", resp.StatusCode, v)
+		}
+		return v
+	}
+	if v := login(false); v["token"] != nil {
+		t.Fatalf("token without asking: %v", v)
+	}
+	token, _ := login(true)["token"].(string)
+	if token == "" {
+		t.Fatal("no token")
+	}
+	me, _ := http.NewRequest("GET", srv.URL+"/api/me", nil)
+	me.Header.Set("Authorization", "Bearer "+token)
+	resp, _ := http.DefaultClient.Do(me)
+	var v map[string]any
+	json.NewDecoder(resp.Body).Decode(&v)
+	resp.Body.Close()
+	if v["name"] != "lain" {
+		t.Fatalf("me with the token: %v", v)
+	}
+	ws := httptest.NewRequest("GET", "/", nil)
+	ws.Header.Set("Sec-WebSocket-Protocol", "kallisti, kallisti.session."+token)
+	if SessionKey(ws) != tokenHash(token) {
+		t.Fatal("the WebSocket subprotocol carries no session")
+	}
+}
+
+func TestAppOriginsGetCORSWithoutCredentials(t *testing.T) {
+	a := &Service{AllowedOrigins: []string{"https://app.example"}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("OPTIONS", "/api/login", nil)
+	r.Header.Set("Origin", "tauri://localhost")
+	a.cors(w, r)
+	h := w.Header()
+	if h.Get("Access-Control-Allow-Origin") != "tauri://localhost" || h.Get("Access-Control-Allow-Credentials") != "" ||
+		!strings.Contains(h.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("headers %v", h)
+	}
+}

@@ -200,6 +200,9 @@ func (b *Bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		InsecureSkipVerify: true,
 		// Compression adds latency to voice.
 		CompressionMode: websocket.CompressionDisabled,
+		// The desktop app offers "kallisti" next to its session token (see
+		// auth.SessionProtocol); browsers need one of them chosen.
+		Subprotocols: []string{"kallisti"},
 	})
 	if err != nil {
 		return
