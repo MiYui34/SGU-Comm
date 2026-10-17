@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -93,6 +94,28 @@ func TestReactionsByNameAreMigrated(t *testing.T) {
 	}
 	got, _ := s.MessageByID(m.ID)
 	if want := []Reaction{{Emoji: "👍", Users: []string{"Bob"}, IDs: []uint32{5}}}; !reflect.DeepEqual(got.Reactions, want) {
+		t.Fatalf("%+v", got.Reactions)
+	}
+}
+
+func TestRenameReactionEmoji(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	at := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	m, _ := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "hi", At: at})
+	s.SetReaction(m.ID, "✅\ufe0f", 7, "bob", true, at)   // the old form
+	s.SetReaction(m.ID, "✅", 8, "carol", true, at)       // the new form
+	s.SetReaction(m.ID, "✅\ufe0f", 8, "carol", true, at) // both from one user: one stays
+	s.SetReaction(m.ID, "👍", 7, "bob", true, at)
+	normal := func(e string) string { return strings.ReplaceAll(e, "\ufe0f", "") }
+	if err := s.RenameReactionEmoji(normal); err != nil {
+		t.Fatal(err)
+	}
+	want := []Reaction{
+		{Emoji: "✅", Users: []string{"bob", "carol"}, IDs: []uint32{7, 8}},
+		{Emoji: "👍", Users: []string{"bob"}, IDs: []uint32{7}},
+	}
+	if got, _ := s.MessageByID(m.ID); !reflect.DeepEqual(got.Reactions, want) {
 		t.Fatalf("%+v", got.Reactions)
 	}
 }

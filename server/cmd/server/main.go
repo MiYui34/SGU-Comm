@@ -23,6 +23,7 @@ import (
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/emoji"
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/preview"
@@ -64,6 +65,9 @@ func run() error {
 		return fmt.Errorf("open database %s: %w", cfg.DBPath, err)
 	}
 	defer db.Close()
+	if err := db.RenameReactionEmoji(emoji.Normal); err != nil {
+		return fmt.Errorf("reactions in the current emoji form: %w", err)
+	}
 	// With the built-in server, admins manage the text channels: the
 	// configured ones only seed a new server.
 	setUp := db.EnsureChannels

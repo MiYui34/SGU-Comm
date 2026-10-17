@@ -66,13 +66,16 @@ func TestOnlyEmojiAreReactions(t *testing.T) {
 	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4})
 	alice.limit = rate.NewLimiter(rate.Inf, 0) // many requests in a row
 	id := say(t, h, alice, "hi")
-	for _, bad := range []string{"", "lol", "<b>", " 👍", "\u200b", "★ПРИВЕТ", "ＦＵＣＫ★", "👍\u0489\u0489", "👍\u200d", "\u200d★", "👍\u200d\u200d👍", strings.Repeat("👍", 17)} {
+	for _, bad := range []string{"", "lol", "<b>", " 👍", "\u200b", "★ПРИВЕТ", "ＦＵＣＫ★", "👍\u0489\u0489", "👍\u200d", "\u200d★", "👍\u200d\u200d👍", strings.Repeat("👍", 17), "#", "7", "a\u20e3", "7\u20e3👍", "+", "ℹ"[:1], "\ufffd"} {
 		react(alice, id, bad, true)
 		if m := next(t, alice); m["type"] != "error" {
 			t.Fatalf("%q: %v", bad, m)
 		}
 	}
-	for _, good := range []string{"❤️", "👍🏽", "👨‍👩‍👧", "🇩🇪", "🧑🏻‍❤️‍💋‍🧑🏼", "🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"} {
+	for _, good := range []string{"❤️", "👍🏽", "👨‍👩‍👧", "🇩🇪", "🧑🏻‍❤️‍💋‍🧑🏼", "🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F",
+		// Emoji 16 and 17 (newer than Go's Unicode tables), bases that are
+		// not So, keycaps, older symbols with skin tones.
+		"🫩", "🫈", "ℹ️", "‼️", "↔️", "〰️", "◼️", "🙂‍↔️", "#️⃣", "7️⃣", "✋🏻", "⛹🏽‍♂️"} {
 		react(alice, id, good, true)
 		if m := next(t, alice); m["type"] != "reactions" {
 			t.Fatalf("%q: %v", good, m)
@@ -93,14 +96,6 @@ func TestReactingInAVoiceChatNeedsWrite(t *testing.T) {
 	react(other, m.ID, "👍", true)
 	if got := next(t, other); got["type"] != "error" {
 		t.Fatalf("reacted without write: %v", got)
-	}
-}
-
-func TestSameEmojiInOtherFormsIsOne(t *testing.T) {
-	for in, want := range map[string]string{"❤": "❤\ufe0f", "❤\ufe0f": "❤\ufe0f", "👍\ufe0f": "👍", "✅": "✅\ufe0f"} {
-		if got := normalEmoji(in); got != want {
-			t.Errorf("%q: %q", in, got)
-		}
 	}
 }
 

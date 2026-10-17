@@ -93,3 +93,42 @@ func (s *Store) withReactions(msgs []Message) error {
 	}
 	return rows.Err()
 }
+
+// RenameReactionEmoji gives stored reactions a new form of their emoji
+// (when the normal form changed). A user's reaction in both forms is
+// one.
+func (s *Store) RenameReactionEmoji(normal func(string) string) error {
+	rows, err := s.db.Query(`SELECT DISTINCT emoji FROM reactions`)
+	if err != nil {
+		return err
+	}
+	var old []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			rows.Close()
+			return err
+		}
+		if normal(e) != e {
+			old = append(old, e)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(old) == 0 {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, e := range old {
+		if _, err := tx.Exec(`UPDATE OR IGNORE reactions SET emoji = ? WHERE emoji = ?`, normal(e), e); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM reactions WHERE emoji = ?`, e); err != nil { // the ones already there
+			return err
+		}
+	}
+	return tx.Commit()
+}
