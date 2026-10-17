@@ -12,7 +12,7 @@
   "app": {
     "windows": [{ "label": "main", "title": "Kallisti", "width": 1280, "height": 800, "minWidth": 380 }],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:* https: wss: http://localhost:* ws://localhost:*; img-src 'self' blob: data: https: http://localhost:*; media-src 'self' blob: https: http://localhost:*; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'"
     }
   },
   "bundle": {

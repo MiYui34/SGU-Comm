@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bridgeUrl, certificateProblem, formatFingerprint, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
+import { bridgeUrl, certificateProblem, formatFingerprint, isKallisti, kallistiOrigin, kallistiSocket, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
 
 describe("parseAddress", () => {
   it("reads host and optional port", () => {
@@ -68,5 +68,32 @@ describe("certificateProblem", () => {
 describe("formatFingerprint", () => {
   it("groups the hex digits for reading aloud", () => {
     expect(formatFingerprint("sha256:ab12cd34ef56")).toBe("AB:12:CD:34:EF:56");
+  });
+});
+
+describe("Kallisti servers", () => {
+  it("are tried at the address's HTTPS origin, or at the origin typed", () => {
+    expect(kallistiOrigin("chat.example")).toBe("https://chat.example");
+    expect(kallistiOrigin("chat.example:64738")).toBe("https://chat.example");
+    expect(kallistiOrigin(" https://chat.example/ ")).toBe("https://chat.example");
+    expect(kallistiOrigin("http://localhost:18083")).toBe("http://localhost:18083");
+    expect(kallistiOrigin("")).toBeNull();
+  });
+
+  it("answer /api/me with JSON (logged in or not)", async () => {
+    const answer = (status: number, body: string, type = "application/json") =>
+      (async () => new Response(body, { status, headers: { "Content-Type": type } })) as unknown as typeof fetch;
+    expect(await isKallisti("https://a", answer(401, '{"error":"not logged in"}'))).toBe(true);
+    expect(await isKallisti("https://a", answer(200, '{"name":"lain"}'))).toBe(true);
+    expect(await isKallisti("https://a", answer(404, "nope", "text/html"))).toBe(false);
+    const fails = (async () => {
+      throw new TypeError("no route");
+    }) as unknown as typeof fetch;
+    expect(await isKallisti("https://a", fails)).toBe(false);
+  });
+
+  it("are reached on their WebSocket, with the token as a subprotocol", () => {
+    expect(kallistiSocket("https://chat.example", "abc")).toEqual({ url: "wss://chat.example/ws", protocols: ["kallisti", "kallisti.session.abc"] });
+    expect(kallistiSocket("http://localhost:18083", null)).toEqual({ url: "ws://localhost:18083/ws", protocols: [] });
   });
 });

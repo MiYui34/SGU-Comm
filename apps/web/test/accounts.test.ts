@@ -100,3 +100,32 @@ describe("password change and logout everywhere", () => {
     expect(await api.logout()).toBe(false);
   });
 });
+
+describe("the desktop app's session token", () => {
+  const store = () => {
+    let token: string | null = null;
+    return { get: () => token, set: (t: string | null) => (token = t) };
+  };
+
+  it("asks for a token, keeps it and sends it, without cookies", async () => {
+    const calls: Call[] = [];
+    const session = store();
+    const api = createAccountsApi("https://chat.example", fakeFetch(200, { name: "lain", token: "abc" }, calls), session);
+    await api.login("lain", "secret pw");
+    expect(session.get()).toBe("abc");
+    expect(calls[0]?.init.credentials).toBe("omit");
+    expect((calls[0]?.init.headers as Record<string, string>)["X-Kallisti-Session"]).toBe("token");
+    await api.me();
+    expect((calls[1]?.init.headers as Record<string, string>).Authorization).toBe("Bearer abc");
+  });
+
+  it("forgets it on logout and when the server no longer knows it", async () => {
+    const session = store();
+    session.set("abc");
+    await createAccountsApi("https://chat.example", fakeFetch(204, null, []), session).logout();
+    expect(session.get()).toBeNull();
+    session.set("abc");
+    await createAccountsApi("https://chat.example", fakeFetch(401, { error: "not logged in" }, []), session).me();
+    expect(session.get()).toBeNull();
+  });
+});

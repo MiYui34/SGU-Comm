@@ -11,7 +11,7 @@
     account,
     onAccountChange,
     onConnect,
-    desktop = false,
+    desktop = null,
     certificate = null,
     onTrust,
     onCancelTrust,
@@ -20,9 +20,10 @@
     certificate?: (CertificateProblem & { server: string }) | null;
     onTrust?: () => void;
     onCancelTrust?: () => void;
-    // The desktop app: a server address field, no accounts (they need the
-    // Kallisti server).
-    desktop?: boolean;
+    // The desktop app: first the server address (onServer finds out what it
+    // is); a Kallisti server then works as on the web, a Mumble server with
+    // a name and a password (see lib/desktop).
+    desktop?: { server: string; kind: "kallisti" | "mumble" | null; onServer: (address: string) => Promise<void>; onChangeServer: () => void } | null;
     error: string | null;
     api: AccountsApi;
     // The logged-in account (null: none, or a server without accounts).
@@ -42,21 +43,29 @@
   let username = $state(safeGet(localStorage, "username") ?? "");
   let password = $state("");
   let serverPassword = $state("");
-  let server = $state(safeGet(localStorage, "server") ?? "");
+  let server = $state(untrack(() => desktop?.server) ?? "");
+  // Desktop and a plain Mumble server: no accounts, one password field.
+  const mumbleOnly = $derived(desktop?.kind === "mumble");
+  const pickServer = async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (!desktop || !server.trim()) return;
+    busy = true;
+    await desktop.onServer(server.trim());
+    busy = false;
+  };
   let busy = $state(false);
   let apiError = $state<string | null>(null);
 
   const connectAs = (name: string, isAccount: boolean, pw = serverPassword) => {
     safeSet(localStorage, "username", name);
-    if (desktop) safeSet(localStorage, "server", server.trim());
-    onConnect({ username: name, password: pw, account: isAccount, server: server.trim() });
+    onConnect({ username: name, password: pw, account: isAccount, ...(desktop && { server: desktop.server }) });
   };
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const name = username.trim();
     if (!name) return;
-    if (mode === "guest" && desktop) return connectAs(name, false);
+    if (mumbleOnly) return connectAs(name, false, password);
     busy = true;
     apiError = null;
     try {
@@ -126,14 +135,27 @@
       <button class="link" onclick={logout}>Log out</button>
     </div>
   {:else}
+    {#if desktop && !desktop.kind}
+    <form class="card" onsubmit={pickServer}>
+      <h1>Welcome to Kallisti</h1>
+      <label>
+        Server address
+        <input bind:value={server} required placeholder="chat.example.org" autocomplete="url" />
+      </label>
+      <p class="hint">A Kallisti server, or any Mumble server (voice.example.org:64738).</p>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <button class="primary" type="submit" disabled={busy}>{busy ? "Looking…" : "Continue"}</button>
+    </form>
+    {:else}
     <form class="card" onsubmit={submit}>
       <h1>Welcome to Kallisti</h1>
       {#if desktop}
-        <label>
-          Server address
-          <input bind:value={server} required placeholder="voice.example.org" autocomplete="url" />
-        </label>
-      {:else}
+        <p class="server">
+          <span class="ellipsis">{desktop.server}{mumbleOnly ? " (Mumble server)" : ""}</span>
+          <button type="button" class="link" onclick={desktop.onChangeServer}>Change</button>
+        </p>
+      {/if}
+      {#if !mumbleOnly}
       <div class="tabs" role="group" aria-label="How to join">
         {#each MODES as [value, label] (value)}
           <button
@@ -152,7 +174,12 @@
         Name
         <input bind:value={username} required maxlength="32" autocomplete="username" />
       </label>
-      {#if mode !== "guest"}
+      {#if mumbleOnly}
+        <label>
+          Password <span class="optional">(if the server or your name needs one)</span>
+          <input bind:value={password} type="password" autocomplete="current-password" />
+        </label>
+      {:else if mode !== "guest"}
         <label>
           Password
           <input
@@ -164,22 +191,34 @@
           />
         </label>
       {/if}
+      {#if !mumbleOnly}
       <label>
         Server password <span class="optional">(only if the server has one)</span>
         <input bind:value={serverPassword} type="password" autocomplete="off" />
       </label>
+      {/if}
       {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
       {#if mode === "create"}
         <p class="hint">An account keeps your name: nobody else can use it.</p>
       {/if}
       <button class="primary" type="submit" disabled={busy}>
-        {desktop ? "Connect" : mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
+        {mumbleOnly ? "Connect" : mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
       </button>
     </form>
+    {/if}
   {/if}
 </div>
 
 <style>
+  .server {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 12px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
   .screen {
     display: grid;
     place-items: center;

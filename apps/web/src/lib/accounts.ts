@@ -1,6 +1,7 @@
 // The Kallisti server's account API. The session is an HttpOnly cookie, so
 // every call includes credentials (the API may be on another origin in
-// development).
+// development). The desktop app (session given) cannot use the cookie (it
+// is third-party there): it keeps the server's token and sends it.
 // A logged-in account; temporary: a guest account without a password (the
 // server deletes it after a day without a visit).
 export type Account = { name: string; temporary: boolean };
@@ -15,18 +16,28 @@ class ApiError extends Error {
   }
 }
 
-export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) => {
-  type Answer = { name?: string; mumble?: boolean; temporary?: boolean };
+export type SessionStore = { get: () => string | null; set: (token: string | null) => void };
+
+export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, session?: SessionStore) => {
+  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string };
   const call = async (path: string, body?: unknown): Promise<Answer> => {
-    // GET without Content-Type: no CORS preflight needed.
+    const token = session?.get();
+    const headers: Record<string, string> = {
+      ...(body !== undefined && { "Content-Type": "application/json" }),
+      ...(session && { "X-Kallisti-Session": "token" }),
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+    // A web GET without Content-Type: no CORS preflight needed.
     const res = await fetchFn(`${base}${path}`, {
-      credentials: "include",
-      ...(body === undefined
-        ? { method: "GET" }
-        : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+      credentials: session ? "omit" : "include",
+      method: body === undefined ? "GET" : "POST",
+      ...(Object.keys(headers).length && { headers }),
+      ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     const data = (await res.json().catch(() => ({}))) as Answer & { error?: string };
+    if (res.status === 401) session?.set(null); // the server no longer knows it
     if (!res.ok) throw new ApiError(data.error ?? `request failed (${res.status})`, res.status);
+    if (data.token) session?.set(data.token);
     return data;
   };
   return {
@@ -52,7 +63,7 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch) =
     // false: the server did not confirm (the session cookie may remain).
     logout: async () =>
       call("/api/logout", {}).then(
-        () => true,
+        () => (session?.set(null), true),
         () => false,
       ),
     logoutAll: async () => {

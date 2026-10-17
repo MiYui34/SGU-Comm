@@ -8,11 +8,15 @@
     certificateProblem,
     getBridge,
     isDesktop,
+    isKallisti,
+    kallistiOrigin,
+    kallistiSocket,
     parseAddress,
     trustServer,
     type CertificateProblem,
   } from "./lib/desktop";
   import { httpBase } from "./lib/textChannels";
+  import { safeGet, safeSet } from "./lib/storage";
   import { connectionError, proxyUrl } from "./lib/status";
   import type { Place } from "./lib/place";
   import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
@@ -41,14 +45,17 @@
 
   let connection = $state<Connection | null>(null);
   // The account API lives on the Kallisti server (same host as the bridge).
-  const api = createAccountsApi(httpBase(PROXY_URL));
+  // The desktop app's server is chosen on the login screen (see below).
+  let api = $state.raw(createAccountsApi(httpBase(PROXY_URL)));
   let account = $state<Account | null>(null);
   // Only if the user has not acted yet: a late answer must not undo a login.
-  // The desktop app has no Kallisti server, so no accounts.
+  // The desktop app asks its server when one is chosen (see chooseServer).
   if (!isDesktop())
-    void api.me().then((acc) => {
-      if (!connection && account === null) account = acc;
-    });
+    void untrack(() => api)
+      .me()
+      .then((acc) => {
+        if (!connection && account === null) account = acc;
+      });
   // An account connection failed (for example an expired session): ask the
   // server again, so the login form comes back instead of a dead end.
   $effect(() => {
@@ -113,14 +120,43 @@
     },
   };
 
-  // The desktop app connects through its local bridge to the server the
-  // user typed; the web app through the Kallisti server.
+  // The desktop app: a Kallisti server works as in the web app (with a
+  // session token instead of the cookie); any other address through the
+  // app's local Mumble bridge. The web app: through its Kallisti server.
   const desktop = isDesktop();
-  const urlFor = async (credentials: Credentials) => {
-    if (!desktop) return PROXY_URL;
+  let desktopServer = $state(safeGet(localStorage, "server") ?? "");
+  let desktopKind = $state<"kallisti" | "mumble" | null>(null);
+  let kallisti = $state<string | null>(null); // the Kallisti server's origin
+  const sessionStore = (origin: string) => {
+    const key = `session:${origin}`;
+    return { get: () => safeGet(localStorage, key) || null, set: (token: string | null) => void safeSet(localStorage, key, token ?? "") };
+  };
+  const chooseServer = async (address: string) => {
+    loginNote = null;
+    const origin = kallistiOrigin(address);
+    const found = origin !== null && (await isKallisti(origin));
+    desktopServer = address;
+    safeSet(localStorage, "server", address);
+    kallisti = found ? origin : null;
+    if (found) {
+      api = createAccountsApi(origin, fetch, sessionStore(origin));
+      account = await api.me();
+    }
+    desktopKind = found ? "kallisti" : "mumble";
+  };
+  const changeServer = () => {
+    desktopKind = null;
+    kallisti = null;
+    account = null;
+  };
+  // A server from last time: looked at again at once.
+  untrack(() => desktop && desktopServer && void chooseServer(desktopServer));
+  const urlFor = async (credentials: Credentials): Promise<{ url: string; protocols?: string[] }> => {
+    if (!desktop) return { url: PROXY_URL };
+    if (kallisti) return kallistiSocket(kallisti, sessionStore(kallisti).get());
     const server = parseAddress(credentials.server ?? "");
     if (!server) throw new Error("Enter a server address, for example voice.example.org or voice.example.org:64738");
-    return bridgeUrl(await getBridge(), server);
+    return { url: bridgeUrl(await getBridge(), server) };
   };
 
   // A new version on the server (web app only: the desktop app carries its
@@ -182,9 +218,9 @@
     // Created here: browsers allow audio only after a user gesture.
     audio = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
     try {
-      const url = await urlFor(credentials);
+      const { url, protocols } = await urlFor(credentials);
       if (mine !== starts) return;
-      connection = connect(url, credentials, audio);
+      connection = connect(url, credentials, audio, protocols);
     } catch (err) {
       loginNote = err instanceof Error ? err.message : String(err);
     }
@@ -217,9 +253,9 @@
     starting = true;
     const mine = generation;
     try {
-      const url = await urlFor(lastCredentials);
+      const { url, protocols } = await urlFor(lastCredentials);
       if (mine !== generation || !lost) return;
-      const next = connect(url, lastCredentials, audio);
+      const next = connect(url, lastCredentials, audio, protocols);
       attempt = next;
       // A connection that never gets anywhere: give up on it, try again.
       setTimeout(() => {
@@ -276,7 +312,7 @@
     onCancelTrust={() => leave(null)}
     {api}
     {account}
-    {desktop}
+    desktop={desktop ? { server: desktopServer, kind: desktopKind, onServer: chooseServer, onChangeServer: changeServer } : null}
     onAccountChange={(acc) => (account = acc)}
     onConnect={start}
   />

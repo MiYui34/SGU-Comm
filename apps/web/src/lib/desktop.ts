@@ -72,3 +72,36 @@ export const trustServer = async (server: ServerAddress, fingerprint: string) =>
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("trust_server", { host: server.host, port: server.port, fingerprint });
 };
+
+// A Kallisti server: the desktop app works like the web app with it (see
+// isKallisti). Tried at the address's HTTPS origin (a Mumble port does not
+// matter), or at the origin typed with its scheme (development: http).
+export const kallistiOrigin = (input: string): string | null => {
+  const text = input.trim();
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      return new URL(text).origin;
+    } catch {
+      return null;
+    }
+  }
+  const address = parseAddress(text);
+  return address ? `https://${address.host.includes(":") ? `[${address.host}]` : address.host}` : null;
+};
+
+// Kallisti servers answer /api/me with JSON, logged in or not.
+export const isKallisti = async (origin: string, fetchFn: typeof fetch = fetch, timeoutMs = 4000) => {
+  try {
+    const res = await fetchFn(`${origin}/api/me`, { credentials: "omit", signal: AbortSignal.timeout(timeoutMs) });
+    return (res.ok || res.status === 401) && (res.headers.get("Content-Type") ?? "").startsWith("application/json");
+  } catch {
+    return false;
+  }
+};
+
+// The server's WebSocket (voice and text), with the session token as a
+// subprotocol (browsers cannot send headers there; see the server's auth).
+export const kallistiSocket = (origin: string, token: string | null) => ({
+  url: `${origin.replace(/^http/, "ws")}/ws`,
+  protocols: token ? ["kallisti", `kallisti.session.${token}`] : [],
+});
