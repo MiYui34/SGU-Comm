@@ -127,6 +127,7 @@
   {:else if account}
     <div class="card">
       <h1>Welcome back</h1>
+      {@render serverLine()}
       <p class="sub">
         {account.temporary ? "Your guest account" : "Logged in as"} <strong>{account.name}</strong>
       </p>
@@ -149,12 +150,7 @@
     {:else}
     <form class="card" onsubmit={submit}>
       <h1>Welcome to Kallisti</h1>
-      {#if desktop}
-        <p class="server">
-          <span class="ellipsis">{desktop.server}{mumbleOnly ? " (Mumble server)" : ""}</span>
-          <button type="button" class="link" onclick={desktop.onChangeServer}>Change</button>
-        </p>
-      {/if}
+      {@render serverLine()}
       {#if !mumbleOnly}
       <div class="tabs" role="group" aria-label="How to join">
         {#each MODES as [value, label] (value)}
@@ -208,6 +204,16 @@
     {/if}
   {/if}
 </div>
+
+<!-- Desktop: the chosen server, with a way back to the address step. -->
+{#snippet serverLine()}
+  {#if desktop}
+    <p class="server">
+      <span class="ellipsis">{desktop.server}{mumbleOnly ? " (Mumble server)" : ""}</span>
+      <button type="button" class="link" onclick={desktop.onChangeServer}>Change</button>
+    </p>
+  {/if}
+{/snippet}
 
 <style>
   .server {

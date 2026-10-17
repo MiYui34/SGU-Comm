@@ -35,7 +35,8 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     const data = (await res.json().catch(() => ({}))) as Answer & { error?: string };
-    if (res.status === 401) session?.set(null); // the server no longer knows it
+    // The server no longer knows the token (not: a wrong password).
+    if (res.status === 401 && path === "/api/me") session?.set(null);
     if (!res.ok) throw new ApiError(data.error ?? `request failed (${res.status})`, res.status);
     if (data.token) session?.set(data.token);
     return data;
@@ -68,6 +69,7 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
       ),
     logoutAll: async () => {
       await call("/api/logout-all", {});
+      session?.set(null);
     },
     changePassword: async (old: string, next: string) => {
       await call("/api/password", { old, new: next });

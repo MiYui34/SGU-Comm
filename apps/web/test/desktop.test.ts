@@ -80,16 +80,19 @@ describe("Kallisti servers", () => {
     expect(kallistiOrigin("")).toBeNull();
   });
 
-  it("answer /api/me with JSON (logged in or not)", async () => {
+  it("answer /api/me with Kallisti's JSON (logged in or not)", async () => {
     const answer = (status: number, body: string, type = "application/json") =>
       (async () => new Response(body, { status, headers: { "Content-Type": type } })) as unknown as typeof fetch;
-    expect(await isKallisti("https://a", answer(401, '{"error":"not logged in"}'))).toBe(true);
-    expect(await isKallisti("https://a", answer(200, '{"name":"lain"}'))).toBe(true);
-    expect(await isKallisti("https://a", answer(404, "nope", "text/html"))).toBe(false);
-    const fails = (async () => {
-      throw new TypeError("no route");
-    }) as unknown as typeof fetch;
-    expect(await isKallisti("https://a", fails)).toBe(false);
+    expect(await isKallisti("https://a", answer(401, '{"error":"not logged in"}'))).toBe("kallisti");
+    expect(await isKallisti("https://a", answer(200, '{"name":"lain","temporary":false}'))).toBe("kallisti");
+    expect(await isKallisti("https://a", answer(401, '{"message":"Unauthorized"}'))).toBe("other"); // some other API
+    expect(await isKallisti("https://a", answer(404, "nope", "text/html"))).toBe("other");
+    const throws = (err: Error) =>
+      (async () => {
+        throw err;
+      }) as unknown as typeof fetch;
+    expect(await isKallisti("https://a", throws(new TypeError("refused")))).toBe("other"); // no web server: Mumble
+    expect(await isKallisti("https://a", throws(new DOMException("slow", "TimeoutError")))).toBe("unreachable");
   });
 
   it("are reached on their WebSocket, with the token as a subprotocol", () => {

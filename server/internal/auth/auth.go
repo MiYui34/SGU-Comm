@@ -116,8 +116,11 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "send JSON"})
 			return
 		}
-		// The desktop app is cross-site by nature (and cannot be a form).
-		if r.Header.Get("Sec-Fetch-Site") == "cross-site" && !config.IsAppOrigin(r.Header.Get("Origin")) {
+		// The desktop app is cross-site by nature, and never sends the
+		// cookie (a local page can pose as http://tauri.localhost).
+		_, noCookie := r.Cookie(CookieName)
+		app := config.IsAppOrigin(r.Header.Get("Origin")) && noCookie != nil
+		if r.Header.Get("Sec-Fetch-Site") == "cross-site" && !app {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-site requests are not allowed"})
 			return
 		}
@@ -149,10 +152,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // sessionToken is a request's session: the cookie (web app), else the
 // token the desktop app got at login, in a header or (WebSockets cannot
 // have headers in browsers) as a subprotocol. "": none.
+// A token comes first: a leftover cookie must not win over it.
 func sessionToken(r *http.Request) string {
-	if c, err := r.Cookie(CookieName); err == nil {
-		return c.Value
-	}
 	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 		return token
 	}
@@ -160,6 +161,9 @@ func sessionToken(r *http.Request) string {
 		if token, ok := strings.CutPrefix(strings.TrimSpace(p), SessionProtocol); ok {
 			return token
 		}
+	}
+	if c, err := r.Cookie(CookieName); err == nil {
+		return c.Value
 	}
 	return ""
 }

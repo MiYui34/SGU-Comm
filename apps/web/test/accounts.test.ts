@@ -128,4 +128,13 @@ describe("the desktop app's session token", () => {
     await createAccountsApi("https://chat.example", fakeFetch(401, { error: "not logged in" }, []), session).me();
     expect(session.get()).toBeNull();
   });
+
+  it("keeps it when only a password was wrong", async () => {
+    const session = store();
+    session.set("abc");
+    await createAccountsApi("https://chat.example", fakeFetch(401, { error: "wrong password" }, []), session)
+      .changePassword("bad", "new password")
+      .catch(() => {});
+    expect(session.get()).toBe("abc");
+  });
 });

@@ -391,3 +391,28 @@ func TestAppOriginsGetCORSWithoutCredentials(t *testing.T) {
 		t.Fatalf("headers %v", h)
 	}
 }
+
+// http://tauri.localhost can be a local web page (*.localhost goes to the
+// computer itself): with the cookie it is no desktop app, so the guard stays.
+func TestAppOriginsWithACookieStayCrossSite(t *testing.T) {
+	_, srv := setup(t)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/logout", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://tauri.localhost")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.AddCookie(&http.Cookie{Name: CookieName, Value: "x"})
+	resp, _ := http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-site with a cookie: %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestTheTokenComesBeforeACookie(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: "old"})
+	r.Header.Set("Authorization", "Bearer new")
+	if SessionKey(r) != tokenHash("new") {
+		t.Fatal("the cookie won")
+	}
+}

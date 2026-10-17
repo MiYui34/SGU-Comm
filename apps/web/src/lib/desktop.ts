@@ -89,13 +89,18 @@ export const kallistiOrigin = (input: string): string | null => {
   return address ? `https://${address.host.includes(":") ? `[${address.host}]` : address.host}` : null;
 };
 
-// Kallisti servers answer /api/me with JSON, logged in or not.
+// Kallisti servers answer /api/me with their JSON, logged in or not.
+// "other": no Kallisti there (no web server at all: a Mumble server);
+// "unreachable": no answer in time or offline (try again, do not decide).
 export const isKallisti = async (origin: string, fetchFn: typeof fetch = fetch, timeoutMs = 4000) => {
   try {
-    const res = await fetchFn(`${origin}/api/me`, { credentials: "omit", signal: AbortSignal.timeout(timeoutMs) });
-    return (res.ok || res.status === 401) && (res.headers.get("Content-Type") ?? "").startsWith("application/json");
-  } catch {
-    return false;
+    const res = await fetchFn(`${origin}/api/me`, { credentials: "omit", redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
+    const body = (await res.json().catch(() => null)) as { error?: unknown; name?: unknown } | null;
+    const kallisti = res.status === 401 ? body?.error === "not logged in" : res.ok && typeof body?.name === "string";
+    return kallisti ? "kallisti" : "other";
+  } catch (err) {
+    const timeout = err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError");
+    return timeout || globalThis.navigator?.onLine === false ? "unreachable" : "other";
   }
 };
 

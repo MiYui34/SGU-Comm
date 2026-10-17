@@ -179,8 +179,9 @@ func OriginAllowed(allowed []string, origin string) bool {
 }
 
 // appOrigins are the Kallisti desktop app's pages (Tauri: macOS and Linux,
-// Windows). No web page can send them, so every server allows them; the app
-// logs in with a token, not a cookie (see auth).
+// Windows). Every server allows them; the app logs in with a token, never a
+// cookie (see auth). Not proof of the app: other Tauri apps share them, and
+// a local web server can pose as http://tauri.localhost.
 var appOrigins = []string{"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"}
 
 func IsAppOrigin(origin string) bool { return slices.Contains(appOrigins, origin) }

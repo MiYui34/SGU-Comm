@@ -131,20 +131,32 @@
     const key = `session:${origin}`;
     return { get: () => safeGet(localStorage, key) || null, set: (token: string | null) => void safeSet(localStorage, key, token ?? "") };
   };
+  // The newest choice wins (the one from last time is looked at on start).
+  let choices = 0;
   const chooseServer = async (address: string) => {
+    const mine = ++choices;
     loginNote = null;
     const origin = kallistiOrigin(address);
-    const found = origin !== null && (await isKallisti(origin));
+    const kind = origin === null ? "other" : await isKallisti(origin);
+    if (mine !== choices) return;
+    if (kind === "unreachable") {
+      loginNote = `Cannot reach ${address}. Check the address, or try again.`;
+      return;
+    }
+    const found = kind === "kallisti";
     desktopServer = address;
     safeSet(localStorage, "server", address);
     kallisti = found ? origin : null;
     if (found) {
-      api = createAccountsApi(origin, fetch, sessionStore(origin));
-      account = await api.me();
+      api = createAccountsApi(origin!, fetch, sessionStore(origin!));
+      const acc = await api.me();
+      if (mine !== choices) return;
+      account = acc;
     }
     desktopKind = found ? "kallisti" : "mumble";
   };
   const changeServer = () => {
+    choices++;
     desktopKind = null;
     kallisti = null;
     account = null;
