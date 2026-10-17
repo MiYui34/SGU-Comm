@@ -3,6 +3,7 @@ package mumbled
 import (
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/password"
 )
 
@@ -262,5 +264,78 @@ func TestMumbleClientsAndWebSessionsAreToldApart(t *testing.T) {
 	}
 	if _, ok := s.MumbleClient(9999); ok {
 		t.Fatal("unknown session")
+	}
+}
+
+// accountLogin is a Config.AccountLogin for tests: accounts by name with
+// their password; guest accounts have none.
+func accountLogin(accounts map[string]string, guests map[string]bool) func(name, pw string) (*WebAccount, bool) {
+	return func(name, pw string) (*WebAccount, bool) {
+		key := names.Key(name)
+		want, ok := accounts[key]
+		if !ok || guests[key] {
+			return nil, true
+		}
+		if pw != want {
+			return nil, false
+		}
+		return &WebAccount{Name: key, CertHash: "cert-" + key}, true
+	}
+}
+
+func TestMumbleClientsLogInWithAnAccountPassword(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("admin pw")
+	db.SetPassword(0, hash)
+	reserved := map[string]bool{"alice": true, "bob": true, "gus": true}
+	cfg := Config{DB: db, Password: "server pw", ReservedName: func(n string) bool { return reserved[n] },
+		AccountLogin: accountLogin(map[string]string{"alice": "secret", "bob": "bobpw", "gus": "", "superuser": "other"}, map[string]bool{"gus": true})}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, nil)
+	reject := func(c *testClient, _ error) *pb.Reject {
+		var r pb.Reject
+		proto.Unmarshal(c.expect(mumble.TypeReject), &r)
+		return &r
+	}
+
+	// Not yet registered: registered as the account (no server password).
+	alice := dialAs(t, addr, dialOpts{name: "alice", password: "secret", cert: clientCert(t)})
+	reg, _ := db.UserByHash("cert-alice")
+	if reg == nil {
+		t.Fatal("the account was not registered")
+	}
+	if u, _ := s.MumbleClient(alice.session); !u.Registered || u.UserID != reg.ID {
+		t.Fatalf("alice: %+v, want user %d", u, reg.ID)
+	}
+	// Already registered (through the web): the same user.
+	joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "bob", CertHash: "cert-bob"}}, "bob"))
+	bobReg, _ := db.UserByHash("cert-bob")
+	bob := dialAs(t, addr, dialOpts{name: "Bob", password: "bobpw"})
+	if u, _ := s.MumbleClient(bob.session); !u.Registered || u.UserID != bobReg.ID {
+		t.Fatalf("bob: %+v, want user %d", u, bobReg.ID)
+	}
+
+	// A wrong password is refused and counted.
+	if r := reject(tryDialWith(t, addr, dialOpts{name: "alice", password: "guess"})); r.GetType() != pb.Reject_WrongUserPW {
+		t.Fatalf("wrong password: %v", r)
+	}
+	s.logins.mu.Lock()
+	failed := s.logins.failures[netip.MustParseAddr("127.0.0.1")] != nil
+	s.logins.mu.Unlock()
+	if !failed {
+		t.Fatal("the failure was not counted")
+	}
+	// Guest accounts have no password: the name stays theirs.
+	if r := reject(tryDialWith(t, addr, dialOpts{name: "gus", password: "server pw"})); r.GetType() != pb.Reject_UsernameInUse {
+		t.Fatalf("guest account: %v", r)
+	}
+	// Mumble registrations with a password as before, also under an
+	// account's name.
+	if su := dialAs(t, addr, dialOpts{name: "SuperUser", password: "admin pw"}); su.session == 0 {
+		t.Fatal("no SuperUser")
+	}
+	// A banned account stays banned with a Mumble client.
+	s.bans.Store(&[]BanEntry{{Hash: "cert-alice"}})
+	if r := reject(tryDialWith(t, addr, dialOpts{name: "alice", password: "secret"})); !strings.Contains(r.GetReason(), "banned") {
+		t.Fatalf("banned: %v", r)
 	}
 }
