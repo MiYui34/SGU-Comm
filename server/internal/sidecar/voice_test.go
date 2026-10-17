@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/store"
@@ -37,8 +38,9 @@ type fakeVoice struct {
 	names  map[uint32]string
 	native map[uint32]bool
 	sentTo []string
-	// Bans by Ban.
-	bans []string
+	// Bans by Ban; time-outs by session.
+	bans     []string
+	timeouts map[uint32]time.Time
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

@@ -287,6 +287,12 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 			c.denyPerm(missing, where)
 			return
 		}
+		if until, ok := s.timedOutLocked(u); ok {
+			if mute, _ := serverMuteState(u.Mute, u.Deaf, m); !mute {
+				c.deny(timedOutText(u.Name+" is", until))
+				return
+			}
+		}
 	}
 	dest := s.state.Channels[m.GetChannelId()]
 	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel
@@ -602,6 +608,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	defer s.mu.Unlock()
 	actor := s.state.Users[c.session]
 	if actor == nil {
+		return
+	}
+	if until, ok := s.timedOutLocked(actor); ok {
+		c.deny(timedOutText("you are", until))
 		return
 	}
 	// TextMessage in every target channel, tree and user's channel, or

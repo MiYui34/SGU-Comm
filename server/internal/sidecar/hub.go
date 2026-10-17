@@ -71,6 +71,12 @@ type Voice interface {
 	MumbleClient(session uint32) (MumbleUser, bool)
 	// Ban bans a user for a time (0: forever), if the actor may.
 	Ban(actor, session uint32, reason string, d time.Duration) error
+	// SetTimeout times a user out for a time, or ends it (0), if the
+	// actor may; TimedOut: the session's user is timed out, until when;
+	// Timeouts: the running time-outs.
+	SetTimeout(actor, session uint32, d time.Duration) error
+	TimedOut(session uint32) (time.Time, bool)
+	Timeouts() []Timeout
 }
 
 // LiveStream is a screen share in a voice channel, by its streamer's
@@ -261,7 +267,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	if becomesReady {
 		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil}
 		if c.hub.voice != nil {
-			ready["roles"], ready["listenOnly"] = c.hub.roles(), c.hub.listenOnly()
+			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnly(), c.hub.timeouts()
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
@@ -372,8 +378,8 @@ type request struct {
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
 	On        bool     `json:"on"`        // react: add (or remove); pin
-	Session   uint32   `json:"session"`   // ban: the user's voice server session
-	Seconds   int64    `json:"seconds"`   // ban: how long (0: forever)
+	Session   uint32   `json:"session"`   // ban, time-out: the user's voice server session
+	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it)
 }
 
 // Handle answers one request from the browser.
@@ -396,6 +402,9 @@ func (c *Conn) Handle(raw []byte) {
 	}
 	if req.Type == "upload-token" {
 		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name)})
+		return
+	}
+	if (req.Type == "send" || req.Type == "react" || req.Type == "edit-message" || req.Type == "typing") && c.timedOut(*id, req) {
 		return
 	}
 	if req.Type == "voice-chat" {
@@ -434,6 +443,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "ban":
 		c.ban(*id, req)
+		return
+	case "time-out":
+		c.timeOut(*id, req)
 		return
 	case "dm":
 		c.direct(*id, req.User)

@@ -79,12 +79,12 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	var onText func(mumbled.ChannelText)
 	var onPrivate func(mumbled.PrivateText)
-	var onRoles, onListenOnly func()
+	var onRoles, onListenOnly, onTimeouts func()
 	sv := &streamVoice{}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
-		onRoles, onListenOnly = hub.RolesChanged, hub.ListenOnlyChanged
+		onRoles, onListenOnly, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.TimeoutsChanged
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
 			streams.Moved(session, to)
@@ -132,6 +132,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnPrivateText:       onPrivate,
 		OnRolesChanged:      onRoles,
 		OnListenOnlyChanged: onListenOnly,
+		OnTimeoutsChanged:   onTimeouts,
 		OnUserMoved:         onMoved,
 	})
 	if err != nil {
@@ -210,6 +211,14 @@ func (v voiceServer) ListenOnly() []sidecar.ListenOnlyChannel {
 			speakers[i] = sidecar.Speaker{ID: sp.ID, Name: sp.Name}
 		}
 		out = append(out, sidecar.ListenOnlyChannel{Channel: c.Channel, Speakers: speakers})
+	}
+	return out
+}
+
+func (v voiceServer) Timeouts() []sidecar.Timeout {
+	var out []sidecar.Timeout
+	for _, t := range v.Server.Timeouts() {
+		out = append(out, sidecar.Timeout{Registered: t.Registered, UserID: t.UserID, Session: t.Session, Until: t.Until})
 	}
 	return out
 }

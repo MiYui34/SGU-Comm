@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS mumble_users (
 	last_channel  INTEGER NOT NULL DEFAULT 0
 );
 INSERT OR IGNORE INTO mumble_users (id, name, name_key) VALUES (0, 'SuperUser', 'superuser');
+-- Kallisti time-outs of registered users.
+CREATE TABLE IF NOT EXISTS mumble_timeouts (
+	user_id INTEGER PRIMARY KEY,
+	until   INTEGER NOT NULL -- Unix milliseconds
+);
 CREATE TABLE IF NOT EXISTS mumble_channel_links (
 	a INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
 	b INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
@@ -491,6 +496,7 @@ func (d *DB) UnregisterUser(id uint32) error {
 		`DELETE FROM mumble_users WHERE id = ?`,
 		`DELETE FROM mumble_acl WHERE user_id = ?`,
 		`DELETE FROM mumble_group_members WHERE user_id = ?`,
+		`DELETE FROM mumble_timeouts WHERE user_id = ?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
 			return err
@@ -545,6 +551,36 @@ func (d *DB) SaveBans(bans []BanEntry) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// Timeouts: the saved time-outs, by user id.
+func (d *DB) Timeouts() (map[uint32]time.Time, error) {
+	rows, err := d.db.Query(`SELECT user_id, until FROM mumble_timeouts`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uint32]time.Time{}
+	for rows.Next() {
+		var id uint32
+		var until int64
+		if err := rows.Scan(&id, &until); err != nil {
+			return nil, err
+		}
+		out[id] = time.UnixMilli(until)
+	}
+	return out, rows.Err()
+}
+
+// SaveTimeout keeps a user's time-out (zero: none).
+func (d *DB) SaveTimeout(id uint32, until time.Time) error {
+	if until.IsZero() {
+		_, err := d.db.Exec(`DELETE FROM mumble_timeouts WHERE user_id = ?`, id)
+		return err
+	}
+	_, err := d.db.Exec(`INSERT INTO mumble_timeouts (user_id, until) VALUES (?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET until = excluded.until`, id, until.UnixMilli())
+	return err
 }
 
 // UserContent is a registered user's comment and avatar (read at login
