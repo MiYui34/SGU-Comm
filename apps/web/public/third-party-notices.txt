@@ -16,6 +16,10 @@ Twemoji (emoji images)
   Code (@twemoji/parser) under the MIT License.
   https://github.com/jdecked/twemoji
 
+Emojibase data (emoji names, keywords and shortcodes for the picker)
+  Copyright (c) 2017-2019 Miles Johnson. MIT License.
+  https://github.com/milesj/emojibase
+
 DeepFilterNet3 (noise suppression, "Strongest")
   By Hendrik Schröter and contributors. MIT License or Apache License 2.0.
   https://github.com/Rikorose/DeepFilterNet

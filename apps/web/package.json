@@ -5,8 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/twemoji.mjs && vite",
-    "build": "node scripts/twemoji.mjs && vite build",
+    "dev": "node scripts/twemoji.mjs && node scripts/emojidata.mjs && vite",
+    "build": "node scripts/twemoji.mjs && node scripts/emojidata.mjs && vite build",
     "test": "vitest run",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
@@ -14,6 +14,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^26.6.5",
     "@typescript/native": "npm:typescript@^7.0.2",
+    "emojibase-data": "18.0.0",
     "jsdom": "^30.1.3",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
