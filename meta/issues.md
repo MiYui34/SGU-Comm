@@ -11,7 +11,6 @@
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Emoji suggestions for :shortcodes:](issues/emoji-shortcodes.md)
 - [ ] [Small gaps to Discord](issues/discord-small-gaps.md)
-  - [ ] [Keyboard: quick switcher and channel keys](issues/keyboard-navigation.md)
   - [ ] [Copy a link to a message](issues/message-links.md)
   - [ ] [@here and @everyone](issues/mention-everyone.md)
   - [ ] [Unread count in the tab, installable app](issues/tab-badge-pwa.md)

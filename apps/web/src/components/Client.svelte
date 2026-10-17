@@ -60,6 +60,10 @@
   import SettingsDialog from "./SettingsDialog.svelte";
   import Toast from "./Toast.svelte";
   import UserMenu from "./UserMenu.svelte";
+  import QuickSwitcher, { type Place as SwitcherPlace } from "./QuickSwitcher.svelte";
+  import Shortcuts from "./Shortcuts.svelte";
+  import { IS_MAC, navAction, stepPlace } from "../lib/switcher";
+  import { mirrorIds } from "../lib/mirrors";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
 
@@ -102,6 +106,8 @@
   $effect(() => capture?.setMuted((me?.selfMute ?? false) || !voiceOn));
 
   let showSettings = $state(false);
+  let showSwitcher = $state(false);
+  let showShortcuts = $state(false);
   let membersOpen = $state(true);
   // Kallisti servers: root is a lobby, voice channels are joined on purpose.
   const lobby = $derived(isLobby(server));
@@ -153,7 +159,8 @@
     t instanceof HTMLElement &&
     (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
   const onKey = (e: KeyboardEvent) => {
-    if (e.type === "keydown" && e.key === "Escape" && phone && panel !== "chat" && !menu && !showSettings) {
+    if (e.type === "keydown" && navKey(e)) return;
+    if (e.type === "keydown" && e.key === "Escape" && phone && panel !== "chat" && !menu && !document.querySelector("dialog[open]")) {
       panel = "chat";
       return;
     }
@@ -429,6 +436,7 @@
     connection.typing(chatId);
   };
   const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "", blockedUsers.has);
+  const unreadText = $derived(withoutMuted(textView.unread, mutedText));
   // Mentions in voice channel chats, by voice channel.
   const mentionVoice = $derived(
     Object.fromEntries(
@@ -662,6 +670,55 @@
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
   };
+
+  // Keyboard (see lib/switcher): Alt+Up/Down through text channels and
+  // direct chats (with Shift: unread ones), Ctrl/Cmd+K finds any place.
+  // Not over another dialog (the switcher closes itself on Ctrl/Cmd+K).
+  const navKey = (e: KeyboardEvent) => {
+    const action = navAction(e, IS_MAC);
+    if (!action || document.querySelector("dialog[open]")) return false;
+    e.preventDefault();
+    if (action === "switcher") showSwitcher = true;
+    else if (action === "shortcuts") showShortcuts = true;
+    else {
+      const nav = places.filter((p) => p.kind === "text" || p.key[0] === "d");
+      const here = textId !== null ? `t${textId}` : directChatId !== null ? `d${directChatId}` : null;
+      const next = stepPlace(
+        nav.map((p) => p.key),
+        here,
+        action.step,
+        action.unread ? (key) => !!nav.find((p) => p.key === key)?.unread : undefined,
+      );
+      nav.find((p) => p.key === next)?.run();
+    }
+    return true;
+  };
+  const places = $derived.by((): SwitcherPlace[] => {
+    const withChat = new Set(Object.values(text.directs).map((p) => p.id));
+    const mirrors = mirrorIds(server, text.channels); // hidden, as in the sidebar
+    return [
+      ...text.channels.map((c) => ({
+        key: `t${c.id}`,
+        name: c.name,
+        kind: "text" as const,
+        unread: unreadText.has(c.id),
+        run: () => show({ kind: "text", id: c.id }),
+      })),
+      ...directList.map((d) => ({
+        key: `d${d.channel}`,
+        name: d.peer.name,
+        kind: "dm" as const,
+        unread: !!textView.mentions[d.channel],
+        run: () => openDirect(d.peer),
+      })),
+      ...users
+        .filter((u) => u.session !== server.session && (u.userId === null || !withChat.has(u.userId)))
+        .map((u) => ({ key: `u${u.session}`, name: u.name, kind: "dm" as const, run: () => show({ kind: "dm", session: u.session, name: u.name, userId: u.userId }) })),
+      ...Object.values(server.channels)
+        .filter((c) => !mirrors.has(c.id) && !(lobby && c.id === 0))
+        .map((c) => ({ key: `v${c.id}`, name: c.name, kind: "voice" as const, run: () => join(c.id) })),
+    ];
+  });
   const channels = createChannelManagement(() => connection);
 
   // Back to the lobby. Its chat is not a place to stay: show a text channel.
@@ -725,6 +782,13 @@
     onModerator={(on) => menuUser.userId !== null && connection.manage({ moderator: menuUser.userId, on })}
     onClose={() => (menu = null)}
   />
+{/if}
+
+{#if showSwitcher}
+  <QuickSwitcher {places} onClose={() => (showSwitcher = false)} />
+{/if}
+{#if showShortcuts}
+  <Shortcuts onClose={() => (showShortcuts = false)} />
 {/if}
 
 {#if showModeration}
@@ -794,7 +858,7 @@
       {unread}
       textChannels={text.channels}
       currentText={textId}
-      unreadText={withoutMuted(textView.unread, mutedText)}
+      {unreadText}
       {mutedText}
       mentionText={textView.mentions}
       {mentionVoice}

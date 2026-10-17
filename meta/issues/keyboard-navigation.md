@@ -10,3 +10,8 @@ read. A shortcut list (Ctrl+/).
 ## Acceptance Criteria
 
 - Unit tests for matching and channel order; manual check.
+
+## Notes
+
+- Not done: Esc to mark a channel read. Opening a channel already marks
+  it read, so it would do nothing.

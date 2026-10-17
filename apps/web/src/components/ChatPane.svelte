@@ -719,8 +719,9 @@
           // Enter picks a word in an input method (229: Safari, after
           // compositionend).
           if (e.isComposing || e.keyCode === 229) return;
-          if (suggestions.length && !e.shiftKey && onSuggestionKey(e)) return;
-          if (e.key === "ArrowUp" && draft === "" && !pending && editLast()) {
+          // Alt+Up/Down: to another channel (see Client).
+          if (suggestions.length && !e.shiftKey && !e.altKey && onSuggestionKey(e)) return;
+          if (e.key === "ArrowUp" && !e.altKey && draft === "" && !pending && editLast()) {
             e.preventDefault();
             return;
           }
