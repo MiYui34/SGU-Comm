@@ -43,6 +43,8 @@
   const custom = $derived(customOf(own, now));
   let menu = $state<{ x: number; y: number } | null>(null);
   let editing = $state(false);
+  // The mute when deafening: undeafening brings it back.
+  let mutedBeforeDeaf = false;
   const choose = (v: PresenceView) => {
     onStatus?.(v);
     menu = null;
@@ -79,7 +81,10 @@
   <button
     title={me.selfDeaf ? "Undeafen" : "Deafen"}
     aria-pressed={me.selfDeaf}
-    onclick={() => onSelfState(toggleDeaf(me))}
+    onclick={() => {
+      if (!me.selfDeaf) mutedBeforeDeaf = me.selfMute;
+      onSelfState(toggleDeaf(me, mutedBeforeDeaf));
+    }}
   >
     <Icon name="headphones" off={me.selfDeaf} size={20} />
   </button>

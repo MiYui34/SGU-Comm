@@ -50,6 +50,13 @@ describe("voice toggles", () => {
       selfDeaf: false,
     });
   });
+
+  it("undeafen keeps a mute from before deafening", () => {
+    expect(toggleDeaf({ selfMute: true, selfDeaf: true }, true)).toEqual({
+      selfMute: true,
+      selfDeaf: false,
+    });
+  });
 });
 
 describe("groupMessages", () => {

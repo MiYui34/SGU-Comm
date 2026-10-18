@@ -26,6 +26,5 @@
   - [ ] [Admin view of all connections](issues/connection-admin-view.md)
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Recording a voice channel](issues/channel-recording.md)
-- [ ] [Undeafen keeps an earlier mute](issues/undeafen-keeps-mute.md)
 - [ ] [Focus the message box after picking a file](issues/focus-after-file-picker.md)
 - [ ] [Check the upload size before uploading](issues/upload-size-check.md)
