@@ -172,3 +172,4 @@
 - [x] [Invite links for invite-only channels](issues/channel-invite-links.md)
 - [x] [Only SuperUser removes admins, also through Mumble's ACL editor](issues/admin-group-acl-guard.md)
 - [x] [Offline members in the member list](issues/offline-members.md)
+- [x] [Upload: a spinner instead of the "Uploading…" text](issues/upload-spinner.md)

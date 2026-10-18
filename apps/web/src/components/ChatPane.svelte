@@ -810,12 +810,13 @@
       <button
         type="button"
         class="attach"
-        title={onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
+        class:busy={uploading}
+        title={uploading ? "Uploading…" : onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
         aria-label="Upload a file"
         disabled={!canAttach(!!onUpload, uploading)}
         onclick={() => filePicker?.click()}
       >
-        <Icon name="plus" size={18} />
+        {#if uploading}<span class="spinner"></span>{:else}<Icon name="plus" size={18} />{/if}
       </button>
       <input
         type="file"
@@ -827,7 +828,7 @@
           e.currentTarget.value = "";
         }}
       />
-      {#if uploading}<span class="uploading">Uploading…</span>{/if}
+      <span class="sr-only" role="status">{uploading ? "Uploading…" : ""}</span>
       {#if box.items.length}
         <Suggestions id={listId} label={LIST_LABEL[box.typed!.kind]} items={box.items} active={box.active} onPick={box.pick} />
       {/if}
@@ -1796,11 +1797,6 @@
   .pending-cancel:hover {
     color: var(--text);
   }
-  .uploading {
-    color: var(--text-muted);
-    font-size: 14px;
-    white-space: nowrap;
-  }
   .composer:focus-within {
     outline: 2px solid var(--accent);
   }
@@ -1817,6 +1813,29 @@
     border-radius: 50%;
     background: var(--text-muted);
     color: var(--bg-input);
+  }
+  /* Uploading: a ring that turns, on the button's place. */
+  .attach.busy {
+    background: none;
+    opacity: 1;
+  }
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation-duration: 3s;
+    }
   }
   .emoji-button {
     display: grid;
