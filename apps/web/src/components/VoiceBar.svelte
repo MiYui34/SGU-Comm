@@ -4,17 +4,22 @@
   // Above the user panel while in a voice channel, as in Discord: where you
   // are, and the button to leave.
   // onShare: share the screen, or stop (undefined: not possible here).
+  // music: music mode is on (see Settings.musicMode).
   let {
     channel,
     onLeave,
+    music = false,
     sharing = false,
     onShare,
-  }: { channel: string; onLeave: () => void; sharing?: boolean; onShare?: () => void } = $props();
+  }: { channel: string; onLeave: () => void; music?: boolean; sharing?: boolean; onShare?: () => void } = $props();
 </script>
 
 <section class="bar" aria-label="Voice">
   <div class="where">
-    <div class="state">Voice connected</div>
+    <div class="state">
+      Voice connected
+      {#if music}<span class="note" title="No filters, better sound (see the settings)">Music mode</span>{/if}
+    </div>
     <div class="channel ellipsis" title={channel}>{channel}</div>
   </div>
   {#if onShare}
@@ -52,6 +57,15 @@
     color: var(--accent);
     font-size: 13px;
     font-weight: 600;
+  }
+  .note {
+    margin-left: 4px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
   }
   .channel {
     color: var(--text-muted);
