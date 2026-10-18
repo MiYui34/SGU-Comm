@@ -11,10 +11,12 @@
     worstFirst,
     type Connection,
   } from "../lib/connections";
+  import { formatList, MAX_NEW_MINUTES, minutesError, rulesFrom, type MessageRules } from "../lib/messageRules";
 
   // Server settings for moderators and admins: the ban list, the
-  // registered users, the custom emoji, and for admins the guests setting
-  // and the connections (the server checks every change again).
+  // registered users, the custom emoji, and for admins the guests setting,
+  // the message rules and the connections (the server checks every change
+  // again).
   let {
     bans,
     registered,
@@ -30,6 +32,9 @@
     onGuestsReadOnly,
     connections = null,
     onPollConnections,
+    messageRules = null,
+    onLoadMessageRules,
+    onSaveMessageRules,
     onClose,
   }: {
     bans: readonly Ban[] | null;
@@ -49,11 +54,16 @@
     // while the tab is open; without onPollConnections, no tab.
     connections?: readonly Connection[] | null;
     onPollConnections?: () => void;
+    // Admins: the message rules (null: not loaded yet); without
+    // onLoadMessageRules, no tab.
+    messageRules?: MessageRules | null;
+    onLoadMessageRules?: () => void;
+    onSaveMessageRules?: (rules: MessageRules) => void;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users" | "emoji" | "guests" | "connections">(
+  let tab = $state<"bans" | "users" | "emoji" | "guests" | "rules" | "connections">(
     untrack(() => (rights.bans ? "bans" : rights.users ? "users" : rights.emoji ? "emoji" : "guests")),
   );
   let renaming = $state<{ id: number; name: string } | null>(null);
@@ -73,6 +83,28 @@
     return () => clearInterval(timer);
   });
   const sorted = $derived(connections && worstFirst(connections));
+
+  // The message rules: loaded when the tab opens, the form filled with
+  // what the server has (again after a save: it tidies the lists).
+  const mayRules = $derived(!!onLoadMessageRules);
+  $effect(() => {
+    if (tab === "rules" && mayRules) untrack(() => onLoadMessageRules)?.();
+  });
+  let rulesMinutes = $state("");
+  let rulesWords = $state("");
+  let rulesDomains = $state("");
+  let rulesError = $state<string | null>(null);
+  $effect(() => {
+    if (!messageRules) return;
+    rulesMinutes = String(messageRules.newMinutes);
+    rulesWords = formatList(messageRules.words);
+    rulesDomains = formatList(messageRules.domains);
+  });
+  const saveRules = (e: SubmitEvent) => {
+    e.preventDefault();
+    rulesError = minutesError(rulesMinutes);
+    if (!rulesError) onSaveMessageRules?.(rulesFrom(rulesMinutes, rulesWords, rulesDomains));
+  };
 
   // A new emoji: name and image; a message says what is wrong.
   let emojiName = $state("");
@@ -121,6 +153,9 @@
     {#if guestsReadOnly !== null}
       <button role="tab" aria-selected={tab === "guests"} onclick={() => (tab = "guests")}>Guests</button>
     {/if}
+    {#if onLoadMessageRules}
+      <button role="tab" aria-selected={tab === "rules"} onclick={() => (tab = "rules")}>Message rules</button>
+    {/if}
     {#if onPollConnections}
       <button role="tab" aria-selected={tab === "connections"} onclick={() => (tab = "connections")}>Connections</button>
     {/if}
@@ -159,6 +194,34 @@
       Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
       direct messages. Use it during a spam wave.
     </p>
+  {:else if tab === "rules"}
+    {#if messageRules === null}
+      <p class="note">Loading…</p>
+    {:else}
+      <form class="rules" onsubmit={saveRules}>
+        <label>
+          Limit new accounts for
+          <input class="minutes" bind:value={rulesMinutes} inputmode="numeric" aria-label="Minutes" oninput={() => (rulesError = null)} />
+          minutes (0: off)
+        </label>
+        <p class="note">
+          Accounts younger than this, and guests, cannot post links, upload files or mention @everyone or @here, and send one
+          message every 5 seconds. Accounts from before this setting existed count as old.
+        </p>
+        <label for="blocked-words">Blocked words and phrases, one per line</label>
+        <textarea id="blocked-words" rows="5" bind:value={rulesWords}></textarea>
+        <p class="note">Whole words in any case; accents on Latin letters do not count. No patterns.</p>
+        <label for="blocked-domains">Blocked link domains, one per line</label>
+        <textarea id="blocked-domains" rows="4" bind:value={rulesDomains}></textarea>
+        <p class="note">With their subdomains: example.com also blocks www.example.com.</p>
+        {#if rulesError}<p class="error" role="alert">{rulesError}</p>{/if}
+        <button type="submit">Save</button>
+      </form>
+      <p class="note">
+        Staff are exempt. The author of a refused message sees why (Mumble clients as "permission denied"); the server log notes
+        blocked words and domains.
+      </p>
+    {/if}
   {:else if tab === "connections"}
     {#if sorted === null}
       <p class="note">Loading…</p>
@@ -406,6 +469,36 @@
   }
   .table {
     overflow-x: auto;
+  }
+  .rules {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rules .note {
+    margin: 0 0 8px;
+  }
+  .rules textarea,
+  .rules .minutes {
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+  }
+  .rules textarea {
+    resize: vertical;
+  }
+  .rules .minutes {
+    width: 5em;
+  }
+  .rules button {
+    align-self: flex-start;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text);
   }
   table {
     width: 100%;
