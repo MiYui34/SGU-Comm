@@ -7,23 +7,15 @@ describe("createHoldTalk", () => {
     return { calls, talk: (down: boolean) => void calls.push(down) };
   };
 
-  it("presses and releases once", () => {
+  // The release needs no callback: it always uses the one of the press,
+  // also after the button went away.
+  it("releases the press once, with its callback", () => {
     const a = recorder();
     const hold = createHoldTalk();
     hold.press(a.talk);
     hold.release();
     hold.release();
     expect(a.calls).toEqual([true, false]);
-  });
-
-  it("releases with the callback that took the press", () => {
-    const [a, b] = [recorder(), recorder()];
-    const hold = createHoldTalk();
-    hold.press(a.talk);
-    // The button went away (or got a new callback) while held.
-    hold.release();
-    expect(a.calls).toEqual([true, false]);
-    expect(b.calls).toEqual([]);
   });
 
   it("releases an earlier press before a new one", () => {
