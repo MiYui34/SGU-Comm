@@ -1082,6 +1082,8 @@
     onDeleteEmoji={connection.deleteEmoji}
     guestsReadOnly={mayChangeGuests(server, text) ? text.guestsReadOnly : null}
     onGuestsReadOnly={(on) => connection.manage({ guestsReadOnly: on })}
+    connections={text.connections}
+    onPollConnections={mayChangeGuests(server, text) ? () => connection.manage({ connections: true }) : undefined}
     onClose={() => (showModeration = false)}
   />
 {/if}

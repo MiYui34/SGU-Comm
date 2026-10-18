@@ -109,6 +109,8 @@ type Voice interface {
 	SetGuestsReadOnly(session uint32, on bool) error
 	GuestsReadOnly() bool
 	ReadOnly(session uint32) bool
+	// Connections: every connection over the recent window (admins).
+	Connections(session uint32) ([]Connection, error)
 }
 
 // LiveStream is a screen share in a voice channel, by its streamer's
@@ -590,6 +592,9 @@ func (c *Conn) Handle(raw []byte) {
 		} else if err := c.hub.voice.SetGuestsReadOnly(id.Session, req.On); err != nil {
 			c.manageError(err.Error())
 		}
+		return
+	case "connections":
+		c.connections(id.Session)
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).

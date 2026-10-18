@@ -594,3 +594,30 @@ From `meta/research/discord-comparison.md`.
 - `Server.ConnectionStats()` is for the admin view. Sidecar overflows
   come in through `Config.TextOverflows` (`Hub.Overflows`), so mumbled
   does not import the sidecar.
+
+## Connections view (2026-10-18)
+
+- The window lives in the server, not per poll: every 10 s mumbled keeps
+  a snapshot of each connection's counters (the last three). A poll and
+  the log line count against the oldest one, so the window is 30 to
+  40 s, and several admins polling share it.
+- Mumble's crypt (and the server's TCP count) counts a late frame as
+  good too; the web client's reports count it apart. The server takes
+  the crypt's way for both: late or lost / (good + lost). For web
+  clients that overstates a little (8.7 % instead of 8 %). Fewer than
+  50 frames in the window give no percentage (one late frame in a quiet
+  window looked like 50 %).
+- In the crypt a late frame was counted lost first, so lost goes down
+  again: within a window lost can shrink. Bad is late plus the change in
+  lost (not below 0); only a smaller good means a client that started
+  its counters over.
+- Ping stays the client's: Mumble clients report the mean since they
+  connected, so for them it moves slowly; the web client's is over 30 s.
+- Log hysteresis: "connection poor" after 30 s poor, "connection good
+  again" after 30 s good; fair resets both timers, so a connection near
+  a limit stays quiet. Same levels as the web client's.
+- No addresses in the table or the request: admins see them in
+  Mumble's user information, a table on the screen shows them too
+  easily.
+- `sidecar.Connection` has the same fields as `mumbled.Connection`, so
+  cmd/server converts it with a plain struct conversion.

@@ -32,6 +32,7 @@ type builtin struct {
 	// Screen shares in its voice channels (see /api/stream).
 	streams      *stream.Hub
 	streamTokens *stream.Tokens
+	stopWatch    chan struct{}
 }
 
 // streamVoice is the built-in server as the stream hub's Voice (set once
@@ -191,7 +192,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	go srv.Serve(ln)
 	go srv.ServeUDP(udp)
-	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens}, nil
+	stopWatch := make(chan struct{})
+	go srv.Watch(stopWatch)
+	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens, stopWatch: stopWatch}, nil
 }
 
 // mumbleTLS: the configured certificate files (reloaded when renewed), or
@@ -276,6 +279,15 @@ func (v voiceServer) Timeouts() []sidecar.Timeout {
 	return out
 }
 
+func (v voiceServer) Connections(session uint32) ([]sidecar.Connection, error) {
+	conns, err := v.Server.Connections(session)
+	out := make([]sidecar.Connection, len(conns))
+	for i, c := range conns {
+		out[i] = sidecar.Connection(c)
+	}
+	return out, err
+}
+
 // dial makes an in-process session for a web client.
 func (b *builtin) dial(_ context.Context, up bridge.Upstream) (net.Conn, error) {
 	client, server := net.Pipe()
@@ -301,6 +313,7 @@ func (b *builtin) nameTaken(key string) bool {
 }
 
 func (b *builtin) close() {
+	close(b.stopWatch)
 	b.ln.Close()
 	b.udp.Close()
 	b.srv.Close()
