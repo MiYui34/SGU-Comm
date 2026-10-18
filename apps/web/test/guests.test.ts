@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, Perm, type ServerState, type User } from "@kallisti/protocol";
-import { loginAction, mayChangeGuests, mayWrite } from "../src/lib/guests";
+import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../src/lib/guests";
 import { initialTextState, manageRequest, parseServerEvent, reduceText, type TextState } from "../src/lib/textChannels";
 
 const on: TextState = { ...initialTextState, voiceChats: true, guestsReadOnly: true, roles: { admins: [3], moderators: [5] } };
@@ -52,5 +52,12 @@ describe("loginAction", () => {
   it("offers a password to guest accounts and the login to others", () => {
     expect(loginAction(true)).toBe("Set a password");
     expect(loginAction(false)).toBe("Log in");
+  });
+});
+
+describe("readOnlyNote", () => {
+  it("asks guest accounts only for a password", () => {
+    expect(readOnlyNote(true)).toBe("Set a password to write.");
+    expect(readOnlyNote(false)).toBe("Log in or make an account to write.");
   });
 });

@@ -156,7 +156,7 @@
     cannotWrite?: string | null;
     // A guest that may only read (see lib/guests): a note and the way to
     // an account instead of the message box.
-    loginToWrite?: { action: string; onAction?: () => void } | null;
+    loginToWrite?: { note: string; action: string; onAction?: () => void } | null;
     // Tells the chats apart (see chatKeyOf); else the title.
     chatKey?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
@@ -790,7 +790,7 @@
     {/if}
     {#if loginToWrite}
       <div class="read-only">
-        <span>Log in or make an account to write.</span>
+        <span>{loginToWrite.note}</span>
         {#if loginToWrite.onAction}
           <button type="button" onclick={loginToWrite.onAction}>{loginToWrite.action}</button>
         {/if}

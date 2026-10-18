@@ -36,7 +36,7 @@
   import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
-  import { loginAction, mayChangeGuests, mayWrite } from "../lib/guests";
+  import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../lib/guests";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
@@ -754,7 +754,7 @@
   const guestAccount = $derived(account?.temporary ?? false);
   const readOnly = $derived(!mayWrite(server, text, guestAccount));
   const loginToWrite = $derived(
-    readOnly ? { action: loginAction(guestAccount), onAction: guestAccount ? () => (showSettings = true) : onLogIn } : null,
+    readOnly ? { note: readOnlyNote(guestAccount), action: loginAction(guestAccount), onAction: guestAccount ? () => (showSettings = true) : onLogIn } : null,
   );
 
   // Unread direct messages per sender name, marked read while open.
