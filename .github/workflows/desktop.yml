@@ -90,6 +90,23 @@ jobs:
           releaseName: Kallisti ${{ github.ref_name }}
           releaseDraft: true
 
+      # Tauri notarizes the app; the disk image around it too, or macOS may
+      # warn when it is opened. Tags: the release gets the stapled one.
+      - name: Notarize the disk image
+        if: runner.os == 'macOS'
+        env:
+          PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg=$(jq -r '.[] | select(endswith(".dmg"))' <<<"$PATHS")
+          xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$dmg"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: kallisti-${{ runner.os }}
