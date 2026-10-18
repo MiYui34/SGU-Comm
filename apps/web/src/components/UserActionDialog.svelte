@@ -91,7 +91,7 @@
     {/if}
     <footer>
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
-      <button type="submit" class="danger">{title}</button>
+      <button type="submit" class="danger">{k === "delete" ? "Delete messages" : title}</button>
     </footer>
   </form>
 </dialog>
