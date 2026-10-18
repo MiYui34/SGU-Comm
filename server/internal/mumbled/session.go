@@ -318,7 +318,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	reject = s.join(c, id, setup)
-	if id.newUser { // after its join: online when told
+	if id.newUser { // after its join (if any): online when told
 		s.userChanged(id.userID, id.name)
 	}
 	if reject != nil {
