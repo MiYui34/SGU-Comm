@@ -11,6 +11,7 @@ import { parsePresence, type PresenceView } from "./presence";
 import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 import type { Invite } from "./invites";
 import type { Members, Online } from "./members";
+import { parseConnections, type Connection } from "./connections";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -133,6 +134,8 @@ export type ServerEvent =
   | { type: "timeouts"; timeouts: Timeout[] }
   // Admins changed whether guests may only read.
   | { type: "guests-read-only"; on: boolean }
+  // Every connection (admins, asked for: see lib/connections).
+  | { type: "connections"; connections: Connection[] }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
@@ -182,6 +185,8 @@ export type TextState = {
   invites: Readonly<Record<number, Invite[]>>;
   timeouts: readonly Timeout[];
   guestsReadOnly: boolean;
+  // Every connection, once asked for (admins).
+  connections: Connection[] | null;
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
   // Live screen shares, and their thumbnails by streamer session.
@@ -226,6 +231,7 @@ export const initialTextState: TextState = {
   invites: {},
   timeouts: [],
   guestsReadOnly: false,
+  connections: null,
   directs: {},
   streams: [],
   streamPreviews: {},
@@ -424,6 +430,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "guests-read-only":
       return typeof v.on === "boolean" ? { type: "guests-read-only", on: v.on } : null;
+    case "connections": {
+      const connections = parseConnections(v.connections);
+      return connections && { type: "connections", connections };
+    }
     case "timeouts":
       return isTimeouts(v.timeouts) ? { type: "timeouts", timeouts: v.timeouts } : null;
     case "streams":
@@ -564,6 +574,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, timeouts: event.timeouts };
     case "guests-read-only":
       return { ...state, guestsReadOnly: event.on };
+    case "connections":
+      return { ...state, connections: event.connections };
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
     case "stream-preview": {
@@ -700,7 +712,9 @@ export type ManageAction =
   | { timeout: number; seconds: number }
   // A user's messages of the last seconds (staff): see UserTarget.
   | { deleteMessages: UserTarget; seconds: number }
-  | { guestsReadOnly: boolean };
+  | { guestsReadOnly: boolean }
+  // Every connection (admins).
+  | { connections: true };
 
 // A user for the Kallisti server: by voice server session if online, else
 // a registered user by id.
@@ -724,6 +738,7 @@ const manageBody = (a: ManageAction) => {
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
   if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   if ("guestsReadOnly" in a) return { type: "set-guests-read-only", on: a.guestsReadOnly };
+  if ("connections" in a) return { type: "connections" };
   return { type: "order-channels", channels: a.order };
 };
 
