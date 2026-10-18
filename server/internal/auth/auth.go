@@ -64,6 +64,9 @@ type Service struct {
 	// Revoke closes the open connections whose account ID and session
 	// (SessionKey) match, when sessions end. Nil: none.
 	Revoke func(match func(accountID int64, session string) bool)
+	// OnPermanent hears that a guest account became a normal account (by
+	// name). Nil: none.
+	OnPermanent func(name string)
 
 	logins, guests limiter
 }
@@ -436,6 +439,9 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.revoke(func(id int64, session string) bool { return id == acc.ID && session != keep })
+	if acc.Temporary && a.OnPermanent != nil {
+		a.OnPermanent(acc.Name)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

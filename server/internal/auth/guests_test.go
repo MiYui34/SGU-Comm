@@ -22,6 +22,8 @@ func TestGuestAccounts(t *testing.T) {
 		t.Fatalf("without guest accounts: %d", resp.StatusCode)
 	}
 	a.GuestAccounts = true
+	var kept []string
+	a.OnPermanent = func(name string) { kept = append(kept, name) }
 	resp, v := post(t, srv, "/api/guest", map[string]string{"name": " visitor "}, nil)
 	c := sessionCookie(resp)
 	if resp.StatusCode != http.StatusCreated || v["name"] != "visitor" || v["temporary"] != true || c == nil {
@@ -54,8 +56,8 @@ func TestGuestAccounts(t *testing.T) {
 	if resp, v := post(t, srv, "/api/password", map[string]string{"new": "a good password"}, c); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("set password: %d %v", resp.StatusCode, v)
 	}
-	if acc, _ := a.AccountFor(requestWith(c)); acc.Temporary {
-		t.Fatal("still temporary")
+	if acc, _ := a.AccountFor(requestWith(c)); acc.Temporary || len(kept) != 1 || kept[0] != "visitor" {
+		t.Fatalf("still temporary, or not told: %v", kept)
 	}
 	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "visitor", "password": "a good password"}, nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("login: %d", resp.StatusCode)
@@ -63,6 +65,10 @@ func TestGuestAccounts(t *testing.T) {
 	// From now on the old password is needed.
 	if resp, _ := post(t, srv, "/api/password", map[string]string{"new": "another password"}, c); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no old password: %d", resp.StatusCode)
+	}
+	post(t, srv, "/api/password", map[string]string{"old": "a good password", "new": "another password"}, c)
+	if len(kept) != 1 {
+		t.Fatalf("told again: %v", kept)
 	}
 }
 

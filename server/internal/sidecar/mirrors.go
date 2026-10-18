@@ -92,6 +92,9 @@ func (h *Hub) mirrorOf(text int64) uint32 {
 // Moves arrive a little late: a message written just then may come twice
 // (live and in the history) or count as seen.
 func (h *Hub) UserMoved(session, from, to uint32) {
+	if from == noChannel || to == noChannel {
+		h.onlineChanged()
+	}
 	h.visitsMu.Lock()
 	defer h.visitsMu.Unlock()
 	if h.visits == nil {

@@ -227,6 +227,14 @@ func (v voiceServer) MumbleClient(session uint32) (sidecar.MumbleUser, bool) {
 	return sidecar.MumbleUser{Registered: u.Registered, UserID: u.UserID}, ok
 }
 
+func (v voiceServer) Online() map[uint32]sidecar.OnlineUser {
+	out := map[uint32]sidecar.OnlineUser{}
+	for id, u := range v.Server.Online() {
+		out[id] = sidecar.OnlineUser{Name: u.Name, Session: u.Session}
+	}
+	return out
+}
+
 func (v voiceServer) ListenOnly() []sidecar.ListenOnlyChannel {
 	var out []sidecar.ListenOnlyChannel
 	for _, c := range v.Server.ListenOnly() {

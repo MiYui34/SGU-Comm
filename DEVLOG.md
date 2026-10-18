@@ -451,3 +451,27 @@ From `meta/research/discord-comparison.md`.
 - Stored DMs to offline users already worked (DirectChat needs only the
   user id); the menu just offers "Message". Role changes also worked
   (setRole checks the registration, not a session).
+
+## Offline members: follow-ups (2026-10-18)
+
+- "online" events tell every Kallisti client the session of each member
+  that is connected, in any channel, from mumbled's state and not from
+  the viewer's UserStates. Clients list members they do not see as online
+  without a channel; only the id and session go out (statuses already go
+  by session to everyone). Everyone gets the same set, so a viewer can
+  infer "online, but somewhere I cannot see", as on Discord.
+- Guests in hidden channels stay invisible: unregistered users have no
+  id, and guest accounts are left out of the online set like out of the
+  member list. Mumble clients see nothing new.
+- A web account's first visit registers it before its session joins:
+  mumbled now reports the registration after the join (and a Mumble
+  client's self-registration after the state change), so the client gets
+  "online" before "member" and never lists a new user as offline.
+- Known gap: the Mumble UserState/UserRemove and the "online" event take
+  different paths (mumbled's event queue), so a user who joins or leaves
+  can show for a moment in Online without a channel.
+- mumbled allows one session per registered user (another device kicks
+  the old one), so a member has one session and one status.
+- Making a guest account permanent changes only the store: auth tells the
+  hub (OnPermanent), which finds the registration by name (accounts keep
+  their registration's name, see identifyAccount).

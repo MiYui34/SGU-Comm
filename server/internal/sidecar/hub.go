@@ -86,6 +86,9 @@ type Voice interface {
 	// registered user's saved comment ("": none).
 	Users() map[uint32]string
 	Bio(user uint32) string
+	// Online: the connected registered users but SuperUser, by id, in any
+	// channel.
+	Online() map[uint32]OnlineUser
 	// MumbleClient: the session is a Mumble client (not a web client), and
 	// who it is.
 	MumbleClient(session uint32) (MumbleUser, bool)
@@ -157,6 +160,12 @@ type Speaker struct {
 	Name string `json:"name"`
 }
 
+// OnlineUser is a connected registered user (see Voice.Online).
+type OnlineUser struct {
+	Name    string
+	Session uint32
+}
+
 // MumbleUser is who a Mumble client is (see Voice.MumbleClient).
 type MumbleUser struct {
 	Registered bool
@@ -194,8 +203,10 @@ type Hub struct {
 	conns    map[*Conn]struct{}
 	tokens   map[string]uploadToken
 	// One status change at a time, from the change to its broadcast (taken
-	// before mu and Conn.mu; see status.go).
+	// before mu and Conn.mu; see status.go). Also guards online: the
+	// members online as last told, with their sessions (see members.go).
 	statusMu sync.Mutex
+	online   map[uint32]uint32
 	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time.
 	emoji   []wireEmoji
 	emojiMu sync.Mutex
