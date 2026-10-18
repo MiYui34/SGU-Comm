@@ -50,5 +50,11 @@ func (c *Conn) messageRules(id mumble.Identity, req request) {
 		c.manageError(err.Error())
 		return
 	}
+	if r.Words == nil { // empty lists, not null: the client wants lists
+		r.Words = []string{}
+	}
+	if r.Domains == nil {
+		r.Domains = []string{}
+	}
 	c.send(map[string]any{"type": "message-rules", "rules": r})
 }

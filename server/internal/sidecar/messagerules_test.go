@@ -129,3 +129,18 @@ func mustID(t *testing.T, s string) int64 {
 	}
 	return id
 }
+
+// No rules saved yet: empty lists, not null (the client wants lists).
+func TestMessageRulesSendsEmptyLists(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	admin := readyAs(t, h, 1, "admin")
+	admin.Handle([]byte(`{"type":"message-rules"}`))
+	r := next(t, admin)["rules"].(map[string]any)
+	if _, ok := r["words"].([]any); !ok {
+		t.Fatalf("words %v", r["words"])
+	}
+	if _, ok := r["domains"].([]any); !ok {
+		t.Fatalf("domains %v", r["domains"])
+	}
+}
