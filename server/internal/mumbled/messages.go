@@ -768,6 +768,7 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		c.deny(deny(pb.PermissionDenied_Text, "registration failed"))
 		return
 	}
+	s.userChanged(id, name)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if u := s.state.Users[target]; u != nil {
