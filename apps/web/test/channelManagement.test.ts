@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, Perm, type Channel, type ServerState } from "@kallisti/protocol";
-import { menuRights } from "../src/lib/channelManagement";
+import { canManageMembers, menuRights } from "../src/lib/channelManagement";
 import { initialTextState, type TextState } from "../src/lib/textChannels";
 
 const ch = (id: number, parent: number | null, position = 0): Channel => ({
@@ -59,5 +59,21 @@ describe("menuRights with text channel mirrors", () => {
     const t: TextState = { ...text, channels: [...text.channels, { id: 12, name: "x", mumble: 6 }] };
     expect(menuRights(s, t, "voice", 3)?.canMoveDown).toBe(false);
     expect(menuRights(s, t, "voice", 3)?.canMoveUp).toBe(true);
+  });
+});
+
+describe("canManageMembers", () => {
+  const priv: TextState = {
+    ...text,
+    channels: [{ id: 10, name: "general", mumble: 20 }, { id: 11, name: "secret", mumble: 21 }],
+    private: { 21: [], 2: [] },
+  };
+  it("is for admins and moderators, in private channels", () => {
+    const staff = server({}, Perm.MakeChannel);
+    expect(canManageMembers(staff, priv, "text", 11)).toBe(true);
+    expect(canManageMembers(staff, priv, "voice", 2)).toBe(true);
+    expect(canManageMembers(staff, priv, "text", 10)).toBe(false);
+    expect(canManageMembers(staff, priv, "voice", 1)).toBe(false);
+    expect(canManageMembers(server({}, 0), priv, "text", 11)).toBe(false);
   });
 });

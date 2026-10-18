@@ -1,6 +1,7 @@
 import { channelSiblings, may, Perm, type ServerState } from "@kallisti/protocol";
 import type { ChannelKind } from "./channelForm";
 import { mirrorIds } from "./mirrors";
+import { accessChannel } from "./privateChannels";
 import type { TextState } from "./textChannels";
 
 export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: boolean; canMoveDown: boolean };
@@ -9,6 +10,12 @@ export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: bool
 // built-in server.
 export const canManageText = (server: ServerState, text: TextState): boolean =>
   text.voiceChats && may(server, 0, Perm.MakeChannel);
+
+// The members of a private channel: admins and moderators.
+export const canManageMembers = (server: ServerState, text: TextState, kind: ChannelKind, id: number): boolean => {
+  const access = accessChannel(kind, id, text.channels);
+  return canManageText(server, text) && access !== null && access in text.private;
+};
 
 // A voice channel and its siblings, without text channel mirrors (they
 // keep their place; nobody but SuperUser may edit them).

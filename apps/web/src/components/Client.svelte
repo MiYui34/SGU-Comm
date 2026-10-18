@@ -69,6 +69,7 @@
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
+  import MembersDialog from "./MembersDialog.svelte";
   import Icon from "./Icon.svelte";
   import ServerRail from "./ServerRail.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
@@ -816,6 +817,7 @@
         name: c.name,
         kind: "text" as const,
         unread: unreadText.has(c.id),
+        locked: c.mumble !== undefined && c.mumble in text.private,
         run: () => show({ kind: "text", id: c.id }),
       })),
       ...directList.map((d) => ({
@@ -830,7 +832,7 @@
         .map((u) => ({ key: `u${u.session}`, name: u.name, kind: "dm" as const, run: () => show({ kind: "dm", session: u.session, name: u.name, userId: u.userId }) })),
       ...Object.values(server.channels)
         .filter((c) => !mirrors.has(c.id) && !(lobby && c.id === 0))
-        .map((c) => ({ key: `v${c.id}`, name: c.name, kind: "voice" as const, run: () => join(c.id) })),
+        .map((c) => ({ key: `v${c.id}`, name: c.name, kind: "voice" as const, locked: c.id in text.private, run: () => join(c.id) })),
     ];
   });
   const channels = createChannelManagement(() => connection);
@@ -864,6 +866,8 @@
     canDelete={m.canDelete}
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
+    canMembers={m.canMembers}
+    onMembers={() => channels.startMembers(m.kind, m.id)}
     notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
     onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
     onEdit={() => channels.startEdit(m.kind, m.id)}
@@ -876,6 +880,20 @@
 {#if channels.form}
   {#key channels.form}
     <ChannelDialog form={channels.form.form} onSubmit={channels.submit} onClose={channels.closeForm} />
+  {/key}
+{/if}
+
+{#if channels.members}
+  {@const f = channels.members}
+  {#key f.access}
+    <MembersDialog
+      name={f.kind === "text" ? `#${f.name}` : f.name}
+      members={f.members}
+      registered={server.registered}
+      onLoad={() => connection.send(queryRegistered())}
+      onSubmit={channels.submitMembers}
+      onClose={channels.closeMembers}
+    />
   {/key}
 {/if}
 
@@ -1003,6 +1021,7 @@
       mentionText={textView.mentions}
       {mentionVoice}
       listenOnly={text.listenOnly}
+      privateChannels={text.private}
       live={liveSessions}
       previews={text.streamPreviews}
       onWatch={streamClient ? watchStream : undefined}

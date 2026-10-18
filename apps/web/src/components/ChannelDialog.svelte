@@ -11,7 +11,14 @@
     onClose,
   }: {
     form: ChannelForm;
-    onSubmit: (v: { kind: ChannelKind; name: string; description: string; temporary: boolean; listenOnly?: ListenOnly }) => void;
+    onSubmit: (v: {
+      kind: ChannelKind;
+      name: string;
+      description: string;
+      temporary: boolean;
+      listenOnly?: ListenOnly;
+      private?: boolean;
+    }) => void;
     onClose: () => void;
   } = $props();
 
@@ -31,8 +38,11 @@
     if (u) speakers = [...speakers, u];
     event.currentTarget.value = "";
   };
+  // Admins and moderators (built-in server): a private channel.
+  const canPrivate = start.mode === "create" ? start.canPrivate === true : start.mode === "edit" && !!start.private;
+  let isPrivate = $state(start.mode === "edit" ? (start.private?.on ?? false) : false);
   // Users who may only make temporary voice channels get one of those.
-  const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice");
+  const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice" && !isPrivate);
   $effect(() => dialog?.showModal());
 
   const title = $derived(
@@ -47,6 +57,7 @@
       description,
       temporary,
       ...(startListenOnly ? { listenOnly: { on: listenOnly, speakers } } : {}),
+      ...(canPrivate ? { private: isPrivate } : {}),
     });
     dialog?.close();
   };
@@ -76,6 +87,15 @@
         <label>
           {kind === "text" ? "Topic" : "Description"}
           <textarea bind:value={description} rows="3" maxlength={kind === "text" ? 200 : undefined}></textarea>
+        </label>
+      {/if}
+      {#if canPrivate}
+        <label class="check">
+          <input type="checkbox" bind:checked={isPrivate} />
+          <span>
+            Private channel
+            <span class="note">Only its members, admins and moderators see it. Add members in the channel menu (Members…).</span>
+          </span>
         </label>
       {/if}
       {#if startListenOnly}
