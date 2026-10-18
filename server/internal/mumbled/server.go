@@ -158,6 +158,8 @@ type Server struct {
 	udp     *net.UDPConn
 	// Time-outs by user (see timeouts.go). Under mu.
 	timeouts map[timeoutKey]*timeout
+	// Snapshots of the connections (see watch.go).
+	watch watch
 }
 
 type client struct {

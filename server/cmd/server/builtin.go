@@ -32,6 +32,7 @@ type builtin struct {
 	// Screen shares in its voice channels (see /api/stream).
 	streams      *stream.Hub
 	streamTokens *stream.Tokens
+	stopWatch    chan struct{}
 }
 
 // streamVoice is the built-in server as the stream hub's Voice (set once
@@ -191,7 +192,9 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	go srv.Serve(ln)
 	go srv.ServeUDP(udp)
-	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens}, nil
+	stopWatch := make(chan struct{})
+	go srv.Watch(stopWatch)
+	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens, stopWatch: stopWatch}, nil
 }
 
 // mumbleTLS: the configured certificate files (reloaded when renewed), or
@@ -301,6 +304,7 @@ func (b *builtin) nameTaken(key string) bool {
 }
 
 func (b *builtin) close() {
+	close(b.stopWatch)
 	b.ln.Close()
 	b.udp.Close()
 	b.srv.Close()
