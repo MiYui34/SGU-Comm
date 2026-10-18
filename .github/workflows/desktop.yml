@@ -1,0 +1,81 @@
+# The desktop app for macOS (universal), Windows and Linux. Pushes to main
+# that touch it: installers as downloads on the run. Tags v*: a draft
+# release with the installers. Not signed yet.
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - apps/desktop/**
+      - apps/web/**
+      - packages/**
+      - pnpm-lock.yaml
+      - .github/workflows/desktop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write # the draft release (tags only)
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            args: ""
+            targets: ""
+          - os: ubuntu-22.04
+            args: ""
+            targets: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries (webview, tray)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ matrix.args }}
+          # Tags: a draft release to check and publish by hand.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: Kallisti ${{ github.ref_name }}
+          releaseDraft: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kallisti-${{ runner.os }}
+          path: ${{ join(fromJSON(steps.tauri.outputs.artifactPaths), fromJSON('"\n"')) }}
+          if-no-files-found: error

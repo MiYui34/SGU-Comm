@@ -109,15 +109,24 @@ music from Jellyfin in a voice channel, controlled with chat commands.
 
 ## Desktop app
 
-`apps/desktop` is a Tauri app around the same web client. A small bridge in
-the app (Rust) connects it straight to any Mumble server, without the
-Kallisti server; text channels, uploads and accounts need the Kallisti server
-and are not shown there. Needs Rust.
+`apps/desktop` is a Tauri app around the same web client. With a Kallisti
+server it works like the web app (accounts, text channels, everything). Any
+other address goes through a small bridge in the app (Rust), straight to a
+Mumble server, with voice and Mumble's chat. Needs Rust.
 
 ```sh
 pnpm --filter @kallisti/desktop dev                  # window with the Vite dev server
 pnpm --filter @kallisti/desktop build --bundles app  # Kallisti.app
 ```
+
+In `dev` the window's page comes from the Vite dev server
+(`http://localhost:5173`), which Kallisti servers do not allow: there they
+look like plain Mumble servers. Use a build, or a local server with
+`http://localhost:5173` in `ALLOWED_ORIGINS`.
+
+GitHub builds the app for macOS, Windows and Linux on pushes to `main`
+(downloads on the Actions run) and makes a draft release for tags `v*`
+(`.github/workflows/desktop.yml`). The builds are not signed yet.
 
 ## Development
 
