@@ -167,3 +167,48 @@ func TestUsersWithWriteInRootAreStaff(t *testing.T) {
 	alice.send(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(dave.session)})
 	alice.expectDenied(pb.PermissionDenied_Permission)
 }
+
+func TestAdminsMakeAdminsOnlySuperUserRemovesThem(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	alice, aliceID := registered(t, addr, "alice")
+	bob, bobID := registered(t, addr, "bob")
+	_, carolID := registered(t, addr, "carol")
+	if err := s.SetAdmin(bob.session, carolID, true); err == nil {
+		t.Fatal("a non-admin made an admin")
+	}
+	if err := s.SetAdmin(su.session, aliceID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAdmin(alice.session, bobID, true); err != nil {
+		t.Fatal("an admin could not make an admin:", err)
+	}
+	if admins, _ := s.Roles(); len(admins) != 2 {
+		t.Fatalf("admins %v", admins)
+	}
+	// Admins cannot remove each other; SuperUser can.
+	if err := s.SetAdmin(alice.session, bobID, false); err == nil {
+		t.Fatal("an admin removed an admin")
+	}
+	if err := s.SetAdmin(su.session, bobID, false); err != nil {
+		t.Fatal(err)
+	}
+	if admins, _ := s.Roles(); len(admins) != 1 || admins[0] != aliceID {
+		t.Fatalf("admins %v", admins)
+	}
+	// Saved, as root's admin group.
+	saved, _ := s.cfg.DB.Channels()
+	if g := saved[0].Groups["admin"]; saved[0].ID != 0 || !g.Add[aliceID] || g.Add[bobID] {
+		t.Fatalf("saved root %+v", saved[0])
+	}
+}
+
+func TestSuperUserIsNoRoleToChange(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	for _, on := range []bool{true, false} {
+		if err := s.SetAdmin(su.session, 0, on); err == nil {
+			t.Fatalf("changed SuperUser (on %v)", on)
+		}
+	}
+}

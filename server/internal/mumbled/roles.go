@@ -38,6 +38,23 @@ func (s *Server) Roles() (admins, moderators []uint32) {
 // SetModerator makes a registered user a moderator, or not. Only admins
 // (Write in root) may.
 func (s *Server) SetModerator(actor, userID uint32, on bool) error {
+	return s.setRole(actor, userID, "moderator", on, s.isAdmin, "only admins make moderators")
+}
+
+// SetAdmin makes a registered user an admin (only admins may), or not
+// (only SuperUser: admins cannot remove each other).
+func (s *Server) SetAdmin(actor, userID uint32, on bool) error {
+	if on {
+		return s.setRole(actor, userID, "admin", true, s.isAdmin, "only admins make admins")
+	}
+	return s.setRole(actor, userID, "admin", false, isSuperUser, "only SuperUser removes admins")
+}
+
+func (s *Server) isAdmin(u *User) bool { return s.state.Has(u, 0, Write) }
+
+// setRole adds a registered user (not SuperUser) to a group in root, or
+// removes them, if the actor may (checked under s.mu).
+func (s *Server) setRole(actor, userID uint32, group string, on bool, may func(*User) bool, denied string) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	if userID == 0 || !s.registeredIDs([]uint32{userID})[userID] {
@@ -45,18 +62,18 @@ func (s *Server) SetModerator(actor, userID uint32, on bool) error {
 	}
 	s.mu.Lock()
 	u := s.state.Users[actor]
-	if u == nil || !s.state.Has(u, 0, Write) {
+	if u == nil || !may(u) {
 		s.mu.Unlock()
-		return errors.New("only admins make moderators")
+		return errors.New(denied)
 	}
 	root := s.state.Channels[0]
 	if root.Groups == nil {
 		root.Groups = map[string]*Group{}
 	}
-	g := root.Groups["moderator"]
+	g := root.Groups[group]
 	if g == nil {
-		g = newGroup("moderator")
-		root.Groups["moderator"] = g
+		g = newGroup(group)
+		root.Groups[group] = g
 	}
 	if on {
 		g.Add[userID] = true
