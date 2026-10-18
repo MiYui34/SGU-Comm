@@ -29,11 +29,12 @@
 <span class="conn" bind:this={root}>
   <button
     bind:this={button}
+    type="button"
     class="signal {info.level ?? 'unknown'}"
     aria-label={label}
     title={label}
     aria-expanded={open}
-    aria-controls={id}
+    aria-controls={open ? id : undefined}
     onclick={() => (open = !open)}
   >
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
