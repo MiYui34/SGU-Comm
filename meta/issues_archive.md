@@ -168,3 +168,5 @@
 - [x] [Before v0.9.0](issues/before-v0-9-0.md)
 - [x] [Website](issues/website.md)
 - [x] [Invite-only channels](issues/private-channels.md)
+- [x] [Make admins in the web app](issues/make-admins.md)
+- [x] [Invite links for invite-only channels](issues/channel-invite-links.md)

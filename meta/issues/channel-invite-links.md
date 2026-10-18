@@ -15,4 +15,4 @@ private-channels.
 - Server tests: create (staff only), redeem (adds to the members group),
   expiry, use limit, delete, unknown token; no leak of the channel to
   non-members before redeeming.
-- Manual check: link opened logged in, and logged out (then login).
+- Manual check: link opened logged in, and logged out (then login). (Done 2026-10-18.)

@@ -11,4 +11,4 @@ Server: SetAdmin next to SetModerator.
 
 - [x] Server tests: admins make admins; non-admins cannot; only SuperUser
   removes admins; SuperUser itself cannot be changed.
-- [ ] Manual check in the user menu.
+- [x] Manual check in the user menu.
