@@ -62,9 +62,12 @@
   $effect(() => {
     if (tab === "bans" || tab === "users") onLoad(tab);
   });
+  // Only the tab and the right restart polling: the callback is a new
+  // function after every state change, the answer's too.
+  const mayPoll = $derived(!!onPollConnections);
   $effect(() => {
-    if (tab !== "connections" || !onPollConnections) return;
-    const poll = onPollConnections;
+    if (tab !== "connections" || !mayPoll) return;
+    const poll = () => untrack(() => onPollConnections)?.();
     poll();
     const timer = setInterval(poll, POLL_MS);
     return () => clearInterval(timer);
