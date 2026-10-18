@@ -26,9 +26,10 @@ const (
 	maxUsedChallenges = 100_000
 )
 
-// captchaBits: zero bits per level (2^bits tries on average). The web
-// client (crypto.subtle in a worker) does about 150 000 to 300 000 tries
-// a second on a mid laptop: normal takes about 1 to 2 s, hard 4 times as
+// captchaBits: zero bits per level (2^bits tries on average, and 3 times
+// that in 5 % of cases). The web client (crypto.subtle in a worker) did
+// 340 000 tries a second in Chrome on an Apple M-series laptop; a mid
+// laptop does maybe half: normal takes about 1 to 2 s, hard 4 times as
 // long. Other levels (and "off"): no challenge.
 var captchaBits = map[string]int{"normal": 18, "hard": 20}
 
@@ -36,7 +37,8 @@ type challenges struct {
 	once sync.Once
 	key  []byte
 	mu   sync.Mutex
-	used map[string]time.Time // token: its end
+	used  map[string]time.Time // payload: its end
+	swept time.Time
 }
 
 func (c *challenges) mac(payload []byte) []byte {
@@ -59,12 +61,14 @@ func (c *challenges) issue(end time.Time) string {
 }
 
 // use: the nonce solves a challenge of ours that is not used or expired.
+// Used ones are kept by payload: the decoder takes other spellings of a
+// token too (line breaks), and their keys could be large.
 func (c *challenges) use(token, nonce string, need int, now time.Time) bool {
-	enc := base64.RawURLEncoding
+	enc := base64.RawURLEncoding.Strict()
 	p, m, _ := strings.Cut(token, ".")
 	payload, err1 := enc.DecodeString(p)
 	sig, err2 := enc.DecodeString(m)
-	if err1 != nil || err2 != nil || len(payload) != 24 || len(nonce) > 64 || !hmac.Equal(sig, c.mac(payload)) {
+	if len(token) != 76 || err1 != nil || err2 != nil || len(payload) != 24 || len(nonce) > 64 || !hmac.Equal(sig, c.mac(payload)) {
 		return false
 	}
 	end := time.Unix(int64(binary.BigEndian.Uint64(payload[16:])), 0)
@@ -76,17 +80,21 @@ func (c *challenges) use(token, nonce string, need int, now time.Time) bool {
 	if c.used == nil {
 		c.used = map[string]time.Time{}
 	}
-	if len(c.used) >= maxUsedChallenges {
+	// Full: drop the expired ones, at most once a minute (not on every
+	// request while it stays full).
+	if len(c.used) >= maxUsedChallenges && now.Sub(c.swept) >= time.Minute {
+		c.swept = now
 		for k, e := range c.used {
 			if !now.Before(e) {
 				delete(c.used, k)
 			}
 		}
 	}
-	if _, ok := c.used[token]; ok || len(c.used) >= maxUsedChallenges {
+	key := string(payload)
+	if _, ok := c.used[key]; ok || len(c.used) >= maxUsedChallenges {
 		return false
 	}
-	c.used[token] = end
+	c.used[key] = end
 	return true
 }
 

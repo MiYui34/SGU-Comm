@@ -104,6 +104,9 @@ func TestChallenge(t *testing.T) {
 			t.Fatalf("%s solved: %d %v", path, resp.StatusCode, v)
 		}
 		refused("reused", body("again"+path[5:8], c, nonce))
+		respelled := c[:10] + "\n" + c[10:] // the same for the decoder
+		refused("respelled", body("again"+path[5:8], respelled, solve(respelled, bits)))
+		refused("malformed", body("bot", "a.b", "0"))
 
 		// Expired.
 		c, _ = getChallenge(t, srv.URL)

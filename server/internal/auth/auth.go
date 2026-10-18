@@ -230,15 +230,17 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	if !a.proven(w, c) {
-		return
-	}
 	name, ok := a.checkName(w, c.Name)
 	if !ok {
 		return
 	}
 	if n := utf8.RuneCountInString(c.Password); n < 8 || n > 256 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
+		return
+	}
+	// After the quick checks (a taken name does not use up the challenge),
+	// before the slow hash.
+	if !a.proven(w, c) {
 		return
 	}
 	release := password.Limit()
@@ -265,11 +267,8 @@ func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	if !a.proven(w, c) {
-		return
-	}
 	name, ok := a.checkName(w, c.Name)
-	if !ok {
+	if !ok || !a.proven(w, c) {
 		return
 	}
 	if n, err := a.Store.TemporaryAccounts(); err != nil || n >= cmp.Or(a.MaxGuests, defaultMaxGuests) {
