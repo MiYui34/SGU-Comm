@@ -60,6 +60,9 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   let stopSound: (() => void) | null = null;
   let forceKey = true;
   let started: ((err: string | null) => void) | null = null;
+  // Counts stops: a start that sees it change while it waits (the picker is
+  // open, the connection closed) gives up.
+  let stops = 0;
   // Who watches our stream (sessions), and whether others see thumbnails.
   let viewers = $state<number[]>([]);
   let previews = true;
@@ -110,8 +113,8 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       case "keyframe":
         forceKey = true;
         break;
-      case "stopped":
-        stopSharing(false);
+      case "stopped": // not a late answer to our stop while a new start waits
+        if (sharing) stopSharing(false);
         break;
       case "viewers":
         viewers = m.sessions ?? [];
@@ -134,20 +137,28 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   // Sharing ------------------------------------------------------------
 
   const startSharing = async () => {
-    if (sharing || starting) return; // a second click while the picker is open
+    if (sharing || starting || closed) return; // a second click while the picker is open
     starting = true;
     error = null;
+    const stopsAtStart = stops;
+    const stale = new Error("stopped");
+    const live = <T>(v: T): T => {
+      if (stops !== stopsAtStart) throw stale;
+      return v;
+    };
+    let asked = false; // the server was asked to start
     try {
-      const sock = await open();
+      const sock = live(await open());
       // Sound where the browser offers it (Chromium: a tab, or the system on
-      // Windows).
+      // Windows). A stale capture is stopped in the catch.
       screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FPS }, audio: true });
+      live(null);
       const track = screen.getVideoTracks()[0]!;
       const soundTrack = screen.getAudioTracks()[0];
-      const withSound = !!soundTrack && (await soundSupported());
+      const withSound = !!soundTrack && live(await soundSupported());
       if (soundTrack && !withSound) soundTrack.stop();
       track.onended = () => stopSharing(true); // the browser's own "Stop sharing"
-      const codec = await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, 1280, 720))).supported === true);
+      const codec = live(await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, 1280, 720))).supported === true));
       if (!codec) throw new Error("this browser cannot encode video for screen sharing");
       const settings = track.getSettings();
       let size = fitSize(settings.width || 1280, settings.height || 720);
@@ -166,12 +177,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       };
       configure();
       const audioField = withSound ? { audio: "opus" } : {};
+      asked = true;
       const err = await new Promise<string | null>((resolve) => {
         started = resolve;
         send({ type: "start", codec, ...size, ...audioField });
       });
       started = null;
       if (err) throw new Error(err);
+      live(null);
       sharing = true;
       preview = screen;
       if (withSound) {
@@ -212,9 +225,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       });
     } catch (e) {
       started = null;
+      if (asked && !sharing) send({ type: "stop" }); // it may have started meanwhile
       stopSharing(true);
-      // Closing the browser's picker is not an error.
-      if (!(e instanceof DOMException && e.name === "NotAllowedError")) error = e instanceof Error ? e.message : String(e);
+      // Closing the browser's picker is not an error, nor a stop or close meanwhile.
+      if (e !== stale && !closed && !(e instanceof DOMException && e.name === "NotAllowedError")) error = e instanceof Error ? e.message : String(e);
     } finally {
       starting = false;
     }
@@ -222,6 +236,8 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
 
   const stopSharing = (tell: boolean) => {
     if (tell && sharing) send({ type: "stop" });
+    stops++;
+    started?.(null); // a start waiting for the server goes on, sees the stop and gives up
     stopFrames?.();
     stopFrames = null;
     stopSound?.();
