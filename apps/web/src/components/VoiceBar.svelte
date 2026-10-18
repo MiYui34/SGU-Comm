@@ -1,22 +1,27 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import ConnectionInfo from "./ConnectionInfo.svelte";
+  import type { ConnectionInfo as Info } from "../lib/connectionInfo.svelte";
 
   // Above the user panel while in a voice channel, as in Discord: where you
   // are, and the button to leave.
   // onShare: share the screen, or stop (undefined: not possible here).
-  // music: music mode is on (see Settings.musicMode).
+  // music: music mode is on (see Settings.musicMode). info: the
+  // connection's quality (see ConnectionInfo).
   let {
     channel,
     onLeave,
     music = false,
     sharing = false,
     onShare,
-  }: { channel: string; onLeave: () => void; music?: boolean; sharing?: boolean; onShare?: () => void } = $props();
+    info,
+  }: { channel: string; onLeave: () => void; music?: boolean; sharing?: boolean; onShare?: () => void; info: Info } = $props();
 </script>
 
 <section class="bar" aria-label="Voice">
   <div class="where">
     <div class="state">
+      <ConnectionInfo {info} />
       Voice connected
       {#if music}<span class="note" title="No filters, better sound (see the settings)">Music mode</span>{/if}
     </div>
@@ -54,6 +59,10 @@
     min-width: 0;
   }
   .state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
     color: var(--accent);
     font-size: 13px;
     font-weight: 600;

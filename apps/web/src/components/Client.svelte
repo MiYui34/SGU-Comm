@@ -1167,6 +1167,7 @@
           channel={channelName}
           onLeave={leaveVoice}
           music={musicMode}
+          info={connection.info}
           sharing={streamClient?.sharing ?? false}
           onShare={streamClient && text.voiceChats && !phone ? () => (streamClient.sharing ? streamClient.stopSharing() : void streamClient.startSharing()) : undefined}
         />
@@ -1175,6 +1176,7 @@
         {me}
         status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
         active={voiceOn && !lobby}
+        info={voiceOn && !lobby ? connection.info : undefined}
         micError={micOn ? (capture ? capture.micError : noVoice) : null}
         noVoice={!capture && !!noVoice}
         onSelfState={updateSelf}
