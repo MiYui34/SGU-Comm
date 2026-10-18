@@ -110,6 +110,10 @@ type Voice interface {
 	SetGuestsReadOnly(session uint32, on bool) error
 	GuestsReadOnly() bool
 	ReadOnly(session uint32) bool
+	// SetCaptcha: the level of the browser check for new accounts
+	// (admins); Captcha: the level now.
+	SetCaptcha(session uint32, level string) error
+	Captcha() string
 	// Connections: every connection over the recent window (admins).
 	Connections(session uint32) ([]Connection, error)
 	// CheckMessage: why the message rules refuse a session's message (nil:
@@ -348,7 +352,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
 			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
-			ready["guestsReadOnly"] = c.hub.voice.GuestsReadOnly()
+			ready["guestsReadOnly"], ready["captcha"] = c.hub.voice.GuestsReadOnly(), c.hub.voice.Captcha()
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
@@ -465,6 +469,7 @@ type request struct {
 	Emoji     string          `json:"emoji"`     // react
 	On        bool            `json:"on"`        // react: add (or remove); pin; away; set-guests-read-only
 	Status    string          `json:"status"`    // set-status: "online", "idle" or "dnd"
+	Level     string          `json:"level"`     // set-captcha
 	Until     int64           `json:"until"`     // set-status: end of the custom status (Unix ms)
 	Session   uint32          `json:"session"`   // ban, time-out, delete-messages: the user's voice server session
 	Seconds   int64           `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds), set-slow-mode (0: off)
@@ -601,6 +606,15 @@ func (c *Conn) Handle(raw []byte) {
 			c.manageError("this setting needs the built-in Mumble server")
 		} else if err := c.hub.voice.SetGuestsReadOnly(id.Session, req.On); err != nil {
 			c.manageError(err.Error())
+		}
+		return
+	case "set-captcha":
+		if c.hub.voice == nil {
+			c.manageError("this setting needs the built-in Mumble server")
+		} else if err := c.hub.voice.SetCaptcha(id.Session, req.Level); err != nil {
+			c.manageError(err.Error())
+		} else {
+			c.hub.broadcast(map[string]any{"type": "captcha", "level": req.Level})
 		}
 		return
 	case "connections":

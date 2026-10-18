@@ -1089,6 +1089,8 @@
     onDeleteEmoji={connection.deleteEmoji}
     guestsReadOnly={mayChangeGuests(server, text) ? text.guestsReadOnly : null}
     onGuestsReadOnly={(on) => connection.manage({ guestsReadOnly: on })}
+    captcha={text.captcha}
+    onCaptcha={(level) => connection.manage({ captcha: level })}
     connections={text.connections}
     onPollConnections={mayChangeGuests(server, text) ? () => connection.manage({ connections: true }) : undefined}
     messageRules={text.messageRules}

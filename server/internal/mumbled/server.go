@@ -240,6 +240,10 @@ func New(cfg Config) (*Server, error) {
 		if rules, err = cfg.DB.MessageRules(); err != nil {
 			return nil, err
 		}
+		if state.Captcha, err = cfg.DB.meta("captcha"); err != nil {
+			return nil, err
+		}
+		state.Captcha = min(state.Captcha, uint32(len(CaptchaLevels)-1))
 	} else {
 		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
 	}

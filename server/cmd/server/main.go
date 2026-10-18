@@ -126,6 +126,7 @@ func run() error {
 		accounts.NameTaken = mumble.nameTaken
 		accounts.MumbleLogin = mumble.srv.CheckPassword
 		accounts.GuestAccounts = true // the built-in server can remove their registrations
+		accounts.Captcha = mumble.srv.Captcha
 		accounts.OnPermanent = func(name string) {
 			mumble.srv.AccountPermanent(name) // its users may write again
 			hub.AccountPermanent(name)
@@ -177,7 +178,7 @@ func run() error {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
-	for _, path := range []string{"/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me"} {
+	for _, path := range []string{"/api/challenge", "/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me"} {
 		mux.Handle(path, accounts)
 	}
 	mux.Handle("/files/", fileHandler)

@@ -67,8 +67,12 @@ type Service struct {
 	// OnPermanent hears that a guest account became a normal account (by
 	// name). Nil: none.
 	OnPermanent func(name string)
+	// Captcha: the admins' level for new accounts and guest accounts (see
+	// challenge.go). Nil: none.
+	Captcha func() string
 
 	logins, guests limiter
+	challenges     challenges
 }
 
 // limiter keeps a rate limiter per client IP.
@@ -103,6 +107,9 @@ func (l *limiter) allow(ip string, limit rate.Limit, burst int) bool {
 type credentials struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
+	// A solved challenge (see challenge.go), for new accounts.
+	Challenge string `json:"challenge"`
+	Nonce     string `json:"nonce"`
 }
 
 func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +136,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch {
+	case r.URL.Path == "/api/challenge" && r.Method == http.MethodGet:
+		a.challenge(w)
 	case r.URL.Path == "/api/accounts" && r.Method == http.MethodPost:
 		a.create(w, r)
 	case r.URL.Path == "/api/guest" && r.Method == http.MethodPost && a.GuestAccounts:
@@ -229,6 +238,11 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the password needs 8 to 256 characters"})
 		return
 	}
+	// After the quick checks (a taken name does not use up the challenge),
+	// before the slow hash.
+	if !a.proven(w, c) {
+		return
+	}
 	release := password.Limit()
 	hash, err := password.Hash(c.Password)
 	release()
@@ -254,7 +268,7 @@ func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, ok := a.checkName(w, c.Name)
-	if !ok {
+	if !ok || !a.proven(w, c) {
 		return
 	}
 	if n, err := a.Store.TemporaryAccounts(); err != nil || n >= cmp.Or(a.MaxGuests, defaultMaxGuests) {

@@ -59,6 +59,7 @@ type fakeVoice struct {
 	// The message rules, and the messages checked.
 	rules   msgrules.Rules
 	checked []msgrules.Message
+	captcha string // "": off
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

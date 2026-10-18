@@ -2,6 +2,8 @@
 // every call includes credentials (the API may be on another origin in
 // development). The desktop app (session given) cannot use the cookie (it
 // is third-party there): it keeps the server's token and sends it.
+import type { Challenge, Proof } from "./captcha";
+
 // A logged-in account; temporary: a guest account without a password (the
 // server deletes it after a day without a visit).
 export type Account = { name: string; temporary: boolean };
@@ -19,7 +21,7 @@ class ApiError extends Error {
 export type SessionStore = { get: () => string | null; set: (token: string | null) => void };
 
 export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, session?: SessionStore) => {
-  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string };
+  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string } & Partial<Challenge>;
   const call = async (path: string, body?: unknown): Promise<Answer> => {
     const token = session?.get();
     const headers: Record<string, string> = {
@@ -48,16 +50,22 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
       const data = await call("/api/login", { name, password });
       return { name: data.name ?? name, mumble: data.mumble === true };
     },
-    create: async (name: string, password: string) =>
-      (await call("/api/accounts", { name, password })).name ?? name,
+    // A challenge to solve before create and guest (see captcha), or null:
+    // none needed (or a server without them).
+    challenge: async (): Promise<Challenge | null> => {
+      const c = await call("/api/challenge").catch(() => null);
+      return c?.challenge && c.bits ? { challenge: c.challenge, bits: c.bits } : null;
+    },
+    create: async (name: string, password: string, proof?: Proof) =>
+      (await call("/api/accounts", { name, password, ...proof })).name ?? name,
     // A temporary account for a guest; null: join as a classic guest (the
     // server has no guest accounts, too many right now, or no answer).
-    // Name problems are errors.
-    guest: async (name: string): Promise<Account | null> => {
+    // Name problems and a failed browser check (403) are errors.
+    guest: async (name: string, proof?: Proof): Promise<Account | null> => {
       try {
-        return { name: (await call("/api/guest", { name: name.trim() })).name ?? name.trim(), temporary: true };
+        return { name: (await call("/api/guest", { name: name.trim(), ...proof })).name ?? name.trim(), temporary: true };
       } catch (err) {
-        if (err instanceof ApiError && (err.status === 400 || err.status === 409)) throw err;
+        if (err instanceof ApiError && [400, 403, 409].includes(err.status)) throw err;
         return null;
       }
     },

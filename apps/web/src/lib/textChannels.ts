@@ -12,6 +12,7 @@ import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 import type { Invite } from "./invites";
 import type { Members, Online } from "./members";
 import { parseConnections, type Connection } from "./connections";
+import { isCaptchaLevel, type CaptchaLevel } from "./captcha";
 import { parseMessageRules, type MessageRules } from "./messageRules";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
@@ -86,6 +87,8 @@ export type ServerEvent =
       timeouts?: Timeout[];
       // Guests may only read (see lib/guests).
       guestsReadOnly?: boolean;
+      // The browser check for new accounts (see lib/captcha).
+      captcha?: CaptchaLevel;
       // Registered users' direct chats (with messages).
       directs?: DirectChat[];
       streams?: LiveStream[];
@@ -136,6 +139,7 @@ export type ServerEvent =
   | { type: "timeouts"; timeouts: Timeout[] }
   // Admins changed whether guests may only read.
   | { type: "guests-read-only"; on: boolean }
+  | { type: "captcha"; level: CaptchaLevel }
   // Every connection (admins, asked for: see lib/connections).
   | { type: "connections"; connections: Connection[] }
   // The message rules (admins, asked for or saved: see lib/messageRules).
@@ -192,6 +196,7 @@ export type TextState = {
   guestsReadOnly: boolean;
   // Slow mode: when the server said our wait ends, by channel.
   slowUntil: Readonly<Record<number, number>>;
+  captcha: CaptchaLevel;
   // Every connection, once asked for (admins).
   connections: Connection[] | null;
   // The message rules, once asked for (admins).
@@ -241,6 +246,7 @@ export const initialTextState: TextState = {
   timeouts: [],
   guestsReadOnly: false,
   slowUntil: {},
+  captcha: "off",
   connections: null,
   messageRules: null,
   directs: {},
@@ -395,6 +401,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(isPrivateList(v.private) ? { private: v.private } : {}),
         ...(isTimeouts(v.timeouts) ? { timeouts: v.timeouts } : {}),
         ...(v.guestsReadOnly === true ? { guestsReadOnly: true } : {}),
+        ...(isCaptchaLevel(v.captcha) ? { captcha: v.captcha } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
@@ -442,6 +449,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "guests-read-only":
       return typeof v.on === "boolean" ? { type: "guests-read-only", on: v.on } : null;
+    case "captcha":
+      return isCaptchaLevel(v.level) ? { type: "captcha", level: v.level } : null;
     case "connections": {
       const connections = parseConnections(v.connections);
       return connections && { type: "connections", connections };
@@ -542,6 +551,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         private: privateMap(event.private ?? []),
         timeouts: event.timeouts ?? [],
         guestsReadOnly: event.guestsReadOnly === true,
+        captcha: event.captcha ?? "off",
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
         streamPreviews: keepPreviews({}, event.streams ?? []),
@@ -591,6 +601,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, timeouts: event.timeouts };
     case "guests-read-only":
       return { ...state, guestsReadOnly: event.on };
+    case "captcha":
+      return { ...state, captcha: event.level };
     case "connections":
       return { ...state, connections: event.connections };
     case "message-rules":
@@ -737,6 +749,7 @@ export type ManageAction =
   // A user's messages of the last seconds (staff): see UserTarget.
   | { deleteMessages: UserTarget; seconds: number }
   | { guestsReadOnly: boolean }
+  | { captcha: CaptchaLevel }
   // Every connection (admins).
   | { connections: true }
   // The message rules (admins): ask for them, or save new ones.
@@ -766,6 +779,7 @@ const manageBody = (a: ManageAction) => {
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
   if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   if ("guestsReadOnly" in a) return { type: "set-guests-read-only", on: a.guestsReadOnly };
+  if ("captcha" in a) return { type: "set-captcha", level: a.captcha };
   if ("connections" in a) return { type: "connections" };
   if ("messageRules" in a) return { type: "message-rules" };
   if ("setMessageRules" in a) return { type: "set-message-rules", rules: a.setMessageRules };

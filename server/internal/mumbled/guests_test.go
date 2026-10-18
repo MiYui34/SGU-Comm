@@ -101,3 +101,32 @@ func TestGuestsReadOnly(t *testing.T) {
 		t.Fatalf("off: %v", err)
 	}
 }
+
+func TestCaptchaSetting(t *testing.T) {
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	su := superUser(t, addr)
+	alice, _ := registered(t, addr, "alice")
+	if s.Captcha() != "off" {
+		t.Fatalf("default %q", s.Captcha())
+	}
+	if err := s.SetCaptcha(alice.session, "hard"); err == nil || s.Captcha() != "off" {
+		t.Fatal("a user changed the setting")
+	}
+	if err := s.SetCaptcha(su.session, "extreme"); err == nil {
+		t.Fatal("an unknown level")
+	}
+	if err := s.SetCaptcha(su.session, "hard"); err != nil || s.Captcha() != "hard" {
+		t.Fatalf("set: %v %q", err, s.Captcha())
+	}
+	restarted, err := New(Config{DB: db})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if restarted.Captcha() != "hard" {
+		t.Fatal("the setting was not saved")
+	}
+}
