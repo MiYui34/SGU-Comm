@@ -12,6 +12,7 @@ import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 import type { Invite } from "./invites";
 import type { Members, Online } from "./members";
 import { parseConnections, type Connection } from "./connections";
+import { parseMessageRules, type MessageRules } from "./messageRules";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -136,6 +137,8 @@ export type ServerEvent =
   | { type: "guests-read-only"; on: boolean }
   // Every connection (admins, asked for: see lib/connections).
   | { type: "connections"; connections: Connection[] }
+  // The message rules (admins, asked for or saved: see lib/messageRules).
+  | { type: "message-rules"; rules: MessageRules }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
@@ -187,6 +190,8 @@ export type TextState = {
   guestsReadOnly: boolean;
   // Every connection, once asked for (admins).
   connections: Connection[] | null;
+  // The message rules, once asked for (admins).
+  messageRules: MessageRules | null;
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
   // Live screen shares, and their thumbnails by streamer session.
@@ -232,6 +237,7 @@ export const initialTextState: TextState = {
   timeouts: [],
   guestsReadOnly: false,
   connections: null,
+  messageRules: null,
   directs: {},
   streams: [],
   streamPreviews: {},
@@ -434,6 +440,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const connections = parseConnections(v.connections);
       return connections && { type: "connections", connections };
     }
+    case "message-rules": {
+      const rules = parseMessageRules(v.rules);
+      return rules && { type: "message-rules", rules };
+    }
     case "timeouts":
       return isTimeouts(v.timeouts) ? { type: "timeouts", timeouts: v.timeouts } : null;
     case "streams":
@@ -576,6 +586,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, guestsReadOnly: event.on };
     case "connections":
       return { ...state, connections: event.connections };
+    case "message-rules":
+      return { ...state, messageRules: event.rules };
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
     case "stream-preview": {
@@ -714,7 +726,10 @@ export type ManageAction =
   | { deleteMessages: UserTarget; seconds: number }
   | { guestsReadOnly: boolean }
   // Every connection (admins).
-  | { connections: true };
+  | { connections: true }
+  // The message rules (admins): ask for them, or save new ones.
+  | { messageRules: true }
+  | { setMessageRules: MessageRules };
 
 // A user for the Kallisti server: by voice server session if online, else
 // a registered user by id.
@@ -739,6 +754,8 @@ const manageBody = (a: ManageAction) => {
   if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   if ("guestsReadOnly" in a) return { type: "set-guests-read-only", on: a.guestsReadOnly };
   if ("connections" in a) return { type: "connections" };
+  if ("messageRules" in a) return { type: "message-rules" };
+  if ("setMessageRules" in a) return { type: "set-message-rules", rules: a.setMessageRules };
   return { type: "order-channels", channels: a.order };
 };
 
