@@ -165,3 +165,4 @@
 - [x] [Stable keys for message rows](issues/stable-message-keys.md)
 - [x] [One limiter key for all login limits (IPv6 /64)](issues/limiter-keys-ipv6.md)
 - [x] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)
+- [x] [Before v0.9.0](issues/before-v0-9-0.md)
