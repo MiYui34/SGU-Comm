@@ -1,6 +1,7 @@
 <script lang="ts">
   import { banAddress, type Ban, type Registered } from "@kallisti/protocol";
   import { untrack } from "svelte";
+  import type { CaptchaLevel } from "../lib/captcha";
   import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
   import {
     connectionLevel,
@@ -13,7 +14,7 @@
   } from "../lib/connections";
 
   // Server settings for moderators and admins: the ban list, the
-  // registered users, the custom emoji, and for admins the guests setting
+  // registered users, the custom emoji, and for admins the guests settings
   // and the connections (the server checks every change again).
   let {
     bans,
@@ -28,6 +29,8 @@
     onDeleteEmoji,
     guestsReadOnly = null,
     onGuestsReadOnly,
+    captcha = "off",
+    onCaptcha,
     connections = null,
     onPollConnections,
     onClose,
@@ -45,6 +48,9 @@
     // Admins: whether guests may only read (null: not ours to change).
     guestsReadOnly?: boolean | null;
     onGuestsReadOnly?: (on: boolean) => void;
+    // Admins (with the guests setting): the browser check for new accounts.
+    captcha?: CaptchaLevel;
+    onCaptcha?: (level: CaptchaLevel) => void;
     // Admins: every connection (null: not loaded yet), asked for again
     // while the tab is open; without onPollConnections, no tab.
     connections?: readonly Connection[] | null;
@@ -158,6 +164,19 @@
     <p class="note">
       Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
       direct messages. Use it during a spam wave.
+    </p>
+    <label class="check">
+      Browser check for new accounts and guests
+      <select value={captcha} onchange={(e) => onCaptcha?.(e.currentTarget.value as CaptchaLevel)}>
+        <option value="off">Off</option>
+        <option value="normal">Normal</option>
+        <option value="hard">Hard</option>
+      </select>
+    </label>
+    <p class="note">
+      Before a web browser creates an account or joins as a guest, it does some work by itself: about 1 to 2 seconds (Normal) or 4
+      times as long (Hard). This slows down scripts that make many accounts. No third party is involved. Mumble clients and logins
+      do no check.
     </p>
   {:else if tab === "connections"}
     {#if sorted === null}
@@ -374,6 +393,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .check select {
+    padding: 4px 6px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text);
+    font: inherit;
   }
   .add-emoji {
     display: flex;

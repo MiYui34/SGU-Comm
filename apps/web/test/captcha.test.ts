@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAccountsApi } from "../src/lib/accounts";
 import { solve, zeroBits } from "../src/lib/captcha";
+import { initialTextState, manageRequest, parseServerEvent, reduceText } from "../src/lib/textChannels";
 
 const sha256 = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 
@@ -16,6 +17,17 @@ describe("captcha", () => {
     const nonce = await solve("salt.mac", 10);
     expect(zeroBits(await sha256(`salt.mac${nonce}`))).toBeGreaterThanOrEqual(10);
     expect(await solve("salt.mac", 0)).toBe("0");
+  });
+});
+
+describe("the captcha setting", () => {
+  it("comes with ready, changes later, and admins set it", () => {
+    const s = reduceText(initialTextState, parseServerEvent('{"type":"ready","channels":[],"captcha":"normal"}')!);
+    expect(s.captcha).toBe("normal");
+    expect(reduceText(s, parseServerEvent('{"type":"captcha","level":"hard"}')!).captcha).toBe("hard");
+    expect(reduceText(s, parseServerEvent('{"type":"ready","channels":[]}')!).captcha).toBe("off");
+    expect(parseServerEvent('{"type":"captcha","level":"extreme"}')).toBeNull();
+    expect(manageRequest({ captcha: "hard" })).toBe('{"type":"set-captcha","level":"hard"}');
   });
 });
 

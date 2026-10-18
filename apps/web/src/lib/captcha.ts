@@ -5,6 +5,11 @@
 export type Challenge = { challenge: string; bits: number; expires: number };
 export type Proof = { challenge: string; nonce: string };
 
+// The admins' setting (see ModerationDialog).
+export const CAPTCHA_LEVELS = ["off", "normal", "hard"] as const;
+export type CaptchaLevel = (typeof CAPTCHA_LEVELS)[number];
+export const isCaptchaLevel = (v: unknown): v is CaptchaLevel => CAPTCHA_LEVELS.includes(v as CaptchaLevel);
+
 export const zeroBits = (hash: Uint8Array) => {
   let n = 0;
   for (const b of hash) {
