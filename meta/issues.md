@@ -21,4 +21,3 @@
   - [ ] [Screen share left running after a connection drop](issues/stream-start-after-close.md)
   - [ ] [One limiter key for all login limits (IPv6 /64)](issues/limiter-keys-ipv6.md)
   - [ ] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)
-  - [ ] [Unit tests and type checks in CI](issues/ci-unit-tests.md)

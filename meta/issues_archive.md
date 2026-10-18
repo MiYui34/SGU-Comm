@@ -155,3 +155,4 @@
 - [x] [Custom emoji in the custom status](issues/custom-emoji-in-status.md)
 - [x] [Log in at once with a saved session](issues/auto-login.md)
 - [x] [Server crash: a voice target with a deleted channel](issues/crash-target-deleted-channel.md)
+- [x] [Unit tests and type checks in CI](issues/ci-unit-tests.md)
