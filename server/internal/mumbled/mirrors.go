@@ -104,11 +104,7 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 	for _, id := range slices.Sorted(maps.Keys(touched)) {
 		ch := s.state.Channels[id]
 		save = append(save, cloneChannel(ch))
-		for _, u := range s.state.Users {
-			if c := s.clients[u.Session]; c != nil {
-				c.sendMsg(mumble.TypeChannelState, s.state.channelStateFor(ch, u))
-			}
-		}
+		s.showChannelLocked(ch)
 	}
 	if touched[parent.ID] {
 		s.permissionsChangedLocked(parent) // suppress states follow Speak

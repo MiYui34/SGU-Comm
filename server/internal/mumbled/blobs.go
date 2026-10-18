@@ -123,17 +123,17 @@ func (s *Server) requestBlobMsg(c *client, m *pb.RequestBlob) {
 	}
 	s.mu.Lock()
 	for _, id := range unique(m.SessionTexture) {
-		if u := s.state.Users[id]; u != nil && len(u.Texture) > 0 {
+		if u := s.state.Users[id]; u != nil && len(u.Texture) > 0 && c.seen[u.Channel] {
 			reply(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(id), Texture: u.Texture})
 		}
 	}
 	for _, id := range unique(m.SessionComment) {
-		if u := s.state.Users[id]; u != nil && u.Comment != "" {
+		if u := s.state.Users[id]; u != nil && u.Comment != "" && c.seen[u.Channel] {
 			reply(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(id), Comment: proto.String(u.Comment)})
 		}
 	}
 	for _, id := range unique(m.ChannelDescription) {
-		if ch := s.state.Channels[id]; ch != nil && ch.Description != "" {
+		if ch := s.state.Channels[id]; ch != nil && ch.Description != "" && c.seen[id] {
 			reply(mumble.TypeChannelState, &pb.ChannelState{ChannelId: proto.Uint32(id), Description: proto.String(ch.Description)})
 		}
 	}

@@ -164,7 +164,8 @@ type client struct {
 
 	// Guarded by Server.mu.
 	udpAddr  netip.AddrPort
-	udpVoice bool // send voice over UDP (it sent voice over UDP)
+	udpVoice bool            // send voice over UDP (it sent voice over UDP)
+	seen     map[uint32]bool // channels it was told about (see visibility.go)
 
 	cryptMu     sync.Mutex
 	crypt       *cryptstate.CryptState

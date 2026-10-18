@@ -391,7 +391,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	// where root is a lobby (no voice in root): there users join voice on
 	// purpose.
 	lobby := !s.state.Has(u, 0, Speak)
-	if ch := s.state.Channels[id.lastChannel]; ch != nil && !lobby && s.state.Has(u, ch.ID, Enter) {
+	if ch := s.state.Channels[id.lastChannel]; ch != nil && !lobby && s.state.Has(u, ch.ID, Enter) && s.state.Sees(u, ch.ID) {
 		u.Channel = ch.ID
 	}
 	if !s.state.Has(u, u.Channel, Enter) {
@@ -399,10 +399,13 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	}
 	_, u.Mute = s.timedOutLocked(u)
 	s.state.Refresh(u)
-	c.send(s.state.snapshot(u), false)
+	c.seen = s.state.Visible(u)
+	c.send(s.state.snapshot(u, c.seen), false)
 	if !c.web {
 		for _, su := range s.streams {
-			c.send(su.state(), false)
+			if c.seen[su.channel] {
+				c.send(su.state(), false)
+			}
 		}
 	}
 	s.state.AddUser(u)
@@ -411,7 +414,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		s.byHost[c.host] = map[*client]bool{}
 	}
 	s.byHost[c.host][c] = true
-	s.broadcastLocked(userState(u), nil)
+	s.sendUserLocked(u, userStateMsg(u))
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),
 		WelcomeText: proto.String(s.cfg.Welcome), Permissions: proto.Uint64(s.state.rootPerms(u)),
@@ -423,23 +426,31 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	return nil
 }
 
-// snapshot is the channels and users a joining user gets, as one queue
-// entry: as single frames a big server would fill the queue.
-func (s *State) snapshot(joining *User) []byte {
+// snapshot is the channels (those seen) and users (in them) a joining
+// user gets, as one queue entry: as single frames a big server would fill
+// the queue.
+func (s *State) snapshot(joining *User, seen map[uint32]bool) []byte {
 	var out []byte
-	tree := s.Tree()
+	var tree []*Channel
+	for _, ch := range s.Tree() {
+		if seen[ch.ID] {
+			tree = append(tree, ch)
+		}
+	}
 	for _, ch := range tree {
 		out = append(out, mumble.MessageFrame(mumble.TypeChannelState, s.channelStateFor(ch, joining))...)
 	}
 	// Links once all channels exist, as Murmur does.
 	for _, ch := range tree {
-		if len(ch.Links) > 0 {
+		if links := seenLinks(ch, seen); len(links) > 0 {
 			out = append(out, mumble.MessageFrame(mumble.TypeChannelState,
-				&pb.ChannelState{ChannelId: proto.Uint32(ch.ID), Links: slices.Sorted(maps.Keys(ch.Links))})...)
+				&pb.ChannelState{ChannelId: proto.Uint32(ch.ID), Links: links})...)
 		}
 	}
 	for _, u := range s.Users {
-		out = append(out, userState(u)...)
+		if seen[u.Channel] {
+			out = append(out, mumble.MessageFrame(mumble.TypeUserState, forViewer(userStateMsg(u), seen))...)
+		}
 	}
 	return out
 }
@@ -480,7 +491,12 @@ func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 	if !u.Registered && s.dropTimeoutLocked(timeoutKeyOf(&u)) {
 		go s.timeoutsChanged()
 	}
-	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserRemove, msg), nil)
+	frame := mumble.MessageFrame(mumble.TypeUserRemove, msg)
+	for _, o := range s.clients {
+		if o.seen[u.Channel] {
+			o.send(frame, false)
+		}
+	}
 	s.broadcastRemovedLocked(removed)
 	return u
 }
@@ -519,8 +535,8 @@ func channelState(ch *Channel) *pb.ChannelState {
 	return m
 }
 
-// userState is the full UserState of a user.
-func userState(u *User) []byte {
+// userStateMsg is the full UserState of a user.
+func userStateMsg(u *User) *pb.UserState {
 	m := &pb.UserState{Session: proto.Uint32(u.Session), Name: proto.String(u.Name), ChannelId: proto.Uint32(u.Channel)}
 	// Only flags that are set: clients read every field as a change.
 	flag := func(on bool) *bool {
@@ -540,21 +556,18 @@ func userState(u *User) []byte {
 	}
 	m.ListeningChannelAdd = slices.Sorted(maps.Keys(u.Listening))
 	setUserBlobs(m, u)
-	return mumble.MessageFrame(mumble.TypeUserState, m)
+	return m
 }
 
-// broadcastLocked sends a frame to everyone except skip. Needs Server.mu.
-func (s *Server) broadcastLocked(frame []byte, skip *client) {
-	for _, c := range s.clients {
-		if c != skip {
-			c.send(frame, false)
-		}
-	}
-}
-
-// broadcastRemovedLocked tells everyone about removed channels.
+// broadcastRemovedLocked tells those who saw them about removed channels.
 func (s *Server) broadcastRemovedLocked(removed []uint32) {
 	for _, id := range removed {
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(id)}), nil)
+		frame := mumble.MessageFrame(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(id)})
+		for _, c := range s.clients {
+			if c.seen[id] {
+				delete(c.seen, id)
+				c.send(frame, false)
+			}
+		}
 	}
 }

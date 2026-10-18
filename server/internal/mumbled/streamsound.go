@@ -57,7 +57,7 @@ func (s *Server) StartStreamSound(streamer uint32) (uint32, bool) {
 	s.next++
 	su := &streamUser{session: s.next, channel: u.Channel, name: u.Name}
 	s.streams[streamer] = su
-	s.broadcastNativeLocked(su.state())
+	s.broadcastNativeLocked(su.channel, su.state())
 	return su.session, true
 }
 
@@ -74,7 +74,7 @@ func (s *Server) endStreamSoundLocked(streamer uint32) {
 		return
 	}
 	delete(s.streams, streamer)
-	s.broadcastNativeLocked(mumble.MessageFrame(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(su.session)}))
+	s.broadcastNativeLocked(su.channel, mumble.MessageFrame(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(su.session)}))
 }
 
 // StreamSound speaks an Opus packet of a stream (timestamp: microseconds)
@@ -110,9 +110,10 @@ func (s *Server) StreamSound(streamer uint32, opus []byte, timestamp uint64) {
 	deliver(audioPacket{frame: timestamp / 10_000, opus: opus}, su.session, receivers, udp)
 }
 
-func (s *Server) broadcastNativeLocked(frame []byte) {
+// broadcastNativeLocked sends to the Mumble clients that see a channel.
+func (s *Server) broadcastNativeLocked(channel uint32, frame []byte) {
 	for _, c := range s.clients {
-		if !c.web {
+		if !c.web && c.seen[channel] {
 			c.send(frame, false)
 		}
 	}
