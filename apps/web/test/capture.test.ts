@@ -7,7 +7,7 @@ const fakeNode = () => ({ connect: vi.fn((n: unknown) => n), disconnect: vi.fn()
 const setup = () => {
   const tracks: { stop: ReturnType<typeof vi.fn> }[] = [];
   const getUserMedia = vi.fn(async () => {
-    const track = { stop: vi.fn(), label: "mic", onended: null };
+    const track = { stop: vi.fn(), label: "mic", onended: null, getSettings: () => ({ channelCount: 2 }) };
     tracks.push(track);
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   });
@@ -27,7 +27,7 @@ const setup = () => {
     destination: {},
     createMediaStreamSource: vi.fn(() => fakeNode()),
   } as unknown as AudioContext;
-  return { tracks, addModule, capture: createCapture(ctx, () => {}) };
+  return { tracks, getUserMedia, addModule, capture: createCapture(ctx, () => {}) };
 };
 
 describe("capture start", () => {
@@ -49,5 +49,18 @@ describe("capture start", () => {
     expect(addModule).toHaveBeenCalledTimes(2);
     expect(capture.micError).toBeNull();
     expect(tracks.map((t) => t.stop.mock.calls.length)).toEqual([1, 0]); // the second one is in use
+  });
+
+  it("opens the microphone again without filters for music mode", async () => {
+    const { getUserMedia, capture } = setup();
+    await capture.start("mic-2");
+    capture.setMusicMode(true);
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(2));
+    expect(getUserMedia.mock.lastCall).toEqual([
+      { audio: { deviceId: { exact: "mic-2" }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } } },
+    ]);
+    // The microphone has two channels: the worklet collects both.
+    const node = vi.mocked(AudioWorkletNode).mock.results[0]!.value as ReturnType<typeof fakeNode>;
+    await vi.waitFor(() => expect(node.port.postMessage).toHaveBeenCalledWith({ channels: 2 }));
   });
 });

@@ -61,4 +61,10 @@ describe("inputBlock", () => {
     expect(inputBlock([[]], 128)).toEqual(new Float32Array(128));
     expect(inputBlock([], 128)).toEqual(new Float32Array(128));
   });
+
+  it("gives the asked channel, or the first one when the input has fewer", () => {
+    const [l, r] = [new Float32Array([1]), new Float32Array([2])];
+    expect(inputBlock([[l, r]], 128, 1)).toBe(r);
+    expect(inputBlock([[l]], 128, 1)).toBe(l);
+  });
 });

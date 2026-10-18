@@ -52,6 +52,13 @@ describe("encoder rotation", () => {
     expect(made[0]!.closed).toBe(true);
   });
 
+  it("makes a new encoder on renew, also when the old one was not used", () => {
+    const { rot, made } = setup();
+    rot.renew();
+    expect(rot.current()).toBe(made[1]);
+    expect(made[0]!.closed).toBe(true);
+  });
+
   it("closes everything on close", () => {
     const { rot, made } = setup();
     rot.encoded(rot.current(), 1);

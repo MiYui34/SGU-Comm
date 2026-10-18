@@ -1,7 +1,9 @@
-// Runs on the audio thread. Collects mono microphone samples into frames of
-// a fixed size and posts each full frame to the main thread, with the voice
-// probability when RNNoise runs. The frames also go to the output, one
-// frame late: the settings' echo test plays them (else its gain is 0).
+// Runs on the audio thread. Collects microphone samples into frames of a
+// fixed size and posts each full frame to the main thread, with the voice
+// probability when RNNoise runs. Mono, or stereo for music mode: then a
+// frame is both channels one after the other (f32-planar). The frames (the
+// first channel) also go to the output, one frame late: the settings' echo
+// test plays them (else its gain is 0).
 
 const RNNOISE_FRAME = 480; // 10 ms at 48 kHz
 const SCALE = 32768; // RNNoise works on 16-bit sample values
@@ -78,12 +80,13 @@ export class Fifo {
   }
 }
 
-// The first input channel, or silence when the input has none: an
-// inactive input (Firefox's for a silent source) has no channels, and
-// without frames a talk spurt would never end.
+// Input channel ch (the first when there are fewer), or silence when the
+// input has none: an inactive input (Firefox's for a silent source) has no
+// channels, and without frames a talk spurt would never end.
 let silence = new Float32Array(0); // reused: no garbage per block
-export function inputBlock(inputs, quantum) {
-  if (inputs[0]?.[0]) return inputs[0][0];
+export function inputBlock(inputs, quantum, ch = 0) {
+  const block = inputs[0]?.[ch] ?? inputs[0]?.[0];
+  if (block) return block;
   if (silence.length !== quantum) silence = new Float32Array(quantum);
   return silence;
 }
@@ -93,15 +96,22 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     constructor(options) {
       super();
       this.size = options.processorOptions.frameSize;
+      this.channels = 1;
       this.frame = new Float32Array(this.size);
       this.filled = 0;
       this.denoiser = null;
       this.echo = new Fifo(this.size * 5);
       // { denoise: ArrayBuffer | null }: RNNoise (its bytes) on or off. It
       // is made once and kept (switched off, not destroyed). The answer
-      // says whether it runs ({ denoising }) or failed.
+      // says whether it runs ({ denoising }) or failed. { channels }: 1 or
+      // 2, from a new frame on.
       this.denoising = false;
       this.port.onmessage = ({ data }) => {
+        if ("channels" in data) {
+          this.channels = data.channels;
+          this.frame = new Float32Array(this.size * this.channels);
+          this.filled = 0;
+        }
         if (!("denoise" in data)) return;
         try {
           if (data.denoise && !this.denoiser) this.denoiser = createDenoiser(new WebAssembly.Module(data.denoise));
@@ -116,9 +126,12 @@ if (typeof AudioWorkletProcessor !== "undefined") {
 
     process(inputs, outputs) {
       const out = outputs[0]?.[0];
-      const input = inputBlock(inputs, out?.length ?? 128);
-      for (let i = 0; i < input.length; i++) {
-        this.frame[this.filled++] = input[i];
+      const quantum = out?.length ?? 128;
+      const left = inputBlock(inputs, quantum);
+      const right = this.channels === 2 ? inputBlock(inputs, quantum, 1) : null;
+      for (let i = 0; i < left.length; i++) {
+        if (right) this.frame[this.size + this.filled] = right[i];
+        this.frame[this.filled++] = left[i];
         if (this.filled === this.size) this.flush();
       }
       if (out) this.echo.pull(out);
@@ -132,9 +145,9 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         for (let at = 0; at + RNNOISE_FRAME <= this.size; at += RNNOISE_FRAME)
           vad = Math.max(vad, this.denoiser.process(this.frame.subarray(at, at + RNNOISE_FRAME)));
       }
-      this.echo.push(this.frame);
+      this.echo.push(this.frame.subarray(0, this.size));
       this.port.postMessage({ samples: this.frame, vad }, [this.frame.buffer]);
-      this.frame = new Float32Array(this.size);
+      this.frame = new Float32Array(this.size * this.channels);
       this.filled = 0;
     }
   }
