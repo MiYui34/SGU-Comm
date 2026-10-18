@@ -6,6 +6,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
   import { hold } from "../lib/longPress";
+  import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToText } from "../lib/htmlText";
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
@@ -279,28 +280,13 @@
     sendFiles(event.dataTransfer?.files);
   };
 
-  let held = false;
-  const release = () => {
-    if (!held) return;
-    held = false;
-    onHoldTalk?.(false);
-  };
-  // The button can disappear while held (wider screen, mode change): the
-  // microphone must not stay on.
-  let lastHold: typeof onHoldTalk;
+  // The button can disappear while held (wider screen, mode change, this
+  // pane closed): then the press is released (see createHoldTalk).
+  const holdTalk = createHoldTalk();
   $effect(() => {
-    const hold = onHoldTalk;
-    lastHold = hold;
-    return () => {
-      if (held && !lastHold) {
-        held = false;
-        hold?.(false);
-      }
-    };
+    if (!onHoldTalk) holdTalk.release();
   });
-  $effect(() => () => {
-    if (held) onHoldTalk?.(false);
-  });
+  $effect(() => holdTalk.release);
 
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
@@ -766,12 +752,11 @@
       onpointerdown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
-        held = true;
-        onHoldTalk(true);
+        holdTalk.press(onHoldTalk);
       }}
-      onpointerup={release}
-      onpointercancel={release}
-      onlostpointercapture={release}
+      onpointerup={holdTalk.release}
+      onpointercancel={holdTalk.release}
+      onlostpointercapture={holdTalk.release}
       oncontextmenu={(e) => e.preventDefault()}
     >
       {talking ? "Talking…" : "Hold to talk"}
