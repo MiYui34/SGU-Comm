@@ -685,7 +685,13 @@ export type ManageAction =
   // Moderation, by voice server session: a ban for some seconds (0: for
   // ever), a time-out (0: end it).
   | { ban: number; reason: string; seconds: number }
-  | { timeout: number; seconds: number };
+  | { timeout: number; seconds: number }
+  // A user's messages of the last seconds (staff): see UserTarget.
+  | { deleteMessages: UserTarget; seconds: number };
+
+// A user for the Kallisti server: by voice server session if online, else
+// a registered user by id.
+export type UserTarget = { session: number } | { user: number };
 
 const manageBody = (a: ManageAction) => {
   if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
@@ -703,6 +709,7 @@ const manageBody = (a: ManageAction) => {
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
+  if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   return { type: "order-channels", channels: a.order };
 };
 
