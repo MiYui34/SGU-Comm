@@ -1,7 +1,8 @@
 import type { AudioPacket } from "@kallisti/protocol";
 import { SvelteSet } from "svelte/reactivity";
 import { createLimiter } from "./limiter";
-import { nextStart, type PlayoutConfig } from "./schedule";
+import { chunkOutcome, nextStart, type PlayoutConfig } from "./schedule";
+import type { Counters } from "../connectionQuality";
 
 const SAMPLE_RATE = 48_000;
 // Mumble counts frames in 10 ms steps.
@@ -14,6 +15,10 @@ type Speaker = {
   decoder: AudioDecoder;
   gain: GainNode;
   end: number | null;
+  // Where the stream goes on (µs, null: a new talk spurt), and for each
+  // chunk in the decoder, whether it ends a spurt (see chunkOutcome).
+  next: number | null;
+  ends: boolean[];
   timer?: ReturnType<typeof setTimeout>;
 };
 
@@ -30,9 +35,17 @@ export const createPlayback = (ctx: AudioContext) => {
   output.connect(limiter.input);
   limiter.output.connect(ctx.destination);
   let deaf = false;
+  // For the connection info (counters only: this is the audio path).
+  const counters: Counters = { good: 0, late: 0, lost: 0 };
 
   const play = (speaker: Speaker, data: AudioData) => {
-    const start = nextStart(speaker.end, ctx.currentTime * SAMPLE_RATE, PLAYOUT);
+    const now = ctx.currentTime * SAMPLE_RATE;
+    const start = nextStart(speaker.end, now, PLAYOUT);
+    const duration = (data.numberOfFrames / SAMPLE_RATE) * 1e6;
+    const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: data.timestamp, duration, start, prevEnd: speaker.end, now });
+    counters[late ? "late" : "good"]++;
+    counters.lost += lost;
+    speaker.next = speaker.ends.shift() ? null : data.timestamp + duration;
     if (start === null) return data.close();
     // Stereo streams (music bots) keep both channels; voice is mono in
     // both.
@@ -66,6 +79,8 @@ export const createPlayback = (ctx: AudioContext) => {
     const speaker: Speaker = {
       gain,
       end: null,
+      next: null,
+      ends: [],
       decoder: new AudioDecoder({
         output: (data) => play(speaker, data),
         // A broken stream: drop the decoder, the next packet makes a new one.
@@ -95,7 +110,14 @@ export const createPlayback = (ctx: AudioContext) => {
         const speaker = speakerFor(packet.session);
         markSpeaking(packet.session, speaker, packet.terminator);
         // Locally muted: keep the speaking ring, skip the decoding work.
-        if (packet.opus.length === 0 || gains.get(packet.session) === 0) return;
+        if (gains.get(packet.session) === 0) return;
+        if (packet.opus.length === 0) {
+          // A bare terminator ends the spurt after the chunks in the decoder.
+          if (packet.terminator && !speaker.ends.length) speaker.next = null;
+          else if (packet.terminator) speaker.ends[speaker.ends.length - 1] = true;
+          return;
+        }
+        speaker.ends.push(packet.terminator);
         speaker.decoder.decode(
           new EncodedAudioChunk({
             type: "key",
@@ -111,6 +133,7 @@ export const createPlayback = (ctx: AudioContext) => {
       }
     },
     remove,
+    stats: (): Counters => ({ ...counters }),
     // The user left: also drop their volume.
     forget: (session: number) => {
       remove(session);
