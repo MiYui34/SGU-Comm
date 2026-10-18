@@ -12,11 +12,16 @@ import (
 	"kallisti.chat/server/internal/mumble/pb"
 )
 
-// voice relays an audio packet from c to its receivers.
-func (s *Server) voice(c *client, packet []byte) {
+// voice relays an audio packet from c (over TCP or UDP) to its receivers.
+func (s *Server) voice(c *client, packet []byte, tcp bool) {
 	p, ok := decodeAudio(packet, c.legacy)
+	if !ok {
+		return
+	}
 	// As Murmur: headers count too (IP, UDP, crypt).
-	if !ok || !c.bandwidth.AllowN(time.Now(), 20+8+4+len(packet)) {
+	now, size := time.Now(), 20+8+4+len(packet)
+	c.stats.voice(p, tcp, size, now)
+	if !c.bandwidth.AllowN(now, size) {
 		return
 	}
 	s.mu.Lock()
@@ -151,7 +156,7 @@ func (s *Server) udpPacket(conn *net.UDPConn, addr netip.AddrPort, packet []byte
 		}
 		s.mu.Unlock()
 		if isAudio {
-			s.voice(c, plain)
+			s.voice(c, plain, false)
 		} else if kind == udpPing {
 			// Pings come back as they are.
 			c.cryptMu.Lock()

@@ -46,6 +46,9 @@ type hello struct {
 	tokens         []string
 	legacy         bool // before 1.5: legacy UDP format
 	noOpus         bool
+	version        uint64
+	release, os    string
+	osVersion      string
 }
 
 func handshake(conn net.Conn) (h hello, reject []byte, err error) {
@@ -62,7 +65,8 @@ func handshake(conn net.Conn) (h hello, reject []byte, err error) {
 			var auth pb.Authenticate
 			proto.Unmarshal(body, &auth)
 			h = hello{name: strings.TrimSpace(auth.GetUsername()), password: auth.GetPassword(), tokens: auth.Tokens,
-				legacy: clientVersion(&version) < versionV2, noOpus: !auth.GetOpus()}
+				legacy: clientVersion(&version) < versionV2, noOpus: !auth.GetOpus(), version: clientVersion(&version),
+				release: version.GetRelease(), os: version.GetOs(), osVersion: version.GetOsVersion()}
 			return h, nil, nil
 		}
 	}
@@ -80,17 +84,22 @@ func TLSConfigFrom(get func(*tls.ClientHelloInfo) (*tls.Certificate, error)) *tl
 	return &tls.Config{GetCertificate: get, ClientAuth: tls.RequestClientCert, MinVersion: tls.VersionTLS12}
 }
 
+// peerChain is the client's certificate chain (DER).
+func peerChain(conn net.Conn) (chain [][]byte) {
+	if tc, ok := conn.(*tls.Conn); ok {
+		for _, cert := range tc.ConnectionState().PeerCertificates {
+			chain = append(chain, cert.Raw)
+		}
+	}
+	return chain
+}
+
 // certHash is the SHA-1 of the client certificate, as Murmur shows it.
-func certHash(conn net.Conn) string {
-	tc, ok := conn.(*tls.Conn)
-	if !ok {
+func certHash(chain [][]byte) string {
+	if len(chain) == 0 {
 		return ""
 	}
-	peer := tc.ConnectionState().PeerCertificates
-	if len(peer) == 0 {
-		return ""
-	}
-	sum := sha1.Sum(peer[0].Raw)
+	sum := sha1.Sum(chain[0])
 	return hex.EncodeToString(sum[:])
 }
 
@@ -292,7 +301,8 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		return
 	}
 	host := o.Host
-	hash := certHash(conn)
+	chain := peerChain(conn)
+	hash := certHash(chain)
 	if o.Account != nil {
 		hash = o.Account.CertHash
 	}
@@ -305,6 +315,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		return
 	}
 	key, clientNonce, serverNonce := random16(), random16(), random16()
+	now := time.Now()
 	c := &client{
 		conn:          conn,
 		out:           make(chan []byte, queueSize),
@@ -313,10 +324,17 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		bandwidth:     rate.NewLimiter(maxBandwidth/8, maxBandwidth/8),
 		targetLimiter: rate.NewLimiter(targetLimit, targetBurst),
 		crypt:         cryptstate.New(key, serverNonce, clientNonce),
-		lastGood:      time.Now(),
+		lastGood:      now,
 		host:          host,
 		web:           !counted,
 		legacy:        h.legacy,
+		opus:          !h.noOpus,
+		version:       h.version,
+		release:       h.release,
+		os:            h.os,
+		osVersion:     h.osVersion,
+		certs:         chain,
+		stats:         newConnStats(now),
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
 	reject = s.join(c, id, setup)

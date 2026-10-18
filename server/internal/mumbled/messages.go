@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -120,13 +121,15 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 	case mumble.TypePing:
 		var ping pb.Ping
 		proto.Unmarshal(body, &ping)
-		stats := c.stats()
-		c.sendMsg(mumble.TypePing, &pb.Ping{Timestamp: ping.Timestamp, Good: stats.Good, Late: stats.Late, Lost: stats.Lost})
+		c.stats.ping(&ping)
+		// As Murmur: the timestamp and the server's view of UDP.
+		st := c.cryptStats()
+		c.sendMsg(mumble.TypePing, &pb.Ping{Timestamp: ping.Timestamp, Good: &st.Good, Late: &st.Late, Lost: &st.Lost, Resync: &st.Resync})
 	case mumble.TypeUDPTunnel:
 		s.mu.Lock()
 		c.udpVoice = false
 		s.mu.Unlock()
-		s.voice(c, body)
+		s.voice(c, body, true)
 	case mumble.TypeUserState:
 		var m pb.UserState
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() {
@@ -185,14 +188,16 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 		// Text up to maxTextLength; with images up to maxImageMessage.
 		if proto.Unmarshal(body, &m) == nil && c.limiter.Allow() &&
 			(len(m.GetMessage()) <= maxTextLength || len(m.GetMessage()) <= maxImageMessage && strings.Contains(m.GetMessage(), "<img")) {
+			c.stats.touch(time.Now())
 			s.textMsg(c, &m)
 		}
 	case mumble.TypeCryptSetup:
 		var m pb.CryptSetup
 		proto.Unmarshal(body, &m)
 		c.cryptMu.Lock()
-		if len(m.ClientNonce) == 16 {
+		if len(m.ClientNonce) == 16 { // a resync, as Murmur counts it
 			c.crypt.DecryptIV = [16]byte(m.ClientNonce)
+			c.resyncs++
 		}
 		iv := c.crypt.EncryptIV
 		c.cryptMu.Unlock()
@@ -214,17 +219,7 @@ func (s *Server) message(c *client, typ uint16, body []byte) {
 	case mumble.TypeUserStats:
 		var m pb.UserStats
 		proto.Unmarshal(body, &m)
-		s.mu.Lock()
-		target := s.clients[m.GetSession()]
-		if u := s.state.Users[m.GetSession()]; u == nil || !c.seen[u.Channel] {
-			target = nil
-		}
-		s.mu.Unlock()
-		if target != nil {
-			c.sendMsg(mumble.TypeUserStats, &pb.UserStats{
-				Session: proto.Uint32(target.session), StatsOnly: proto.Bool(true), FromClient: target.stats(),
-			})
-		}
+		s.userStatsMsg(c, &m)
 	}
 }
 
