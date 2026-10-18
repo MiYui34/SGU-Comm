@@ -85,6 +85,7 @@
     previewOf,
     httpBase = "",
     cannotWrite = null,
+    loginToWrite = null,
     chatKey,
   }: {
     title: string;
@@ -153,6 +154,9 @@
     httpBase?: string;
     // Why we cannot write now (a time-out); the message box says it.
     cannotWrite?: string | null;
+    // A guest that may only read (see lib/guests): a note and the way to
+    // an account instead of the message box.
+    loginToWrite?: { action: string; onAction?: () => void } | null;
     // Tells the chats apart (see chatKeyOf); else the title.
     chatKey?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
@@ -784,106 +788,115 @@
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
-    {#if pending}
-      <div class="pending">
-        {#if pending.preview}
-          <img src={pending.preview} alt="" />
+    {#if loginToWrite}
+      <div class="read-only">
+        <span>Log in or make an account to write.</span>
+        {#if loginToWrite.onAction}
+          <button type="button" onclick={loginToWrite.onAction}>{loginToWrite.action}</button>
         {/if}
-        <span class="pending-name ellipsis">{pending.file.name}</span>
-        <span class="file-size">{formatSize(pending.file.size)}</span>
-        <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={() => pending && (pending.spoiler = !pending.spoiler)}
-          >Spoiler</button
-        >
-        <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>
       </div>
-    {/if}
-    {#if replying}
-      <div class="replying">
-        <span class="ellipsis">Replying to <strong>{replying.author}</strong></span>
+    {:else}
+      {#if pending}
+        <div class="pending">
+          {#if pending.preview}
+            <img src={pending.preview} alt="" />
+          {/if}
+          <span class="pending-name ellipsis">{pending.file.name}</span>
+          <span class="file-size">{formatSize(pending.file.size)}</span>
+          <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={() => pending && (pending.spoiler = !pending.spoiler)}
+            >Spoiler</button
+          >
+          <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>
+        </div>
+      {/if}
+      {#if replying}
+        <div class="replying">
+          <span class="ellipsis">Replying to <strong>{replying.author}</strong></span>
+          <button
+            type="button"
+            class="ping"
+            class:off={!replying.ping}
+            aria-pressed={replying.ping}
+            title={replying.ping ? "The author gets a mention" : "The author gets no mention"}
+            onclick={() => replying && (replying.ping = !replying.ping)}>@ {replying.ping ? "On" : "Off"}</button
+          >
+          <button type="button" aria-label="Cancel reply" onclick={() => (replying = null)}>×</button>
+        </div>
+      {/if}
+      <div class="composer" class:disabled={!onSend || cannotWrite}>
         <button
           type="button"
-          class="ping"
-          class:off={!replying.ping}
-          aria-pressed={replying.ping}
-          title={replying.ping ? "The author gets a mention" : "The author gets no mention"}
-          onclick={() => replying && (replying.ping = !replying.ping)}>@ {replying.ping ? "On" : "Off"}</button
+          class="attach"
+          class:busy={uploading}
+          title={uploading ? "Uploading…" : onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
+          aria-label="Upload a file"
+          disabled={!canAttach(!!onUpload, uploading)}
+          onclick={() => filePicker?.click()}
         >
-        <button type="button" aria-label="Cancel reply" onclick={() => (replying = null)}>×</button>
+          {#if uploading}<span class="spinner"></span>{:else}<Icon name="plus" size={18} />{/if}
+        </button>
+        <input
+          type="file"
+          class="sr-only"
+          tabindex="-1"
+          bind:this={filePicker}
+          onchange={(e) => {
+            sendFiles(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
+        />
+        <span class="sr-only" role="status">{uploading ? "Uploading…" : ""}</span>
+        {#if box.items.length}
+          <Suggestions id={listId} label={LIST_LABEL[box.typed!.kind]} items={box.items} active={box.active} onPick={box.pick} />
+        {/if}
+        <textarea
+          rows="1"
+          bind:this={messageInput}
+          use:autosize={draft}
+          enterkeyhint="send"
+          onpaste={onPaste}
+          oninput={(e) => {
+            box.update();
+            if (e.currentTarget.value.trim()) onTyping?.();
+          }}
+          onclick={box.update}
+          onkeyup={box.onkeyup}
+          onblur={box.onblur}
+          onkeydown={(e) => {
+            if (box.onkeydown(e)) return;
+            // Enter picks a word in an input method (229: Safari, after
+            // compositionend).
+            if (e.isComposing || e.keyCode === 229) return;
+            if (e.key === "ArrowUp" && !e.altKey && draft === "" && !pending && editLast()) {
+              e.preventDefault();
+              return;
+            }
+            // Enter sends; Shift+Enter makes a new line.
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+              return;
+            }
+            if (e.key === "Escape" && replying) replying = null;
+            else if (e.key === "Escape" && pending) cancelPending();
+          }}
+          {...box.aria}
+          bind:value={draft}
+          placeholder={cannotWrite ?? (pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`)}
+          disabled={!onSend || !!cannotWrite}
+          aria-label="Message"
+        ></textarea>
+        {#if onSend}
+          <button
+            type="button"
+            class="emoji-button"
+            aria-label="Add an emoji"
+            title="Emoji"
+            onclick={(e) => (draftEmoji = e.currentTarget.getBoundingClientRect())}><Emoji text="🙂" /></button
+          >
+        {/if}
       </div>
     {/if}
-    <div class="composer" class:disabled={!onSend || cannotWrite}>
-      <button
-        type="button"
-        class="attach"
-        class:busy={uploading}
-        title={uploading ? "Uploading…" : onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
-        aria-label="Upload a file"
-        disabled={!canAttach(!!onUpload, uploading)}
-        onclick={() => filePicker?.click()}
-      >
-        {#if uploading}<span class="spinner"></span>{:else}<Icon name="plus" size={18} />{/if}
-      </button>
-      <input
-        type="file"
-        class="sr-only"
-        tabindex="-1"
-        bind:this={filePicker}
-        onchange={(e) => {
-          sendFiles(e.currentTarget.files);
-          e.currentTarget.value = "";
-        }}
-      />
-      <span class="sr-only" role="status">{uploading ? "Uploading…" : ""}</span>
-      {#if box.items.length}
-        <Suggestions id={listId} label={LIST_LABEL[box.typed!.kind]} items={box.items} active={box.active} onPick={box.pick} />
-      {/if}
-      <textarea
-        rows="1"
-        bind:this={messageInput}
-        use:autosize={draft}
-        enterkeyhint="send"
-        onpaste={onPaste}
-        oninput={(e) => {
-          box.update();
-          if (e.currentTarget.value.trim()) onTyping?.();
-        }}
-        onclick={box.update}
-        onkeyup={box.onkeyup}
-        onblur={box.onblur}
-        onkeydown={(e) => {
-          if (box.onkeydown(e)) return;
-          // Enter picks a word in an input method (229: Safari, after
-          // compositionend).
-          if (e.isComposing || e.keyCode === 229) return;
-          if (e.key === "ArrowUp" && !e.altKey && draft === "" && !pending && editLast()) {
-            e.preventDefault();
-            return;
-          }
-          // Enter sends; Shift+Enter makes a new line.
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            e.currentTarget.form?.requestSubmit();
-            return;
-          }
-          if (e.key === "Escape" && replying) replying = null;
-          else if (e.key === "Escape" && pending) cancelPending();
-        }}
-        {...box.aria}
-        bind:value={draft}
-        placeholder={cannotWrite ?? (pending ? "Add a caption (optional), Enter to send" : onSend ? `Message ${target}` : `${title} left the server`)}
-        disabled={!onSend || !!cannotWrite}
-        aria-label="Message"
-      ></textarea>
-      {#if onSend}
-        <button
-          type="button"
-          class="emoji-button"
-          aria-label="Add an emoji"
-          title="Emoji"
-          onclick={(e) => (draftEmoji = e.currentTarget.getBoundingClientRect())}><Emoji text="🙂" /></button
-        >
-      {/if}
-    </div>
     <p class="typing ellipsis" aria-live="polite">{typing}</p>
   </form>
 </main>
@@ -1698,6 +1711,23 @@
   .edit .hint {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .read-only {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+  }
+  .read-only button {
+    padding: 6px 12px;
+    border-radius: 4px;
+    background: var(--accent-strong);
+    color: white;
+    font-weight: 600;
   }
   .replying {
     display: flex;

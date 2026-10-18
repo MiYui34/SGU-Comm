@@ -96,15 +96,16 @@ func certHash(conn net.Conn) string {
 
 // identity is who a connection is, after authentication.
 type identity struct {
-	name        string
-	registered  bool // the zero value is a guest
-	userID      uint32
-	hash        string
-	tokens      []string
-	lastChannel uint32
-	comment     string
-	texture     []byte
-	newUser     bool // registered just now (a web account's first visit)
+	name         string
+	registered   bool // the zero value is a guest
+	userID       uint32
+	hash         string
+	tokens       []string
+	lastChannel  uint32
+	comment      string
+	texture      []byte
+	newUser      bool // registered just now (a web account's first visit)
+	guestAccount bool // see Config.GuestAccount
 }
 
 // Origin is where a connection comes from, for connections that are not
@@ -259,7 +260,8 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 		slog.Error("loading a comment", "user", r.ID, "err", err)
 	}
 	return identity{name: r.Name, registered: true, userID: r.ID, hash: a.CertHash, tokens: h.tokens,
-		lastChannel: r.LastChannel, comment: comment, texture: texture, newUser: newUser}, nil
+		lastChannel: r.LastChannel, comment: comment, texture: texture, newUser: newUser,
+		guestAccount: s.cfg.GuestAccount != nil && s.cfg.GuestAccount(a.Name)}, nil
 }
 
 // checkPassword runs argon2 with the limit on parallel hashes.
@@ -392,8 +394,8 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	c.sendMsg(mumble.TypeCodecVersion, &pb.CodecVersion{
 		Alpha: proto.Int32(celt070), Beta: proto.Int32(0), PreferAlpha: proto.Bool(true), Opus: proto.Bool(true),
 	})
-	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, Hash: id.hash, Tokens: id.tokens,
-		Comment: id.comment, Texture: id.texture}
+	u := &User{Session: c.session, Name: c.name, Registered: id.registered, UserID: id.userID, GuestAccount: id.guestAccount,
+		Hash: id.hash, Tokens: id.tokens, Comment: id.comment, Texture: id.texture}
 	// The last channel if the user may enter it, else root (as Murmur). Not
 	// where root is a lobby (no voice in root): there users join voice on
 	// purpose.

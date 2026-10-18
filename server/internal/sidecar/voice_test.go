@@ -52,6 +52,9 @@ type fakeVoice struct {
 	created []string
 	// Mirrors that cannot be made (by name).
 	noMirror map[string]bool
+	// Guest sessions, and whether they may only read.
+	guests         map[uint32]bool
+	guestsReadOnly bool
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

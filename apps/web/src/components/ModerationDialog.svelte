@@ -17,6 +17,8 @@
     emoji,
     onAddEmoji,
     onDeleteEmoji,
+    guestsReadOnly = null,
+    onGuestsReadOnly,
     onClose,
   }: {
     bans: readonly Ban[] | null;
@@ -29,16 +31,21 @@
     emoji: readonly CustomEmoji[];
     onAddEmoji: (name: string, file: File) => Promise<void>;
     onDeleteEmoji: (name: string) => void;
+    // Admins: whether guests may only read (null: not ours to change).
+    guestsReadOnly?: boolean | null;
+    onGuestsReadOnly?: (on: boolean) => void;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users" | "emoji">(untrack(() => (rights.bans ? "bans" : rights.users ? "users" : "emoji")));
+  let tab = $state<"bans" | "users" | "emoji" | "guests">(
+    untrack(() => (rights.bans ? "bans" : rights.users ? "users" : rights.emoji ? "emoji" : "guests")),
+  );
   let renaming = $state<{ id: number; name: string } | null>(null);
   let confirming = $state<number | null>(null);
   $effect(() => dialog?.showModal());
   $effect(() => {
-    if (tab !== "emoji") onLoad(tab);
+    if (tab === "bans" || tab === "users") onLoad(tab);
   });
 
   // A new emoji: name and image; a message says what is wrong.
@@ -85,6 +92,9 @@
     {#if rights.emoji}
       <button role="tab" aria-selected={tab === "emoji"} onclick={() => (tab = "emoji")}>Emoji</button>
     {/if}
+    {#if guestsReadOnly !== null}
+      <button role="tab" aria-selected={tab === "guests"} onclick={() => (tab = "guests")}>Guests</button>
+    {/if}
   </div>
 
   {#if tab === "bans"}
@@ -111,6 +121,15 @@
       </ul>
       {#if !rights.editBans}<p class="note">Only admins change the ban list.</p>{/if}
     {/if}
+  {:else if tab === "guests"}
+    <label class="check">
+      <input type="checkbox" checked={guestsReadOnly === true} onchange={(e) => onGuestsReadOnly?.(e.currentTarget.checked)} />
+      Guests may only read
+    </label>
+    <p class="note">
+      Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
+      direct messages. Use it during a spam wave.
+    </p>
   {:else if tab === "emoji"}
     <form class="add-emoji" onsubmit={addEmoji}>
       <input
@@ -278,6 +297,11 @@
   .note {
     color: var(--text-muted);
     font-size: 14px;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .add-emoji {
     display: flex;

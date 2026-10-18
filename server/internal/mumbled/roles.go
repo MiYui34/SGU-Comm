@@ -21,9 +21,10 @@ func moderatorACL() []ACL {
 }
 
 // isStaff: SuperUser, admins (also by a per-user ACL) and moderators.
-// Only admins act on them (kick, ban, rename, unregister).
+// Only admins act on them (kick, ban, rename, unregister). By the ACLs
+// alone: Permissions asks it (see readOnly).
 func (s *State) isStaff(u *User) bool {
-	return u.Registered && (isSuperUser(u) || s.Has(u, 0, Write) || s.groupMember(s.Channels[0], "moderator", u))
+	return u.Registered && (isSuperUser(u) || s.aclPermissions(u, 0)&Write != 0 || s.groupMember(s.Channels[0], "moderator", u))
 }
 
 // Roles: registered user ids of admins and moderators.

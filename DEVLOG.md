@@ -519,3 +519,24 @@ From `meta/research/discord-comparison.md`.
   builds do not know the new event).
 - At most 1000 messages per request (newest first); a bigger spam wave
   needs another request.
+
+## Guests read only (2026-10-18)
+
+- The rule is in mumbled's `State.Permissions`: read-only guests lose
+  TextMessage everywhere. So Mumble clients get PermissionDenied
+  (TextMessage) for channel, tree and private texts, `MayWrite` (voice
+  chats) follows, and the permission flush greys out their text box.
+  `isStaff` now reads the ACLs alone (`aclPermissions`), else it would
+  call `Permissions` again.
+- Guest accounts are registered users: mumbled learns them at login
+  (`Config.GuestAccount`, a store lookup) and keeps a flag on the user.
+  Setting a password clears it (`Server.AccountPermanent`, next to the
+  hub's) without a reconnect.
+- The sidecar checks writing requests in one place (`readOnly`, next to
+  `timedOut`) through `Voice.ReadOnly`, so mumbled is the only source of
+  who is a guest. Upload tokens are refused; a token issued before the
+  switch can still upload a file, but the message with it is refused.
+- The setting is a row in `mumble_meta`; Murmur servers do not have it.
+- Web: the composer gives way to a note with a button. A guest account
+  opens the settings to set a password (and writes at once); a guest
+  without an account goes back to the login screen.
