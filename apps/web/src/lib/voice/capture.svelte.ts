@@ -244,7 +244,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     let next: MediaStream | null = null; // stopped on failure until it is stream
     try {
       // The browser's noise filter only without ours (not twice).
-      next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, { browserNoise: noise === "browser", cancelEcho }) });
+      next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, { browserNoise: noise === "browser", cancelEcho, music: false }) });
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return stopTracks(next);
       await workletNode();
