@@ -32,6 +32,7 @@
     timedOutUntil = null,
     onModerate,
     onConfirm,
+    onDeleteMessages,
     onClose,
   }: {
     user: Pick<User, "name" | "comment" | "mute" | "deaf">;
@@ -63,6 +64,8 @@
     timedOutUntil?: number | null;
     onModerate?: (a: ModerationAction) => void;
     onConfirm?: (kind: "kick" | "ban" | "timeout") => void;
+    // Asks before deleting their recent messages (staff; offline too).
+    onDeleteMessages?: () => void;
     onClose: () => void;
   } = $props();
 
@@ -173,6 +176,10 @@
       {#if moderation.ban}
         <button class="danger" onclick={act(() => onConfirm("ban"))}>Ban…</button>
       {/if}
+    {/if}
+    {#if onDeleteMessages}
+      {#if !moderation}<div class="sep"></div>{/if}
+      <button class="danger" onclick={act(onDeleteMessages)}>Delete messages…</button>
     {/if}
   {/if}
 </ContextMenu>

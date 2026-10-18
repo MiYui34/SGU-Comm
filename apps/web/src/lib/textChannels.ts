@@ -140,7 +140,9 @@ export type ServerEvent =
   | { type: "message-pinned"; message: TextMessage }
   // A channel's pinned messages, the newest pin first.
   | { type: "pins"; channel: number; messages: TextMessage[] }
-  | { type: "message-deleted"; channel: number; id: number }
+  // Messages of a channel were deleted (the server sends one as
+  // "message-deleted").
+  | { type: "messages-deleted"; channel: number; ids: number[] }
   | { type: "search-results"; text: string; messages: TextMessage[] }
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
@@ -440,7 +442,9 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ? { type: "pins", channel: v.channel, messages: v.messages }
         : null;
     case "message-deleted":
-      return isNum(v.channel) && isNum(v.id) ? { type: "message-deleted", channel: v.channel, id: v.id } : null;
+      return isNum(v.channel) && isNum(v.id) ? { type: "messages-deleted", channel: v.channel, ids: [v.id] } : null;
+    case "messages-deleted":
+      return isNum(v.channel) && Array.isArray(v.ids) && v.ids.every(isNum) ? { type: "messages-deleted", channel: v.channel, ids: v.ids } : null;
     case "search-results":
       return isStr(v.text) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "search-results", text: v.text, messages: v.messages }
@@ -608,8 +612,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       next[i] = { ...msgs[i]!, reactions: event.reactions };
       return { ...state, messages: { ...state.messages, [event.channel]: next } };
     }
-    case "message-deleted": {
-      const drop = (ms: TextMessage[]) => ms.filter((m) => m.id !== event.id);
+    case "messages-deleted": {
+      const gone = new Set(event.ids);
+      const drop = (ms: TextMessage[]) => ms.filter((m) => !gone.has(m.id));
       const search = patchSearch(state.search, drop);
       const pins = patchPins(state.pins, event.channel, drop);
       const msgs = state.messages[event.channel];
@@ -680,7 +685,13 @@ export type ManageAction =
   // Moderation, by voice server session: a ban for some seconds (0: for
   // ever), a time-out (0: end it).
   | { ban: number; reason: string; seconds: number }
-  | { timeout: number; seconds: number };
+  | { timeout: number; seconds: number }
+  // A user's messages of the last seconds (staff): see UserTarget.
+  | { deleteMessages: UserTarget; seconds: number };
+
+// A user for the Kallisti server: by voice server session if online, else
+// a registered user by id.
+export type UserTarget = { session: number } | { user: number };
 
 const manageBody = (a: ManageAction) => {
   if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
@@ -698,6 +709,7 @@ const manageBody = (a: ManageAction) => {
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
+  if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   return { type: "order-channels", channels: a.order };
 };
 

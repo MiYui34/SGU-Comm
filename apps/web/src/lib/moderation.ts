@@ -14,7 +14,7 @@ import {
 } from "@kallisti/protocol";
 import { mirrorIds, withoutMirrors } from "./mirrors";
 import { roleOf } from "./roles";
-import type { ManageAction, TextState, Timeout } from "./textChannels";
+import type { ManageAction, TextState, Timeout, UserTarget } from "./textChannels";
 
 // What the server settings may show (the server checks again): the ban
 // list with Ban in root, changing it with Write too (admins); registered
@@ -38,6 +38,12 @@ export const TIMEOUT_TIMES = [
   { label: "1 day", seconds: 86400 },
   { label: "1 week", seconds: 7 * 86400 },
 ] as const;
+// How far back a user's messages are deleted.
+export const DELETE_TIMES = [
+  { label: "1 hour", seconds: 3600 },
+  { label: "24 hours", seconds: 86400 },
+  { label: "7 days", seconds: 7 * 86400 },
+] as const;
 
 // What we may do to another user (the server checks again).
 // timedBans: bans for a time (built-in server; else only for ever).
@@ -49,6 +55,7 @@ export type UserModeration = {
   mute: boolean;
   moveTo: Channel[];
   timeout: boolean;
+  deleteMessages: boolean;
 };
 
 const flatten = (n: ChannelNode): Channel[] => [n.channel, ...n.children.flatMap(flatten)];
@@ -67,7 +74,7 @@ const voiceChannels = (server: ServerState, text: TextState): Channel[] => {
 // Move or Enter. Null: nothing.
 export const userModeration = (server: ServerState, text: TextState, user: User): UserModeration | null => {
   if (user.session === server.session || user.userId === 0) return null;
-  const overStaff = roleOf(text.roles, user.userId) === null || may(server, 0, Perm.Write);
+  const overStaff = actsOn(server, text, user.userId);
   const ban = overStaff && may(server, 0, Perm.Ban);
   const m: UserModeration = {
     kick: overStaff && (ban || may(server, 0, Perm.Kick)),
@@ -78,9 +85,20 @@ export const userModeration = (server: ServerState, text: TextState, user: User)
       ? voiceChannels(server, text).filter((c) => c.id !== user.channelId && (may(server, c.id, Perm.Move) || may(server, c.id, Perm.Enter)))
       : [],
     timeout: overStaff && text.voiceChats && may(server, 0, Perm.MuteDeafen),
+    deleteMessages: mayDeleteMessages(server, text, user.userId),
   };
-  return m.kick || m.mute || m.moveTo.length || m.timeout ? m : null;
+  return m.kick || m.mute || m.moveTo.length || m.timeout || m.deleteMessages ? m : null;
 };
+
+// Nothing on SuperUser; on admins and moderators only admins act.
+const actsOn = (server: ServerState, text: TextState, userId: number | null) =>
+  userId !== 0 && (roleOf(text.roles, userId) === null || may(server, 0, Perm.Write));
+
+// Deleting a user's recent messages at once (built-in server): admins
+// and moderators (MakeChannel in root, as single deletes); online or
+// offline (userId), guests (null).
+export const mayDeleteMessages = (server: ServerState, text: TextState, userId: number | null) =>
+  text.voiceChats && may(server, 0, Perm.MakeChannel) && actsOn(server, text, userId);
 
 // Channels whose permissions the user menu needs and does not know: the
 // user's channel and the voice channels (to move to).
@@ -97,17 +115,22 @@ export const timedOutUntil = (timeouts: readonly Timeout[], user: Pick<User, "se
 // For people: the end of a time-out.
 export const untilText = (until: number) => new Date(until).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-// An action from the user menu or its confirmation dialog.
+// An action from the user menu or its confirmation dialog. deleteSeconds:
+// also delete the user's messages of that time; delete: only that.
 export type ModerationAction =
-  | { kind: "kick"; reason: string }
-  | { kind: "ban"; reason: string; seconds: number } // 0: for ever
-  | { kind: "timeout"; seconds: number } // 0: end it
+  | { kind: "kick"; reason: string; deleteSeconds?: number }
+  | { kind: "ban"; reason: string; seconds: number; deleteSeconds?: number } // 0: for ever
+  | { kind: "timeout"; seconds: number; deleteSeconds?: number } // 0: end it
   | { kind: "mute" | "deaf"; on: boolean }
-  | { kind: "move"; channel: number };
+  | { kind: "move"; channel: number }
+  | { kind: "delete"; seconds: number };
+type Request = { mumble: Bytes } | { manage: ManageAction };
+// The actions the user menu asks about first.
+export type ConfirmKind = "kick" | "ban" | "timeout" | "delete";
 
 // What an action sends: a Mumble message, or a request to the Kallisti
 // server (timed bans and time-outs: Mumble has neither).
-export const moderationRequest = (session: number, a: ModerationAction): { mumble: Bytes } | { manage: ManageAction } => {
+export const moderationRequest = (session: number, a: Exclude<ModerationAction, { kind: "delete" }>): Request => {
   switch (a.kind) {
     case "kick":
       return { mumble: removeUser(session, a.reason) };
@@ -124,4 +147,13 @@ export const moderationRequest = (session: number, a: ModerationAction): { mumbl
     case "move":
       return { mumble: joinChannel(session, a.channel) };
   }
+};
+
+// All an action sends, in order: the messages first (a guest's are known
+// by its connection, which a kick ends), then the action (only on a user
+// who is online).
+export const moderationRequests = (who: UserTarget, a: ModerationAction): Request[] => {
+  const seconds = a.kind === "delete" ? a.seconds : "deleteSeconds" in a ? (a.deleteSeconds ?? 0) : 0;
+  const purge: Request[] = seconds ? [{ manage: { deleteMessages: who, seconds } }] : [];
+  return a.kind === "delete" || !("session" in who) ? purge : [...purge, moderationRequest(who.session, a)];
 };

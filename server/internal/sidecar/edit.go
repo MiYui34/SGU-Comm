@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"kallisti.chat/server/internal/mumble"
@@ -91,10 +92,85 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		c.sendError("cannot delete the message")
 		return
 	}
-	if m.Upload != nil && h.OnUploadDeleted != nil {
-		h.OnUploadDeleted(m.Upload.Key)
+	h.removed([]store.Message{m})
+}
+
+// Deleting a user's recent messages at once (staff, see Voice.MessagesOf):
+// at most maxPurge, the newest first, of up to a week, in text channels and
+// voice channel chats. Direct chats stay private. Registered users by id
+// (offline too), guests only what they wrote in their connection (see
+// wrote): a kick must come after.
+const (
+	maxPurge        = 1000
+	maxPurgeSeconds = 7 * 24 * 3600
+)
+
+func (c *Conn) deleteMessagesOf(id mumble.Identity, req request) {
+	h := c.hub
+	if h.voice == nil {
+		c.manageError("deleting messages at once needs the built-in Mumble server")
+		return
 	}
-	send(map[string]any{"type": "message-deleted", "channel": m.ChannelID, "id": m.ID})
+	if req.Seconds <= 0 || req.Seconds > maxPurgeSeconds {
+		c.manageError("invalid time range")
+		return
+	}
+	registered, who, err := h.voice.MessagesOf(id.Session, req.Session, req.User)
+	if err != nil {
+		c.manageError(err.Error())
+		return
+	}
+	since := h.now().Add(-time.Duration(req.Seconds) * time.Second)
+	var ids []int64
+	if registered {
+		ids, err = h.store.RecentByUser(who, since, maxPurge)
+	} else {
+		ids, err = h.store.RecentAmong(h.guestMessagesOf(who), since, maxPurge)
+	}
+	var gone []store.Message
+	if err == nil {
+		gone, err = h.store.DeleteMessages(ids)
+	}
+	if err != nil {
+		c.manageError("cannot delete the messages")
+		return
+	}
+	h.removed(gone)
+}
+
+func (h *Hub) guestMessagesOf(session uint32) []int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []int64
+	for m, s := range h.guestMessages {
+		if s == session {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// removed deletes the files of deleted messages and tells each chat's
+// readers: one id as "message-deleted" (what older clients know), more as
+// one "messages-deleted".
+func (h *Hub) removed(gone []store.Message) {
+	byChat := map[int64][]int64{}
+	for _, m := range gone {
+		if m.Upload != nil && h.OnUploadDeleted != nil {
+			h.OnUploadDeleted(m.Upload.Key)
+		}
+		byChat[m.ChannelID] = append(byChat[m.ChannelID], m.ID)
+	}
+	for channel, ids := range byChat {
+		ch, ok := h.chatOf(channel)
+		switch {
+		case !ok:
+		case len(ids) == 1:
+			h.sendTo(ch, map[string]any{"type": "message-deleted", "channel": channel, "id": ids[0]})
+		default:
+			h.sendTo(ch, map[string]any{"type": "messages-deleted", "channel": channel, "ids": ids})
+		}
+	}
 }
 
 // A message has 1 to MaxTextLength characters; with an attachment it may

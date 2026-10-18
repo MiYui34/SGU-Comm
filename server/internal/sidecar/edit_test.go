@@ -2,8 +2,11 @@ package sidecar
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -246,4 +249,110 @@ func TestOldMessagesWithoutIDAreByName(t *testing.T) {
 	if got := next(t, bob); got["type"] != "message-edited" {
 		t.Fatalf("got %v", got)
 	}
+}
+
+// Session 1 may delete anyone's messages; the voice server checks the
+// real rules (mumbled's MessagesOf).
+func (f *fakeVoice) MessagesOf(actor, session, user uint32) (bool, uint32, error) {
+	switch u, ok := f.users[session]; {
+	case actor != 1:
+		return false, 0, errors.New("you may not delete this user's messages")
+	case session == 0:
+		return true, user, nil
+	case ok && u.Registered:
+		return true, u.UserID, nil
+	}
+	return false, session, nil
+}
+
+// drain drops what the connections got so far.
+func drain(conns ...*Conn) {
+	for _, c := range conns {
+		for len(c.Outbox()) > 0 {
+			<-c.Outbox()
+		}
+	}
+}
+
+func TestStaffDeleteAUsersRecentMessages(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{users: map[uint32]MumbleUser{2: {Registered: true, UserID: 504}}}, "")
+	var removed []string
+	h.OnUploadDeleted = func(key string) { removed = append(removed, key) }
+	mod := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 372})
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 504})
+	guest := joinAs(t, h, mumble.Identity{Session: 3, Name: "guest"})
+	other := joinAs(t, h, mumble.Identity{Session: 4, Name: "other"})
+	text := h.channels[0].ID
+	voice, _ := h.store.VoiceChat(5)
+	dm, _ := h.store.DirectChat(372, 504)
+	add := func(ch int64, ago time.Duration, upload int64) int64 {
+		m, _ := h.store.AddMessage(store.NewMessage{ChannelID: ch, Author: "bob", Verified: true, AuthorID: 504, Text: "spam", At: clock.Add(-ago), UploadID: upload})
+		return m.ID
+	}
+	u, _ := h.store.AddUpload(store.Upload{Key: "spamkey", Name: "spam.png", Type: "image/png", Size: 1, Author: "bob"}, clock)
+	inText, inVoice := add(text, time.Minute, u.ID), add(voice, 0, 0)
+	old, inDM := add(text, 2*time.Hour, 0), add(dm, 0, 0)
+	guestSaid := say(t, h, guest, "spam")
+	otherSaid := say(t, h, other, "hi")
+	drain(mod, bob, guest, other)
+	// Staff only, for up to a week.
+	for _, c := range []struct {
+		conn *Conn
+		req  string
+	}{
+		{bob, `{"type":"delete-messages","session":3,"seconds":3600}`},
+		{mod, `{"type":"delete-messages","session":3,"seconds":0}`},
+		{mod, `{"type":"delete-messages","session":3,"seconds":691200}`},
+	} {
+		c.conn.Handle([]byte(c.req))
+		if m := next(t, c.conn); m["type"] != "error" || m["about"] != "manage" {
+			t.Fatalf("%s: %v", c.req, m)
+		}
+	}
+	// A registered user by id (offline works the same): the last hour in
+	// text channels and voice channel chats, one event per chat (one
+	// message: the single delete's event); direct chats stay private.
+	mod.Handle([]byte(`{"type":"delete-messages","user":504,"seconds":3600}`))
+	got := map[string]any{}
+	for range 2 {
+		m := next(t, other)
+		got[jsonNum(m["channel"])] = []any{m["type"], m["id"]}
+	}
+	want := map[string]any{
+		jsonNum(float64(text)):  []any{"message-deleted", float64(inText)},
+		jsonNum(float64(voice)): []any{"message-deleted", float64(inVoice)},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if len(removed) != 1 || removed[0] != "spamkey" {
+		t.Fatalf("files removed: %v", removed)
+	}
+	for _, id := range []int64{old, inDM, guestSaid, otherSaid} {
+		if _, err := h.store.MessageByID(id); err != nil {
+			t.Fatalf("message %d was deleted", id)
+		}
+	}
+	// A guest by session: what it wrote in this connection.
+	mod.Handle([]byte(`{"type":"delete-messages","session":3,"seconds":3600}`))
+	if m := next(t, other); m["type"] != "message-deleted" || m["id"] != float64(guestSaid) {
+		t.Fatalf("got %v", m)
+	}
+}
+
+func TestManyRemovalsComeAsOneEventPerChat(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	mod := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 372})
+	var ids []any
+	for range 3 {
+		m, _ := h.store.AddMessage(store.NewMessage{ChannelID: h.channels[0].ID, Author: "bob", Verified: true, AuthorID: 504, Text: "spam", At: clock})
+		ids = append(ids, float64(m.ID))
+	}
+	mod.Handle([]byte(`{"type":"delete-messages","user":504,"seconds":86400}`))
+	if m := next(t, mod); m["type"] != "messages-deleted" || fmt.Sprint(m["ids"]) != fmt.Sprint(ids) {
+		t.Fatalf("got %v", m)
+	}
+	empty(t, mod)
 }
