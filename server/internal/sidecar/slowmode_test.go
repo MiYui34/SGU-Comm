@@ -78,7 +78,7 @@ func TestSlowModeWaitsPerUserAndChannel(t *testing.T) {
 	now = now.Add(7500 * time.Millisecond)
 	m := send(bob, 1, "again")
 	if m["type"] != "error" || m["message"] != "Slow mode: wait 23 s" || m["channel"] != float64(1) ||
-		m["until"] != float64(clock.Add(30*time.Second).UnixMilli()) || m["about"] != "slow-mode" {
+		m["until"] != float64(clock.Add(30*time.Second).UnixMilli()) || m["about"] != "slow-mode" || m["text"] != "again" {
 		t.Fatalf("again: %v", m)
 	}
 	// Others, other channels and staff are not held up.

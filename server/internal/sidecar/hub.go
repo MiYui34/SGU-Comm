@@ -812,7 +812,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		}
 		n.UploadID = u.ID
 	}
-	if c.slowMode(id, ch) {
+	if c.slowMode(id, ch, req.Text) {
 		return
 	}
 	m, err := c.hub.store.AddMessage(n)

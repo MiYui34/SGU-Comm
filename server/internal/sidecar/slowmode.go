@@ -83,14 +83,15 @@ func (h *Hub) slowModeOf(channel int64) int64 {
 	return 0
 }
 
-// slowMode refuses a post that comes too soon (see post).
-func (c *Conn) slowMode(id mumble.Identity, ch chat) bool {
+// slowMode refuses a post that comes too soon (see post); its text comes
+// back for the composer.
+func (c *Conn) slowMode(id mumble.Identity, ch chat, text string) bool {
 	if ch.direct || ch.isVoice {
 		return false
 	}
 	wait, until := c.hub.slowTurn(id, ch.id)
 	if wait > 0 {
-		c.send(map[string]any{"type": "error", "message": slowText(wait), "about": "slow-mode", "channel": ch.id, "until": until.UnixMilli()})
+		c.send(map[string]any{"type": "error", "message": slowText(wait), "about": "slow-mode", "channel": ch.id, "until": until.UnixMilli(), "text": text})
 	}
 	return wait > 0
 }

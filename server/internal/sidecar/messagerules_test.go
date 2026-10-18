@@ -90,7 +90,12 @@ func TestMessageRulesOnSendEditAndUpload(t *testing.T) {
 		}
 	}
 
-	refused(bob, `{"type":"send","channel":`+ch+`,"text":"buy spam"}`, "This message contains a blocked word")
+	// A refused send comes back with its text, for the composer.
+	bob.Handle([]byte(`{"type":"send","channel":` + ch + `,"text":"buy spam"}`))
+	if m := next(t, bob); m["message"] != "This message contains a blocked word" || m["about"] != "refused" ||
+		m["text"] != "buy spam" || m["channel"] != float64(h.channels[0].ID) {
+		t.Fatalf("send: %v", m)
+	}
 	refused(guest, `{"type":"send","channel":`+ch+`,"text":"see https://x.example"}`, "Guests cannot post links: log in or make an account")
 	refused(guest, `{"type":"upload-token"}`, "Guests cannot upload files: log in or make an account")
 	if got := v.lastChecked(); got != (msgrules.Message{Upload: true}) {

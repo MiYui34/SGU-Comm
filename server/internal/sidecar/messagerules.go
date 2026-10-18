@@ -27,7 +27,11 @@ func (c *Conn) refused(id mumble.Identity, req request) bool {
 		return false
 	}
 	if err := c.hub.voice.CheckMessage(id.Session, m); err != nil {
-		c.sendError(err.Error())
+		if req.Type == "send" { // the text comes back for the composer
+			c.send(map[string]any{"type": "error", "message": err.Error(), "about": "refused", "channel": req.Channel, "text": req.Text})
+		} else {
+			c.sendError(err.Error())
+		}
 		return true
 	}
 	return false
