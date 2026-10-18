@@ -34,9 +34,9 @@ const (
 var captchaBits = map[string]int{"normal": 18, "hard": 20}
 
 type challenges struct {
-	once sync.Once
-	key  []byte
-	mu   sync.Mutex
+	once  sync.Once
+	key   []byte
+	mu    sync.Mutex
 	used  map[string]time.Time // payload: its end
 	swept time.Time
 }
