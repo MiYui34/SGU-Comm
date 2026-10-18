@@ -10,6 +10,7 @@ import type { SearchQuery } from "./search";
 import { parsePresence, type PresenceView } from "./presence";
 import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 import type { Invite } from "./invites";
+import type { Members } from "./members";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -90,7 +91,13 @@ export type ServerEvent =
       statuses?: SessionStatus[];
       ownStatus?: PresenceView;
       emoji?: CustomEmoji[];
+      // Registered users but guest accounts (see lib/members).
+      members?: Peer[];
     }
+  // A registered user was added or renamed (name), or removed (gone).
+  | { type: "member"; id: number; name?: string }
+  // A registered user's saved bio (asked for, see lib/members).
+  | { type: "bio"; user: number; text: string }
   // A web client's status (see lib/presence); plain online: none.
   | ({ type: "status" } & SessionStatus)
   // Our chosen status changed (here or on another device).
@@ -189,6 +196,10 @@ export type TextState = {
   ownStatus: PresenceView;
   // Custom server emoji (image URLs relative to the server).
   emoji: readonly CustomEmoji[];
+  // Registered users, and the bios of offline ones once asked for (by
+  // user id).
+  members: Members;
+  bios: Readonly<Record<number, string>>;
 };
 
 export const initialTextState: TextState = {
@@ -218,6 +229,8 @@ export const initialTextState: TextState = {
   statuses: {},
   ownStatus: { status: "online" },
   emoji: [],
+  members: {},
+  bios: {},
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -350,8 +363,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(statuses ? { statuses } : {}),
         ...(ownStatus ? { ownStatus } : {}),
         ...(emoji ? { emoji } : {}),
+        ...(Array.isArray(v.members) && v.members.every(isSpeaker) ? { members: v.members } : {}),
       };
     }
+    case "member":
+      if (!isNum(v.id)) return null;
+      return isStr(v.name) ? { type: "member", id: v.id, name: v.name } : v.gone === true ? { type: "member", id: v.id } : null;
+    case "bio":
+      return isNum(v.user) && isStr(v.text) ? { type: "bio", user: v.user, text: v.text } : null;
     case "emoji": {
       const emoji = parseCustomEmoji(v.emoji);
       return emoji && { type: "emoji", emoji };
@@ -460,6 +479,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         voiceChats: event.voiceChats === true,
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
+        members: Object.fromEntries((event.members ?? []).map((p) => [p.id, p.name])),
+        bios: {},
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         private: privateMap(event.private ?? []),
         timeouts: event.timeouts ?? [],
@@ -479,6 +500,12 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
     case "emoji":
       return { ...state, emoji: event.emoji };
+    case "member": {
+      const { [event.id]: _, ...rest } = state.members;
+      return { ...state, members: event.name === undefined ? rest : { ...rest, [event.id]: event.name } };
+    }
+    case "bio":
+      return { ...state, bios: { ...state.bios, [event.user]: event.text } };
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "private":
