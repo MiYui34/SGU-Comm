@@ -29,7 +29,7 @@
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { afterUpload, canAttach, switchDraft } from "../lib/composer";
-  import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
+  import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
   import { tick, untrack, type Snippet } from "svelte";
@@ -726,13 +726,13 @@
     {/if}
 
     <ol class="messages">
-      {#each items as item (item.kind === "day" ? `day-${item.at}` : (item.kind === "group" ? item.group : item.groups[0]!).messages[0])}
+      {#each items as item (itemKey(item))}
         {#if item.kind === "day"}
           <li class="divider" role="separator"><span>{formatDay(item.at)}</span></li>
         {:else if item.kind === "group"}
           {@render lines(item.group)}
         {:else if item.groups.some((g) => unblocked.has(groupKey(g)))}
-          {#each item.groups as group (group.messages[0])}{@render lines(group)}{/each}
+          {#each item.groups as group (messageKey(group.messages[0]!))}{@render lines(group)}{/each}
         {:else}
           {@const n = item.groups.reduce((a, g) => a + g.messages.length, 0)}
           {@const users = new Set(item.groups.map((g) => g.actorName)).size}
@@ -910,7 +910,7 @@
 {/if}
 
 {#snippet lines(group: MessageGroup)}
-  {#each group.messages as m, i (m)}
+  {#each group.messages as m, i (messageKey(m))}
     <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyPing(m as DisplayMessage), me, allOf(m))}
       class:flash={idOf(m) !== undefined && idOf(m) === flashed}
       class:sheet-open={sheetMessage === m}

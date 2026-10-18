@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@kallisti/protocol";
 import { describe, expect, it } from "vitest";
 import { avatarColor, initials } from "../src/lib/avatar";
-import { groupMessages } from "../src/lib/chat";
+import { chatItems, groupMessages, itemKey, messageKey } from "../src/lib/chat";
 import { toggleDeaf, toggleMute } from "../src/lib/voice";
 
 describe("avatar", () => {
@@ -79,5 +79,38 @@ describe("groupMessages", () => {
   it("does not group server messages with user messages", () => {
     const groups = groupMessages([msg(null, 0), msg(1, 1)]);
     expect(groups).toHaveLength(2);
+  });
+});
+
+describe("messageKey and itemKey", () => {
+  const line = (text: string, id?: number): ChatMessage & { source?: { id: number; text: string } } => ({
+    actor: 1,
+    actorName: "user1",
+    channelIds: [0],
+    treeIds: [],
+    sessions: [],
+    text,
+    at: 0,
+    peer: null,
+    ...(id !== undefined && { source: { id, text } }),
+  });
+
+  it("keys a stored message by its id: a new object (a reaction) keeps the key", () => {
+    expect(messageKey(line("a", 7))).toBe(messageKey({ ...line("a", 7), text: "a!" }));
+    expect(messageKey(line("a", 7))).not.toBe(messageKey(line("a", 8)));
+  });
+
+  it("keys a Mumble chat line by its object, the same each time", () => {
+    const [a, b] = [line("hi"), line("hi")];
+    expect(messageKey(a)).toBe(messageKey(a));
+    expect(messageKey(a)).not.toBe(messageKey(b));
+  });
+
+  it("keys groups by their first message and days by their time", () => {
+    const m = line("a", 7);
+    const items = chatItems([m, line("b", 8)]);
+    expect(items.map(itemKey)).toEqual([`day-${m.at}`, messageKey(m)]);
+    const again = chatItems([{ ...m, text: "a, reacted" }, line("b", 8)]);
+    expect(again.map(itemKey)).toEqual(items.map(itemKey));
   });
 });
