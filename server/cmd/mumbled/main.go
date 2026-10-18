@@ -66,6 +66,7 @@ func main() {
 		log.Fatal(err)
 	}
 	go func() { log.Fatal(s.ServeUDP(udp)) }()
+	go s.Watch(nil) // logs poor connections until the process ends
 	log.Printf("listening on %s (TCP and UDP)", ln.Addr())
 	log.Fatal(s.Serve(ln))
 }
