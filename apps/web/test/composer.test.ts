@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterUpload, canAttach, chatKeyOf, switchDraft } from "../src/lib/composer";
+import { afterUpload, canAttach, chatKeyOf, switchDraft, tooLarge } from "../src/lib/composer";
 
 describe("canAttach", () => {
   it("takes a file only where uploads work and none is running", () => {
@@ -67,5 +67,15 @@ describe("switchDraft", () => {
     const drafts = new Map([["#random", "hi"]]);
     switchDraft(drafts, "#general", "#random", "x");
     expect(drafts).toEqual(new Map([["#random", "hi"]]));
+  });
+});
+
+describe("tooLarge", () => {
+  it("names the limit for a file over it", () => {
+    expect(tooLarge(10 * 1024 * 1024 + 1, 10 * 1024 * 1024)).toBe("The file is too large (at most 10 MB).");
+    expect(tooLarge(10 * 1024 * 1024, 10 * 1024 * 1024)).toBeNull();
+  });
+  it("lets the server decide without a known limit", () => {
+    expect(tooLarge(1e12, undefined)).toBeNull();
   });
 });

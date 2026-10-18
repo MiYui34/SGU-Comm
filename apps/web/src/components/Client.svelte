@@ -271,6 +271,7 @@
         error: uploadError ?? text.lastError,
         onUpload: upload,
         uploading,
+        uploadMax: text.uploadMax,
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null && voiceChatId !== null)
@@ -287,6 +288,7 @@
         error: uploadError ?? text.lastError,
         onUpload: upload,
         uploading,
+        uploadMax: text.uploadMax,
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null)
@@ -312,6 +314,7 @@
         error: uploadError ?? text.lastError,
         onUpload: directChatId === null ? undefined : upload,
         uploading,
+        uploadMax: text.uploadMax,
         onSend: directChatId === null ? undefined : send,
         onClose: () => show({ kind: "voice" }),
       } satisfies Partial<ComponentProps<typeof ChatPane>>;

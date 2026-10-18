@@ -5,6 +5,11 @@ import type { View } from "./place";
 // One upload at a time: no new file waits while one is sent.
 export const canAttach = (uploads: boolean, uploading: boolean) => uploads && !uploading;
 
+// A file over the server's limit (none known: the server decides) is
+// refused before it is sent.
+export const tooLarge = (size: number, max: number | undefined) =>
+  max && size > max ? `The file is too large (at most ${+(max / 1024 / 1024).toFixed(1)} MB).` : null;
+
 // The open chat, for its draft: channels by id (voice channel names
 // repeat in the tree, a rename keeps the draft), private chats by name.
 export const chatKeyOf = (view: View, voiceChannel: number) =>

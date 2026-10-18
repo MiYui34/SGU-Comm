@@ -76,6 +76,7 @@ export type ServerEvent =
       type: "ready";
       channels: TextChannel[];
       voiceChats?: boolean;
+      uploadMax?: number; // bytes per upload
       roles?: Roles;
       listenOnly?: ListenOnlyChannel[];
       private?: PrivateChannel[];
@@ -157,6 +158,7 @@ export type TextState = {
   available: boolean;
   channels: TextChannel[];
   voiceChats: boolean;
+  uploadMax?: number; // the server's size limit per upload
   // Voice channel id -> the channel that holds its chat.
   voiceChannels: Readonly<Record<number, number>>;
   messages: Readonly<Record<number, TextMessage[]>>; // per channel, by id
@@ -361,6 +363,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         type: "ready",
         channels: v.channels,
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
+        ...(isNum(v.uploadMax) && v.uploadMax > 0 ? { uploadMax: v.uploadMax } : {}),
         ...(roles ? { roles } : {}),
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
         ...(isPrivateList(v.private) ? { private: v.private } : {}),
@@ -489,6 +492,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         available: true,
         channels: event.channels,
         voiceChats: event.voiceChats === true,
+        uploadMax: event.uploadMax,
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
         members: Object.fromEntries((event.members ?? []).map((p) => [p.id, p.name])),

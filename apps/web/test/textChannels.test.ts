@@ -30,6 +30,12 @@ const msg = (id: number, channel = 1, author = "alice"): TextMessage => ({
 });
 
 describe("parseServerEvent", () => {
+  it("reads the upload limit of ready", () => {
+    const ev = parseServerEvent('{"type":"ready","channels":[],"uploadMax":1048576}');
+    expect(ev).toMatchObject({ uploadMax: 1048576 });
+    expect(reduceText(initialTextState, ev!).uploadMax).toBe(1048576);
+    expect(parseServerEvent('{"type":"ready","channels":[],"uploadMax":"x"}')).not.toHaveProperty("uploadMax");
+  });
   it("accepts known events", () => {
     expect(parseServerEvent('{"type":"ready","channels":[{"id":1,"name":"general"}]}')).toEqual({
       type: "ready",

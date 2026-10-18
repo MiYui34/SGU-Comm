@@ -28,7 +28,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach, switchDraft } from "../lib/composer";
+  import { afterUpload, canAttach, switchDraft, tooLarge } from "../lib/composer";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
@@ -52,6 +52,7 @@
     error = null,
     onUpload,
     uploading = false,
+    uploadMax,
     onMenu,
     menuOpen = false,
     onHoldTalk,
@@ -158,6 +159,7 @@
     // ok: the upload worked (false: busy or failed; the file stays).
     onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
     uploading?: boolean;
+    uploadMax?: number; // the server's limit per file (bytes)
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
     onSend?: (text: string, reply?: number, noPing?: boolean) => void;
@@ -253,6 +255,8 @@
       if (uploading) notify(WAIT_UPLOAD);
       return;
     }
+    const big = tooLarge(file.size, uploadMax);
+    if (big) return notify(big);
     cancelPending();
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
   };
