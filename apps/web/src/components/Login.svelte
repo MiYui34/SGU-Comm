@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { modeForError, type Account, type AccountsApi } from "../lib/accounts";
+  import { solveInWorker } from "../lib/captcha";
   import { formatFingerprint, type CertificateProblem } from "../lib/desktop";
   import type { Credentials } from "../lib/connection.svelte";
   import { safeGet, safeSet } from "../lib/storage";
@@ -54,7 +55,21 @@
     busy = false;
   };
   let busy = $state(false);
+  let checking = $state(false);
   let apiError = $state<string | null>(null);
+
+  // The server's browser check, where it has one: by itself, a second or
+  // two (a failure is an error; submitting again retries).
+  const prove = async () => {
+    const challenge = await api.challenge();
+    if (!challenge) return undefined;
+    checking = true;
+    try {
+      return await solveInWorker(challenge);
+    } finally {
+      checking = false;
+    }
+  };
 
   const connectAs = (name: string, isAccount: boolean, pw = serverPassword) => {
     safeSet(localStorage, "username", name);
@@ -72,12 +87,13 @@
       // A guest gets a temporary account where the server has them (its
       // name is kept, and it can keep the account with a password).
       if (mode === "guest") {
-        const guest = await api.guest(name);
+        const guest = await api.guest(name, await prove());
         if (!guest) return connectAs(name, false);
         onAccountChange(guest);
         return connectAs(guest.name, true);
       }
-      const result = mode === "login" ? await api.login(name, password) : { name: await api.create(name, password), mumble: false };
+      const result =
+        mode === "login" ? await api.login(name, password) : { name: await api.create(name, password, await prove()), mumble: false };
       const pw = password;
       password = "";
       // A Mumble registration (SuperUser, for example) logs in to Mumble with
@@ -199,6 +215,7 @@
       {#if mode === "create"}
         <p class="hint">An account keeps your name: nobody else can use it.</p>
       {/if}
+      {#if checking}<p class="hint" role="status">Checking your browser…</p>{/if}
       <button class="primary" type="submit" disabled={busy}>
         {mumbleOnly ? "Connect" : mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
       </button>
