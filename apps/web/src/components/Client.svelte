@@ -91,12 +91,16 @@
     account,
     resume = null,
     onPlace,
+    site = location.origin,
   }: {
     connection: Connection;
     account?: AccountActions;
     // Reconnects: where to come back to, and where the user is now.
     resume?: Place | null;
     onPlace?: (place: Place) => void;
+    // The server's address, for message and invite links (the desktop app's
+    // own address is not it).
+    site?: string;
   } = $props();
 
   const server = $derived(connection.state);
@@ -432,8 +436,6 @@
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
   // Message links (see lib/messageLink), for text channels and direct
   // chats: open the chat, then jump to the message. false: not here.
-  // Links use the page's address (the server's, except in development).
-  const site = location.origin;
   const openMessage = (link: { chat: number; message: number } | null) => {
     if (!link) return false;
     const peer = text.directs[link.chat];
