@@ -167,3 +167,4 @@
 - [x] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)
 - [x] [Before v0.9.0](issues/before-v0-9-0.md)
 - [x] [Website](issues/website.md)
+- [x] [Invite-only channels](issues/private-channels.md)

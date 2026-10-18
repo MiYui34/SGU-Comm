@@ -404,3 +404,14 @@ From `meta/research/discord-comparison.md`.
   as reactions replace message objects.
 - All per-address limits count an IPv6 /64 as one address.
 - CI now runs the unit tests and type checks (test.yml).
+
+## Invite-only channels (2026-10-18)
+
+- Behaviour change: the built-in server now hides every channel a user
+  may not Traverse, also outside private channels (Murmur shows them).
+- One source of truth: a "members" group and ACL on the Mumble channel
+  (for text channels, on their mirror). Kallisti checks text access
+  through it, so Mumble clients and the web agree.
+- Manual check (web): a member sees both channels and writes; a
+  non-member sees no channel, message or search hit; a removed member
+  loses the channel and its messages at once.

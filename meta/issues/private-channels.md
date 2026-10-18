@@ -20,7 +20,7 @@ text access through it, as it does for voice chats.
 - UI: a Private switch when creating or editing a channel; a Members
   dialog for staff; a lock icon on private channels.
 - Manual check with a member, a non-member and a moderator (web) and a
-  Mumble client if possible.
+  Mumble client if possible. (Done 2026-10-18 on the web; no Mumble client.)
 
 ## Notes (implementation)
 
