@@ -181,7 +181,6 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     .catch(() => {});
   ws.onopen = () => {
     ws.send(handshake(credentials));
-    sendPing();
     timer = setInterval(sendPing, PING_INTERVAL_MS);
   };
   ws.onmessage = (event) => {
@@ -200,6 +199,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       messages.forEach(routeAudio);
       for (const m of messages) if (m.type === "UserRemove") text = forgetStatus(text, m.message.session);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
+      // The first ping once in: during the handshake the answer waits for
+      // the login, and the ping would look slow.
+      if (state.status === "synced" && !wasSynced) sendPing();
       if (state.status === "synced") wasSynced = true;
       fetchDescriptions();
       fetchTextures();
