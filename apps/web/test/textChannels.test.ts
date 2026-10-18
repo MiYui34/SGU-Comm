@@ -104,7 +104,7 @@ describe("pageAnswered", () => {
   it("stays pending on unrelated events", () => {
     let s = reduceText(first, { type: "message", message: msg(12) });
     s = reduceText(s, { type: "history", channel: 2, messages: [msg(1, 2)], more: false });
-    s = reduceText(s, { type: "message-deleted", channel: 1, id: 11 });
+    s = reduceText(s, { type: "messages-deleted", channel: 1, ids: [11] });
     expect(pageAnswered(s, page)).toBe(false);
   });
 
@@ -360,7 +360,19 @@ describe("edited and deleted messages", () => {
       [2, msg(2).text, undefined],
     ]);
     const deleted = parseServerEvent('{"type":"message-deleted","channel":1,"id":2}');
+    expect(deleted).toEqual({ type: "messages-deleted", channel: 1, ids: [2] });
     expect(reduceText(s, deleted!).messages[1]?.map((m) => m.id)).toEqual([1]);
+  });
+
+  it("drops many at once (a user's messages deleted by staff)", () => {
+    let s = reduceText(initialTextState, { type: "history", channel: 1, messages: [msg(1), msg(2), msg(3)], more: false });
+    s = reduceText(s, { type: "pins", channel: 1, messages: [msg(3)] });
+    s = reduceText(s, { type: "search-results", text: "x", messages: [msg(1), msg(3)] });
+    const deleted = parseServerEvent('{"type":"messages-deleted","channel":1,"ids":[1,3]}');
+    expect(deleted).toEqual({ type: "messages-deleted", channel: 1, ids: [1, 3] });
+    s = reduceText(s, deleted!);
+    expect([s.messages[1]?.map((m) => m.id), s.pins[1], s.search?.messages]).toEqual([[2], [], []]);
+    expect(parseServerEvent('{"type":"messages-deleted","channel":1,"ids":[1,"x"]}')).toBeNull();
   });
 
   it("builds the requests", () => {
@@ -426,7 +438,7 @@ describe("search results follow edits and deletes", () => {
   it("patches and drops them", () => {
     let s = reduceText(initialTextState, { type: "search-results", text: "x", messages: [msg(1), msg(2)] });
     s = reduceText(s, { type: "message-edited", message: { ...msg(1), text: "new" } });
-    s = reduceText(s, { type: "message-deleted", channel: 1, id: 2 });
+    s = reduceText(s, { type: "messages-deleted", channel: 1, ids: [2] });
     expect(s.search?.messages.map((m) => [m.id, m.text])).toEqual([[1, "new"]]);
   });
 });

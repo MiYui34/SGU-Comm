@@ -140,7 +140,9 @@ export type ServerEvent =
   | { type: "message-pinned"; message: TextMessage }
   // A channel's pinned messages, the newest pin first.
   | { type: "pins"; channel: number; messages: TextMessage[] }
-  | { type: "message-deleted"; channel: number; id: number }
+  // Messages of a channel were deleted (the server sends one as
+  // "message-deleted").
+  | { type: "messages-deleted"; channel: number; ids: number[] }
   | { type: "search-results"; text: string; messages: TextMessage[] }
   // about "manage": the answer to a channel or role change.
   | { type: "error"; message: string; about?: "manage" }
@@ -440,7 +442,9 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ? { type: "pins", channel: v.channel, messages: v.messages }
         : null;
     case "message-deleted":
-      return isNum(v.channel) && isNum(v.id) ? { type: "message-deleted", channel: v.channel, id: v.id } : null;
+      return isNum(v.channel) && isNum(v.id) ? { type: "messages-deleted", channel: v.channel, ids: [v.id] } : null;
+    case "messages-deleted":
+      return isNum(v.channel) && Array.isArray(v.ids) && v.ids.every(isNum) ? { type: "messages-deleted", channel: v.channel, ids: v.ids } : null;
     case "search-results":
       return isStr(v.text) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "search-results", text: v.text, messages: v.messages }
@@ -608,8 +612,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       next[i] = { ...msgs[i]!, reactions: event.reactions };
       return { ...state, messages: { ...state.messages, [event.channel]: next } };
     }
-    case "message-deleted": {
-      const drop = (ms: TextMessage[]) => ms.filter((m) => m.id !== event.id);
+    case "messages-deleted": {
+      const gone = new Set(event.ids);
+      const drop = (ms: TextMessage[]) => ms.filter((m) => !gone.has(m.id));
       const search = patchSearch(state.search, drop);
       const pins = patchPins(state.pins, event.channel, drop);
       const msgs = state.messages[event.channel];
