@@ -14,7 +14,6 @@
   - [ ] [Limits for new accounts](issues/new-account-limits.md)
   - [ ] [Word and link filter](issues/word-link-filter.md)
   - [ ] [Captcha on registration](issues/registration-captcha.md)
-- [ ] [Connection quality](issues/connection-quality.md)
-  - [ ] [Admin view of all connections](issues/connection-admin-view.md)
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Recording a voice channel](issues/channel-recording.md)
+- [ ] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)
