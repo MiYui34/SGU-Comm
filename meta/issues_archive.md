@@ -175,3 +175,5 @@
 - [x] [Upload: a spinner instead of the "Uploading…" text](issues/upload-spinner.md)
 - [x] [Offline members: follow-ups](issues/offline-members-follow-ups.md)
 - [x] [Undeafen keeps an earlier mute](issues/undeafen-keeps-mute.md)
+- [x] [Focus the message box after picking a file](issues/focus-after-file-picker.md)
+- [x] [Check the upload size before uploading](issues/upload-size-check.md)

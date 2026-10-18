@@ -259,6 +259,7 @@
     if (big) return notify(big);
     cancelPending();
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
+    messageInput?.focus(); // after the file picker or a drop: Enter sends
   };
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
