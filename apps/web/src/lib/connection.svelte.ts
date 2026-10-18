@@ -59,9 +59,12 @@ import { awayRequest, setStatusRequest, type CustomStatus, type Presence } from 
 import { createCapture } from "./voice/capture.svelte";
 import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
+import { createConnectionInfo } from "./connectionInfo.svelte";
+import { transportOf } from "./connectionQuality";
 
-// The server drops clients after 30 s without a ping.
-const PING_INTERVAL_MS = 15_000;
+// The server drops clients after 30 s without a ping. Each ping also
+// measures the round trip (see connectionInfo), so as in Mumble: often.
+const PING_INTERVAL_MS = 5_000;
 
 // account: logged in to a Kallisti account (the server connects with the
 // account's certificate, and the client registers it on Murmur).
@@ -151,9 +154,16 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   const playback = audio && createPlayback(audio);
   // The UI starts capture, with the device from the settings.
   const capture = audio && createCapture(audio, sendAudio);
+  const info = createConnectionInfo(transportOf(url), () => playback?.stats() ?? { good: 0, late: 0, lost: 0 });
+  const sendPing = () => {
+    const { timestamp, stats } = info.ping(performance.now());
+    ws.send(ping(timestamp, stats));
+  };
 
-  // Voice and leaving users go to the playback side. State stays pure.
+  // Voice and leaving users go to the playback side, pings to the
+  // connection info. State stays pure.
   const routeAudio = (msg: MumbleMessage) => {
+    if (msg.type === "Ping") info.pong(Number(msg.message.timestamp), performance.now());
     if (!playback) return;
     if (msg.type === "UDPTunnel") {
       const packet = decodeAudio(audioFormat(state), msg.packet);
@@ -171,7 +181,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     .catch(() => {});
   ws.onopen = () => {
     ws.send(handshake(credentials));
-    timer = setInterval(() => ws.send(ping(Date.now())), PING_INTERVAL_MS);
+    sendPing();
+    timer = setInterval(sendPing, PING_INTERVAL_MS);
   };
   ws.onmessage = (event) => {
     // Text frames: the Kallisti server's JSON API. Binary: the Mumble stream.
@@ -255,6 +266,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     get wasSynced() {
       return wasSynced;
+    },
+    // Ping, late audio and transport (see connectionInfo).
+    get info() {
+      return info.info;
     },
     account: credentials.account === true,
     get text() {
