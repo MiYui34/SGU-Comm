@@ -177,3 +177,4 @@
 - [x] [Undeafen keeps an earlier mute](issues/undeafen-keeps-mute.md)
 - [x] [Focus the message box after picking a file](issues/focus-after-file-picker.md)
 - [x] [Check the upload size before uploading](issues/upload-size-check.md)
+- [x] [SUPERUSER_PASSWORD with a $ in deploy/.env](issues/env-dollar-sign.md)

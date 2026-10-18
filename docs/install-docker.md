@@ -19,6 +19,9 @@ docker compose -f deploy/compose.yml up -d --remove-orphans
   firewall.
 - `SuperUser` is the admin: log in with the "Log in" tab (or a Mumble
   client) and `SUPERUSER_PASSWORD`. Admins make moderators in a user's menu.
+- Your own password in `deploy/.env`: put it in single quotes
+  (`SUPERUSER_PASSWORD='pa$$word'`). Without them, compose reads `$` as the
+  start of a variable and changes the password.
 - Mumble clients warn about the self-signed certificate once. To avoid
   that, give the server your web certificate (`MUMBLE_CERT_FILE`, see
   [configuration](configuration.md#the-built-in-mumble-server)). Caddy keeps

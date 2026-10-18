@@ -8,6 +8,8 @@ brackets.
   compose file reach Kallisti (some of them take their value from
   `deploy/.env`). A setting that is only in `deploy/.env` does nothing: add
   it to `environment:` too.
+- In `deploy/.env`, compose reads `$` as the start of a variable: put
+  values with `$` in single quotes (`SUPERUSER_PASSWORD='pa$$word'`).
 
 ## Web and general
 
