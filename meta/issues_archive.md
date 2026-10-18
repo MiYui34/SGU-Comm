@@ -159,3 +159,7 @@
 - [x] [Search and pins visible on small screens](issues/search-pins-visible.md)
 - [x] [History loading flag clears too early](issues/history-loading-flag.md)
 - [x] [Screen share left running after a connection drop](issues/stream-start-after-close.md)
+- [x] [Paste or drop during an upload loses the file](issues/composer-upload-loss.md)
+- [x] [Reply and draft stay when switching chats](issues/reply-draft-per-chat.md)
+- [x] [Phone hold-to-talk stays on after a layout change](issues/phone-ptt-release.md)
+- [x] [Stable keys for message rows](issues/stable-message-keys.md)
