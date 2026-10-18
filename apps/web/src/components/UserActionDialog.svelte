@@ -1,36 +1,51 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { BAN_TIMES, TIMEOUT_TIMES, type ModerationAction } from "../lib/moderation";
+  import { BAN_TIMES, DELETE_TIMES, TIMEOUT_TIMES, type ConfirmKind, type ModerationAction } from "../lib/moderation";
 
-  // Asks before a kick, ban or time-out: a reason (kick, ban) and a time
-  // (ban, time-out). timedBans: bans can have a time (else for ever).
+  // Asks before a kick, ban, time-out or deleting messages: a reason (kick,
+  // ban) and a time (ban, time-out; how far back to delete). timedBans:
+  // bans can have a time (else for ever); deletes: offer deleting the
+  // user's recent messages too.
 
   let {
     kind,
     name,
     timedBans = false,
+    deletes = false,
     onSubmit,
     onClose,
   }: {
-    kind: "kick" | "ban" | "timeout";
+    kind: ConfirmKind;
     name: string;
     timedBans?: boolean;
+    deletes?: boolean;
     onSubmit: (a: ModerationAction) => void;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
   const k = untrack(() => kind);
-  const times = k === "timeout" ? TIMEOUT_TIMES : untrack(() => timedBans) ? BAN_TIMES : [];
+  const times = k === "timeout" ? TIMEOUT_TIMES : k === "delete" ? DELETE_TIMES : untrack(() => timedBans) ? BAN_TIMES : [];
+  const alsoDelete = k !== "delete" && untrack(() => deletes);
   let reason = $state("");
   let seconds = $state<number>(times[0]?.seconds ?? 0);
+  let deleteSeconds = $state(0);
   $effect(() => dialog?.showModal());
 
-  const title = { kick: "Kick", ban: "Ban", timeout: "Time out" }[k];
+  const title = { kick: "Kick", ban: "Ban", timeout: "Time out", delete: "Delete messages of" }[k];
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const r = reason.trim();
-    onSubmit(k === "kick" ? { kind: k, reason: r } : k === "ban" ? { kind: k, reason: r, seconds } : { kind: k, seconds });
+    const also = deleteSeconds ? { deleteSeconds } : {};
+    onSubmit(
+      k === "delete"
+        ? { kind: k, seconds }
+        : k === "kick"
+          ? { kind: k, reason: r, ...also }
+          : k === "ban"
+            ? { kind: k, reason: r, seconds, ...also }
+            : { kind: k, seconds, ...also },
+    );
     dialog?.close();
   };
 </script>
@@ -46,17 +61,28 @@
         ? `${name} leaves the server and can come back.`
         : k === "ban"
           ? `${name} leaves the server and cannot come back${times.length ? " for this time" : ""}.`
-          : `${name} cannot write, react or speak for this time.`}
+          : k === "timeout"
+            ? `${name} cannot write, react or speak for this time.`
+            : `${name}'s messages from this time go from all text channels and voice channel chats (not from direct messages). This cannot be undone.`}
     </p>
     {#if times.length}
       <label>
-        {k === "ban" ? "Ban for" : "Time out for"}
+        {k === "ban" ? "Ban for" : k === "timeout" ? "Time out for" : "Delete from the last"}
         <select bind:value={seconds}>
           {#each times as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
         </select>
       </label>
     {/if}
-    {#if k !== "timeout"}
+    {#if alsoDelete}
+      <label>
+        Also delete their messages from the last
+        <select bind:value={deleteSeconds}>
+          <option value={0}>None</option>
+          {#each DELETE_TIMES as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
+        </select>
+      </label>
+    {/if}
+    {#if k === "kick" || k === "ban"}
       <label>
         Reason (optional)
         <!-- svelte-ignore a11y_autofocus -->

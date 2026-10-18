@@ -33,7 +33,7 @@
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
-  import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
+  import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -45,12 +45,14 @@
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
-    moderationRequest,
+    mayDeleteMessages,
+    moderationRequests,
     moderationRights,
     permissionsToAsk,
     timedOutUntil,
     untilText,
     userModeration,
+    type ConfirmKind,
     type ModerationAction,
   } from "../lib/moderation";
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
@@ -724,16 +726,20 @@
     if (showSettings && me) connection.fetchComment(me.session);
   });
   const menuModeration = $derived(menuUser ? userModeration(server, text, menuUser) : null);
-  const moderate = (session: number, a: ModerationAction) => {
-    const r = moderationRequest(session, a);
-    if ("mumble" in r) connection.send(r.mumble);
-    else connection.manage(r.manage);
+  const moderate = (who: UserTarget, a: ModerationAction) => {
+    for (const r of moderationRequests(who, a)) {
+      if ("mumble" in r) connection.send(r.mumble);
+      else connection.manage(r.manage);
+    }
   };
-  // A kick, ban or time-out to confirm; closed when the user leaves (the
-  // session number may go to someone else).
-  let confirming = $state<{ kind: "kick" | "ban" | "timeout"; session: number; name: string; timedBans: boolean } | null>(null);
+  // A kick, ban, time-out or deleting messages to confirm (deletes: offer
+  // deleting messages too); closed when a user we see leaves (the session
+  // number may go to someone else).
+  type Confirming = { kind: ConfirmKind; who: UserTarget; name: string; timedBans?: boolean; deletes?: boolean };
+  let confirming = $state<Confirming | null>(null);
   $effect(() => {
-    if (confirming && server.users[confirming.session]?.name !== confirming.name) confirming = null;
+    const who = confirming?.who;
+    if (who && "session" in who && server.users[who.session]?.name !== confirming?.name) confirming = null;
   });
   // Our own time-out: the message box says so.
   const myTimeout = $derived(me ? timedOutUntil(text.timeouts, me) : null);
@@ -978,9 +984,18 @@
     onAdmin={(on) => menuUser.userId !== null && connection.manage({ admin: menuUser.userId, on })}
     moderation={menuModeration}
     timedOutUntil={timedOutUntil(text.timeouts, menuUser)}
-    onModerate={(a) => moderate(menuUser.session, a)}
+    onModerate={(a) => moderate({ session: menuUser.session }, a)}
     onConfirm={(kind) =>
-      (confirming = { kind, session: menuUser.session, name: menuUser.name, timedBans: menuModeration?.timedBans ?? false })}
+      (confirming = {
+        kind,
+        who: { session: menuUser.session },
+        name: menuUser.name,
+        timedBans: menuModeration?.timedBans,
+        deletes: menuModeration?.deleteMessages,
+      })}
+    onDeleteMessages={menuModeration?.deleteMessages
+      ? () => (confirming = { kind: "delete", who: { session: menuUser.session }, name: menuUser.name })
+      : undefined}
     onClose={() => (menu = null)}
   />
 {:else if menu && memberUser}
@@ -1003,6 +1018,7 @@
     onModerator={(on) => connection.manage({ moderator: p.id, on })}
     admin={adminAction(server, text, { userId: p.id })}
     onAdmin={(on) => connection.manage({ admin: p.id, on })}
+    onDeleteMessages={mayDeleteMessages(server, text, p.id) ? () => (confirming = { kind: "delete", who: { user: p.id }, name: p.name }) : undefined}
     onClose={() => (menu = null)}
   />
 {/if}
@@ -1013,7 +1029,8 @@
     kind={c.kind}
     name={c.name}
     timedBans={c.timedBans}
-    onSubmit={(a) => moderate(c.session, a)}
+    deletes={c.deletes}
+    onSubmit={(a) => moderate(c.who, a)}
     onClose={() => (confirming = null)}
   />
 {/if}
