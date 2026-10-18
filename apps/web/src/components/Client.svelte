@@ -36,6 +36,7 @@
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
+  import { loginAction, mayChangeGuests, mayWrite } from "../lib/guests";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
@@ -92,6 +93,7 @@
     account,
     resume = null,
     onPlace,
+    onLogIn,
     site = location.origin,
   }: {
     connection: Connection;
@@ -99,6 +101,8 @@
     // Reconnects: where to come back to, and where the user is now.
     resume?: Place | null;
     onPlace?: (place: Place) => void;
+    // Back to the login screen (a guest that may only read).
+    onLogIn?: () => void;
     // The server's address, for message and invite links (the desktop app's
     // own address is not it).
     site?: string;
@@ -737,6 +741,13 @@
   });
   // Our own time-out: the message box says so.
   const myTimeout = $derived(me ? timedOutUntil(text.timeouts, me) : null);
+  // A guest that may only read: a way to an account instead of the message
+  // box (a guest account gets a password in the settings).
+  const guestAccount = $derived(account?.temporary ?? false);
+  const readOnly = $derived(!mayWrite(server, text, guestAccount));
+  const loginToWrite = $derived(
+    readOnly ? { action: loginAction(guestAccount), onAction: guestAccount ? () => (showSettings = true) : onLogIn } : null,
+  );
 
   // Unread direct messages per sender name, marked read while open.
   let readCounts = $state<Record<string, number>>({});
@@ -968,7 +979,7 @@
     onAudio={(patch) => userAudio.update(menuUser.name, patch)}
     blocked={blockedUsers.has(menuUser.name)}
     onBlock={() => blockedUsers.toggle(menuUser.name)}
-    onMessage={() => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
+    onMessage={readOnly ? undefined : () => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
     onSettings={() => (showSettings = true)}
     role={roleOf(text.roles, menuUser.userId)}
     status={statusOf(menuUser.session)}
@@ -996,7 +1007,7 @@
     onAudio={() => {}}
     blocked={blockedUsers.has(p.name)}
     onBlock={() => blockedUsers.toggle(p.name)}
-    onMessage={me?.userId != null ? () => openDirect(p) : undefined}
+    onMessage={me?.userId != null && !readOnly ? () => openDirect(p) : undefined}
     onSettings={() => {}}
     role={roleOf(text.roles, p.id)}
     moderator={moderatorAction(server, text, { userId: p.id })}
@@ -1046,6 +1057,8 @@
     emoji={customEmoji.list}
     onAddEmoji={connection.uploadEmoji}
     onDeleteEmoji={connection.deleteEmoji}
+    guestsReadOnly={mayChangeGuests(server, text) ? text.guestsReadOnly : null}
+    onGuestsReadOnly={(on) => connection.manage({ guestsReadOnly: on })}
     onClose={() => (showModeration = false)}
   />
 {/if}
@@ -1169,13 +1182,15 @@
     <ChatPane
       {...paneCommon}
       {...pane}
+      {...(readOnly ? { onSend: undefined, onUpload: undefined } : {})}
+      {loginToWrite}
       chatKey={chatKeyOf(view, channelId)}
       me={me?.name ?? ""}
       {people}
       cannotWrite={myTimeout === null ? null : `You are timed out until ${untilText(myTimeout)}.`}
       mayEdit={mine}
       mayDelete={(m) => mine(m) || canManageText(server, text)}
-      onEdit={connection.editMessage}
+      onEdit={readOnly ? undefined : connection.editMessage}
       onDelete={connection.deleteMessage}
       onSearch={text.available
         ? (q) => {
@@ -1192,7 +1207,7 @@
         : undefined}
       pinsOpen={side === "pins"}
       mayPin={directChatId !== null || canManageText(server, text)}
-      onPin={connection.pin}
+      onPin={readOnly ? undefined : connection.pin}
       jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
       onJumped={() => (jumpTarget = null)}
       channelNames={text.channels.map((c) => c.name)}
@@ -1204,7 +1219,7 @@
       }}
       typing={typingText(typingHere)}
       {onTyping}
-      onReact={connection.react}
+      onReact={readOnly ? undefined : connection.react}
       myId={me?.userId ?? null}
       previewOf={(id) => text.previews[id] ?? null}
       httpBase={connection.httpBase}

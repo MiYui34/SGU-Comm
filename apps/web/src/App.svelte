@@ -348,7 +348,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} site={kallisti ?? location.origin} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} />
     {/key}
   </div>
 {:else}
