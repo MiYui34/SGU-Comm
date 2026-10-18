@@ -75,6 +75,7 @@ func (h *Hub) sendAccessAll() {
 func (h *Hub) PrivateChanged() {
 	if h.voice != nil {
 		h.sendAccessAll()
+		h.pruneInvites()
 	}
 }
 

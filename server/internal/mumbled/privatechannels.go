@@ -150,6 +150,44 @@ func (s *Server) SetPrivate(actor, channel uint32, on bool, members []uint32) er
 	return nil
 }
 
+// AddMember adds a registered user to a private channel's members (by an
+// invite link: the caller checks it); added is false if it already was.
+func (s *Server) AddMember(channel, user uint32) (added bool, err error) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	if !s.registeredIDs([]uint32{user})[user] {
+		return false, errors.New("no such user")
+	}
+	s.mu.Lock()
+	ch := s.state.Channels[channel]
+	var g *Group
+	if ch != nil && channel != 0 && isPrivate(ch) {
+		g = ch.Groups[membersGroup]
+	}
+	switch {
+	case g == nil:
+		s.mu.Unlock()
+		return false, errors.New("not a private channel")
+	case g.Add[user]:
+		s.mu.Unlock()
+		return false, nil
+	case len(g.Add) >= maxGroupMembers:
+		s.mu.Unlock()
+		return false, errors.New("too many members")
+	}
+	g.Add[user] = true
+	delete(g.Remove, user)
+	s.permissionsChangedLocked(ch)
+	var save []*Channel
+	if !ch.Temporary {
+		save = []*Channel{cloneChannel(ch)}
+	}
+	s.mu.Unlock()
+	s.save(save, nil, 0)
+	s.privateChanged()
+	return true, nil
+}
+
 // CreatePrivateChannel makes a private voice channel below root, with no
 // members yet: only staff see it. Only admins and moderators may.
 func (s *Server) CreatePrivateChannel(actor uint32, name string) (uint32, error) {

@@ -82,6 +82,7 @@
   import { mirrorIds } from "../lib/mirrors";
   import { tabTitle } from "../lib/title";
   import { messageLink, parseMessageLink } from "../lib/messageLink";
+  import { inviteLink, invitePlace, parseInviteLink } from "../lib/invites";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
 
@@ -450,6 +451,29 @@
     untrack(() => openMessage(linked));
     linked = null;
   });
+  // Opened with an invite link (see lib/invites): redeemed once the
+  // channels are known; the server says what to open.
+  let invited = untrack(() => parseInviteLink(location.href, site));
+  $effect(() => {
+    const token = invited;
+    if (!token || !text.available) return;
+    history.replaceState(history.state, "", "/");
+    untrack(() => connection.manage({ redeemInvite: token }));
+    invited = null;
+  });
+  // A link made in the members dialog: shown there once. A redeemed link
+  // to a voice channel joins it, unless that would leave a call.
+  let newInvite = $state<{ voice: number; token: string } | null>(null);
+  $effect(() =>
+    connection.onTextEvent((ev) => {
+      if (ev.type === "invite-created") newInvite = { voice: ev.voice, token: ev.token };
+      if (ev.type !== "invite-joined") return;
+      const place = invitePlace(ev);
+      if (place.kind === "text") show(place);
+      else if (voiceOn && !(lobby && channelId === 0)) show({ kind: "voice" });
+      else join(place.id);
+    }),
+  );
   $effect(() => {
     const first = text.channels[0];
     if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
@@ -890,9 +914,19 @@
       name={f.kind === "text" ? `#${f.name}` : f.name}
       members={f.members}
       registered={server.registered}
-      onLoad={() => connection.send(queryRegistered())}
+      invites={text.invites[f.access] ?? null}
+      link={newInvite?.voice === f.access ? inviteLink(site, newInvite.token) : null}
+      onLoad={() => {
+        connection.send(queryRegistered());
+        connection.manage({ invites: f.access });
+      }}
       onSubmit={channels.submitMembers}
-      onClose={channels.closeMembers}
+      onCreateInvite={(seconds, uses) => connection.manage({ createInvite: f.access, seconds, uses })}
+      onDeleteInvite={(id) => connection.manage({ deleteInvite: id })}
+      onClose={() => {
+        newInvite = null;
+        channels.closeMembers();
+      }}
     />
   {/key}
 {/if}

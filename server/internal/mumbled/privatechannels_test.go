@@ -202,3 +202,35 @@ func TestPrivateChannelsAreSavedAndReported(t *testing.T) {
 	su.send(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(other)})
 	eventually(t, func() bool { return calls.Load() == 4 })
 }
+
+// An invite link adds a member (the Kallisti server checks the link).
+func TestAddMember(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	club := su.createChannel(0, "Club", false)
+	public := su.createChannel(0, "Public", false)
+	alice, av, aliceID := webUser(t, s, "alice")
+	s.SetPrivate(su.session, club, true, nil)
+	if added, err := s.AddMember(club, aliceID); err != nil || !added {
+		t.Fatalf("added %v, %v", added, err)
+	}
+	if av.update(alice); !av.channels[club] {
+		t.Fatal("alice does not see it")
+	}
+	if added, err := s.AddMember(club, aliceID); err != nil || added {
+		t.Fatalf("added again %v, %v", added, err)
+	}
+	if _, err := s.AddMember(public, aliceID); err == nil {
+		t.Fatal("a member of a public channel")
+	}
+	if _, err := s.AddMember(club, 999); err == nil {
+		t.Fatal("an unknown user added")
+	}
+	reloaded, err := New(Config{DB: s.cfg.DB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Private(); len(got) != 1 || !slices.Equal(got[0].Members, []Member{{aliceID, "alice"}}) {
+		t.Fatalf("after a restart %+v", got)
+	}
+}
