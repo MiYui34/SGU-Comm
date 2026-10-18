@@ -300,7 +300,8 @@
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (storedDirect !== null)
       return {
-        title: dm.name,
+        // The partner's current name (renames reach text.directs).
+        title: (directChatId !== null && text.directs[directChatId]?.name) || dm.name,
         kind: "dm" as const,
         stored: true,
         messages: textChat,

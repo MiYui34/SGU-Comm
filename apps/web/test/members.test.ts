@@ -44,6 +44,17 @@ describe("member events", () => {
     expect(removed.members).toEqual({ 6: "amy", 7: "robert" });
   });
 
+  it("rename direct chats", () => {
+    const withDirects = reduceText(
+      s,
+      parseServerEvent('{"type":"ready","channels":[],"voiceChats":true,"members":[{"id":7,"name":"bob"}],"directs":[{"channel":3,"peer":{"id":7,"name":"bob"}},{"channel":4,"peer":{"id":8,"name":"carl"}}]}')!,
+    );
+    const renamed = reduceText(withDirects, parseServerEvent('{"type":"member","id":7,"name":"robert"}')!);
+    expect(renamed.directs).toEqual({ 3: { id: 7, name: "robert" }, 4: { id: 8, name: "carl" } });
+    // A removed user's chat keeps its last name.
+    expect(reduceText(renamed, parseServerEvent('{"type":"member","id":7,"gone":true}')!).directs[3]).toEqual({ id: 7, name: "robert" });
+  });
+
   it("drop broken input", () => {
     expect(parseServerEvent('{"type":"member","id":"7","name":"bob"}')).toBeNull();
     expect(parseServerEvent('{"type":"member","id":7}')).toBeNull();

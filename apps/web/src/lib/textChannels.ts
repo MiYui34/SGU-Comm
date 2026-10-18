@@ -273,6 +273,9 @@ const isInvite = (v: unknown): v is Invite =>
 const privateMap = (cs: PrivateChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.members ?? []]));
 const isTimeouts = (v: unknown): v is Timeout[] =>
   Array.isArray(v) && v.every((t) => isObj(t) && isNum(t.until) && (isNum(t.user) !== isNum(t.session)));
+// Direct chats follow their peer's renames (a removed peer keeps its name).
+const renamePeer = (directs: TextState["directs"], id: number, name: string) =>
+  Object.fromEntries(Object.entries(directs).map(([ch, p]) => [ch, p.id === id ? { id, name } : p]));
 const isStreamPreview = (v: unknown): v is string => isStr(v) && v.startsWith("data:image/jpeg;base64,");
 const isStreams = (v: unknown): v is LiveStream[] =>
   Array.isArray(v) && v.every((s) => isObj(s) && isNum(s.session) && isNum(s.channel) && (s.preview === undefined || isStreamPreview(s.preview)));
@@ -502,7 +505,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, emoji: event.emoji };
     case "member": {
       const { [event.id]: _, ...rest } = state.members;
-      return { ...state, members: event.name === undefined ? rest : { ...rest, [event.id]: event.name } };
+      if (event.name === undefined) return { ...state, members: rest };
+      return { ...state, members: { ...rest, [event.id]: event.name }, directs: renamePeer(state.directs, event.id, event.name) };
     }
     case "bio":
       return { ...state, bios: { ...state.bios, [event.user]: event.text } };
