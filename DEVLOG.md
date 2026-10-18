@@ -391,3 +391,16 @@ From `meta/research/discord-comparison.md`.
   redirects. A timeout or offline is "cannot reach", not "Mumble server".
 - Mumble clients can log in to Kallisti accounts with the account password
   (the built-in server asks the account store; no server password needed).
+
+## Review before v0.9.0 (2026-10-18)
+
+- An external review (GPT-6 Astra) found 30 points; 16 of the 17 bug
+  claims were confirmed against the code. The worst: a voice target with
+  linked channels kept a removed channel, and the next voice packet
+  crashed the server (temporary channels go away by themselves, so any
+  registered user could do it). Fixed and deployed at once.
+- One ChatPane serves every chat: per-chat state (reply, edit, draft)
+  must be reset or kept by chat id by hand; rows are keyed by message id,
+  as reactions replace message objects.
+- All per-address limits count an IPv6 /64 as one address.
+- CI now runs the unit tests and type checks (test.yml).

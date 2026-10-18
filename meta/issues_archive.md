@@ -163,3 +163,5 @@
 - [x] [Reply and draft stay when switching chats](issues/reply-draft-per-chat.md)
 - [x] [Phone hold-to-talk stays on after a layout change](issues/phone-ptt-release.md)
 - [x] [Stable keys for message rows](issues/stable-message-keys.md)
+- [x] [One limiter key for all login limits (IPv6 /64)](issues/limiter-keys-ipv6.md)
+- [x] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)

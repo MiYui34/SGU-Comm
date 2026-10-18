@@ -23,7 +23,9 @@ brackets.
   header and nginx with `$proxy_add_x_forwarded_for` adds to it; both work.
   With two proxies (for example Cloudflare and nginx), all users would get
   the first proxy's address.
-- `MAX_CONNECTIONS` (100) and `MAX_CONNECTIONS_PER_IP` (10): web connections.
+- `MAX_CONNECTIONS` (100) and `MAX_CONNECTIONS_PER_IP` (10): web connections. Per-address limits
+  (also login attempts) count an IPv6 /64 as one address: devices on one
+  network that share a /64 share the limit.
 - `DB_PATH` (`kallisti.db`): the SQLite database.
 - `TEXT_CHANNELS` (`general`, comma-separated): with the built-in server
   only the first start uses it, then admins manage text channels in the app;

@@ -12,5 +12,3 @@
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Before v0.9.0](issues/before-v0-9-0.md)
-  - [ ] [One limiter key for all login limits (IPv6 /64)](issues/limiter-keys-ipv6.md)
-  - [ ] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)
