@@ -41,6 +41,10 @@ type Config struct {
 	// OnChannelText gets every text a client sends to a channel (as plain
 	// text), for example to store it. It runs outside the server's lock.
 	OnChannelText func(ChannelText)
+	// CheckChannelText may refuse a client's text to a channel it writes to
+	// directly (the error is the refusal it gets), before anyone gets it.
+	// It runs outside the server's lock. Nil: none is refused.
+	CheckChannelText func(session, channel uint32) error
 	// OnPrivateText gets private messages between registered users (once
 	// per recipient), to store them; web recipients get them from there,
 	// not from this server. It runs outside the server's lock.

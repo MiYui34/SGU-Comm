@@ -98,6 +98,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		return nil, err
 	}
 	var onText func(mumbled.ChannelText)
+	var checkText func(session, channel uint32) error
 	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly func()
 	var onUser func(id uint32, name string)
@@ -108,6 +109,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	if hub != nil {
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
 		onGuestsReadOnly = hub.GuestsReadOnlyChanged
+		checkText = hub.MumbleTextAllowed
 		onUser = hub.UserChanged
 		textOverflows = hub.Overflows
 		onMoved = func(session, from, to uint32) {
@@ -159,6 +161,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		},
 		AccountLogin:            accountLogin(db),
 		OnChannelText:           onText,
+		CheckChannelText:        checkText,
 		OnPrivateText:           onPrivate,
 		OnRolesChanged:          onRoles,
 		OnUserChanged:           onUser,
