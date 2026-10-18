@@ -178,3 +178,6 @@
 - [x] [Focus the message box after picking a file](issues/focus-after-file-picker.md)
 - [x] [Check the upload size before uploading](issues/upload-size-check.md)
 - [x] [SUPERUSER_PASSWORD with a $ in deploy/.env](issues/env-dollar-sign.md)
+- [x] [Desktop: Kallisti mode](issues/desktop-kallisti-mode.md)
+- [x] [Desktop app as a Kallisti client](issues/desktop-kallisti-client.md)
+- [x] [Streaming: screen share, picture only](issues/streaming-screen-share.md)

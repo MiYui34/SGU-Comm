@@ -2,13 +2,10 @@
 
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
   - [ ] [Desktop: global push-to-talk](issues/desktop-global-push-to-talk.md)
-  - [ ] [Desktop app as a Kallisti client](issues/desktop-kallisti-client.md)
-    - [ ] [Desktop: Kallisti mode](issues/desktop-kallisti-mode.md)
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Web Push notifications](issues/web-push.md)
 - [ ] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
-  - [ ] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
