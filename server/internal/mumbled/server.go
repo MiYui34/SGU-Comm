@@ -51,6 +51,8 @@ type Config struct {
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
 	// ListenOnly).
 	OnListenOnlyChanged func()
+	// OnPrivateChanged runs after a channel's ACL changed (see Private).
+	OnPrivateChanged func()
 	// OnTimeoutsChanged runs after a time-out began or ended (see
 	// Timeouts).
 	OnTimeoutsChanged func()
@@ -164,7 +166,8 @@ type client struct {
 
 	// Guarded by Server.mu.
 	udpAddr  netip.AddrPort
-	udpVoice bool // send voice over UDP (it sent voice over UDP)
+	udpVoice bool            // send voice over UDP (it sent voice over UDP)
+	seen     map[uint32]bool // channels it was told about (see visibility.go)
 
 	cryptMu     sync.Mutex
 	crypt       *cryptstate.CryptState

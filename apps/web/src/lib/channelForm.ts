@@ -1,9 +1,12 @@
 import type { ListenOnly, Speaker } from "./listenOnly";
+import type { Member } from "./privateChannels";
 
 // What the channel dialog does: create, edit or delete a channel.
+// Private channels (built-in server) for admins and moderators: canPrivate
+// on create; private on edit (with the members, which stay).
 export type ChannelKind = "text" | "voice";
 export type ChannelForm =
-  | { mode: "create"; kind: ChannelKind; temporaryOnly: boolean }
+  | { mode: "create"; kind: ChannelKind; temporaryOnly: boolean; canPrivate?: boolean }
   | {
       mode: "edit";
       kind: ChannelKind;
@@ -12,5 +15,6 @@ export type ChannelForm =
       // Voice channels with the built-in server; users: who may become a
       // speaker.
       listenOnly?: ListenOnly & { users: Speaker[] };
+      private?: { on: boolean; members: Member[] };
     }
   | { mode: "delete"; kind: ChannelKind; name: string };

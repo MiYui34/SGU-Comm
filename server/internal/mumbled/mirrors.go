@@ -31,6 +31,9 @@ type TextMirror struct {
 	Channel uint32
 	Name    string
 	Topic   string // plain text; the mirror's description
+	// A new mirror is private (only staff see it); an existing one keeps
+	// its access (see SetPrivate).
+	Private bool
 }
 
 // SyncTextChannels makes the mirrors match want, in order, and returns
@@ -91,6 +94,9 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 				continue
 			}
 			touched[ch.ID] = true // new, even if it already matches
+			if w.Private {
+				makePrivate(ch, nil)
+			}
 		}
 		desc := html.EscapeString(w.Topic)
 		if ch.Name != name || ch.Position != pos || ch.Description != desc {
@@ -104,11 +110,7 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 	for _, id := range slices.Sorted(maps.Keys(touched)) {
 		ch := s.state.Channels[id]
 		save = append(save, cloneChannel(ch))
-		for _, u := range s.state.Users {
-			if c := s.clients[u.Session]; c != nil {
-				c.sendMsg(mumble.TypeChannelState, s.state.channelStateFor(ch, u))
-			}
-		}
+		s.showChannelLocked(ch)
 	}
 	if touched[parent.ID] {
 		s.permissionsChangedLocked(parent) // suppress states follow Speak

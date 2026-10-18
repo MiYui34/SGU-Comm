@@ -9,7 +9,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 )
 
@@ -153,7 +152,7 @@ func (s *Server) setTimeoutLocked(key timeoutKey, until time.Time, actor uint32)
 		out.Actor = proto.Uint32(actor)
 	}
 	s.state.Changed()
-	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
+	s.sendUserLocked(u, out)
 }
 
 func (s *Server) startTimeoutLocked(key timeoutKey, until time.Time) {

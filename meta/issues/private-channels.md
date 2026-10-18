@@ -21,3 +21,22 @@ text access through it, as it does for voice chats.
   dialog for staff; a lock icon on private channels.
 - Manual check with a member, a non-member and a moderator (web) and a
   Mumble client if possible.
+
+## Notes (implementation)
+
+- mumbled hides every channel a user may not Traverse (and the channels
+  below it), with the users in it: no ChannelState, UserState, comments,
+  avatars or descriptions (visibility.go, per-client `seen`; changes of
+  access send the difference). Users in a channel that becomes hidden to
+  them move up. Voice over links reaches only who sees the channel.
+- A private channel: "all" deny Traverse|Enter, then members, moderator
+  and admin allow them (ApplySubs: subchannels are private too); the
+  channel-local group "members". Text channels use their mirror. Only
+  staff (isStaff) change it; Mumble ACL edits are reported too.
+- Members are registered user ids; guest accounts are registered, so they
+  can be members.
+- Limits: a mirror made anew (lost one) is public; per-user-ACL admins
+  without the admin group do not see private mirrors; users with Write
+  from an ACL entry (e.g. a channel's creator) keep access; denials still
+  name hidden channel ids (existence can be guessed); upload URLs are not
+  tied to channels.

@@ -53,6 +53,8 @@ export type DisplayMessage = ChatMessage & {
 };
 
 export type ListenOnlyChannel = { channel: number; speakers: Speaker[] };
+// A private channel (by Mumble channel) and, for staff, its members.
+export type PrivateChannel = { channel: number; members?: Speaker[] };
 // The other user of a direct chat.
 export type Peer = { id: number; name: string };
 export type DirectChat = { channel: number; peer: Peer };
@@ -74,6 +76,7 @@ export type ServerEvent =
       voiceChats?: boolean;
       roles?: Roles;
       listenOnly?: ListenOnlyChannel[];
+      private?: PrivateChannel[];
       timeouts?: Timeout[];
       // Registered users' direct chats (with messages).
       directs?: DirectChat[];
@@ -104,6 +107,8 @@ export type ServerEvent =
   | { type: "stream-token"; token: string }
   // The listen-only voice channels changed.
   | { type: "listen-only"; channels: ListenOnlyChannel[] }
+  // The private channels we see changed (or their members).
+  | { type: "private"; channels: PrivateChannel[] }
   // The running time-outs changed.
   | { type: "timeouts"; timeouts: Timeout[] }
   // The channel that holds a voice channel's chat.
@@ -144,6 +149,10 @@ export type TextState = {
   roles: Roles;
   // Listen-only voice channels: their speakers.
   listenOnly: Readonly<Record<number, Speaker[]>>;
+  // Private channels we see, by Mumble channel (a voice channel, or a
+  // text channel's mirror): their members (for admins and moderators;
+  // others get none).
+  private: Readonly<Record<number, Speaker[]>>;
   timeouts: readonly Timeout[];
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
@@ -179,6 +188,7 @@ export const initialTextState: TextState = {
   voiceChats: false,
   roles: { admins: [], moderators: [] },
   listenOnly: {},
+  private: {},
   timeouts: [],
   directs: {},
   streams: [],
@@ -227,6 +237,9 @@ const isSpeaker = (v: unknown): v is Speaker => isObj(v) && isNum(v.id) && isStr
 const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && Array.isArray(c.speakers) && c.speakers.every(isSpeaker));
 const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
+const isPrivateList = (v: unknown): v is PrivateChannel[] =>
+  Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && (c.members === undefined || (Array.isArray(c.members) && c.members.every(isSpeaker))));
+const privateMap = (cs: PrivateChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.members ?? []]));
 const isTimeouts = (v: unknown): v is Timeout[] =>
   Array.isArray(v) && v.every((t) => isObj(t) && isNum(t.until) && (isNum(t.user) !== isNum(t.session)));
 const isStreamPreview = (v: unknown): v is string => isStr(v) && v.startsWith("data:image/jpeg;base64,");
@@ -310,6 +323,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(roles ? { roles } : {}),
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
+        ...(isPrivateList(v.private) ? { private: v.private } : {}),
         ...(isTimeouts(v.timeouts) ? { timeouts: v.timeouts } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
@@ -330,6 +344,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "listen-only":
       return isListenOnly(v.channels) ? { type: "listen-only", channels: v.channels } : null;
+    case "private":
+      return isPrivateList(v.channels) ? { type: "private", channels: v.channels } : null;
     case "status": {
       const s = parseSessionStatus(v);
       return s && { type: "status", ...s };
@@ -420,6 +436,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
+        private: privateMap(event.private ?? []),
         timeouts: event.timeouts ?? [],
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
@@ -439,6 +456,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, emoji: event.emoji };
     case "listen-only":
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
+    case "private":
+      return { ...state, private: privateMap(event.channels) };
     case "status": {
       const { type: _, session, ...v } = event;
       const { [session]: __, ...rest } = state.statuses;
@@ -561,7 +580,11 @@ export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice
 
 // Text channel management (admins; the server checks).
 export type ManageAction =
-  | { create: string }
+  | { create: string; private?: boolean }
+  | { createPrivateVoice: string }
+  // A Mumble channel (see TextState.private) private with these members,
+  // or public.
+  | { setPrivate: number; on: boolean; users: number[] }
   | { rename: number; name: string }
   | { remove: number }
   | { order: number[] }
@@ -573,26 +596,21 @@ export type ManageAction =
   | { ban: number; reason: string; seconds: number }
   | { timeout: number; seconds: number };
 
-export const manageRequest = (a: ManageAction) =>
-  JSON.stringify(
-    "create" in a
-      ? { type: "create-channel", name: a.create }
-      : "rename" in a
-        ? { type: "rename-channel", channel: a.rename, name: a.name }
-        : "remove" in a
-          ? { type: "delete-channel", channel: a.remove }
-          : "moderator" in a
-            ? { type: "set-moderator", user: a.moderator, moderator: a.on }
-            : "listenOnly" in a
-              ? { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users }
-              : "topic" in a
-                ? { type: "set-topic", channel: a.topic, text: a.text }
-                : "ban" in a
-                  ? { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds }
-                  : "timeout" in a
-                    ? { type: "time-out", session: a.timeout, seconds: a.seconds }
-                    : { type: "order-channels", channels: a.order },
-  );
+const manageBody = (a: ManageAction) => {
+  if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
+  if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice };
+  if ("setPrivate" in a) return { type: "set-private", voice: a.setPrivate, on: a.on, users: a.users };
+  if ("rename" in a) return { type: "rename-channel", channel: a.rename, name: a.name };
+  if ("remove" in a) return { type: "delete-channel", channel: a.remove };
+  if ("moderator" in a) return { type: "set-moderator", user: a.moderator, moderator: a.on };
+  if ("listenOnly" in a) return { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users };
+  if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
+  if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
+  if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
+  return { type: "order-channels", channels: a.order };
+};
+
+export const manageRequest = (a: ManageAction) => JSON.stringify(manageBody(a));
 
 export const searchRequest = (q: SearchQuery) => JSON.stringify({ type: "search", ...q });
 export const directRequest = (user: number) => JSON.stringify({ type: "dm", user });

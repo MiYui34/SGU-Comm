@@ -74,23 +74,23 @@ func (s *Server) flushPermissionsLocked(u *User) {
 // moveLocked moves a user into a channel and tells everyone, with the new
 // suppress state: users who may not speak in a channel are suppressed.
 func (s *Server) moveLocked(u *User, channel, actor uint32) {
+	from := u.Channel
 	removed := s.state.MoveUser(u.Session, channel)
 	out := &pb.UserState{Session: proto.Uint32(u.Session), Actor: proto.Uint32(actor), ChannelId: proto.Uint32(u.Channel)}
 	if s.refreshLocked(u) {
 		out.Suppress = proto.Bool(u.Suppress)
 	}
-	s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
+	s.sendMoveLocked(u, from, out)
 	s.broadcastRemovedLocked(removed)
-	s.broadcastUnlistenLocked(u.Session, s.state.dropListener(u))
+	s.broadcastUnlistenLocked(u, s.state.dropListener(u))
 	s.flushPermissionsLocked(u) // @in, @out and @sub depend on the channel
+	s.syncViewLocked(u)         // and so may what it sees
 }
 
 // broadcastUnlistenLocked tells everyone where a user stopped listening.
-func (s *Server) broadcastUnlistenLocked(session uint32, channels []uint32) {
+func (s *Server) broadcastUnlistenLocked(u *User, channels []uint32) {
 	if len(channels) > 0 {
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-			Session: proto.Uint32(session), ListeningChannelRemove: channels,
-		}), nil)
+		s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(u.Session), ListeningChannelRemove: channels})
 	}
 }
 
@@ -99,7 +99,8 @@ func (s *Server) broadcastUnlistenLocked(session uint32, channels []uint32) {
 // Speak, listeners without Listen stop, and (if a channel is given)
 // everyone learns whether they may enter it.
 func (s *Server) permissionsChangedLocked(changed *Channel) {
-	s.state.Changed()  // who may speak and whisper where
+	s.state.Changed() // who may speak and whisper where
+	s.syncViewsLocked()
 	var below []uint32 // subchannels inherit the change
 	if changed != nil {
 		below = s.state.Subtree(changed.ID)
@@ -108,7 +109,7 @@ func (s *Server) permissionsChangedLocked(changed *Channel) {
 		s.flushPermissionsLocked(u)
 		c := s.clients[u.Session]
 		for _, id := range below {
-			if ch := s.state.Channels[id]; c != nil && ch != nil {
+			if ch := s.state.Channels[id]; c != nil && ch != nil && c.seen[id] {
 				c.sendMsg(mumble.TypeChannelState, &pb.ChannelState{
 					ChannelId: proto.Uint32(id), CanEnter: proto.Bool(s.state.Has(u, id, Enter)),
 					IsEnterRestricted: proto.Bool(enterRestricted(ch)),
@@ -118,13 +119,11 @@ func (s *Server) permissionsChangedLocked(changed *Channel) {
 	}
 	dropped := s.state.DropListeners()
 	for _, session := range slices.Sorted(maps.Keys(dropped)) {
-		s.broadcastUnlistenLocked(session, dropped[session])
+		s.broadcastUnlistenLocked(s.state.Users[session], dropped[session])
 	}
 	for _, u := range s.state.Users {
 		if s.refreshLocked(u) {
-			s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, &pb.UserState{
-				Session: proto.Uint32(u.Session), Suppress: proto.Bool(u.Suppress),
-			}), nil)
+			s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(u.Session), Suppress: proto.Bool(u.Suppress)})
 		}
 	}
 }
@@ -191,6 +190,7 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		defer s.rolesChanged() // roles live in root's groups; runs after the unlock
 	}
 	defer s.listenOnlyChanged()
+	defer s.privateChanged()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch, u = s.state.Channels[m.GetChannelId()], s.state.Users[c.session]
@@ -497,7 +497,7 @@ func (s *Server) registrationChangedLocked(id uint32, name *string, actor uint32
 			u.Registered, u.UserID = false, 0
 			out.UserId = proto.Uint32(0xffffffff) // -1: not registered, as Murmur sends it
 		}
-		s.broadcastLocked(mumble.MessageFrame(mumble.TypeUserState, out), nil)
+		s.sendUserLocked(u, out)
 	}
 	if name == nil {
 		s.permissionsChangedLocked(nil)

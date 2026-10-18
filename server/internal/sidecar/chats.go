@@ -27,13 +27,15 @@ func (h *Hub) chatOf(channel int64) (chat, bool) {
 	return chat{id: channel, direct: true, peers: [2]uint32{a, b}}, err == nil && direct
 }
 
-// may: the user may read (or write) the chat. Text channels are for all.
+// may: the user may read (or write) the chat. Text channels are for all
+// who see their mirror (private ones for members and staff).
 func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
 	if c.direct {
 		return id.Registered && (id.UserID == c.peers[0] || id.UserID == c.peers[1])
 	}
 	if !c.isVoice {
-		return true
+		mirror := h.mirrorOf(c.id)
+		return h.voice == nil || mirror == 0 || h.voice.Sees(id.Session, mirror)
 	}
 	if write {
 		return h.voice.MayWrite(id.Session, c.voice)
@@ -43,16 +45,25 @@ func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
 
 // readers are the connections whose user may read the chat.
 func (h *Hub) readers(c chat) []*Conn {
-	out := h.all()[:0:0]
+	var out []*Conn
+	h.eachReady(func(conn *Conn, id mumble.Identity) {
+		if h.may(id, c, false) {
+			out = append(out, conn)
+		}
+	})
+	return out
+}
+
+// eachReady calls f for each ready connection, with its user.
+func (h *Hub) eachReady(f func(*Conn, mumble.Identity)) {
 	for _, conn := range h.all() {
 		conn.mu.Lock()
 		id := conn.identity
 		conn.mu.Unlock()
-		if id != nil && h.may(*id, c, false) {
-			out = append(out, conn)
+		if id != nil {
+			f(conn, *id)
 		}
 	}
-	return out
 }
 
 // sendTo sends to the chat's readers.

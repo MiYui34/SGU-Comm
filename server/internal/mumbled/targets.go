@@ -147,14 +147,16 @@ func (s *State) Receivers(sender, target uint32) map[uint32]AudioContext {
 	}
 	if target == 0 {
 		speak := s.speakChannels(u)
+		// Over links only to those who see the speaker's channel.
+		sees := func(o *User, ch uint32) bool { return ch == u.Channel || s.Sees(o, u.Channel) }
 		for _, o := range s.Users {
-			if speak[o.Channel] {
+			if speak[o.Channel] && sees(o, o.Channel) {
 				add(o, ContextNormal)
 			}
 		}
 		for _, o := range s.Users {
 			for ch := range o.Listening {
-				if speak[ch] {
+				if speak[ch] && sees(o, ch) {
 					add(o, ContextListen)
 				}
 			}

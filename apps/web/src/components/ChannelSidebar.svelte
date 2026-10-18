@@ -23,6 +23,7 @@
     mentionText = {},
     mentionVoice = {},
     listenOnly = {},
+    privateChannels = {},
     directs = [],
     live = new Set(),
     previews = {},
@@ -54,6 +55,9 @@
     mentionVoice?: Record<number, number>;
     // Listen-only voice channels (only some users may speak).
     listenOnly?: Readonly<Record<number, unknown>>;
+    // Private channels by Mumble channel (a voice channel, or a text
+    // channel's mirror): a lock.
+    privateChannels?: Readonly<Record<number, unknown>>;
     // Sessions sharing their screen, and watching one.
     live?: ReadonlySet<number>;
     // Thumbnails of the streams (shown on the LIVE button).
@@ -105,6 +109,7 @@
         <Icon name="speaker" size={20} />
       {/if}
       <span class="name ellipsis">{node.channel.name}</span>
+      {#if node.channel.id in privateChannels}{@render lock()}{/if}
       {#if node.channel.id !== currentChannel}<Badge count={mentionVoice[node.channel.id]} label="mentions" />{/if}
     </button>
     {#if users.length}
@@ -164,6 +169,10 @@
   </li>
 {/snippet}
 
+{#snippet lock()}
+  <span class="lock" title="Private channel"><Icon name="lock" size={14} /><span class="sr-only">(private)</span></span>
+{/snippet}
+
 {#snippet category(label: string, isCollapsed: boolean, toggle: () => void, kind?: ChannelKind)}
   <div class="category-row">
     <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
@@ -203,6 +212,7 @@
             >
               <Icon name="hash" size={20} />
               <span class="name ellipsis">{ch.name}</span>
+              {#if ch.mumble !== undefined && ch.mumble in privateChannels}{@render lock()}{/if}
               {#if unreadText.has(ch.id) && ch.id !== currentText}
                 <span class="sr-only">unread</span>
               {/if}
@@ -347,6 +357,11 @@
   }
   .name {
     flex: 1;
+  }
+  .lock {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--text-muted);
   }
   .flags {
     display: flex;

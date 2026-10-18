@@ -20,6 +20,7 @@ type Mirror struct {
 	Channel uint32
 	Name    string
 	Topic   string
+	Private bool // a new mirror is private (an existing one keeps its access)
 }
 
 // noChannel is the voice server's "not on the server" (mumbled.NoChannel).
@@ -29,15 +30,16 @@ const noChannel = ^uint32(0)
 const historySize = 20
 
 // syncMirrors makes the mirrors match the text channels, saves their
-// Mumble channels and reloads the list. Call it with manageMu held.
-func (h *Hub) syncMirrors() error {
+// Mumble channels and reloads the list. A new mirror for the text channel
+// private (0: none) is private. Call it with manageMu held.
+func (h *Hub) syncMirrors(private int64) error {
 	channels, err := h.store.Channels()
 	if err != nil {
 		return err
 	}
 	want := make([]Mirror, len(channels))
 	for i, c := range channels {
-		want[i] = Mirror{Channel: c.Mumble, Name: c.Name, Topic: c.Topic}
+		want[i] = Mirror{Channel: c.Mumble, Name: c.Name, Topic: c.Topic, Private: private != 0 && c.ID == private}
 	}
 	ids, err := h.voice.SyncTextChannels(want)
 	if err != nil {

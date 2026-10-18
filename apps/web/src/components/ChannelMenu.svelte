@@ -12,11 +12,13 @@
     canDelete,
     canMoveUp,
     canMoveDown,
+    canMembers = false,
     notify,
     onNotify,
     onEdit,
     onMove,
     onDelete,
+    onMembers,
     onClose,
   }: {
     name: string;
@@ -26,6 +28,8 @@
     canDelete: boolean;
     canMoveUp: boolean;
     canMoveDown: boolean;
+    // A private channel's members (admins and moderators).
+    canMembers?: boolean;
     // Text channels: notification settings (see lib/channelPrefs);
     // undefined: none. desktop: desktop notifications are on.
     notify?: { pref: ChannelPref; desktop: boolean };
@@ -33,6 +37,7 @@
     onEdit: () => void;
     onMove: (step: -1 | 1) => void;
     onDelete: () => void;
+    onMembers?: () => void;
     onClose: () => void;
   } = $props();
 
@@ -77,6 +82,7 @@
   {/if}
   {#if canEdit || canMoveUp || canMoveDown}
     {#if canEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
+    {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
     {#if canMoveUp}<button onclick={act(() => onMove(-1))}>Move up</button>{/if}
     {#if canMoveDown}<button onclick={act(() => onMove(1))}>Move down</button>{/if}
     {#if canDelete}
