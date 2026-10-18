@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,15 @@ type Voice interface {
 	// SyncTextChannels keeps a Mumble channel per text channel (in order)
 	// and returns them.
 	SyncTextChannels(want []Mirror) ([]uint32, error)
+	// Sees: the user may see a Mumble channel (others are hidden from it;
+	// a private text channel is its mirror's access). Private lists the
+	// private channels; SetPrivate makes one private with these members
+	// (registered user ids), or public; CreatePrivateChannel makes a
+	// private voice channel. Only admins and moderators change them.
+	Sees(session, channel uint32) bool
+	Private() []PrivateChannel
+	SetPrivate(session, channel uint32, on bool, members []uint32) error
+	CreatePrivateChannel(session uint32, name string) (uint32, error)
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
 	// SendPrivateText sends plain text to a registered user's Mumble
@@ -87,14 +97,18 @@ type LiveStream struct {
 	Preview string `json:"preview,omitempty"` // a JPEG data URL; for those who may enter the channel
 }
 
-// StreamsChanged sends everyone the live streams (previews come with
-// StreamPreview).
+// StreamsChanged sends everyone the live streams in channels it sees
+// (previews come with StreamPreview).
 func (h *Hub) StreamsChanged(streams []LiveStream) {
-	out := make([]LiveStream, len(streams))
-	for i, s := range streams {
-		out[i] = LiveStream{Session: s.Session, Channel: s.Channel}
-	}
-	h.broadcast(map[string]any{"type": "streams", "streams": out})
+	h.eachReady(func(c *Conn, id mumble.Identity) {
+		out := []LiveStream{}
+		for _, s := range streams {
+			if h.voice.Sees(id.Session, s.Channel) {
+				out = append(out, LiveStream{Session: s.Session, Channel: s.Channel})
+			}
+		}
+		c.send(map[string]any{"type": "streams", "streams": out})
+	})
 }
 
 // StreamPreview sends a stream's new thumbnail to those who may enter its
@@ -107,6 +121,9 @@ func (h *Hub) StreamPreview(s LiveStream) {
 func (h *Hub) liveStreams(id mumble.Identity) []LiveStream {
 	out := []LiveStream{}
 	for _, s := range h.LiveStreams() {
+		if !h.voice.Sees(id.Session, s.Channel) {
+			continue
+		}
 		if !h.voice.MayRead(id.Session, s.Channel) {
 			s.Preview = ""
 		}
@@ -193,7 +210,7 @@ func (h *Hub) SetVoice(v Voice, publicBase string) {
 	h.voice, h.publicBase = v, strings.TrimSuffix(publicBase, "/")
 	h.manageMu.Lock()
 	defer h.manageMu.Unlock()
-	if err := h.syncMirrors(); err != nil {
+	if err := h.syncMirrors(0); err != nil {
 		slog.Error("text channel mirrors", "err", err)
 	}
 }
@@ -275,13 +292,17 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.ready = true
 		c.hub.conns[c] = struct{}{}
 	}
-	channels := c.hub.channels
+	wasReady := c.ready && !becomesReady
 	c.mu.Unlock()
 	c.hub.mu.Unlock()
+	if wasReady && c.hub.voice != nil {
+		c.sendAccess(id) // a registration can change what it sees
+	}
 	if becomesReady {
-		ready := map[string]any{"type": "ready", "channels": channels, "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji()}
+		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji()}
 		if c.hub.voice != nil {
-			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnly(), c.hub.timeouts()
+			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
+			ready["private"] = c.hub.privateFor(id)
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
@@ -398,6 +419,7 @@ type request struct {
 	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
 	Session   uint32   `json:"session"`   // ban, time-out: the user's voice server session
 	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it)
+	Private   bool     `json:"private"`   // create-channel: a private one
 }
 
 // Handle answers one request from the browser.
@@ -486,6 +508,12 @@ func (c *Conn) Handle(raw []byte) {
 		} else {
 			c.send(map[string]any{"type": "stream-token", "token": c.hub.StreamToken(id.Session)})
 		}
+		return
+	case "set-private":
+		c.setPrivate(*id, req)
+		return
+	case "create-private-voice":
+		c.createPrivateVoice(*id, req.Name)
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).
@@ -740,6 +768,7 @@ func (h *Hub) RolesChanged() {
 	r := h.roles()
 	r.Type = "roles"
 	h.broadcast(r)
+	h.PrivateChanged() // staff see all channels
 }
 
 // listenOnly lists the listen-only voice channels (a list, never null in
@@ -748,12 +777,19 @@ func (h *Hub) listenOnly() []ListenOnlyChannel {
 	return append([]ListenOnlyChannel{}, h.voice.ListenOnly()...)
 }
 
-// ListenOnlyChanged sends everyone the listen-only voice channels.
+// listenOnlyFor: the listen-only channels the user sees.
+func (h *Hub) listenOnlyFor(id mumble.Identity) []ListenOnlyChannel {
+	return slices.DeleteFunc(h.listenOnly(), func(c ListenOnlyChannel) bool { return !h.voice.Sees(id.Session, c.Channel) })
+}
+
+// ListenOnlyChanged sends everyone the listen-only voice channels it sees.
 func (h *Hub) ListenOnlyChanged() {
 	if h.voice == nil {
 		return
 	}
-	h.broadcast(map[string]any{"type": "listen-only", "channels": h.listenOnly()})
+	h.eachReady(func(c *Conn, id mumble.Identity) {
+		c.send(map[string]any{"type": "listen-only", "channels": h.listenOnlyFor(id)})
+	})
 }
 
 func (h *Hub) broadcast(v any) {
@@ -858,6 +894,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	h.manageMu.Lock()
 	defer h.manageMu.Unlock()
 	var err error
+	var private int64 // a new private text channel
 	switch req.Type {
 	case "create-channel", "rename-channel":
 		name, ok := textChannelName(req.Name)
@@ -866,7 +903,10 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 			return
 		}
 		if req.Type == "create-channel" {
-			_, err = h.store.CreateChannel(name)
+			var ch store.Channel
+			if ch, err = h.store.CreateChannel(name); err == nil && req.Private {
+				private = ch.ID
+			}
 		} else {
 			err = h.store.RenameChannel(req.Channel, name)
 		}
@@ -890,17 +930,26 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		c.manageError("cannot change the channel")
 		return
 	}
-	if err := h.syncMirrors(); err != nil {
+	if err := h.syncMirrors(private); err != nil {
 		slog.Error("text channel mirrors", "err", err)
+		if private != 0 { // without a private mirror it would be public
+			if err := h.store.HideChannel(private); err != nil {
+				slog.Error("hide a text channel", "err", err)
+			}
+			c.manageError("cannot make the private channel")
+		}
 		if err := h.reloadChannels(); err != nil {
 			slog.Error("load text channels", "err", err)
 			return
 		}
 	}
-	h.mu.Lock()
-	channels := h.channels
-	h.mu.Unlock()
-	h.broadcast(map[string]any{"type": "channels", "channels": channels})
+	h.eachReady(func(c *Conn, id mumble.Identity) {
+		if private != 0 {
+			c.sendAccess(id)
+		} else {
+			c.send(map[string]any{"type": "channels", "channels": h.channelsFor(id)})
+		}
+	})
 }
 
 // toWireChannels: mirrors only with the built-in server (the ids may be

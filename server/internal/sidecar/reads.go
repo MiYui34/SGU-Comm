@@ -53,11 +53,9 @@ type summaryEntry struct {
 // readableChats are the text channels and the voice chats a user may read.
 func (h *Hub) readableChats(id mumble.Identity) []summaryEntry {
 	var chats []summaryEntry
-	h.mu.Lock()
-	for _, c := range h.channels {
+	for _, c := range h.channelsFor(id) {
 		chats = append(chats, summaryEntry{Channel: c.ID})
 	}
-	h.mu.Unlock()
 	if h.voice == nil {
 		return chats
 	}

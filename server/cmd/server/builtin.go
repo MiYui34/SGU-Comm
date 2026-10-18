@@ -98,12 +98,12 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	var onText func(mumbled.ChannelText)
 	var onPrivate func(mumbled.PrivateText)
-	var onRoles, onListenOnly, onTimeouts func()
+	var onRoles, onListenOnly, onPrivateChannels, onTimeouts func()
 	sv := &streamVoice{}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
-		onRoles, onListenOnly, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.TimeoutsChanged
+		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
 			streams.Moved(session, to)
@@ -152,6 +152,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnPrivateText:       onPrivate,
 		OnRolesChanged:      onRoles,
 		OnListenOnlyChanged: onListenOnly,
+		OnPrivateChanged:    onPrivateChannels,
 		OnTimeoutsChanged:   onTimeouts,
 		OnUserMoved:         onMoved,
 	})
@@ -213,7 +214,7 @@ type voiceServer struct{ *mumbled.Server }
 func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
 	mirrors := make([]mumbled.TextMirror, len(want))
 	for i, w := range want {
-		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name, Topic: w.Topic}
+		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name, Topic: w.Topic, Private: w.Private}
 	}
 	return v.Server.SyncTextChannels(mirrors)
 }
@@ -231,6 +232,18 @@ func (v voiceServer) ListenOnly() []sidecar.ListenOnlyChannel {
 			speakers[i] = sidecar.Speaker{ID: sp.ID, Name: sp.Name}
 		}
 		out = append(out, sidecar.ListenOnlyChannel{Channel: c.Channel, Speakers: speakers})
+	}
+	return out
+}
+
+func (v voiceServer) Private() []sidecar.PrivateChannel {
+	var out []sidecar.PrivateChannel
+	for _, c := range v.Server.Private() {
+		members := make([]sidecar.Member, len(c.Members))
+		for i, m := range c.Members {
+			members[i] = sidecar.Member{ID: m.ID, Name: m.Name}
+		}
+		out = append(out, sidecar.PrivateChannel{Channel: c.Channel, Members: members})
 	}
 	return out
 }
