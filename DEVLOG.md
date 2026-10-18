@@ -467,6 +467,9 @@ From `meta/research/discord-comparison.md`.
   mumbled now reports the registration after the join (and a Mumble
   client's self-registration after the state change), so the client gets
   "online" before "member" and never lists a new user as offline.
+- Known gap: the Mumble UserState/UserRemove and the "online" event take
+  different paths (mumbled's event queue), so a user who joins or leaves
+  can show for a moment in Online without a channel.
 - mumbled allows one session per registered user (another device kicks
   the old one), so a member has one session and one status.
 - Making a guest account permanent changes only the store: auth tells the
