@@ -109,3 +109,25 @@ func TestBadStatusesAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// Server emoji work in a custom status, as in reactions; unknown ones not.
+func TestCustomEmojiInAStatus(t *testing.T) {
+	h := newHub(t, "general")
+	addEmoji(t, h, "kallisti")
+	h.EmojiChanged() // as after an upload
+	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice"})
+	alice.Handle([]byte(`{"type":"set-status","status":"online","emoji":":kallisti:","text":"hi"}`))
+	if m := next(t, alice); m["type"] == "error" {
+		t.Fatalf("server emoji refused: %v", m)
+	}
+	alice.Handle([]byte(`{"type":"set-status","status":"online","emoji":":nope:","text":"hi"}`))
+	for {
+		m := next(t, alice)
+		if m["type"] == "error" {
+			return
+		}
+		if m["type"] == "own-status" && m["emoji"] == ":nope:" {
+			t.Fatalf("unknown server emoji accepted: %v", m)
+		}
+	}
+}

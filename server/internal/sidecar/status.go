@@ -133,8 +133,9 @@ func (c *Conn) statusGone() {
 	}
 }
 
-// parseStatus checks a set-status request.
-func parseStatus(req request, now time.Time) (store.UserStatus, string) {
+// parseStatus checks a set-status request; hasEmoji: the server's custom
+// emoji (":name:"), as in reactions.
+func parseStatus(req request, now time.Time, hasEmoji func(name string) bool) (store.UserStatus, string) {
 	st := store.UserStatus{Status: req.Status, Text: strings.Join(strings.Fields(req.Text), " "), Until: req.Until}
 	switch st.Status {
 	case "online":
@@ -145,7 +146,9 @@ func parseStatus(req request, now time.Time) (store.UserStatus, string) {
 	}
 	if req.Emoji != "" {
 		st.Emoji = emoji.Normal(req.Emoji)
-		if !emoji.Valid(st.Emoji) {
+		if name, custom := emoji.CustomName(st.Emoji); custom && !hasEmoji(name) {
+			return st, "no such emoji on this server"
+		} else if !custom && !emoji.Valid(st.Emoji) {
 			return st, "not an emoji"
 		}
 	}
@@ -161,7 +164,7 @@ func parseStatus(req request, now time.Time) (store.UserStatus, string) {
 // setStatus sets the user's chosen status and custom status: of a
 // registered user on all its devices (and kept), of a guest only here.
 func (c *Conn) setStatus(id mumble.Identity, req request) {
-	st, problem := parseStatus(req, c.hub.now())
+	st, problem := parseStatus(req, c.hub.now(), c.hub.hasEmoji)
 	if problem != "" {
 		c.sendError(problem)
 		return
