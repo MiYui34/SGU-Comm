@@ -1094,6 +1094,24 @@ func (s *Store) TemporaryAccounts() (int, error) {
 	return n, err
 }
 
+// TemporaryNames are the temporary accounts' names, as names.Key.
+func (s *Store) TemporaryNames() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT name_key FROM accounts WHERE temporary = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out[key] = true
+	}
+	return out, rows.Err()
+}
+
 // MakePermanent gives a temporary account its password.
 func (s *Store) MakePermanent(id int64, hash string) error {
 	_, err := s.db.Exec(`UPDATE accounts SET password_hash = ?, temporary = 0 WHERE id = ?`, hash, id)

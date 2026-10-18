@@ -99,11 +99,13 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	var onText func(mumbled.ChannelText)
 	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly, onPrivateChannels, onTimeouts func()
+	var onUser func(id uint32, name string)
 	sv := &streamVoice{}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
+		onUser = hub.UserChanged
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
 			streams.Moved(session, to)
@@ -151,6 +153,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnChannelText:       onText,
 		OnPrivateText:       onPrivate,
 		OnRolesChanged:      onRoles,
+		OnUserChanged:       onUser,
 		OnListenOnlyChanged: onListenOnly,
 		OnPrivateChanged:    onPrivateChannels,
 		OnTimeoutsChanged:   onTimeouts,

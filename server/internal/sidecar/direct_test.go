@@ -105,6 +105,30 @@ func TestDirectChatRefusals(t *testing.T) {
 	}
 }
 
+// A message to a user who is offline (from the member list) waits, unread.
+func TestDirectMessagesToOfflineUsers(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{names: map[uint32]string{10: "alice", 40: "dave"}}, "")
+	alice := joinAs(t, h, mumble.Identity{Session: 3, Name: "alice", Registered: true, UserID: 10})
+	chat := openDirect(t, alice, 40)
+	alice.Handle([]byte(`{"type":"send","channel":` + chat + `,"text":"call me"}`))
+	next(t, alice) // the chat
+	next(t, alice) // the message
+	dave := h.Connect()
+	t.Cleanup(dave.Close)
+	dave.SetIdentity(mumble.Identity{Session: 6, Name: "dave", Registered: true, UserID: 40})
+	ready := next(t, dave)
+	if d := ready["directs"].([]any); len(d) != 1 {
+		t.Fatalf("directs %v", ready)
+	}
+	for _, e := range ready["summary"].([]any) {
+		if e := e.(map[string]any); strconv.FormatFloat(e["channel"].(float64), 'f', -1, 64) == chat && e["mentions"] == float64(1) {
+			return
+		}
+	}
+	t.Fatalf("summary %v", ready["summary"])
+}
+
 // In a direct chat both users pin (not only moderators); others cannot.
 func TestBothUsersPinInADirectChat(t *testing.T) {
 	_, alice, bob, carol := directHub(t)
