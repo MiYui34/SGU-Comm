@@ -24,3 +24,5 @@
   - [ ] [Connection info in the web client](issues/connection-info-web.md)
   - [ ] [Connection stats on the server](issues/connection-stats-server.md)
   - [ ] [Admin view of all connections](issues/connection-admin-view.md)
+- [ ] [Music mode](issues/music-mode.md)
+- [ ] [Recording a voice channel](issues/channel-recording.md)
