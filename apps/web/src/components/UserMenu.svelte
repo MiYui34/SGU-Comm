@@ -12,7 +12,7 @@
 
   let {
     user,
-    offline = false,
+    byId = false,
     isMe,
     audio,
     x,
@@ -35,8 +35,9 @@
     onClose,
   }: {
     user: Pick<User, "name" | "comment" | "mute" | "deaf">;
-    // A registered user who is offline: no voice items (volume, mute).
-    offline?: boolean;
+    // A member we do not see (offline, or in a channel hidden from us): no
+    // voice items (volume, mute).
+    byId?: boolean;
     isMe: boolean;
     audio: UserAudio;
     x: number;
@@ -76,7 +77,7 @@
 
 <ContextMenu {x} {y} label="Actions for {user.name}" {onClose}>
   <div class="who">
-    <Avatar name={user.name} size={32} status={status?.presence} registered={offline} />
+    <Avatar name={user.name} size={32} status={status?.presence} registered={byId} />
     <span class="names">
       <span class="line"><span>{user.name}</span><RoleTag {role} /></span>
       {#if status?.custom}
@@ -93,7 +94,7 @@
       <button onclick={act(onMessage)}>Message</button>
       <div class="sep"></div>
     {/if}
-    {#if !offline}
+    {#if !byId}
       <label class="volume">
         <span class="row">
           User volume <span class="value">{Math.round(audio.volume * 100)}%</span>

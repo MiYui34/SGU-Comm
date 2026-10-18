@@ -10,7 +10,7 @@ import type { SearchQuery } from "./search";
 import { parsePresence, type PresenceView } from "./presence";
 import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
 import type { Invite } from "./invites";
-import type { Members } from "./members";
+import type { Members, Online } from "./members";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -93,9 +93,12 @@ export type ServerEvent =
       emoji?: CustomEmoji[];
       // Registered users but guest accounts (see lib/members).
       members?: Peer[];
+      online?: Online;
     }
   // A registered user was added or renamed (name), or removed (gone).
   | { type: "member"; id: number; name?: string }
+  // A member came online in any channel (session), or went offline.
+  | { type: "online"; id: number; session?: number }
   // A registered user's saved bio (asked for, see lib/members).
   | { type: "bio"; user: number; text: string }
   // A web client's status (see lib/presence); plain online: none.
@@ -200,6 +203,8 @@ export type TextState = {
   // user id).
   members: Members;
   bios: Readonly<Record<number, string>>;
+  // Members online, whether or not we see them (see lib/members).
+  online: Online;
 };
 
 export const initialTextState: TextState = {
@@ -230,6 +235,7 @@ export const initialTextState: TextState = {
   ownStatus: { status: "online" },
   emoji: [],
   members: {},
+  online: {},
   bios: {},
 };
 
@@ -367,11 +373,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(ownStatus ? { ownStatus } : {}),
         ...(emoji ? { emoji } : {}),
         ...(Array.isArray(v.members) && v.members.every(isSpeaker) ? { members: v.members } : {}),
+        ...(isObj(v.online) && Object.values(v.online).every(isNum) ? { online: v.online as Online } : {}),
       };
     }
     case "member":
       if (!isNum(v.id)) return null;
       return isStr(v.name) ? { type: "member", id: v.id, name: v.name } : v.gone === true ? { type: "member", id: v.id } : null;
+    case "online":
+      return isNum(v.id) ? { type: "online", id: v.id, ...(isNum(v.session) ? { session: v.session } : {}) } : null;
     case "bio":
       return isNum(v.user) && isStr(v.text) ? { type: "bio", user: v.user, text: v.text } : null;
     case "emoji": {
@@ -483,6 +492,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
         members: Object.fromEntries((event.members ?? []).map((p) => [p.id, p.name])),
+        online: event.online ?? {},
         bios: {},
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         private: privateMap(event.private ?? []),
@@ -507,6 +517,10 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       const { [event.id]: _, ...rest } = state.members;
       if (event.name === undefined) return { ...state, members: rest };
       return { ...state, members: { ...rest, [event.id]: event.name }, directs: renamePeer(state.directs, event.id, event.name) };
+    }
+    case "online": {
+      const { [event.id]: _, ...rest } = state.online;
+      return { ...state, online: event.session === undefined ? rest : { ...rest, [event.id]: event.session } };
     }
     case "bio":
       return { ...state, bios: { ...state.bios, [event.user]: event.text } };
