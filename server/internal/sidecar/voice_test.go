@@ -46,6 +46,8 @@ type fakeVoice struct {
 	hidden  map[uint32]bool
 	members map[uint32]bool
 	created []string
+	// Mirrors that cannot be made (by name).
+	noMirror map[string]bool
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {
@@ -102,6 +104,9 @@ func (f *fakeVoice) SyncTextChannels(want []Mirror) ([]uint32, error) {
 	f.synced = slices.Clone(want)
 	ids := make([]uint32, len(want))
 	for i, m := range want {
+		if f.noMirror[m.Name] {
+			continue
+		}
 		if f.mirrors[m.Name] == 0 {
 			f.mirrors[m.Name] = 100 + uint32(len(f.mirrors))
 			if m.Private {

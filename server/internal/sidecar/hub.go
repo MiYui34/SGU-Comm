@@ -100,6 +100,9 @@ type LiveStream struct {
 // StreamsChanged sends everyone the live streams in channels it sees
 // (previews come with StreamPreview).
 func (h *Hub) StreamsChanged(streams []LiveStream) {
+	if h.voice == nil {
+		return
+	}
 	h.eachReady(func(c *Conn, id mumble.Identity) {
 		out := []LiveStream{}
 		for _, s := range streams {
@@ -895,6 +898,8 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	defer h.manageMu.Unlock()
 	var err error
 	var private int64 // a new private text channel
+	// Private channels change too: a new one, or a private one deleted.
+	access := false
 	switch req.Type {
 	case "create-channel", "rename-channel":
 		name, ok := textChannelName(req.Name)
@@ -905,12 +910,13 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		if req.Type == "create-channel" {
 			var ch store.Channel
 			if ch, err = h.store.CreateChannel(name); err == nil && req.Private {
-				private = ch.ID
+				private, access = ch.ID, true
 			}
 		} else {
 			err = h.store.RenameChannel(req.Channel, name)
 		}
 	case "delete-channel":
+		access = h.isPrivate(h.mirrorOf(req.Channel))
 		err = h.store.HideChannel(req.Channel)
 	case "set-topic":
 		topic := strings.TrimSpace(req.Text)
@@ -932,19 +938,20 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	}
 	if err := h.syncMirrors(private); err != nil {
 		slog.Error("text channel mirrors", "err", err)
-		if private != 0 { // without a private mirror it would be public
-			if err := h.store.HideChannel(private); err != nil {
-				slog.Error("hide a text channel", "err", err)
-			}
-			c.manageError("cannot make the private channel")
+	}
+	if private != 0 && h.mirrorOf(private) == 0 {
+		// Without its private mirror it would be public.
+		if err := h.store.HideChannel(private); err != nil {
+			slog.Error("hide a text channel", "err", err)
 		}
-		if err := h.reloadChannels(); err != nil {
-			slog.Error("load text channels", "err", err)
-			return
-		}
+		c.manageError("cannot make the private channel")
+	}
+	if err := h.reloadChannels(); err != nil {
+		slog.Error("load text channels", "err", err)
+		return
 	}
 	h.eachReady(func(c *Conn, id mumble.Identity) {
-		if private != 0 {
+		if access {
 			c.sendAccess(id)
 		} else {
 			c.send(map[string]any{"type": "channels", "channels": h.channelsFor(id)})

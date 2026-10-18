@@ -164,6 +164,10 @@ func TestAccessChangesSendTheChannelsAgain(t *testing.T) {
 	if m["type"] != "private" || len(p) != 1 || p[0].(map[string]any)["members"] != nil {
 		t.Fatalf("bob got %v", m)
 	}
+	// What depends on the channels seen comes along.
+	if m := next(t, bob); m["type"] != "listen-only" {
+		t.Fatalf("bob got %v", m)
+	}
 	next(t, staff)
 	m = next(t, staff)
 	if p := m["channels"].([]any); len(p) != 1 || len(p[0].(map[string]any)["members"].([]any)) != 1 {
@@ -203,9 +207,10 @@ func TestStaffMakeChannelsPrivate(t *testing.T) {
 	if len(synced) != 3 || !synced[2].Private || synced[0].Private || synced[1].Private {
 		t.Fatalf("synced %+v", synced)
 	}
-	next(t, staff) // the private channels
-	next(t, carol)
-	next(t, carol)
+	for _, c := range []*Conn{staff, carol, carol, carol} {
+		next(t, c) // the private and listen-only channels; carol's list
+	}
+	next(t, staff)
 	// A new private voice channel.
 	carol.Handle([]byte(`{"type":"create-private-voice","name":"Lounge"}`))
 	if m := next(t, carol); m["type"] != "error" {
@@ -217,6 +222,21 @@ func TestStaffMakeChannelsPrivate(t *testing.T) {
 	v.mu.Unlock()
 	if !slices.Equal(created, []string{"Lounge"}) {
 		t.Fatalf("created %v", created)
+	}
+}
+
+// A new private text channel whose mirror cannot be made would be public:
+// it goes again.
+func TestAPrivateChannelWithoutAMirrorGoes(t *testing.T) {
+	h, v, _ := privateHub(t)
+	v.noMirror = map[string]bool{"club": true}
+	staff := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 10})
+	staff.Handle([]byte(`{"type":"create-channel","name":"club","private":true}`))
+	if m := next(t, staff); m["type"] != "error" || m["about"] != "manage" {
+		t.Fatalf("staff got %v", m)
+	}
+	if m := next(t, staff); slices.Contains(channelNames(m), "club") {
+		t.Fatalf("staff got %v", m)
 	}
 }
 
