@@ -51,6 +51,8 @@ type Config struct {
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
 	// ListenOnly).
 	OnListenOnlyChanged func()
+	// OnPrivateChanged runs after a channel's ACL changed (see Private).
+	OnPrivateChanged func()
 	// OnTimeoutsChanged runs after a time-out began or ended (see
 	// Timeouts).
 	OnTimeoutsChanged func()

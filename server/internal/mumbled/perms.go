@@ -190,6 +190,7 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		defer s.rolesChanged() // roles live in root's groups; runs after the unlock
 	}
 	defer s.listenOnlyChanged()
+	defer s.privateChanged()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch, u = s.state.Channels[m.GetChannelId()], s.state.Users[c.session]
