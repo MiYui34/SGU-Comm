@@ -475,3 +475,28 @@ From `meta/research/discord-comparison.md`.
 - Making a guest account permanent changes only the store: auth tells the
   hub (OnPermanent), which finds the registration by name (accounts keep
   their registration's name, see identifyAccount).
+
+## Music mode (2026-10-18)
+
+- Stereo needs nothing from the protocol: the channel count is in each
+  Opus packet (TOC byte), not in the Mumble header. A mono Opus decoder
+  (old Mumble clients) mixes stereo packets down; our playback decodes
+  with two channels already. The frame size stays 20 ms, so frame
+  numbers do not change.
+- WebCodecs' Opus `application` and `signal` members are newer than
+  TypeScript's DOM types (typed locally in voice/opus.ts). Browsers
+  without them ignore unknown dictionary members, so configure() does
+  not fail; those browsers get the default (voip) tuning at 128 kbps.
+- Chrome gives two channels only with echo cancellation off; music mode
+  turns it off and asks for `channelCount: { ideal: 2 }`. Stereo is
+  decided by the track's getSettings().channelCount (Safari may not say:
+  then mono).
+- The capture worklet sends planar frames (all left, then all right).
+  The main thread derives the channel count from the frame length, because
+  frames sent before the worklet gets `{ channels }` still have the old
+  count. A new count or a music mode switch gets a new encoder at the next
+  frame, also in the middle of a talk spurt; the old one is flushed first,
+  or Chrome keeps its last packet and the encoder is never closed.
+- Server: mumbled counts payload + 32 bytes of headers per packet against
+  558 kbps. 128 kbps in 20 ms frames is about 143 kbps with headers;
+  Opus VBR peaks stay well under the limit. No server change.
