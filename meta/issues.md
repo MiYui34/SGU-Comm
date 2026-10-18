@@ -2,6 +2,7 @@
 
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
   - [ ] [Desktop: global push-to-talk](issues/desktop-global-push-to-talk.md)
+  - [ ] [Desktop: sign and notarize the macOS build](issues/desktop-macos-signing.md)
   - [ ] [Desktop app as a Kallisti client](issues/desktop-kallisti-client.md)
     - [ ] [Desktop: Kallisti mode](issues/desktop-kallisti-mode.md)
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)

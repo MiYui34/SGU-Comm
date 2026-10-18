@@ -126,7 +126,8 @@ look like plain Mumble servers. Use a build, or a local server with
 
 GitHub builds the app for macOS, Windows and Linux on pushes to `main`
 (downloads on the Actions run) and makes a draft release for tags `v*`
-(`.github/workflows/desktop.yml`). The builds are not signed yet.
+(`.github/workflows/desktop.yml`). The macOS build is signed and notarized
+(repository secrets); Windows and Linux are not signed yet.
 
 ## Development
 
