@@ -16,8 +16,5 @@
   - [ ] [Reply and draft stay when switching chats](issues/reply-draft-per-chat.md)
   - [ ] [Phone hold-to-talk stays on after a layout change](issues/phone-ptt-release.md)
   - [ ] [Stable keys for message rows](issues/stable-message-keys.md)
-  - [ ] [Search and pins visible on small screens](issues/search-pins-visible.md)
-  - [ ] [History loading flag clears too early](issues/history-loading-flag.md)
-  - [ ] [Screen share left running after a connection drop](issues/stream-start-after-close.md)
   - [ ] [One limiter key for all login limits (IPv6 /64)](issues/limiter-keys-ipv6.md)
   - [ ] [First text channel's Mumble copy not saved](issues/first-mirror-saved.md)

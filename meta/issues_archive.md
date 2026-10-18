@@ -156,3 +156,6 @@
 - [x] [Log in at once with a saved session](issues/auto-login.md)
 - [x] [Server crash: a voice target with a deleted channel](issues/crash-target-deleted-channel.md)
 - [x] [Unit tests and type checks in CI](issues/ci-unit-tests.md)
+- [x] [Search and pins visible on small screens](issues/search-pins-visible.md)
+- [x] [History loading flag clears too early](issues/history-loading-flag.md)
+- [x] [Screen share left running after a connection drop](issues/stream-start-after-close.md)
