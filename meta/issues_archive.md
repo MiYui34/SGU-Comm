@@ -149,3 +149,4 @@
 - [x] [Sending while scrolled back: notice, no jump](issues/sent-while-scrolled-back.md)
 - [x] [Server: access tokens for the desktop app](issues/desktop-access-tokens.md)
 - [x] [Kallisti accounts: password login from Mumble clients](issues/mumble-password-for-accounts.md)
+- [x] [Desktop builds on GitHub](issues/desktop-ci-builds.md)
