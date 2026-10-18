@@ -537,6 +537,14 @@ export const forgetStatus = (state: TextState, session: number): TextState => {
   return { ...state, statuses };
 };
 
+// A request for older messages (before: the oldest id shown) is answered
+// once older messages are here or the channel has no more; a resync that
+// drops the history ends it too.
+export const pageAnswered = (state: TextState, page: { channel: number; before: number }) => {
+  const oldest = state.messages[page.channel]?.[0]?.id;
+  return oldest === undefined || oldest < page.before || state.more[page.channel] === false;
+};
+
 export const historyRequest = (channel: number, before?: number) =>
   JSON.stringify(before === undefined ? { type: "history", channel } : { type: "history", channel, before });
 
