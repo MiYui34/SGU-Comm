@@ -184,3 +184,4 @@
 - [x] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
 - [x] [Mass delete](issues/mass-delete.md)
 - [x] [Guests read only](issues/guests-read-only.md)
+- [x] [Connection info in the web client](issues/connection-info-web.md)

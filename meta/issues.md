@@ -15,7 +15,6 @@
   - [ ] [Word and link filter](issues/word-link-filter.md)
   - [ ] [Captcha on registration](issues/registration-captcha.md)
 - [ ] [Connection quality](issues/connection-quality.md)
-  - [ ] [Connection info in the web client](issues/connection-info-web.md)
   - [ ] [Connection stats on the server](issues/connection-stats-server.md)
   - [ ] [Admin view of all connections](issues/connection-admin-view.md)
 - [ ] [Music mode](issues/music-mode.md)
