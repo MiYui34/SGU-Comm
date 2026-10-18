@@ -46,6 +46,10 @@ type Voice interface {
 	// MayManage: the user may create, rename, order and delete text
 	// channels.
 	MayManage(session uint32) bool
+	// MessagesOf: whose messages the actor may delete at once: a user by
+	// session (0: a registered user by id); registered users come back by
+	// user id, guests by session.
+	MessagesOf(actor, session, user uint32) (registered bool, id uint32, err error)
 	// SetModerator makes a registered user a moderator, or not (admins).
 	SetModerator(session, user uint32, on bool) error
 	// SetAdmin makes a registered user an admin (admins), or not
@@ -435,7 +439,7 @@ type request struct {
 	Reply     int64    `json:"reply"`     // send: the message it answers
 	NoPing    bool     `json:"noPing"`    // send: the reply does not ping
 	Author    string   `json:"author"`    // search: only this author
-	User      uint32   `json:"user"`      // set-moderator, set-admin, dm, bio: registered user id
+	User      uint32   `json:"user"`      // set-moderator, set-admin, dm, bio, delete-messages: registered user id
 	Moderator bool     `json:"moderator"` // set-moderator
 	Admin     bool     `json:"admin"`     // set-admin
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
@@ -444,8 +448,8 @@ type request struct {
 	On        bool     `json:"on"`        // react: add (or remove); pin; away
 	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
 	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
-	Session   uint32   `json:"session"`   // ban, time-out: the user's voice server session
-	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it)
+	Session   uint32   `json:"session"`   // ban, time-out, delete-messages: the user's voice server session
+	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds)
 	Private   bool     `json:"private"`   // create-channel: a private one
 	Uses      int      `json:"uses"`      // create-invite (0: unlimited; seconds 0: for ever)
 	Invite    int64    `json:"invite"`    // delete-invite
@@ -493,6 +497,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "edit-message", "delete-message":
 		c.changeMessage(*id, req)
+		return
+	case "delete-messages":
+		c.deleteMessagesOf(*id, req)
 		return
 	case "react":
 		c.react(*id, req)
