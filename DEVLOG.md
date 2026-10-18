@@ -540,3 +540,27 @@ From `meta/research/discord-comparison.md`.
 - Web: the composer gives way to a note with a button. A guest account
   opens the settings to set a password (and writes at once); a guest
   without an account goes back to the login screen.
+
+## Connection info (2026-10-18)
+
+- Ping answers come back with our timestamp, but the server's bridge also
+  pings upstream (UnixMilli), and those answers reach the browser too. The
+  client keeps its own timestamps (µs of `performance.now()`) and ignores
+  the rest. The first ping goes out after sync: during the handshake the
+  answer waits for the login and looked 20 ms slow.
+- Pings now go every 5 s (Mumble's interval), not 15 s, so the 30 s window
+  has about six samples.
+- Late audio: a chunk that goes on the stream (frame numbers contiguous)
+  but finds its queue run dry, or is dropped for a full queue. Our capture
+  numbers frames without gaps across talk spurts, so the terminator must
+  reset the expectation, else every new spurt counts as late. Decoder
+  outputs come in order, so a queue of terminator flags (`ends`) beside
+  the decoder carries it; a bare terminator marks the last queued chunk.
+- Lost audio (frame number jumps up to 1 s) only happens over the desktop
+  app's UDP; over TCP it stays 0.
+- Ping fields as Mumble: `tcp_ping_var` is the variance (clients show its
+  square root), `tcp_packets` the pings that came back, good/late/lost
+  totals since connect over all speakers.
+- Levels: good below 100 ms and 2 %, fair below 250 ms and 8 %, else poor
+  (the worse of both). The page cannot see whether the desktop bridge
+  uses UDP, so it says "UDP or TCP".
