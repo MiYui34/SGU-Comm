@@ -59,10 +59,10 @@ describe("the protocol", () => {
   });
 
   it("keeps when the server's refusal ends", () => {
-    const ev = parseServerEvent('{"type":"error","message":"Slow mode: wait 23 s","channel":1,"until":5000}')!;
+    const ev = parseServerEvent('{"type":"error","message":"Slow mode: wait 23 s","about":"slow-mode","channel":1,"until":5000}')!;
     const s = reduceText(initialTextState, ev);
     expect(s.lastError).toBe("Slow mode: wait 23 s");
     expect(s.slowUntil).toEqual({ 1: 5000 });
-    expect(reduceText(s, parseServerEvent('{"type":"error","message":"no"}')!).slowUntil).toEqual({ 1: 5000 });
+    expect(reduceText(s, parseServerEvent('{"type":"error","message":"no","channel":2,"until":1}')!).slowUntil).toEqual({ 1: 5000 });
   });
 });

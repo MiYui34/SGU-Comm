@@ -476,7 +476,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "error":
       if (!isStr(v.message)) return null;
-      if (isNum(v.channel) && isNum(v.until)) return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until } };
+      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until)) return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until } };
       return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;

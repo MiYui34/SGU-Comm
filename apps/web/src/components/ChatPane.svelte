@@ -189,8 +189,9 @@
   let clock = $state(Date.now());
   const slowWait = $derived(slow ? slowLeft(slow.seconds, slow.lastPost, slow.until, clock) : 0);
   const waitText = $derived(formatSeconds(Math.ceil(slowWait / 1000)));
+  const slowOn = $derived(!!slow?.seconds); // not every new message restarts the clock
   $effect(() => {
-    if (!slow?.seconds) return;
+    if (!slowOn) return;
     clock = Date.now();
     const timer = setInterval(() => (clock = Date.now()), 1000);
     return () => clearInterval(timer);
