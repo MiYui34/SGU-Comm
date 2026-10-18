@@ -51,40 +51,47 @@ func TestSlowModeWaitsPerUserAndChannel(t *testing.T) {
 	now := clock
 	h.now = func() time.Time { return now }
 	admin, bob, carol := readyAs(t, h, 1, "admin"), readyAs(t, h, 2, "bob"), readyAs(t, h, 3, "carol")
+	// A guest with the same name is someone else; dave posts before slow
+	// mode starts.
+	bob2, dave := readyAs(t, h, 4, "bob"), readyAs(t, h, 5, "dave")
+	send := func(c *Conn, channel int, text string) map[string]any {
+		t.Helper()
+		c.Handle(fmt.Appendf(nil, `{"type":"send","channel":%d,"text":%q}`, channel, text))
+		m := next(t, c)
+		drain(admin, bob, carol, bob2, dave)
+		return m
+	}
+	send(dave, 1, "early")
 	if err := h.store.SetSlowMode(1, 30); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.reloadChannels(); err != nil {
 		t.Fatal(err)
 	}
-	send := func(c *Conn, channel int, text string) map[string]any {
-		t.Helper()
-		c.Handle(fmt.Appendf(nil, `{"type":"send","channel":%d,"text":%q}`, channel, text))
-		m := next(t, c)
-		drain(admin, bob, carol)
-		return m
+	if m := send(dave, 1, "now"); m["type"] != "error" {
+		t.Fatalf("dave: %v", m)
 	}
-	if m := send(bob, 1, "first"); m["type"] != "message" {
-		t.Fatalf("first: %v", m)
+	first := send(bob, 1, "first")
+	if first["type"] != "message" {
+		t.Fatalf("first: %v", first)
 	}
-	now = now.Add(7 * time.Second)
+	now = now.Add(7500 * time.Millisecond)
 	m := send(bob, 1, "again")
 	if m["type"] != "error" || m["message"] != "Slow mode: wait 23 s" || m["channel"] != float64(1) ||
-		m["until"] != float64(clock.Add(30*time.Second).UnixMilli()) {
+		m["until"] != float64(clock.Add(30*time.Second).UnixMilli()) || m["about"] != "slow-mode" {
 		t.Fatalf("again: %v", m)
 	}
 	// Others, other channels and staff are not held up.
 	for _, s := range []struct {
 		c       *Conn
 		channel int
-	}{{carol, 1}, {bob, 2}, {admin, 1}, {admin, 1}} {
+	}{{carol, 1}, {bob2, 1}, {bob, 2}, {admin, 1}, {admin, 1}} {
 		if m := send(s.c, s.channel, "hi"); m["type"] != "message" {
 			t.Fatalf("%v", m)
 		}
 	}
 	// Edits do not count.
-	first, _ := h.store.History(1, 0, 10)
-	bob.Handle(fmt.Appendf(nil, `{"type":"edit-message","message":%d,"text":"edited"}`, first[0].ID))
+	bob.Handle(fmt.Appendf(nil, `{"type":"edit-message","message":%v,"text":"edited"}`, first["message"].(map[string]any)["id"]))
 	if m := next(t, bob); m["type"] != "message-edited" {
 		t.Fatalf("edit: %v", m)
 	}

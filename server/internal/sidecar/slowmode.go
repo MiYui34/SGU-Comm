@@ -42,12 +42,13 @@ func slowText(wait time.Duration) string {
 }
 
 // slowTurn takes the user's turn to post in a text channel, or tells how
-// long it waits (and until when).
+// long it waits (and until when). Posts count also while slow mode is
+// off: one turned on holds back who just posted (as the composer does).
 func (h *Hub) slowTurn(id mumble.Identity, channel int64) (time.Duration, time.Time) {
-	every := time.Duration(h.slowModeOf(channel)) * time.Second
-	if every == 0 || h.voice == nil || h.voice.MayManage(id.Session) {
+	if h.voice == nil || h.voice.MayManage(id.Session) {
 		return 0, time.Time{}
 	}
+	every := time.Duration(h.slowModeOf(channel)) * time.Second
 	key := slowKey{channel: channel, registered: id.Registered, id: id.Session}
 	if id.Registered {
 		key.id = id.UserID
@@ -89,7 +90,7 @@ func (c *Conn) slowMode(id mumble.Identity, ch chat) bool {
 	}
 	wait, until := c.hub.slowTurn(id, ch.id)
 	if wait > 0 {
-		c.send(map[string]any{"type": "error", "message": slowText(wait), "channel": ch.id, "until": until.UnixMilli()})
+		c.send(map[string]any{"type": "error", "message": slowText(wait), "about": "slow-mode", "channel": ch.id, "until": until.UnixMilli()})
 	}
 	return wait > 0
 }
