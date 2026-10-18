@@ -279,6 +279,15 @@ func (v voiceServer) Timeouts() []sidecar.Timeout {
 	return out
 }
 
+func (v voiceServer) Connections(session uint32) ([]sidecar.Connection, error) {
+	conns, err := v.Server.Connections(session)
+	out := make([]sidecar.Connection, len(conns))
+	for i, c := range conns {
+		out[i] = sidecar.Connection(c)
+	}
+	return out, err
+}
+
 // dial makes an in-process session for a web client.
 func (b *builtin) dial(_ context.Context, up bridge.Upstream) (net.Conn, error) {
 	client, server := net.Pipe()
