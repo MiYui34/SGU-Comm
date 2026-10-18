@@ -994,7 +994,11 @@
         deletes: menuModeration?.deleteMessages,
       })}
     onDeleteMessages={menuModeration?.deleteMessages
-      ? () => (confirming = { kind: "delete", who: { session: menuUser.session }, name: menuUser.name })
+      ? () => {
+          // Registered users by id: the dialog stays if they leave.
+          const who = menuUser.userId !== null ? { user: menuUser.userId } : { session: menuUser.session };
+          confirming = { kind: "delete", who, name: menuUser.name };
+        }
       : undefined}
     onClose={() => (menu = null)}
   />
