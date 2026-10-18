@@ -162,6 +162,12 @@ func (s *Server) mayEditACL(u *User, ch *Channel) bool {
 	return s.state.Has(u, ch.ID, Write) || s.state.Has(u, 0, Write)
 }
 
+// mayChangeACL: as mayEditACL, but root's ACL holds the roles, so only
+// SuperUser changes it (admins could remove each other). Needs Server.mu.
+func (s *Server) mayChangeACL(u *User, ch *Channel) bool {
+	return s.mayEditACL(u, ch) && (ch.ID != 0 || isSuperUser(u))
+}
+
 func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
@@ -184,6 +190,11 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		s.sendUserNames(c, ids)
 		return
 	}
+	if !s.mayChangeACL(u, ch) {
+		s.mu.Unlock()
+		c.denyPerm(Write, ch.ID)
+		return
+	}
 	s.mu.Unlock()
 	known := s.registeredIDs(aclUserIDs(m)) // DB lookups outside the lock
 	if m.GetChannelId() == 0 {
@@ -197,7 +208,7 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	if ch == nil || u == nil {
 		return
 	}
-	if !s.mayEditACL(u, ch) { // again: Write from @in, for example, can be gone now
+	if !s.mayChangeACL(u, ch) { // again: Write from @in, for example, can be gone now
 		c.denyPerm(Write, ch.ID)
 		return
 	}

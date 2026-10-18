@@ -418,9 +418,10 @@ From `meta/research/discord-comparison.md`.
 
 ## Make admins (2026-10-18)
 
-- "Only SuperUser removes admins" holds only for set-admin. An admin has
-  Write in root, so a Mumble client can still edit root's ACL and its
-  "admin" group directly (aclMsg) and remove other admins that way.
+- Only SuperUser changes root's ACL through a Mumble client: root holds
+  the roles, and an admin could otherwise drop other admins from the
+  "admin" group, or the entry that gives the group Write. Admins can still
+  read it, and use set-admin/set-moderator.
 
 ## Invite links (2026-10-18)
 

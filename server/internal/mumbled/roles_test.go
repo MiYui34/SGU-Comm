@@ -1,7 +1,9 @@
 package mumbled
 
 import (
+	"slices"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -210,5 +212,36 @@ func TestSuperUserIsNoRoleToChange(t *testing.T) {
 		if err := s.SetAdmin(su.session, 0, on); err == nil {
 			t.Fatalf("changed SuperUser (on %v)", on)
 		}
+	}
+}
+
+// Root's ACL holds the roles: only SuperUser changes it, so admins cannot
+// remove each other with a Mumble client.
+func TestOnlySuperUserEditsRootACL(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	alice, aliceID := registered(t, addr, "alice")
+	_, bobID := registered(t, addr, "bob")
+	s.SetAdmin(su.session, aliceID, true)
+	s.SetAdmin(su.session, bobID, true)
+	only := func(id uint32) []*pb.ACL_ChanGroup {
+		return []*pb.ACL_ChanGroup{{Name: proto.String("admin"), Add: []uint32{id}}}
+	}
+	alice.setACL(0, true, nil, only(aliceID))
+	alice.expectDenied(pb.PermissionDenied_Permission)
+	alice.send(mumble.TypeACL, &pb.ACL{ChannelId: proto.Uint32(0), Query: proto.Bool(true)})
+	alice.expect(mumble.TypeACL)
+	if admins, _ := s.Roles(); !slices.Contains(admins, bobID) {
+		t.Fatalf("an admin removed an admin: %v", admins)
+	}
+	su.setACL(0, true, []*pb.ACL_ChanACL{chanACL("admin", true, true, Write, 0)}, only(aliceID))
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		if admins, _ := s.Roles(); !slices.Contains(admins, bobID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("SuperUser could not change root's ACL")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
