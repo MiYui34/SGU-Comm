@@ -126,13 +126,15 @@
     </div>
   {:else if account}
     <div class="card">
-      <h1>Welcome back</h1>
+      <h1>{(apiError ?? error) ? "Could not connect" : "Welcome back"}</h1>
       {@render serverLine()}
       <p class="sub">
         {account.temporary ? "Your guest account" : "Logged in as"} <strong>{account.name}</strong>
       </p>
       {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
-      <button class="primary" onclick={() => connectAs(account.name, true)}>Continue as {account.name}</button>
+      <!-- Shown after a failed connection (a saved session connects by
+           itself, see App): again by hand, not in a loop. -->
+      <button class="primary" onclick={() => connectAs(account.name, true)}>Try again</button>
       <button class="link" onclick={logout}>Log out</button>
     </div>
   {:else}

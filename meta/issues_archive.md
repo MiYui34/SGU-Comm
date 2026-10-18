@@ -152,3 +152,5 @@
 - [x] [Desktop builds on GitHub](issues/desktop-ci-builds.md)
 - [x] [Desktop: sign and notarize the macOS build](issues/desktop-macos-signing.md)
 - [x] [Echo cancellation setting](issues/echo-cancellation-setting.md)
+- [x] [Custom emoji in the custom status](issues/custom-emoji-in-status.md)
+- [x] [Log in at once with a saved session](issues/auto-login.md)

@@ -48,14 +48,19 @@
   // The desktop app's server is chosen on the login screen (see below).
   let api = $state.raw(createAccountsApi(httpBase(PROXY_URL)));
   let account = $state<Account | null>(null);
-  // Only if the user has not acted yet: a late answer must not undo a login.
-  // The desktop app asks its server when one is chosen (see chooseServer).
-  if (!isDesktop())
-    void untrack(() => api)
-      .me()
-      .then((acc) => {
-        if (!connection && account === null) account = acc;
-      });
+  // Until the server says whether a session is saved: no login screen (it
+  // would flash). A saved session connects at once; logging out is the way
+  // to another account. Only if the user has not acted yet: a late answer
+  // must not undo a login. The desktop app asks its server when one is
+  // chosen (see chooseServer).
+  let checking = $state(true);
+  const autoLogin = (acc: Account | null) => {
+    if (!acc || connection || account !== null) return void (checking = false);
+    account = acc;
+    // Still "checking" until the connection exists (start is async).
+    void start({ username: acc.name, account: true, ...(desktop && { server: desktopServer }) }).finally(() => (checking = false));
+  };
+  if (!isDesktop()) void untrack(() => api).me().then(autoLogin);
   // An account connection failed (for example an expired session): ask the
   // server again, so the login form comes back instead of a dead end.
   $effect(() => {
@@ -141,6 +146,7 @@
     if (mine !== choices) return;
     if (kind === "unreachable") {
       loginNote = `Cannot reach ${address}. Check the address, or try again.`;
+      checking = false;
       return;
     }
     const found = kind === "kallisti";
@@ -151,9 +157,11 @@
       api = createAccountsApi(origin!, fetch, sessionStore(origin!));
       const acc = await api.me();
       if (mine !== choices) return;
-      account = acc;
+      desktopKind = "kallisti";
+      return autoLogin(acc);
     }
-    desktopKind = found ? "kallisti" : "mumble";
+    desktopKind = "mumble";
+    checking = false;
   };
   const changeServer = () => {
     choices++;
@@ -162,7 +170,7 @@
     account = null;
   };
   // A server from last time: looked at again at once.
-  untrack(() => desktop && desktopServer && void chooseServer(desktopServer));
+  untrack(() => desktop && (desktopServer ? void chooseServer(desktopServer) : (checking = false)));
   const urlFor = async (credentials: Credentials): Promise<{ url: string; protocols?: string[] }> => {
     if (!desktop) return { url: PROXY_URL };
     if (kallisti) return kallistiSocket(kallisti, sessionStore(kallisti).get());
@@ -316,7 +324,9 @@
 <svelte:window ononline={wake} />
 <svelte:document onvisibilitychange={wake} />
 
-{#if !connection || error}
+{#if checking}
+  <div class="connecting" aria-busy="true"></div>
+{:else if !connection || error}
   <Login
     error={certificate ? null : (error ?? loginNote)}
     {certificate}

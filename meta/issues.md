@@ -11,5 +11,3 @@
   - [ ] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
-- [ ] [Custom emoji in the custom status](issues/custom-emoji-in-status.md)
-- [ ] [Log in at once with a saved session](issues/auto-login.md)
