@@ -48,6 +48,9 @@ type Voice interface {
 	MayManage(session uint32) bool
 	// SetModerator makes a registered user a moderator, or not (admins).
 	SetModerator(session, user uint32, on bool) error
+	// SetAdmin makes a registered user an admin (admins), or not
+	// (SuperUser).
+	SetAdmin(session, user uint32, on bool) error
 	// Roles: registered user ids of admins and moderators.
 	Roles() (admins, moderators []uint32)
 	// SetListenOnly makes a voice channel listen-only for all but the
@@ -412,8 +415,9 @@ type request struct {
 	Reply     int64    `json:"reply"`     // send: the message it answers
 	NoPing    bool     `json:"noPing"`    // send: the reply does not ping
 	Author    string   `json:"author"`    // search: only this author
-	User      uint32   `json:"user"`      // set-moderator: registered user id
+	User      uint32   `json:"user"`      // set-moderator, set-admin: registered user id
 	Moderator bool     `json:"moderator"` // set-moderator
+	Admin     bool     `json:"admin"`     // set-admin
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
@@ -476,11 +480,17 @@ func (c *Conn) Handle(raw []byte) {
 	case "previews":
 		c.previews(*id, req)
 		return
-	case "set-moderator":
+	case "set-moderator", "set-admin":
 		// The voice server reports the change (RolesChanged).
 		if c.hub.voice == nil {
 			c.manageError("roles need the built-in Mumble server")
-		} else if err := c.hub.voice.SetModerator(id.Session, req.User, req.Moderator); err != nil {
+			return
+		}
+		set, on := c.hub.voice.SetModerator, req.Moderator
+		if req.Type == "set-admin" {
+			set, on = c.hub.voice.SetAdmin, req.Admin
+		}
+		if err := set(id.Session, req.User, on); err != nil {
 			c.manageError(err.Error())
 		}
 		return

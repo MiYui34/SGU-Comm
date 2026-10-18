@@ -19,6 +19,8 @@ type fakeVoice struct {
 	mu   sync.Mutex
 	sent []string
 	mods []uint32
+	// Admins besides user 7.
+	admins []uint32
 	// Text channel mirrors: the last sync, Mumble channels by name, and
 	// texts to Mumble clients (channel texts by channel, server texts by
 	// session).
@@ -226,16 +228,24 @@ func TestVoiceChatsNeedTheBuiltInServer(t *testing.T) {
 
 func (f *fakeVoice) MayManage(session uint32) bool { return session == 1 }
 
-// Session 1 is an admin (user id 0).
 func (f *fakeVoice) SetModerator(session, user uint32, on bool) error {
+	return f.setRole(&f.mods, session, user, on)
+}
+
+func (f *fakeVoice) SetAdmin(session, user uint32, on bool) error {
+	return f.setRole(&f.admins, session, user, on)
+}
+
+// Session 1 is an admin (user id 0).
+func (f *fakeVoice) setRole(ids *[]uint32, session, user uint32, on bool) error {
 	if session != 1 {
-		return errors.New("only admins make moderators")
+		return errors.New("only admins change roles")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.mods = slices.DeleteFunc(f.mods, func(id uint32) bool { return id == user })
+	*ids = slices.DeleteFunc(*ids, func(id uint32) bool { return id == user })
 	if on {
-		f.mods = append(f.mods, user)
+		*ids = append(*ids, user)
 	}
 	return nil
 }
@@ -243,7 +253,7 @@ func (f *fakeVoice) SetModerator(session, user uint32, on bool) error {
 func (f *fakeVoice) Roles() (admins, moderators []uint32) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return []uint32{7}, slices.Clone(f.mods)
+	return append([]uint32{7}, f.admins...), slices.Clone(f.mods)
 }
 
 func TestAdminsManageTextChannels(t *testing.T) {
@@ -323,15 +333,17 @@ func TestModerators(t *testing.T) {
 		t.Fatalf("ready %v", ready)
 	}
 	bob := readyAs(t, h, 2, "bob")
-	bob.Handle([]byte(`{"type":"set-moderator","user":5,"moderator":true}`))
-	if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
-		t.Fatalf("bob got %v", m)
+	for _, set := range []string{`"set-moderator","user":5,"moderator":true`, `"set-admin","user":6,"admin":true`} {
+		bob.Handle([]byte(`{"type":` + set + `}`))
+		if m := next(t, bob); m["type"] != "error" || m["about"] != "manage" {
+			t.Fatalf("bob got %v", m)
+		}
+		admin.Handle([]byte(`{"type":` + set + `}`))
 	}
-	admin.Handle([]byte(`{"type":"set-moderator","user":5,"moderator":true}`))
 	// The voice server reports the change; everyone gets the new roles.
 	h.RolesChanged()
 	for _, c := range []*Conn{admin, bob} {
-		if m := next(t, c); m["type"] != "roles" || len(m["moderators"].([]any)) != 1 {
+		if m := next(t, c); m["type"] != "roles" || len(m["moderators"].([]any)) != 1 || len(m["admins"].([]any)) != 2 {
 			t.Fatalf("got %v", m)
 		}
 	}
