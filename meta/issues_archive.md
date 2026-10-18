@@ -183,3 +183,4 @@
 - [x] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
 - [x] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
 - [x] [Mass delete](issues/mass-delete.md)
+- [x] [Guests read only](issues/guests-read-only.md)
