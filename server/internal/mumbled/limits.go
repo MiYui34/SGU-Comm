@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"google.golang.org/protobuf/encoding/protowire"
+	"kallisti.chat/server/internal/clientip"
 )
 
 const (
@@ -25,15 +26,6 @@ type conns struct {
 	pending int
 }
 
-// ipKey: one IPv6 /64 is one address (one host can have all of it).
-func ipKey(ip netip.Addr) netip.Addr {
-	if ip.Is6() {
-		p, _ := ip.Prefix(64)
-		return p.Addr()
-	}
-	return ip
-}
-
 // add counts a new connection; maxPerIP 0 means no per-IP limit.
 func (c *conns) add(ip netip.Addr, maxPerIP int) bool {
 	c.mu.Lock()
@@ -41,7 +33,7 @@ func (c *conns) add(ip netip.Addr, maxPerIP int) bool {
 	if c.perIP == nil {
 		c.perIP = map[netip.Addr]int{}
 	}
-	key := ipKey(ip)
+	key := clientip.Prefix(ip)
 	if (maxPerIP > 0 && c.perIP[key] >= maxPerIP) || c.pending >= maxPending {
 		return false
 	}
@@ -59,7 +51,7 @@ func (c *conns) authenticated() {
 func (c *conns) remove(ip netip.Addr, pending bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	key := ipKey(ip)
+	key := clientip.Prefix(ip)
 	if c.perIP[key]--; c.perIP[key] <= 0 {
 		delete(c.perIP, key)
 	}

@@ -159,6 +159,7 @@ func (b *Bridge) Close() {
 // admit counts a new connection, or returns the HTTP status that refuses
 // it. Under the lock, so wg.Add never runs concurrently with Close's wg.Wait.
 func (b *Bridge) admit(ip string) int {
+	ip = clientip.Key(ip)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	switch {
@@ -174,6 +175,7 @@ func (b *Bridge) admit(ip string) int {
 }
 
 func (b *Bridge) release(ip string) {
+	ip = clientip.Key(ip)
 	b.mu.Lock()
 	b.active--
 	if b.perIP[ip]--; b.perIP[ip] <= 0 {

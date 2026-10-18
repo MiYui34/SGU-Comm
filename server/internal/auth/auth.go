@@ -75,7 +75,7 @@ type limiter struct {
 }
 
 func (l *limiter) allow(ip string, limit rate.Limit, burst int) bool {
-	key := limiterKey(ip)
+	key := clientip.Key(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.m == nil {
@@ -492,16 +492,6 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 
 func (a *Service) allow(r *http.Request) bool {
 	return a.logins.allow(clientip.Of(r, a.TrustForwardedFor), rate.Limit(perMinute)/60, burst)
-}
-
-// limiterKey: one IPv6 user usually has a whole /64.
-func limiterKey(ip string) string {
-	addr, err := netip.ParseAddr(ip)
-	if err != nil || addr.Is4() || addr.Is4In6() {
-		return ip
-	}
-	prefix, _ := addr.Prefix(64)
-	return prefix.String()
 }
 
 func isLocalhost(origin string) bool {
