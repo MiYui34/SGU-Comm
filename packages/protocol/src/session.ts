@@ -1,4 +1,6 @@
 import { decodeFrames, type Bytes } from "./framing";
+import type { MessageInitShape } from "@bufbuild/protobuf";
+import type { PingSchema } from "./gen/Mumble_pb";
 import { decodeMessage, encodeMessage, type MumbleMessage } from "./messages";
 
 const concat = (...parts: Uint8Array[]): Bytes => {
@@ -28,8 +30,12 @@ export const handshake = ({
     encodeMessage("Authenticate", { username, password, opus: true }),
   );
 
-export const ping = (now: number): Bytes =>
-  encodeMessage("Ping", { timestamp: BigInt(now) });
+// stats: what the client measured (good, late, lost, tcpPingAvg, ...), for
+// the server to show.
+export type PingStats = Omit<MessageInitShape<typeof PingSchema>, "timestamp" | "$typeName">;
+
+export const ping = (now: number, stats: PingStats = {}): Bytes =>
+  encodeMessage("Ping", { ...stats, timestamp: BigInt(now) });
 
 // Turns a stream of byte chunks into messages. Keeps partial frames between calls.
 export const createMessageStream = () => {

@@ -32,6 +32,12 @@ describe("ping", () => {
     if (msg?.type !== "Ping") throw new Error();
     expect(msg.message.timestamp).toBe(1234n);
   });
+
+  it("sends the connection stats", () => {
+    const [msg] = decodeAll(ping(1234, { good: 90, late: 8, lost: 2, tcpPackets: 6, tcpPingAvg: 42.5, tcpPingVar: 16 }));
+    if (msg?.type !== "Ping") throw new Error();
+    expect(msg.message).toMatchObject({ good: 90, late: 8, lost: 2, tcpPackets: 6, tcpPingAvg: 42.5, tcpPingVar: 16 });
+  });
 });
 
 describe("createMessageStream", () => {
