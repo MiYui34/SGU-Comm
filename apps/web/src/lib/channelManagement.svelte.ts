@@ -14,6 +14,7 @@ export type ChannelValues = {
   temporary: boolean;
   listenOnly?: ListenOnly;
   private?: boolean;
+  slowMode?: number;
 };
 
 // The channel menu and dialog: what they show and what they send.
@@ -93,6 +94,7 @@ export const createChannelManagement = (current: () => Connection) => {
             ? { listenOnly: { on: id in text.listenOnly, speakers: text.listenOnly[id] ?? [], users: speakerCandidates(server) } }
             : {}),
           ...privateField(kind, id),
+          ...(kind === "text" && canManageText(server, text) ? { slowMode: text.channels.find((c) => c.id === id)?.slowMode ?? 0 } : {}),
         },
         id,
       }),
@@ -125,6 +127,7 @@ export const createChannelManagement = (current: () => Connection) => {
         if (v.kind === "text") {
           if (v.name !== f.name) connection.manage({ rename: id, name: v.name });
           if (v.description.trim() !== f.description) connection.manage({ topic: id, text: v.description.trim() });
+          if (v.slowMode !== undefined && v.slowMode !== f.slowMode) connection.manage({ slowMode: id, seconds: v.slowMode });
         } else {
           const changes = {
             ...(v.name !== f.name ? { name: v.name } : {}),

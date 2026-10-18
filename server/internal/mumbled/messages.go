@@ -604,6 +604,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		}
 		out += imagesHTML(images)
 	}
+	if err := s.checkText(c.session, m.ChannelId); err != nil {
+		c.deny(err)
+		return
+	}
 	// Runs after the unlock below (defers run last-in, first-out).
 	var hooks []func()
 	defer func() {
@@ -713,6 +717,19 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 			}
 		}
 	}
+}
+
+// checkText asks Config.CheckChannelText about each target channel.
+func (s *Server) checkText(session uint32, channels []uint32) error {
+	if s.cfg.CheckChannelText == nil {
+		return nil
+	}
+	for _, id := range channels {
+		if err := s.cfg.CheckChannelText(session, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // registerMsg registers a user with its certificate: itself (SelfRegister)

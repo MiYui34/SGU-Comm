@@ -43,6 +43,7 @@
   import { watchAway } from "../lib/away";
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
+  import { lastPostAt } from "../lib/slowMode";
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
@@ -666,6 +667,12 @@
   let jumpTarget = $state<number | null>(null);
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
+  // Slow mode in the open text channel (staff are exempt).
+  const slow = $derived(
+    textId === null || !textChannel?.slowMode || canManageText(server, text)
+      ? null
+      : { seconds: textChannel.slowMode, lastPost: lastPostAt(textChat, mine), until: text.slowUntil[textId] },
+  );
   // Names "@" suggests: who is online, and who wrote in the open chat;
   // for moderators also everyone and here (stored chats, see lib/mentions).
   const people = $derived([
@@ -1216,6 +1223,7 @@
       me={me?.name ?? ""}
       {people}
       cannotWrite={myTimeout === null ? null : `You are timed out until ${untilText(myTimeout)}.`}
+      {slow}
       mayEdit={mine}
       mayDelete={(m) => mine(m) || canManageText(server, text)}
       onEdit={readOnly ? undefined : connection.editMessage}

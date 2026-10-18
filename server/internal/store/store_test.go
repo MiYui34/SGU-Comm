@@ -609,6 +609,24 @@ func TestChannelTopics(t *testing.T) {
 	}
 }
 
+func TestChannelSlowMode(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	if chans[0].SlowMode != 0 {
+		t.Fatalf("new slow mode %d", chans[0].SlowMode)
+	}
+	if err := s.SetSlowMode(chans[0].ID, 30); err != nil {
+		t.Fatal(err)
+	}
+	if chans, _ = s.Channels(); chans[0].SlowMode != 30 {
+		t.Fatalf("slow mode %d", chans[0].SlowMode)
+	}
+	if err := s.SetSlowMode(999, 5); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown channel: %v", err)
+	}
+}
+
 func TestReplies(t *testing.T) {
 	s := open(t)
 	s.EnsureChannels([]string{"general", "random"})

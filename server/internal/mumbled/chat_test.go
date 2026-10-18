@@ -1,9 +1,11 @@
 package mumbled
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -40,6 +42,36 @@ func TestChannelTextGoesToTheHook(t *testing.T) {
 		t.Fatalf("hook got %+v", got)
 	}
 	_ = s
+}
+
+func TestCheckChannelTextRefusesBeforeSending(t *testing.T) {
+	var mu sync.Mutex
+	heard := 0
+	var games atomic.Uint32
+	cfg := Config{
+		OnChannelText: func(ChannelText) { mu.Lock(); heard++; mu.Unlock() },
+		CheckChannelText: func(session, channel uint32) error {
+			if channel == games.Load() {
+				return errors.New("Slow mode: wait 5 s")
+			}
+			return nil
+		},
+	}
+	_, addr := startServerAndListen(t, "127.0.0.1", cfg, openACL)
+	alice := dial(t, addr, "alice")
+	bob := dial(t, addr, "bob")
+	games.Store(alice.createChannel(0, "Games", false))
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{games.Load()}, Message: proto.String("spam")})
+	var d pb.PermissionDenied
+	proto.Unmarshal(alice.expect(mumble.TypePermissionDenied), &d)
+	if d.GetType() != pb.PermissionDenied_Text || d.GetReason() != "Slow mode: wait 5 s" {
+		t.Fatalf("denied %v", &d)
+	}
+	bob.expectNone(mumble.TypeTextMessage)
+	// Other channels pass.
+	alice.send(mumble.TypeTextMessage, &pb.TextMessage{ChannelId: []uint32{0}, Message: proto.String("hi")})
+	bob.expect(mumble.TypeTextMessage)
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return heard == 1 })
 }
 
 func TestTheSidecarAsksAndDelivers(t *testing.T) {

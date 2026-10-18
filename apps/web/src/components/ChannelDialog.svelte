@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import type { ChannelForm, ChannelKind } from "../lib/channelForm";
   import type { ListenOnly, Speaker } from "../lib/listenOnly";
+  import { SLOW_MODES, slowModeLabel } from "../lib/slowMode";
 
   // Create, edit or delete a channel.
 
@@ -18,6 +19,7 @@
       temporary: boolean;
       listenOnly?: ListenOnly;
       private?: boolean;
+      slowMode?: number;
     }) => void;
     onClose: () => void;
   } = $props();
@@ -41,6 +43,9 @@
   // Admins and moderators (built-in server): a private channel.
   const canPrivate = start.mode === "create" ? start.canPrivate === true : start.mode === "edit" && !!start.private;
   let isPrivate = $state(start.mode === "edit" ? (start.private?.on ?? false) : false);
+  // Text channels (built-in server): undefined, no field.
+  const startSlowMode = start.mode === "edit" ? start.slowMode : undefined;
+  let slowMode = $state(startSlowMode ?? 0);
   // Users who may only make temporary voice channels get one of those.
   const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice" && !isPrivate);
   $effect(() => dialog?.showModal());
@@ -58,6 +63,7 @@
       temporary,
       ...(startListenOnly ? { listenOnly: { on: listenOnly, speakers } } : {}),
       ...(canPrivate ? { private: isPrivate } : {}),
+      ...(startSlowMode !== undefined ? { slowMode } : {}),
     });
     dialog?.close();
   };
@@ -87,6 +93,15 @@
         <label>
           {kind === "text" ? "Topic" : "Description"}
           <textarea bind:value={description} rows="3" maxlength={kind === "text" ? 200 : undefined}></textarea>
+        </label>
+      {/if}
+      {#if startSlowMode !== undefined}
+        <label>
+          Slow mode
+          <select bind:value={slowMode}>
+            {#each SLOW_MODES as s (s)}<option value={s}>{slowModeLabel(s)}</option>{/each}
+          </select>
+          <span class="note hint">How often each member may post here. Admins and moderators are exempt.</span>
         </label>
       {/if}
       {#if canPrivate}
@@ -213,6 +228,10 @@
   .check .note {
     display: block;
     font-size: 12px;
+  }
+  .hint {
+    font-weight: normal;
+    text-transform: none;
   }
   .speakers {
     display: flex;

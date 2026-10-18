@@ -16,8 +16,9 @@ import { parseConnections, type Connection } from "./connections";
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
 
-// mumble: the Mumble channel that mirrors it for Mumble clients.
-export type TextChannel = { id: number; name: string; mumble?: number; topic?: string };
+// mumble: the Mumble channel that mirrors it for Mumble clients;
+// slowMode: seconds between a user's posts (see lib/slowMode).
+export type TextChannel = { id: number; name: string; mumble?: number; topic?: string; slowMode?: number };
 export type Attachment = { url: string; name: string; type: string; size: number };
 export type TextMessage = {
   id: number;
@@ -151,8 +152,9 @@ export type ServerEvent =
   // "message-deleted").
   | { type: "messages-deleted"; channel: number; ids: number[] }
   | { type: "search-results"; text: string; messages: TextMessage[] }
-  // about "manage": the answer to a channel or role change.
-  | { type: "error"; message: string; about?: "manage" }
+  // about "manage": the answer to a channel or role change; slow: a post
+  // refused by slow mode, and when the wait ends.
+  | { type: "error"; message: string; about?: "manage"; slow?: { channel: number; until: number } }
   | { type: "upload-token"; token: string }
   // A message's reactions changed (all of them).
   | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
@@ -185,6 +187,8 @@ export type TextState = {
   invites: Readonly<Record<number, Invite[]>>;
   timeouts: readonly Timeout[];
   guestsReadOnly: boolean;
+  // Slow mode: when the server said our wait ends, by channel.
+  slowUntil: Readonly<Record<number, number>>;
   // Every connection, once asked for (admins).
   connections: Connection[] | null;
   // Direct chats: chat -> the other user.
@@ -231,6 +235,7 @@ export const initialTextState: TextState = {
   invites: {},
   timeouts: [],
   guestsReadOnly: false,
+  slowUntil: {},
   connections: null,
   directs: {},
   streams: [],
@@ -312,7 +317,8 @@ const isChannel = (v: unknown): v is TextChannel =>
   isNum(v.id) &&
   isStr(v.name) &&
   (v.mumble === undefined || isNum(v.mumble)) &&
-  (v.topic === undefined || typeof v.topic === "string");
+  (v.topic === undefined || typeof v.topic === "string") &&
+  (v.slowMode === undefined || isNum(v.slowMode));
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
 const optStr = (v: unknown) => v === undefined || isStr(v);
@@ -470,6 +476,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "error":
       if (!isStr(v.message)) return null;
+      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until)) return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until } };
       return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
@@ -648,7 +655,11 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "error":
       return event.about === "manage"
         ? { ...state, notice: { text: event.message, n: (state.notice?.n ?? 0) + 1 } }
-        : { ...state, lastError: event.message };
+        : {
+            ...state,
+            lastError: event.message,
+            ...(event.slow && { slowUntil: { ...state.slowUntil, [event.slow.channel]: event.slow.until } }),
+          };
     case "upload-token": // answered by the connection, not state
     case "typing": // short-lived: the client keeps it (lib/typing)
       return state;
@@ -706,6 +717,7 @@ export type ManageAction =
   | { admin: number; on: boolean }
   | { listenOnly: number; on: boolean; users: number[] }
   | { topic: number; text: string }
+  | { slowMode: number; seconds: number }
   // Moderation, by voice server session: a ban for some seconds (0: for
   // ever), a time-out (0: end it).
   | { ban: number; reason: string; seconds: number }
@@ -734,6 +746,7 @@ const manageBody = (a: ManageAction) => {
   if ("admin" in a) return { type: "set-admin", user: a.admin, admin: a.on };
   if ("listenOnly" in a) return { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users };
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
+  if ("slowMode" in a) return { type: "set-slow-mode", channel: a.slowMode, seconds: a.seconds };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
   if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };

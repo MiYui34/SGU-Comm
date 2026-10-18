@@ -29,6 +29,7 @@
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { afterUpload, canAttach, switchDraft, tooLarge } from "../lib/composer";
+  import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
@@ -85,6 +86,7 @@
     previewOf,
     httpBase = "",
     cannotWrite = null,
+    slow = null,
     loginToWrite = null,
     chatKey,
   }: {
@@ -154,6 +156,8 @@
     httpBase?: string;
     // Why we cannot write now (a time-out); the message box says it.
     cannotWrite?: string | null;
+    // Slow mode here (see lib/slowMode): sending waits, the box counts down.
+    slow?: { seconds: number; lastPost?: number; until?: number } | null;
     // A guest that may only read (see lib/guests): a note and the way to
     // an account instead of the message box.
     loginToWrite?: { note: string; action: string; onAction?: () => void } | null;
@@ -179,6 +183,17 @@
 
   $effect(() => {
     const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
+  // Slow mode: a clock by the second while it is on.
+  let clock = $state(Date.now());
+  const slowWait = $derived(slow ? slowLeft(slow.seconds, slow.lastPost, slow.until, clock) : 0);
+  const waitText = $derived(formatSeconds(Math.ceil(slowWait / 1000)));
+  const slowOn = $derived(!!slow?.seconds); // not every new message restarts the clock
+  $effect(() => {
+    if (!slowOn) return;
+    clock = Date.now();
+    const timer = setInterval(() => (clock = Date.now()), 1000);
     return () => clearInterval(timer);
   });
 
@@ -305,6 +320,7 @@
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
+    if (slowWait > 0 && (text || pending)) return void notify(`Slow mode: wait ${waitText}`);
     if (pending && onUpload) {
       // The file waits while another one is sent (see canAttach).
       if (uploading) return void notify(WAIT_UPLOAD);
@@ -886,6 +902,9 @@
           disabled={!onSend || !!cannotWrite}
           aria-label="Message"
         ></textarea>
+        {#if slowWait > 0}
+          <span class="slow" role="timer" title="Slow mode: you can send again then">{waitText}</span>
+        {/if}
         {#if onSend}
           <button
             type="button"
@@ -1842,6 +1861,13 @@
   }
   .composer.disabled {
     opacity: 0.6;
+  }
+  .slow {
+    align-self: center;
+    padding: 0 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--text-muted);
   }
   .attach {
     display: grid;

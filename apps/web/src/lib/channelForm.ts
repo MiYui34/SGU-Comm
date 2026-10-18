@@ -16,5 +16,7 @@ export type ChannelForm =
       // speaker.
       listenOnly?: ListenOnly & { users: Speaker[] };
       private?: { on: boolean; members: Member[] };
+      // Text channels with the built-in server: seconds (see lib/slowMode).
+      slowMode?: number;
     }
   | { mode: "delete"; kind: ChannelKind; name: string };

@@ -23,6 +23,8 @@ type Channel struct {
 	// Mumble is the channel that mirrors it for Mumble clients (0: none).
 	Mumble uint32
 	Topic  string
+	// SlowMode: each user may post once per so many seconds (0: off).
+	SlowMode int64
 }
 
 type Message struct {
@@ -413,6 +415,9 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := addColumns(db, "channels", [][2]string{{"slow_mode", "INTEGER NOT NULL DEFAULT 0"}}); err != nil {
+		return err
+	}
 	// Message ids counted from before the counter: the newest there is.
 	_, err := db.Exec(`INSERT OR IGNORE INTO store_meta (key, value)
 		SELECT 'last_message_id', coalesce(max(id), 0) FROM messages`)
@@ -587,6 +592,11 @@ func (s *Store) SetTopic(id int64, topic string) error {
 	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, topic, id)
 }
 
+// SetSlowMode sets a text channel's slow mode (seconds, 0: off).
+func (s *Store) SetSlowMode(id, seconds int64) error {
+	return s.textChannel(`UPDATE channels SET slow_mode = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, seconds, id)
+}
+
 // SetMumbleChannel remembers the Mumble channel that mirrors a text channel.
 func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
 	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, mumble, id)
@@ -595,7 +605,7 @@ func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
 
 // Channels returns the visible channels in order.
 func (s *Store) Channels() ([]Channel, error) {
-	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0), topic FROM channels WHERE hidden = 0 ORDER BY position`)
+	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0), topic, slow_mode FROM channels WHERE hidden = 0 ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
@@ -603,7 +613,7 @@ func (s *Store) Channels() ([]Channel, error) {
 	var out []Channel
 	for rows.Next() {
 		var c Channel
-		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble, &c.Topic); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble, &c.Topic, &c.SlowMode); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
