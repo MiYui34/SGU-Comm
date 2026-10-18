@@ -155,7 +155,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // The UI starts capture, with the device from the settings.
   const capture = audio && createCapture(audio, sendAudio);
   const info = createConnectionInfo(transportOf(url), () => playback?.stats() ?? { good: 0, late: 0, lost: 0 });
+  // Not in yet: only to stay connected. During the handshake the answer
+  // waits for the login, and the ping would look slow.
   const sendPing = () => {
+    if (!wasSynced) return ws.send(ping(0));
     const { timestamp, stats } = info.ping(performance.now());
     ws.send(ping(timestamp, stats));
   };
@@ -199,10 +202,12 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       messages.forEach(routeAudio);
       for (const m of messages) if (m.type === "UserRemove") text = forgetStatus(text, m.message.session);
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
-      // The first ping once in: during the handshake the answer waits for
-      // the login, and the ping would look slow.
-      if (state.status === "synced" && !wasSynced) sendPing();
-      if (state.status === "synced") wasSynced = true;
+      if (state.status === "synced" && !wasSynced) {
+        wasSynced = true;
+        // The first measured one, after the first render: a busy page
+        // reads the answer late.
+        setTimeout(sendPing, 1000);
+      }
       fetchDescriptions();
       fetchTextures();
     } catch (err) {

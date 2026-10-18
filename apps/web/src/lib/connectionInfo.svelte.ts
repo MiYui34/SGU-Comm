@@ -18,7 +18,6 @@ export const createConnectionInfo = (transport: string, counters: () => Counters
   let info = $state.raw<ConnectionInfo>({ level: null, rtt: null, spread: null, bad: null, transport });
   let rtts: { at: number; value: number }[] = [];
   let snapshots: (Counters & { at: number })[] = [];
-  let pongs = 0;
   // Our pings on their way, by timestamp (µs): the server's bridge sends
   // pings of its own, and their answers come here too.
   const pending = new Set<number>();
@@ -35,8 +34,10 @@ export const createConnectionInfo = (transport: string, counters: () => Counters
     get info() {
       return info;
     },
-    // The next ping's timestamp (µs) and stats (tcpPackets: as in Mumble,
-    // the pings that came back).
+    // The next ping's timestamp (µs) and stats. As in Mumble, tcpPackets
+    // is the number of ping times behind the mean. good, late and lost are
+    // UDP counters in Mumble; here the jitter buffer's totals since the
+    // start, over all speakers.
     ping: (now: number): { timestamp: number; stats: PingStats } => {
       const current = counters();
       rtts = recent(rtts, now);
@@ -47,13 +48,12 @@ export const createConnectionInfo = (transport: string, counters: () => Counters
       pending.add(timestamp);
       return {
         timestamp,
-        stats: { ...current, tcpPackets: pongs, ...(stats && { tcpPingAvg: stats.mean, tcpPingVar: stats.variance }) },
+        stats: { ...current, tcpPackets: rtts.length, ...(stats && { tcpPingAvg: stats.mean, tcpPingVar: stats.variance }) },
       };
     },
     pong: (timestamp: number, now: number) => {
       if (!pending.delete(timestamp)) return;
-      pongs++;
-      rtts.push({ at: now, value: now - timestamp / 1000 });
+      rtts = recent([...rtts, { at: now, value: now - timestamp / 1000 }], now);
       refresh();
     },
   };
