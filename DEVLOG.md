@@ -475,3 +475,22 @@ From `meta/research/discord-comparison.md`.
 - Making a guest account permanent changes only the store: auth tells the
   hub (OnPermanent), which finds the registration by name (accounts keep
   their registration's name, see identifyAccount).
+
+## Mass delete (2026-10-18)
+
+- Direct messages are left out on purpose: staff do not read DMs, so they
+  should not delete them unseen either.
+- Web guests are registered (temporary accounts), so they go by user id
+  like everyone else, offline too. Only unregistered Mumble guests go by
+  session, and only for what they wrote in that connection (the sidecar's
+  in-memory map, cleared when they leave). So the web client sends the
+  delete before a kick or ban: the bridge handles text frames in its read
+  loop, so the order holds.
+- Known gap: unregistered guests on Mumble apps are not in that map (it
+  is filled by web sends only and cleared on the web connection's close),
+  so their messages cannot be found. Single deletes by staff still work.
+- One "messages-deleted" per chat; a chat with one message still gets the
+  old "message-deleted" (the desktop app bundles its web client, older
+  builds do not know the new event).
+- At most 1000 messages per request (newest first); a bigger spam wave
+  needs another request.
