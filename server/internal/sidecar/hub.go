@@ -223,6 +223,7 @@ type Hub struct {
 	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time.
 	emoji   []wireEmoji
 	emojiMu sync.Mutex
+	slow    slowPosts // see slowmode.go
 }
 
 // emoji: a token for adding this custom emoji (not for a file).
@@ -366,6 +367,8 @@ type wireChannel struct {
 	// the voice channels).
 	Mumble uint32 `json:"mumble,omitempty"`
 	Topic  string `json:"topic,omitempty"`
+	// Seconds between a user's posts (built-in server; see slowmode.go).
+	SlowMode int64 `json:"slowMode,omitempty"`
 }
 
 type wireMessage struct {
@@ -458,7 +461,7 @@ type request struct {
 	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
 	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
 	Session   uint32   `json:"session"`   // ban, time-out, delete-messages: the user's voice server session
-	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds)
+	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds), set-slow-mode (0: off)
 	Private   bool     `json:"private"`   // create-channel: a private one
 	Uses      int      `json:"uses"`      // create-invite (0: unlimited; seconds 0: for ever)
 	Invite    int64    `json:"invite"`    // delete-invite
@@ -498,7 +501,7 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	switch req.Type {
-	case "create-channel", "rename-channel", "delete-channel", "order-channels", "set-topic":
+	case "create-channel", "rename-channel", "delete-channel", "order-channels", "set-topic", "set-slow-mode":
 		c.manage(*id, req)
 		return
 	case "mark-read":
@@ -785,6 +788,9 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		}
 		n.UploadID = u.ID
 	}
+	if c.slowMode(id, ch) {
+		return
+	}
 	m, err := c.hub.store.AddMessage(n)
 	if err != nil {
 		c.sendError("cannot store message")
@@ -1019,6 +1025,12 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 			return
 		}
 		err = h.store.SetTopic(req.Channel, topic)
+	case "set-slow-mode":
+		if !slices.Contains(slowModes, req.Seconds) {
+			c.manageError("invalid slow mode")
+			return
+		}
+		err = h.store.SetSlowMode(req.Channel, req.Seconds)
 	case "order-channels":
 		err = h.store.SetPositions(h.fullOrder(req.Channels))
 	}
@@ -1060,7 +1072,7 @@ func toWireChannels(channels []store.Channel, mirrors bool) []wireChannel {
 	for i, ch := range channels {
 		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Topic: ch.Topic}
 		if mirrors {
-			wire[i].Mumble = ch.Mumble
+			wire[i].Mumble, wire[i].SlowMode = ch.Mumble, ch.SlowMode
 		}
 	}
 	return wire
