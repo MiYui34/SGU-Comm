@@ -2,10 +2,19 @@
   import { banAddress, type Ban, type Registered } from "@kallisti/protocol";
   import { untrack } from "svelte";
   import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
+  import {
+    connectionLevel,
+    formatOnline,
+    formatPercent,
+    formatPing,
+    POLL_MS,
+    worstFirst,
+    type Connection,
+  } from "../lib/connections";
 
   // Server settings for moderators and admins: the ban list, the
-  // registered users and the custom emoji (the server checks every change
-  // again).
+  // registered users, the custom emoji, and for admins the guests setting
+  // and the connections (the server checks every change again).
   let {
     bans,
     registered,
@@ -19,6 +28,8 @@
     onDeleteEmoji,
     guestsReadOnly = null,
     onGuestsReadOnly,
+    connections = null,
+    onPollConnections,
     onClose,
   }: {
     bans: readonly Ban[] | null;
@@ -34,11 +45,15 @@
     // Admins: whether guests may only read (null: not ours to change).
     guestsReadOnly?: boolean | null;
     onGuestsReadOnly?: (on: boolean) => void;
+    // Admins: every connection (null: not loaded yet), asked for again
+    // while the tab is open; without onPollConnections, no tab.
+    connections?: readonly Connection[] | null;
+    onPollConnections?: () => void;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users" | "emoji" | "guests">(
+  let tab = $state<"bans" | "users" | "emoji" | "guests" | "connections">(
     untrack(() => (rights.bans ? "bans" : rights.users ? "users" : rights.emoji ? "emoji" : "guests")),
   );
   let renaming = $state<{ id: number; name: string } | null>(null);
@@ -47,6 +62,14 @@
   $effect(() => {
     if (tab === "bans" || tab === "users") onLoad(tab);
   });
+  $effect(() => {
+    if (tab !== "connections" || !onPollConnections) return;
+    const poll = onPollConnections;
+    poll();
+    const timer = setInterval(poll, POLL_MS);
+    return () => clearInterval(timer);
+  });
+  const sorted = $derived(connections && worstFirst(connections));
 
   // A new emoji: name and image; a message says what is wrong.
   let emojiName = $state("");
@@ -95,6 +118,9 @@
     {#if guestsReadOnly !== null}
       <button role="tab" aria-selected={tab === "guests"} onclick={() => (tab = "guests")}>Guests</button>
     {/if}
+    {#if onPollConnections}
+      <button role="tab" aria-selected={tab === "connections"} onclick={() => (tab = "connections")}>Connections</button>
+    {/if}
   </div>
 
   {#if tab === "bans"}
@@ -130,6 +156,49 @@
       Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
       direct messages. Use it during a spam wave.
     </p>
+  {:else if tab === "connections"}
+    {#if sorted === null}
+      <p class="note">Loading…</p>
+    {:else if sorted.length === 0}
+      <p class="note">Nobody is connected.</p>
+    {:else}
+      <div class="table">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Voice</th>
+              <th>Ping</th>
+              <th
+                title="Late or lost voice in the last 30 to 40 s. ↑ from the user, as the server counted it; ↓ to the user, as their client reported it (Mumble clients count UDP only). –: too little voice."
+              >
+                Late/lost ↑ · ↓
+              </th>
+              <th title="In the same time: voice frames the server dropped for this user (their queue was full) · text messages they lost">
+                Dropped
+              </th>
+              <th>Online</th>
+              <th>Client</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each sorted as c (c.session)}
+              {@const level = connectionLevel(c)}
+              <tr>
+                <td><span class="level {level ?? 'unknown'}" title={level ?? "not measured yet"}></span>{c.name}</td>
+                <td>{c.transport === "websocket" ? "WebSocket" : c.transport.toUpperCase()}</td>
+                <td>{formatPing(c.ping)}</td>
+                <td>{formatPercent(c.fromClient)} · {formatPercent(c.fromServer)}</td>
+                <td>{c.dropped} · {c.overflows}</td>
+                <td>{formatOnline(c.online)}</td>
+                <td class="detail">{[c.client, c.os].filter(Boolean).join(" · ")}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Worst first; updates every few seconds. No addresses: admins see them in Mumble's user information.</p>
+    {/if}
   {:else if tab === "emoji"}
     <form class="add-emoji" onsubmit={addEmoji}>
       <input
@@ -331,6 +400,45 @@
   .error {
     color: var(--danger);
     font-size: 14px;
+  }
+  .table {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  th,
+  td {
+    padding: 6px 8px 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    text-align: left;
+  }
+  th {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  th[title] {
+    cursor: help;
+  }
+  .level {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .level.good {
+    background: var(--online);
+  }
+  .level.fair {
+    background: var(--idle);
+  }
+  .level.poor {
+    background: var(--dnd);
   }
   .emoji-image {
     width: 32px;
