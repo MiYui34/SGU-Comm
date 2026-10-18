@@ -63,4 +63,14 @@ describe("capture start", () => {
     const node = vi.mocked(AudioWorkletNode).mock.results[0]!.value as ReturnType<typeof fakeNode>;
     await vi.waitFor(() => expect(node.port.postMessage).toHaveBeenCalledWith({ channels: 2 }));
   });
+
+  it("opens the microphone again when music mode changes while it opens", async () => {
+    const { getUserMedia, tracks, capture } = setup();
+    const opening = capture.start();
+    capture.setMusicMode(true); // during the permission prompt
+    await opening;
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(2));
+    expect(getUserMedia.mock.lastCall).toMatchObject([{ audio: { autoGainControl: false } }]);
+    await vi.waitFor(() => expect(tracks.map((t) => t.stop.mock.calls.length)).toEqual([1, 0]));
+  });
 });

@@ -82,7 +82,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
   const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
-  // A fresh encoder for every talk spurt (see encoderRotation).
+  // A fresh encoder for every talk spurt (see encoderRotation). madeFor:
+  // the settings of the current one.
+  const encoderKey = () => `${music}/${channels}`;
+  let madeFor = "";
   const makeEncoder = (): AudioEncoder => {
     const encoder: AudioEncoder = new AudioEncoder({
       output: (chunk) => {
@@ -98,6 +101,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       },
     });
     encoder.configure(encoderConfig(music, channels));
+    madeFor = encoderKey();
     // close() throws on an encoder that already failed and closed itself.
     const close = encoder.close.bind(encoder);
     encoder.close = () => {
@@ -129,9 +133,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
 
   const onFrame = (samples: Float32Array<ArrayBuffer>, voiceProbability: number | undefined) => {
     if (!source) return; // a frame still on its way after stop()
-    // Mono and stereo need their own encoder.
-    if (samples.length !== FRAME_SIZE * channels) {
-      channels = samples.length / FRAME_SIZE;
+    // Music mode on or off, or mono and stereo: a new encoder. The old one
+    // gives out the packet it holds back (see encode).
+    channels = samples.length / FRAME_SIZE;
+    if (encoderKey() !== madeFor) {
+      const old = encoders.current();
+      if (old.state === "configured") old.flush().catch(() => {});
       encoders.renew();
     }
     level = levelDb(samples);
@@ -255,9 +262,16 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     let next: MediaStream | null = null; // stopped on failure until it is stream
     try {
       // The browser's noise filter only without ours (not twice).
-      next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, { browserNoise: filter() === "browser", cancelEcho, music }) });
+      const constraints = () => micConstraints(deviceId, { browserNoise: filter() === "browser", cancelEcho, music });
+      const asked = constraints();
+      next = await navigator.mediaDevices.getUserMedia({ audio: asked });
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return stopTracks(next);
+      // The filters changed meanwhile: ask again.
+      if (JSON.stringify(constraints()) !== JSON.stringify(asked)) {
+        stopTracks(next);
+        return await start(deviceId);
+      }
       const n = await workletNode();
       if (stale()) return stopTracks(next);
       stopStream();
@@ -347,12 +361,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       cancelEcho = on;
       if (stream && !music) void start(device);
     },
-    // The filters, the microphone's settings and the encoder all change.
+    // The filters, the microphone's settings and (with the next frame) the
+    // encoder all change.
     setMusicMode: (on: boolean) => {
       if (on === music) return;
       const was = filter();
       music = on;
-      encoders.renew();
       refilter(was, true);
     },
     // The echo test: what the microphone sends, after the filters.
