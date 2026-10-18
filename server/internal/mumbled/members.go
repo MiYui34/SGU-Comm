@@ -21,6 +21,26 @@ func (s *Server) Users() map[uint32]string {
 	return out
 }
 
+// OnlineUser is a connected registered user (see Online).
+type OnlineUser struct {
+	Name    string
+	Session uint32 // one per user: another device replaces it
+}
+
+// Online: the connected registered users but SuperUser, by id, in any
+// channel (Kallisti lists them online also to users who may not see it).
+func (s *Server) Online() map[uint32]OnlineUser {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[uint32]OnlineUser{}
+	for _, u := range s.state.Users {
+		if u.Registered && u.UserID != 0 {
+			out[u.UserID] = OnlineUser{u.Name, u.Session}
+		}
+	}
+	return out
+}
+
 // Bio is a registered user's saved comment ("": none, or no such user).
 func (s *Server) Bio(id uint32) string {
 	if s.cfg.DB == nil {

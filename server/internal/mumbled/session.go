@@ -104,6 +104,7 @@ type identity struct {
 	lastChannel uint32
 	comment     string
 	texture     []byte
+	newUser     bool // registered just now (a web account's first visit)
 }
 
 // Origin is where a connection comes from, for connections that are not
@@ -227,6 +228,7 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 	if err != nil {
 		return fail(err)
 	}
+	newUser := false
 	if r == nil && s.cfg.WebAccountExists != nil && !s.cfg.WebAccountExists(a.Name, a.CertHash) {
 		return identity{}, mumble.RejectFrame(pb.Reject_AuthenticatorFail, "This guest account has expired. Please join again.")
 	}
@@ -246,7 +248,7 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 			return fail(err)
 		}
 		r = &Registered{ID: id, Name: a.Name}
-		s.userChanged(id, a.Name)
+		newUser = true
 	} else if names.Key(r.Name) != names.Key(a.Name) {
 		// An admin renamed the registration: the account keeps its name.
 		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername,
@@ -257,7 +259,7 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 		slog.Error("loading a comment", "user", r.ID, "err", err)
 	}
 	return identity{name: r.Name, registered: true, userID: r.ID, hash: a.CertHash, tokens: h.tokens,
-		lastChannel: r.LastChannel, comment: comment, texture: texture}, nil
+		lastChannel: r.LastChannel, comment: comment, texture: texture, newUser: newUser}, nil
 }
 
 // checkPassword runs argon2 with the limit on parallel hashes.
@@ -315,7 +317,11 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 		legacy:        h.legacy,
 	}
 	setup := &pb.CryptSetup{Key: key[:], ClientNonce: clientNonce[:], ServerNonce: serverNonce[:]}
-	if reject := s.join(c, id, setup); reject != nil {
+	reject = s.join(c, id, setup)
+	if id.newUser { // after its join: online when told
+		s.userChanged(id.userID, id.name)
+	}
+	if reject != nil {
 		writeReject(conn, reject)
 		return
 	}

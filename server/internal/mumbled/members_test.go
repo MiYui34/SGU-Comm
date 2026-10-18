@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 	"testing"
 	"time"
@@ -51,6 +52,31 @@ func TestUsersChangesAreReported(t *testing.T) {
 	expectEvent(t, events, fmt.Sprint(aliceID, " "))
 	if users := s.Users(); len(users) != 1 {
 		t.Fatalf("after removal: %v", users)
+	}
+}
+
+// New registrations are reported once the user is online as registered:
+// a client never lists a new user as offline for a moment.
+func TestNewUsersAreOnlineWhenReported(t *testing.T) {
+	var s *Server
+	db := testDB(t)
+	hash, _ := password.Hash("admin")
+	db.SetPassword(0, hash)
+	events := make(chan string, 10)
+	_, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnUserChanged: func(id uint32, name string) {
+		_, on := s.Online()[id]
+		events <- fmt.Sprint(id, " ", name, " ", on)
+	}}, func(srv *Server) { s = srv })
+	alice, aliceID := registered(t, addr, "alice")
+	expectEvent(t, events, fmt.Sprint(aliceID, " alice true"))
+	bob := joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "Bob", CertHash: "b0b"}}, "Bob"))
+	bobReg, _ := s.cfg.DB.UserByHash("b0b")
+	expectEvent(t, events, fmt.Sprint(bobReg.ID, " Bob true"))
+	dial(t, addr, "guest") // guests are not listed
+	superUser(t, addr)     // nor SuperUser
+	want := map[uint32]OnlineUser{aliceID: {"alice", alice.session}, bobReg.ID: {"Bob", bob.session}}
+	if got := s.Online(); !maps.Equal(got, want) {
+		t.Fatalf("online %v, want %v", got, want)
 	}
 }
 
