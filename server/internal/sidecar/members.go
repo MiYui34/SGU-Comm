@@ -28,12 +28,60 @@ func (h *Hub) members() []wirePeer {
 	return out
 }
 
+// syncOnline tells all but one connection (which gets ready) the members
+// who came online, changed session or went offline since last told, and
+// returns them: session by user id. Members online in channels a viewer
+// cannot see are listed too, without the channel (as Discord). Under
+// statusMu, so ready and these events keep their order.
+func (h *Hub) syncOnline(skip *Conn) map[uint32]uint32 {
+	guests, err := h.store.TemporaryNames()
+	if err != nil {
+		slog.Error("guest accounts", "err", err)
+	}
+	now := map[uint32]uint32{}
+	for id, u := range h.voice.Online() {
+		if !guests[names.Key(u.Name)] {
+			now[id] = u.Session
+		}
+	}
+	var events []map[string]any
+	for id, session := range now {
+		if h.online[id] != session {
+			events = append(events, map[string]any{"type": "online", "id": id, "session": session})
+		}
+	}
+	for id := range h.online {
+		if _, ok := now[id]; !ok {
+			events = append(events, map[string]any{"type": "online", "id": id})
+		}
+	}
+	for _, c := range h.all() {
+		if c == skip {
+			continue
+		}
+		for _, e := range events {
+			c.send(e)
+		}
+	}
+	h.online = now
+	return now
+}
+
+// onlineChanged follows joins, leaves and registrations.
+func (h *Hub) onlineChanged() {
+	h.statusMu.Lock()
+	defer h.statusMu.Unlock()
+	h.syncOnline(nil)
+}
+
 // UserChanged tells everyone about a registration made or renamed (name),
-// or removed ("") (see mumbled.Config.OnUserChanged).
+// or removed ("") (see mumbled.Config.OnUserChanged). A new member is
+// told online first, so clients do not list it offline for a moment.
 func (h *Hub) UserChanged(id uint32, name string) {
 	if h.voice == nil {
 		return
 	}
+	h.onlineChanged()
 	if name == "" {
 		h.broadcast(map[string]any{"type": "member", "id": id, "gone": true})
 		return

@@ -111,6 +111,9 @@ func (c *Conn) sendReady(id mumble.Identity, ready map[string]any) {
 		return
 	}
 	ready["statuses"], ready["ownStatus"] = c.hub.statuses(), view(st, c.hub.now())
+	if c.hub.voice != nil {
+		ready["online"] = c.hub.syncOnline(c)
+	}
 	c.send(ready)
 	if v := c.shown(); !v.plain() {
 		for _, other := range c.hub.all() {
