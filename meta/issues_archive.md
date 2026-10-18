@@ -150,3 +150,5 @@
 - [x] [Server: access tokens for the desktop app](issues/desktop-access-tokens.md)
 - [x] [Kallisti accounts: password login from Mumble clients](issues/mumble-password-for-accounts.md)
 - [x] [Desktop builds on GitHub](issues/desktop-ci-builds.md)
+- [x] [Desktop: sign and notarize the macOS build](issues/desktop-macos-signing.md)
+- [x] [Echo cancellation setting](issues/echo-cancellation-setting.md)

@@ -107,8 +107,41 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
           fi
 
+      # One download per package (the AppImage alone is ~90 MB: it carries
+      # WebKitGTK). macOS: the disk image only (the bare app is the same).
       - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
         with:
-          name: kallisti-${{ runner.os }}
-          path: ${{ join(fromJSON(steps.tauri.outputs.artifactPaths), fromJSON('"\n"')) }}
+          name: kallisti-macos-dmg
+          path: apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: kallisti-windows-msi
+          path: apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: kallisti-windows-setup-exe
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: kallisti-linux-deb
+          path: apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: kallisti-linux-rpm
+          path: apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: kallisti-linux-appimage
+          path: apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
