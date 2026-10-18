@@ -633,16 +633,20 @@ From `meta/research/discord-comparison.md`.
   through the same `send`, so they count, but the file is uploaded
   before the refusal: the cleanup of unused uploads removes it.
 - Last posts are in memory (keyed by user id, guests by session) and
-  only recorded while slow mode is on. After a restart, or right after
-  slow mode is turned on, the server lets a post through that the
-  composer (counting from the newest own message it has loaded) still
-  holds back. The composer is stricter, never looser, except for clock
-  skew: it counts in server times and caps the wait at the slow mode.
+  recorded also while slow mode is off: the composer counts from the
+  newest own message it has loaded, so turning slow mode on must hold
+  back who just posted on the server too. After a restart the server
+  lets a post through that the composer still holds back (stricter,
+  never looser). Clock skew: the composer counts in server times and
+  caps the wait at the slow mode.
+- mumbled asks before its time-out and permission checks: a timed out
+  Mumble user in a slow channel can get the slow mode refusal first,
+  and a refused text still takes the turn.
 - Mumble clients: mumbled asks `Config.CheckChannelText` before it
   relays a text, outside its lock (the hub calls back into mumbled for
   the staff check). A refused text reaches nobody; the sender gets a
   PermissionDenied of type Text, which Mumble shows in its log as
   "Slow mode: wait 23 s". Only channels written to directly are asked
-  (tree messages never reach a mirror, see mirrors.go).
+  (a tree message is not stored in a mirror, see mumbled textMsg).
 - Web and Mumble share one turn per user and channel: a registered user
   waits on the web after writing from Mumble.
