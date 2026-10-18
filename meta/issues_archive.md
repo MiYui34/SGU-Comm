@@ -185,3 +185,4 @@
 - [x] [Mass delete](issues/mass-delete.md)
 - [x] [Guests read only](issues/guests-read-only.md)
 - [x] [Connection info in the web client](issues/connection-info-web.md)
+- [x] [Connection stats on the server](issues/connection-stats-server.md)
