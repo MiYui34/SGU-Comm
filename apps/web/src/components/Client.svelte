@@ -41,6 +41,7 @@
   import { watchAway } from "../lib/away";
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
+  import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
     moderationRequest,
@@ -1060,6 +1061,7 @@
     <ChatPane
       {...paneCommon}
       {...pane}
+      chatKey={chatKeyOf(view, channelId)}
       me={me?.name ?? ""}
       {people}
       cannotWrite={myTimeout === null ? null : `You are timed out until ${untilText(myTimeout)}.`}

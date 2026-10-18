@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterUpload, canAttach, switchDraft } from "../src/lib/composer";
+import { afterUpload, canAttach, chatKeyOf, switchDraft } from "../src/lib/composer";
 
 describe("canAttach", () => {
   it("takes a file only where uploads work and none is running", () => {
@@ -11,15 +11,16 @@ describe("canAttach", () => {
 
 describe("afterUpload", () => {
   const file = new File(["x"], "a.png");
-  const sent = { target: "#general", caption: "look", file };
-  const now = { target: "#general", draft: "look ", file, drafts: new Map<string, string>() };
+  const sent = { chat: "text 1", caption: "look", file };
+  const none = new Map<string, string>();
+  const now = { chat: "text 1", draft: "look ", file, drafts: none };
 
   it("clears the file and caption after a success", () => {
-    expect(afterUpload(true, sent, now)).toEqual({ file: true, caption: true, kept: false });
+    expect(afterUpload(true, sent, now)).toEqual({ file: true, caption: true, drafts: none });
   });
 
   it("keeps both after a failure, for a retry", () => {
-    expect(afterUpload(false, sent, now)).toEqual({ file: false, caption: false, kept: false });
+    expect(afterUpload(false, sent, now)).toEqual({ file: false, caption: false, drafts: none });
   });
 
   it("keeps a caption that was changed during the upload", () => {
@@ -27,15 +28,26 @@ describe("afterUpload", () => {
   });
 
   it("keeps the text of another chat", () => {
-    const other = { ...now, target: "#random", draft: "look", file: undefined };
-    expect(afterUpload(true, sent, other)).toEqual({ file: false, caption: false, kept: false });
+    const other = { ...now, chat: "text 2", draft: "look", file: undefined };
+    expect(afterUpload(true, sent, other)).toEqual({ file: false, caption: false, drafts: none });
   });
 
   it("forgets the sent caption kept for the chat it was sent in", () => {
-    const other = { ...now, target: "#random", draft: "", file: undefined };
-    expect(afterUpload(true, sent, { ...other, drafts: new Map([["#general", "look"]]) }).kept).toBe(true);
-    expect(afterUpload(false, sent, { ...other, drafts: new Map([["#general", "look"]]) }).kept).toBe(false);
-    expect(afterUpload(true, sent, { ...other, drafts: new Map([["#general", "look again"]]) }).kept).toBe(false);
+    const other = { ...now, chat: "text 2", draft: "", file: undefined };
+    const kept = new Map([["text 1", "look"], ["text 3", "hi"]]);
+    expect(afterUpload(true, sent, { ...other, drafts: kept }).drafts).toEqual(new Map([["text 3", "hi"]]));
+    expect(afterUpload(false, sent, { ...other, drafts: kept }).drafts).toBe(kept);
+    const changed = new Map([["text 1", "look again"]]);
+    expect(afterUpload(true, sent, { ...other, drafts: changed }).drafts).toBe(changed);
+  });
+});
+
+describe("chatKeyOf", () => {
+  it("tells chats apart by id, private chats by name", () => {
+    expect(chatKeyOf({ kind: "text", id: 3 }, 0)).toBe("text 3");
+    expect(chatKeyOf({ kind: "voice" }, 5)).not.toBe(chatKeyOf({ kind: "voice" }, 6));
+    expect(chatKeyOf({ kind: "dm", session: 2, name: "bob" }, 5)).toBe(chatKeyOf({ kind: "dm", session: null, name: "bob" }, 0));
+    expect(chatKeyOf({ kind: "dm", session: 2, name: "5" }, 5)).not.toBe(chatKeyOf({ kind: "voice" }, 5));
   });
 });
 

@@ -1,26 +1,34 @@
+import type { View } from "./place";
+
 // The message box of a chat (see ChatPane).
 
 // One upload at a time: no new file waits while one is sent.
 export const canAttach = (uploads: boolean, uploading: boolean) => uploads && !uploading;
 
-type Sent = { target: string; caption: string; file: File };
-type Now = { target: string; draft: string; file: File | undefined; drafts: ReadonlyMap<string, string> };
+// The open chat, for its draft: channels by id (voice channel names
+// repeat in the tree, a rename keeps the draft), private chats by name.
+export const chatKeyOf = (view: View, voiceChannel: number) =>
+  view.kind === "text" ? `text ${view.id}` : view.kind === "dm" ? `dm ${view.name}` : `voice ${voiceChannel}`;
+
+type Sent = { chat: string; caption: string; file: File };
+type Now = { chat: string; draft: string; file: File | undefined; drafts: ReadonlyMap<string, string> };
 
 // What goes after an upload finished: only a success takes the file and
 // the caption (a failure leaves them for a retry), and only while they
-// are still what was sent (the same chat, the caption not changed).
-// kept: the caption waits as the draft of the chat we left; it goes too.
+// are still what was sent (the same chat, the caption not changed). A
+// caption kept as the draft of the chat we left goes from `drafts`.
 export const afterUpload = (ok: boolean, sent: Sent, now: Now) => {
-  const here = now.target === sent.target;
+  const here = now.chat === sent.chat;
+  const kept = ok && !here && now.drafts.get(sent.chat)?.trim() === sent.caption;
   return {
     file: ok && now.file === sent.file,
     caption: ok && here && now.draft.trim() === sent.caption,
-    kept: ok && !here && now.drafts.get(sent.target)?.trim() === sent.caption,
+    drafts: kept ? new Map([...now.drafts].filter(([chat]) => chat !== sent.chat)) : now.drafts,
   };
 };
 
 // Another chat: the draft of the one we leave is kept (drafts: of the
-// chats not open, by target), the other one's comes back.
+// chats not open, by chat key), the other one's comes back.
 export const switchDraft = (drafts: ReadonlyMap<string, string>, from: string, to: string, draft: string) => {
   const next = new Map(drafts);
   if (draft.trim()) next.set(from, draft);

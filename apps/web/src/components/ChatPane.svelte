@@ -84,6 +84,7 @@
     previewOf,
     httpBase = "",
     cannotWrite = null,
+    chatKey,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -151,6 +152,8 @@
     httpBase?: string;
     // Why we cannot write now (a time-out); the message box says it.
     cannotWrite?: string | null;
+    // Tells the chats apart (see chatKeyOf); else the title.
+    chatKey?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
     // ok: the upload worked (false: busy or failed; the file stays).
     onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
@@ -238,6 +241,7 @@
   // A chosen file waits above the message box until it is sent with Enter
   // (with the typed text as caption) or cancelled.
   let pending = $state<{ file: File; preview: string | null; spoiler: boolean } | null>(null);
+  const WAIT_UPLOAD = "Wait for the upload to finish";
   const cancelPending = () => {
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
     pending = null;
@@ -246,7 +250,7 @@
     const file = files?.[0];
     if (!file) return;
     if (!canAttach(!!onUpload, uploading)) {
-      if (uploading) notify("Wait for the upload to finish");
+      if (uploading) notify(WAIT_UPLOAD);
       return;
     }
     cancelPending();
@@ -255,10 +259,11 @@
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
   // switchDraft); draftFor: the chat of `draft`.
+  const chat = $derived(chatKey ?? target);
   let drafts: ReadonlyMap<string, string> = new Map();
   let draftFor = "";
   $effect(() => {
-    const to = target;
+    const to = chat;
     untrack(() => {
       if (to === draftFor) return;
       ({ drafts, draft } = switchDraft(drafts, draftFor, to, draft));
@@ -293,15 +298,15 @@
     const text = draft.trim();
     if (pending && onUpload) {
       // The file waits while another one is sent (see canAttach).
-      if (uploading) return;
+      if (uploading) return void notify(WAIT_UPLOAD);
       const { file, spoiler } = pending;
-      const sent = { target, caption: text, file, reply: replying?.id };
+      const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
       void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
-        const done = afterUpload(ok, sent, { target, draft, file: pending?.file, drafts });
+        const done = afterUpload(ok, sent, { chat, draft, file: pending?.file, drafts });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
-        if (done.kept) drafts = new Map([...drafts].filter(([t]) => t !== sent.target));
+        drafts = done.drafts;
         if (ok && replying?.id === sent.reply) replying = null;
       });
       return;
