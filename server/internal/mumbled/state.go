@@ -21,6 +21,8 @@ type State struct {
 	gen         uint64 // see Changed
 	// Guests may not write (see guests.go).
 	GuestsReadOnly bool
+	// Index in CaptchaLevels (see captcha.go).
+	Captcha uint32
 	// OnMove hears every change of a user's channel; NoChannel stands for
 	// joining or leaving the server. It runs under the server lock.
 	OnMove func(session, from, to uint32)

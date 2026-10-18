@@ -226,6 +226,10 @@ func New(cfg Config) (*Server, error) {
 		if state.GuestsReadOnly, err = cfg.DB.GuestsReadOnly(); err != nil {
 			return nil, err
 		}
+		if state.Captcha, err = cfg.DB.meta("captcha"); err != nil {
+			return nil, err
+		}
+		state.Captcha = min(state.Captcha, uint32(len(CaptchaLevels)-1))
 	} else {
 		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
 	}
