@@ -16,9 +16,11 @@ type Speaker = {
   gain: GainNode;
   end: number | null;
   // Where the stream goes on (µs, null: a new talk spurt), and for each
-  // chunk in the decoder, whether it ends a spurt (see chunkOutcome).
+  // chunk in the decoder (outputs come in order) its frame time and whether
+  // it ends a spurt (see chunkOutcome). Not the output's timestamp: a
+  // decoder may count those itself.
   next: number | null;
-  ends: boolean[];
+  queued: { at: number; end: boolean }[];
   timer?: ReturnType<typeof setTimeout>;
 };
 
@@ -42,10 +44,11 @@ export const createPlayback = (ctx: AudioContext) => {
     const now = ctx.currentTime * SAMPLE_RATE;
     const start = nextStart(speaker.end, now, PLAYOUT);
     const duration = (data.numberOfFrames / SAMPLE_RATE) * 1e6;
-    const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: data.timestamp, duration, start, prevEnd: speaker.end, now });
+    const chunk = speaker.queued.shift() ?? { at: data.timestamp, end: false };
+    const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: chunk.at, duration, start, prevEnd: speaker.end, now });
     counters[late ? "late" : "good"]++;
     counters.lost += lost;
-    speaker.next = speaker.ends.shift() ? null : data.timestamp + duration;
+    speaker.next = chunk.end ? null : chunk.at + duration;
     if (start === null) return data.close();
     // Stereo streams (music bots) keep both channels; voice is mono in
     // both.
@@ -80,7 +83,7 @@ export const createPlayback = (ctx: AudioContext) => {
       gain,
       end: null,
       next: null,
-      ends: [],
+      queued: [],
       decoder: new AudioDecoder({
         output: (data) => play(speaker, data),
         // A broken stream: drop the decoder, the next packet makes a new one.
@@ -111,20 +114,16 @@ export const createPlayback = (ctx: AudioContext) => {
         markSpeaking(packet.session, speaker, packet.terminator);
         // Locally muted: keep the speaking ring, skip the decoding work.
         if (gains.get(packet.session) === 0) return;
+        const at = packet.frameNumber * FRAME_US;
         if (packet.opus.length === 0) {
           // A bare terminator ends the spurt after the chunks in the decoder.
-          if (packet.terminator && !speaker.ends.length) speaker.next = null;
-          else if (packet.terminator) speaker.ends[speaker.ends.length - 1] = true;
+          const last = speaker.queued.at(-1);
+          if (packet.terminator && last) last.end = true;
+          else if (packet.terminator) speaker.next = null;
           return;
         }
-        speaker.ends.push(packet.terminator);
-        speaker.decoder.decode(
-          new EncodedAudioChunk({
-            type: "key",
-            timestamp: packet.frameNumber * FRAME_US,
-            data: packet.opus,
-          }),
-        );
+        speaker.queued.push({ at, end: packet.terminator });
+        speaker.decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: at, data: packet.opus }));
       } catch (err) {
         // For example a decoder that failed and is closed, before its error
         // callback ran. Drop it, the next packet makes a new one.

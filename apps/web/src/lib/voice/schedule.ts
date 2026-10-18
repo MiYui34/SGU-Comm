@@ -17,9 +17,10 @@ export const nextStart = (
   return prevEnd > t + cfg.maxLatency ? null : prevEnd;
 };
 
-// A jump of more than a second in the frame numbers is a new talk spurt
-// whose terminator did not come, not lost audio.
-const MAX_GAP_US = 1_000_000;
+// A longer jump in the frame numbers is taken for a new talk spurt whose
+// terminator did not come (lost, or a client without them), not for lost
+// audio.
+const MAX_GAP_US = 200_000;
 
 // For the connection stats: what happened to one decoded chunk. expected:
 // where the speaker's stream goes on (µs, null: a new talk spurt);
