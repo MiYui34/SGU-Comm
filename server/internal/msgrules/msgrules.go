@@ -79,7 +79,7 @@ func Check(r Rules, a Author, m Message, now, last time.Time) error {
 	}
 	refuse := func(what string) error {
 		if a.Guest {
-			return fmt.Errorf("Guests cannot %s here: log in or make an account", what)
+			return fmt.Errorf("Guests cannot %s: log in or make an account", what)
 		}
 		return fmt.Errorf("New accounts can %s after %d minutes", what, r.NewMinutes)
 	}
