@@ -12,15 +12,21 @@ import (
 // ready lists them, "member" events follow changes. Guest accounts are
 // left out (throwaway accounts, online ones show anyway).
 
-// members are the registered users but guest accounts, by id.
-func (h *Hub) members() []wirePeer {
+// isGuest tells guest accounts by registration name.
+func (h *Hub) isGuest() func(name string) bool {
 	guests, err := h.store.TemporaryNames()
 	if err != nil {
 		slog.Error("guest accounts", "err", err)
 	}
+	return func(name string) bool { return guests[names.Key(name)] }
+}
+
+// members are the registered users but guest accounts, by id.
+func (h *Hub) members() []wirePeer {
+	isGuest := h.isGuest()
 	out := []wirePeer{}
 	for id, name := range h.voice.Users() {
-		if !guests[names.Key(name)] {
+		if !isGuest(name) {
 			out = append(out, wirePeer{id, name})
 		}
 	}
@@ -34,13 +40,10 @@ func (h *Hub) members() []wirePeer {
 // cannot see are listed too, without the channel (as Discord). Under
 // statusMu, so ready and these events keep their order.
 func (h *Hub) syncOnline(skip *Conn) map[uint32]uint32 {
-	guests, err := h.store.TemporaryNames()
-	if err != nil {
-		slog.Error("guest accounts", "err", err)
-	}
+	isGuest := h.isGuest()
 	now := map[uint32]uint32{}
 	for id, u := range h.voice.Online() {
-		if !guests[names.Key(u.Name)] {
+		if !isGuest(u.Name) {
 			now[id] = u.Session
 		}
 	}
