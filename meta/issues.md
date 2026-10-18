@@ -11,7 +11,6 @@
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
 - [ ] [Anti-spam](issues/anti-spam.md)
   - [ ] [Guests read only](issues/guests-read-only.md)
-  - [ ] [Mass delete](issues/mass-delete.md)
   - [ ] [Slow mode](issues/slow-mode.md)
   - [ ] [Limits for new accounts](issues/new-account-limits.md)
   - [ ] [Word and link filter](issues/word-link-filter.md)
