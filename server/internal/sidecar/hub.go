@@ -68,6 +68,9 @@ type Voice interface {
 	Private() []PrivateChannel
 	SetPrivate(session, channel uint32, on bool, members []uint32) error
 	CreatePrivateChannel(session uint32, name string) (uint32, error)
+	// AddMember adds a registered user to a private channel's members (by
+	// an invite link, see invites.go); false: it already was.
+	AddMember(channel, user uint32) (bool, error)
 	// SendServerText sends HTML to one Mumble user, from the server.
 	SendServerText(session uint32, html string)
 	// SendPrivateText sends plain text to a registered user's Mumble
@@ -423,6 +426,9 @@ type request struct {
 	Session   uint32   `json:"session"`   // ban, time-out: the user's voice server session
 	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it)
 	Private   bool     `json:"private"`   // create-channel: a private one
+	Uses      int      `json:"uses"`      // create-invite (0: unlimited; seconds 0: for ever)
+	Invite    int64    `json:"invite"`    // delete-invite
+	Token     string   `json:"token"`     // redeem-invite
 }
 
 // Handle answers one request from the browser.
@@ -517,6 +523,18 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "create-private-voice":
 		c.createPrivateVoice(*id, req.Name)
+		return
+	case "invites":
+		c.invites(*id, req)
+		return
+	case "create-invite":
+		c.createInvite(*id, req)
+		return
+	case "delete-invite":
+		c.deleteInvite(*id, req)
+		return
+	case "redeem-invite":
+		c.redeemInvite(*id, req.Token)
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).
