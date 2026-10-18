@@ -54,7 +54,7 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
     // none needed (or a server without them).
     challenge: async (): Promise<Challenge | null> => {
       const c = await call("/api/challenge").catch(() => null);
-      return c?.challenge && c.bits && c.expires ? { challenge: c.challenge, bits: c.bits, expires: c.expires } : null;
+      return c?.challenge && c.bits ? { challenge: c.challenge, bits: c.bits } : null;
     },
     create: async (name: string, password: string, proof?: Proof) =>
       (await call("/api/accounts", { name, password, ...proof })).name ?? name,

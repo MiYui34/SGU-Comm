@@ -41,8 +41,8 @@ describe("accounts API with a captcha", () => {
     }) as unknown as typeof fetch;
 
   it("gets a challenge, or null when off or unknown", async () => {
-    const on = { challenge: "c", bits: 18, expires: 1 };
-    expect(await createAccountsApi("http://srv", fetchWith({ "/api/challenge": [200, on] }, {})).challenge()).toEqual(on);
+    const on = { challenge: "c", bits: 18 };
+    expect(await createAccountsApi("http://srv", fetchWith({ "/api/challenge": [200, { ...on, expires: 1 }] }, {})).challenge()).toEqual(on);
     expect(await createAccountsApi("http://srv", fetchWith({ "/api/challenge": [200, { bits: 0 }] }, {})).challenge()).toBeNull();
     expect(await createAccountsApi("http://srv", fetchWith({}, {})).challenge()).toBeNull();
   });

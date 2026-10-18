@@ -87,7 +87,10 @@
       // A guest gets a temporary account where the server has them (its
       // name is kept, and it can keep the account with a password).
       if (mode === "guest") {
-        const guest = await api.guest(name, await prove());
+        // A browser that cannot do the check joins as a classic guest (as
+        // Mumble clients do).
+        const proof = await prove().catch(() => null);
+        const guest = proof === null ? null : await api.guest(name, proof);
         if (!guest) return connectAs(name, false);
         onAccountChange(guest);
         return connectAs(guest.name, true);

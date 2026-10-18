@@ -2,7 +2,7 @@
 // server/internal/auth/challenge.go): find a nonce so that
 // SHA-256(challenge + nonce) starts with `bits` zero bits. A worker does
 // it (captcha.worker.ts), so the page stays responsive.
-export type Challenge = { challenge: string; bits: number; expires: number };
+export type Challenge = { challenge: string; bits: number };
 export type Proof = { challenge: string; nonce: string };
 
 // The admins' setting (see ModerationDialog).
