@@ -155,3 +155,14 @@ func TestATargetChangeKeepsOtherCaches(t *testing.T) {
 		t.Fatal("a voice target cleared every cache")
 	}
 }
+
+// A target can name a channel that is gone since (a temporary channel
+// empties): no crash on the next voice packet, and no one there.
+func TestTargetsWithARemovedChannel(t *testing.T) {
+	s, a, _, _ := targetState(t)
+	s.SetTarget(1, 1, VoiceTarget{Channels: []TargetChannel{{ID: a.ID, Links: true, Children: true}}})
+	s.RemoveChannel(a.ID)
+	if got := receivers(s, 1, 1); len(got) != 0 {
+		t.Fatalf("receivers %v", got)
+	}
+}

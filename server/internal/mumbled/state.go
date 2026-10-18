@@ -402,6 +402,9 @@ func (s *State) linked(id uint32) map[uint32]bool {
 	for len(queue) > 0 {
 		c := s.Channels[queue[0]]
 		queue = queue[1:]
+		if c == nil {
+			continue // removed (links are cleaned up, but stay safe)
+		}
 		for l := range c.Links {
 			if !seen[l] {
 				seen[l] = true

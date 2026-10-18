@@ -178,6 +178,10 @@ func (s *State) addTargetReceivers(u *User, vt VoiceTarget, add func(*User, Audi
 	groups := map[uint32][]string{}
 	may := map[uint32]bool{}
 	for _, tc := range vt.Channels {
+		// A channel removed since the target was set (a temporary one).
+		if s.Channels[tc.ID] == nil {
+			continue
+		}
 		chans := map[uint32]bool{tc.ID: true}
 		if tc.Links {
 			chans = s.linked(tc.ID)
