@@ -198,4 +198,7 @@ func TestPrivateChannelsAreSavedAndReported(t *testing.T) {
 	if got := reloaded.Private(); len(got) != 1 || got[0].Channel != other {
 		t.Fatalf("after a restart %+v", got)
 	}
+	// Removed: the private channels changed too.
+	su.send(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(other)})
+	eventually(t, func() bool { return calls.Load() == 4 })
 }

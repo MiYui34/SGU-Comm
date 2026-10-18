@@ -562,9 +562,13 @@ func (s *Server) channelRemoveMsg(c *client, m *pb.ChannelRemove) {
 		c.deny(deny(pb.PermissionDenied_Text, "cannot remove this channel"))
 		return
 	}
+	private := slices.ContainsFunc(s.state.Subtree(m.GetChannelId()), func(id uint32) bool { return isPrivate(s.state.Channels[id]) })
 	removed := s.removeChannelLocked(m.GetChannelId(), c.session)
 	s.mu.Unlock()
 	s.save(nil, removed, 0)
+	if private {
+		s.privateChanged()
+	}
 }
 
 // removeChannelLocked removes a channel and its subchannels, moves their

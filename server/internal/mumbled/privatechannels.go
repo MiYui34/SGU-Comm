@@ -37,13 +37,13 @@ func privateACL() []ACL {
 	return acls
 }
 
-// isPrivate: "all" may not traverse the channel (also by an entry from a
-// Mumble client).
-func isPrivate(ch *Channel) bool {
-	return slices.ContainsFunc(ch.ACLs, func(a ACL) bool {
-		return !a.HasUser && a.Group == "all" && a.ApplyHere && a.Deny&Traverse != 0
-	})
+// isPrivateDeny: "all" may not traverse the channel (also by an entry
+// from a Mumble client).
+func isPrivateDeny(a ACL) bool {
+	return !a.HasUser && a.Group == "all" && a.ApplyHere && a.Deny&Traverse != 0
 }
+
+func isPrivate(ch *Channel) bool { return slices.ContainsFunc(ch.ACLs, isPrivateDeny) }
 
 // withoutPrivate drops the private entries and takes Traverse and Enter
 // out of the denies for "all".
@@ -54,7 +54,7 @@ func withoutPrivate(acls []ACL) []ACL {
 		if slices.Contains(allows, a) {
 			continue
 		}
-		if !a.HasUser && a.Group == "all" && a.ApplyHere && a.Deny&Traverse != 0 {
+		if isPrivateDeny(a) {
 			a.Deny &^= privateBits
 			if a.Allow == 0 && a.Deny == 0 {
 				continue

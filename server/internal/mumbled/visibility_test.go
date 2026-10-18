@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -35,6 +36,24 @@ func TestHiddenChannelsAndTheirSubchannelsAreNotVisible(t *testing.T) {
 	}
 	if s.Sees(guest, below.ID) || !s.Sees(member, below.ID) || s.Sees(member, 99) {
 		t.Fatal("Sees disagrees")
+	}
+}
+
+// Over links, voice from a hidden channel reaches only those who see it.
+func TestHiddenChannelsAreNotHeardOverLinks(t *testing.T) {
+	s := newTestState(t)
+	secret := mustAdd(t, s, 0, "Secret", false)
+	open := mustAdd(t, s, 0, "Open", false)
+	hide(secret, 7, 8)
+	s.Link(secret.ID, open.ID)
+	s.AddUser(&User{Session: 1, Registered: true, UserID: 7, Channel: secret.ID})
+	s.AddUser(&User{Session: 2, Channel: open.ID})
+	s.AddUser(&User{Session: 3, Registered: true, UserID: 8, Channel: open.ID})
+	if got := s.Listeners(1); !slices.Equal(got, []uint32{3}) {
+		t.Fatalf("listeners %v", got)
+	}
+	if got := s.Listeners(2); !slices.Equal(got, []uint32{3}) { // no Speak in Secret
+		t.Fatalf("listeners %v", got)
 	}
 }
 
