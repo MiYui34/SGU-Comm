@@ -27,7 +27,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach } from "../lib/composer";
+  import { afterUpload, canAttach, switchDraft } from "../lib/composer";
   import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
@@ -251,10 +251,21 @@
     cancelPending();
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
   };
-  // Another conversation: drop a waiting file.
+  // Another conversation: drop a waiting file, the reply and the edit (the
+  // ids are of the old chat). The typed text is kept per chat (see
+  // switchDraft); draftFor: the chat of `draft`.
+  let drafts: ReadonlyMap<string, string> = new Map();
+  let draftFor = "";
   $effect(() => {
-    void target;
-    untrack(cancelPending);
+    const to = target;
+    untrack(() => {
+      if (to === draftFor) return;
+      ({ drafts, draft } = switchDraft(drafts, draftFor, to, draft));
+      draftFor = to;
+      cancelPending();
+      replying = null;
+      editing = null;
+    });
   });
   const onPaste = (event: ClipboardEvent) => {
     if (onUpload && event.clipboardData?.files.length) {
@@ -301,9 +312,10 @@
       const sent = { target, caption: text, file, reply: replying?.id };
       sentAway ||= away;
       void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
-        const done = afterUpload(ok, sent, { target, draft, file: pending?.file });
+        const done = afterUpload(ok, sent, { target, draft, file: pending?.file, drafts });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
+        if (done.kept) drafts = new Map([...drafts].filter(([t]) => t !== sent.target));
         if (ok && replying?.id === sent.reply) replying = null;
       });
       return;
