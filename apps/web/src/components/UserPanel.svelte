@@ -8,6 +8,8 @@
   import Emoji from "./Emoji.svelte";
   import Icon from "./Icon.svelte";
   import StatusDialog from "./StatusDialog.svelte";
+  import ConnectionInfo from "./ConnectionInfo.svelte";
+  import type { ConnectionInfo as Info } from "../lib/connectionInfo.svelte";
 
   let {
     me,
@@ -21,6 +23,7 @@
     own = { status: "online" },
     now = Date.now(),
     onStatus,
+    info,
   }: {
     me: User;
     // "Voice connected", "Not in voice", ...
@@ -38,6 +41,9 @@
     now?: number;
     // Sets our status (none: the server has no statuses).
     onStatus?: (v: PresenceView) => void;
+    // The connection's quality, while in voice without a voice bar (plain
+    // Mumble servers; see VoiceBar).
+    info?: Info;
   } = $props();
 
   const custom = $derived(customOf(own, now));
@@ -71,6 +77,7 @@
       {/if}
     </div>
   </button>
+  {#if info}<ConnectionInfo {info} />{/if}
   <button
     title={me.selfMute ? "Unmute" : "Mute"}
     aria-pressed={me.selfMute}
