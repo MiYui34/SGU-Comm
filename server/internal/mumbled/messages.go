@@ -621,7 +621,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		c.deny(timedOutText("you are", until))
 		return
 	}
-	if err := s.checkMessageLocked(actor, mumbleMessage(text, m.GetMessage(), len(images) > 0)); err != nil {
+	if err := s.checkMessageLocked(actor, mumbleMessage(text, len(images) > 0)); err != nil {
 		c.deny(deny(pb.PermissionDenied_Text, "%s", err))
 		return
 	}

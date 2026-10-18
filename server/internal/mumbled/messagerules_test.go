@@ -105,7 +105,7 @@ func TestMessageRules(t *testing.T) {
 	refused(bob, "buy SPAM", "blocked word")
 	refused(carol, "see https://junk.example", "blocked site")
 	refused(bob, "see https://ok.example", "New accounts can post links after 10 minutes")
-	refused(carol, `<a href="https://x.example">click</a>`, "post links")
+	refused(carol, `<a href="https://x.example">https://x.example</a>`, "post links")
 	refused(guest, "https://ok.example", "Guests cannot post links")
 	passes(guest, "hi")
 	refused(guest, "hi again", "one message every 5 seconds")
@@ -124,6 +124,6 @@ func TestMessageRules(t *testing.T) {
 	later.Store(int64(10 * time.Minute))
 	passes(bob, "see https://ok.example")
 	passes(bob, "and again")
-	refused(carol, `<a href="https://junk.example">click</a>`, "blocked site") // a link's target counts
+	refused(carol, `<b>junk</b>.example`, "blocked site") // the plain text counts
 	refused(guest, "https://ok.example", "Guests cannot post links")
 }

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"html"
 	"log/slog"
-	"regexp"
-	"strings"
 
 	"kallisti.chat/server/internal/msgrules"
 )
@@ -82,14 +80,8 @@ func (s *Server) checkMessageLocked(u *User, m msgrules.Message) error {
 	return err
 }
 
-var linkTarget = regexp.MustCompile(`(?i)\bhref\s*=\s*["']?([^"'\s>]+)`)
-
-// mumbleMessage is a Mumble client's text for the rules: its plain text
-// and its links' targets (the text shown can be another).
-func mumbleMessage(plain, raw string, images bool) msgrules.Message {
-	text := html.UnescapeString(plain)
-	for _, m := range linkTarget.FindAllStringSubmatch(raw, -1) {
-		text += " " + html.UnescapeString(m[1])
-	}
-	return msgrules.Message{Text: strings.TrimSpace(text), Upload: images, Post: true}
+// mumbleMessage is a Mumble client's text for the rules: the plain text
+// that goes out (tags, and so link targets, do not).
+func mumbleMessage(plain string, images bool) msgrules.Message {
+	return msgrules.Message{Text: html.UnescapeString(plain), Upload: images, Post: true}
 }

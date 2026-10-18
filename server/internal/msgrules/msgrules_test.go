@@ -24,6 +24,8 @@ func TestBlockedWords(t *testing.T) {
 		{"spam_bot here", true}, // _ separates words (markdown)
 		{"**spam**", true},      // markdown
 		{"s\u200bpam", true},    // zero-width characters are left out
+		{"sp\u3164am", true},    // so are fillers that count as letters
+		{"x sp\u0640am", true},  // and the Arabic tatweel
 		{"ｓｐａｍ", true},          // full-width letters
 		{"ＳＰＡＭ", true},          // full-width capitals
 		{"buy now!", true},      // a phrase
@@ -72,6 +74,8 @@ func TestBlockedDomains(t *testing.T) {
 		{"https://BÜCHER.example/", true},        // internationalized
 		{"https://xn--bcher-kva.example/", true}, // its ASCII form
 		{"https://buy.cheap.xyz", true},          // a top-level domain
+		{"https://spam%2Eexample/", true},        // percent-encoded
+		{"https://\u05d0a.spam.example/", true},  // not a valid IDNA host
 		{"xyz", false},                           // a word, not a host
 		{"spam example", false},
 	} {
@@ -147,13 +151,13 @@ func TestNewAccountLimits(t *testing.T) {
 func TestNormalize(t *testing.T) {
 	got, err := Normalize(Rules{
 		NewMinutes: 15,
-		Words:      []string{" spam ", "SPAM", "", "buy   now", "Café", "cafe"},
+		Words:      []string{" spam ", "SPAM", "", "buy   now", "Café", "cafe", "don't", "e-mail"},
 		Domains:    []string{"https://Spam.Example/path?q", "*.spam.example", "spam.example.", "Bücher.example", ".XYZ", "  "},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"buy now", "Café", "spam"}; !slices.Equal(got.Words, want) {
+	if want := []string{"buy now", "Café", "don't", "e-mail", "spam"}; !slices.Equal(got.Words, want) {
 		t.Errorf("words %q, want %q", got.Words, want)
 	}
 	if want := []string{"bücher.example", "spam.example", "xyz"}; !slices.Equal(got.Domains, want) {
@@ -170,6 +174,8 @@ func TestNormalize(t *testing.T) {
 		{NewMinutes: -1},
 		{NewMinutes: MaxNewMinutes + 1},
 		{Words: []string{"!!!"}},
+		{Words: []string{"c++"}}, // would block every "c"
+		{Words: []string{"f*ck"}},
 		{Words: []string{strings.Repeat("a", maxEntry+1)}},
 		{Words: make([]string, maxEntries+1)},
 		{Domains: []string{"not a domain"}},

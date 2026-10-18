@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -120,8 +121,8 @@ func Normalize(r Rules) (Rules, error) {
 			continue
 		case utf8.RuneCountInString(w) > maxEntry:
 			return Rules{}, fmt.Errorf("a blocked word has at most %d characters", maxEntry)
-		case len(words(key)) == 0:
-			return Rules{}, fmt.Errorf("%q has no letters or digits", w)
+		case !wordEntry.MatchString(w):
+			return Rules{}, fmt.Errorf("%q: use words of letters and digits (with ' - . _ between them)", w)
 		}
 		seen[key] = true
 		out.Words = append(out.Words, w)
@@ -146,11 +147,12 @@ func Normalize(r Rules) (Rules, error) {
 }
 
 // clean takes out what hides text without changing it: invisible format
-// characters (zero-width spaces), compatibility forms (full-width
-// letters), ideographic full stops (dots in domains, as for browsers).
+// characters (zero-width spaces) and fillers (Hangul fillers, the Arabic
+// tatweel), compatibility forms (full-width letters), ideographic full
+// stops (dots in domains, as for browsers).
 func clean(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if unicode.Is(unicode.Cf, r) {
+		if unicode.Is(unicode.Cf, r) || strings.ContainsRune(fillers, r) {
 			return -1
 		}
 		return r
@@ -214,7 +216,15 @@ func blockedWord(blocked []string, text string) bool {
 	return false
 }
 
+const fillers = "\u0640\u115f\u1160\u3164\uffa0"
+
 var (
+	// Blocked words: words of letters, digits and marks, with spaces or
+	// one of ' - . _ between them (other symbols would split a word, so
+	// "c++" would block every "c").
+	wordEntry = regexp.MustCompile(`^[\p{L}\p{N}\p{M}]+(?:(?: |['’._-])[\p{L}\p{N}\p{M}]+)*$`)
+	// Percent-encoded bytes (browsers decode them in hosts).
+	percent = regexp.MustCompile(`%[0-9a-fA-F]{2}`)
 	// Hosts in text: labels with dots between them.
 	hostPattern = regexp.MustCompile(`[\p{L}\p{N}\p{M}-]+(?:\.[\p{L}\p{N}\p{M}-]+)+`)
 	asciiHost   = regexp.MustCompile(`^[a-z0-9-]+(?:\.[a-z0-9-]+)*$`)
@@ -243,16 +253,18 @@ func domain(s string) (string, bool) {
 	return ascii, asciiHost.MatchString(ascii)
 }
 
-// blockedDomain: a host in the text is a blocked domain or below one.
+// blockedDomain: a host in the text is a blocked domain or below one
+// (also percent-encoded, or not valid: browsers may still open it).
 func blockedDomain(blocked []string, text string) bool {
 	if len(blocked) == 0 {
 		return false
 	}
-	for _, h := range hostPattern.FindAllString(clean(text), -1) {
-		host, ok := domain(h)
-		if !ok {
-			continue
-		}
+	decoded := percent.ReplaceAllStringFunc(text, func(p string) string {
+		b, _ := strconv.ParseUint(p[1:], 16, 8)
+		return string([]byte{byte(b)}) // bytes in a row make UTF-8 again
+	})
+	for _, h := range hostPattern.FindAllString(clean(text+" "+decoded), -1) {
+		host, _ := domain(h)
 		for _, b := range blocked {
 			if d, ok := domain(b); ok && (host == d || strings.HasSuffix(host, "."+d)) {
 				return true
