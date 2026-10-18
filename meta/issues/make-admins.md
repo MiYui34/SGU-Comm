@@ -9,6 +9,6 @@ Server: SetAdmin next to SetModerator.
 
 ## Acceptance Criteria
 
-- Server tests: admins make admins; non-admins cannot; only SuperUser
+- [x] Server tests: admins make admins; non-admins cannot; only SuperUser
   removes admins; SuperUser itself cannot be changed.
-- Manual check in the user menu.
+- [ ] Manual check in the user menu.
