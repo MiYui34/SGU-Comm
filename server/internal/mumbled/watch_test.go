@@ -38,19 +38,19 @@ func TestConnectionsCountTheRecentWindow(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	// Ten seconds apart: 1000 frames each (late ones are also good, as in
 	// the crypt).
-	for i := range 4 {
+	for i := range 5 {
 		up := VoiceStats{Good: uint32(1000 * (i + 1)), Late: uint32(10 * i)}
 		down := VoiceStats{Good: uint32(1000 * (i + 1)), Lost: uint32(50 * max(i-1, 0))}
 		st := udpStats(time.Duration(i)*watchEvery, up, down, 40)
 		st.Dropped = uint64(7 * i)
 		w.tick(t0.Add(time.Duration(i)*watchEvery), []ConnStats{st}, log)
 	}
-	// Now against the oldest kept snapshot (10 s): 20 late of 2000 up,
-	// 100 lost of 2100 down.
-	st := udpStats(35*time.Second, VoiceStats{Good: 4000, Late: 30}, VoiceStats{Good: 4000, Lost: 100}, 40)
+	// Now (45 s) against the oldest kept snapshot (10 s): 30 late of 4000
+	// up, 200 lost of 4200 down.
+	st := udpStats(45*time.Second, VoiceStats{Good: 6000, Late: 40}, VoiceStats{Good: 6000, Lost: 200}, 40)
 	st.Dropped = 30
 	c := w.connections([]ConnStats{st})[0]
-	if *c.Ping != 40 || !near(c.FromClient, 1) || !near(c.FromServer, 100.0/2100*100) || c.Dropped != 23 || c.Online != 35 ||
+	if *c.Ping != 40 || !near(c.FromClient, 0.75) || !near(c.FromServer, 200.0/4200*100) || c.Dropped != 23 || c.Online != 45 ||
 		c.Client != "1.5.634" || c.OS != "Linux 6.1" {
 		t.Fatalf("connection %+v", c)
 	}
@@ -70,6 +70,18 @@ func TestConnectionsCountTheRecentWindow(t *testing.T) {
 	w.tick(t0.Add(time.Minute), nil, log)
 	if len(w.conns) != 0 {
 		t.Fatalf("kept %v", w.conns)
+	}
+}
+
+func TestLateFramesAreNoLongerLost(t *testing.T) {
+	// A late frame was lost before: lost goes down, late up.
+	old := VoiceStats{Good: 1000, Lost: 10}
+	if p := badPercent(VoiceStats{Good: 1100, Late: 5, Lost: 5}, old); !near(p, 0) {
+		t.Fatalf("late frames: %v", p)
+	}
+	// A client that starts its counters over counts all of them.
+	if p := badPercent(VoiceStats{Good: 99, Lost: 1}, old); !near(p, 1) {
+		t.Fatalf("started over: %v", p)
 	}
 }
 

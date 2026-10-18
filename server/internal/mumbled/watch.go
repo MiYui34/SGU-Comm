@@ -11,13 +11,15 @@ import (
 )
 
 // Connection watch: every 10 s the server keeps a snapshot of each
-// connection's counters, the last three of them. The admin view
+// connection's counters, the last four of them. The admin view
 // (Connections) and the log count the recent window against the oldest
-// one: 30 to 40 s, not since the connection started.
+// one: 30 to 40 s, not since the connection started. Ping is the
+// client's: Mumble clients report the mean since they connected, the web
+// client over its last 30 s.
 
 const (
 	watchEvery     = 10 * time.Second
-	watchSnapshots = 3
+	watchSnapshots = 4
 	// Poor this long: logged; good this long again: logged again. Fair
 	// changes nothing, so a connection near a limit does not flood the log.
 	watchAfter = 30 * time.Second
@@ -88,7 +90,7 @@ func connection(st ConnStats, old sample) Connection {
 	c := Connection{
 		Session: st.Session, Name: st.Name, Transport: st.Transport,
 		FromClient: badPercent(now.up, old.up), FromServer: badPercent(now.down, old.down),
-		Dropped: since(now.dropped, old.dropped), TextOverflows: since(now.overflows, old.overflows),
+		Dropped: now.dropped - old.dropped, TextOverflows: now.overflows - old.overflows,
 		Online: int64(st.Online / time.Second), Client: st.Release, OS: strings.TrimSpace(st.OS + " " + st.OSVersion),
 	}
 	if c.Client == "" && st.Version != 0 {
@@ -104,23 +106,20 @@ func connection(st ConnStats, old sample) Connection {
 
 func ptr[T any](v T) *T { return &v }
 
-// since: a counter's growth (a client that starts its own over: all of it).
-func since[T uint32 | uint64](now, old T) T {
-	if now < old {
-		return now
-	}
-	return now - old
-}
-
 // badPercent: late and lost frames between two counts. Good counts late
-// frames too, as in the crypt; the web client's reports do not, which
-// overstates them a little (8.7 % instead of 8 %).
+// frames too, as in the crypt, where a late frame was lost first (lost
+// goes down again); the web client's reports do not, which overstates
+// them a little (8.7 % instead of 8 %).
 func badPercent(now, old VoiceStats) *float64 {
-	good, late, lost := since(now.Good, old.Good), since(now.Late, old.Late), since(now.Lost, old.Lost)
-	if good+lost < minFrames {
+	if now.Good < old.Good { // a client that started its counters over
+		old = VoiceStats{}
+	}
+	good, lost := int64(now.Good)-int64(old.Good), int64(now.Lost)-int64(old.Lost)
+	bad, total := max(int64(now.Late)-int64(old.Late)+lost, 0), good+max(lost, 0)
+	if total < minFrames {
 		return nil
 	}
-	return ptr(float64(late+lost) / float64(good+lost) * 100)
+	return ptr(float64(bad) / float64(total) * 100)
 }
 
 type watch struct {
