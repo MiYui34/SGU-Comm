@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterUpload, canAttach, chatKeyOf, switchDraft, tooLarge } from "../src/lib/composer";
+import { afterUpload, canAttach, chatKeyOf, refusedDraft, switchDraft, tooLarge } from "../src/lib/composer";
 
 describe("canAttach", () => {
   it("takes a file only where uploads work and none is running", () => {
@@ -77,5 +77,13 @@ describe("tooLarge", () => {
   });
   it("lets the server decide without a known limit", () => {
     expect(tooLarge(1e12, undefined)).toBeNull();
+  });
+});
+
+describe("refusedDraft", () => {
+  it("brings a refused text back into an empty box only", () => {
+    expect(refusedDraft("", "buy spam")).toBe("buy spam");
+    expect(refusedDraft("  ", "buy spam")).toBe("buy spam");
+    expect(refusedDraft("new text", "buy spam")).toBe("new text");
   });
 });

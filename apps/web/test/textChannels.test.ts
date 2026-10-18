@@ -30,6 +30,15 @@ const msg = (id: number, channel = 1, author = "alice"): TextMessage => ({
 });
 
 describe("parseServerEvent", () => {
+  it("keeps the text of a refused send for the composer", () => {
+    const ev = parseServerEvent('{"type":"error","message":"no","about":"refused","channel":3,"text":"buy spam"}');
+    expect(ev).toMatchObject({ returned: { channel: 3, text: "buy spam" } });
+    const slow = parseServerEvent('{"type":"error","message":"wait","about":"slow-mode","channel":3,"until":5,"text":"hi"}');
+    expect(slow).toMatchObject({ slow: { channel: 3, until: 5 }, returned: { channel: 3, text: "hi" } });
+    const s1 = reduceText(initialTextState, ev!);
+    expect(s1.returned).toEqual({ channel: 3, text: "buy spam", n: 1 });
+    expect(reduceText(s1, ev!).returned?.n).toBe(2);
+  });
   it("reads the upload limit of ready", () => {
     const ev = parseServerEvent('{"type":"ready","channels":[],"uploadMax":1048576}');
     expect(ev).toMatchObject({ uploadMax: 1048576 });

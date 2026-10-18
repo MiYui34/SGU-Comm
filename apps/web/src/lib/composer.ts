@@ -5,6 +5,10 @@ import type { View } from "./place";
 // One upload at a time: no new file waits while one is sent.
 export const canAttach = (uploads: boolean, uploading: boolean) => uploads && !uploading;
 
+// A send the server refused comes back; it fills the box only if the user
+// has not typed something new.
+export const refusedDraft = (draft: string, text: string) => (draft.trim() ? draft : text);
+
 // A file over the server's limit (none known: the server decides) is
 // refused before it is sent.
 export const tooLarge = (size: number, max: number | undefined) =>

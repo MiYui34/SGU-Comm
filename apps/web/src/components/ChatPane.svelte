@@ -28,7 +28,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach, switchDraft, tooLarge } from "../lib/composer";
+  import { afterUpload, canAttach, refusedDraft, switchDraft, tooLarge } from "../lib/composer";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
@@ -54,6 +54,7 @@
     onUpload,
     uploading = false,
     uploadMax,
+    returned = null,
     onMenu,
     menuOpen = false,
     onHoldTalk,
@@ -168,6 +169,8 @@
     onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
     uploading?: boolean;
     uploadMax?: number; // the server's limit per file (bytes)
+    // A send the server refused, back for the box (n: which refusal).
+    returned?: { text: string; n: number } | null;
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
     onSend?: (text: string, reply?: number, noPing?: boolean) => void;
@@ -280,6 +283,13 @@
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
     messageInput?.focus(); // after the file picker or a drop: Enter sends
   };
+  let returnedSeen = 0; // each refusal fills the box once
+  $effect(() => {
+    if (!returned || returned.n <= returnedSeen) return;
+    returnedSeen = returned.n;
+    const back = returned.text;
+    untrack(() => (draft = refusedDraft(draft, back)));
+  });
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
   // switchDraft); draftFor: the chat of `draft`.

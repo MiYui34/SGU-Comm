@@ -281,6 +281,7 @@
         onUpload: upload,
         uploading,
         uploadMax: text.uploadMax,
+        returned: text.returned?.channel === chatId ? text.returned : null,
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null && voiceChatId !== null)
@@ -298,6 +299,7 @@
         onUpload: upload,
         uploading,
         uploadMax: text.uploadMax,
+        returned: text.returned?.channel === chatId ? text.returned : null,
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null)
@@ -324,6 +326,7 @@
         onUpload: directChatId === null ? undefined : upload,
         uploading,
         uploadMax: text.uploadMax,
+        returned: text.returned?.channel === chatId ? text.returned : null,
         onSend: directChatId === null ? undefined : send,
         onClose: () => show({ kind: "voice" }),
       } satisfies Partial<ComponentProps<typeof ChatPane>>;

@@ -161,7 +161,8 @@ export type ServerEvent =
   | { type: "search-results"; text: string; messages: TextMessage[] }
   // about "manage": the answer to a channel or role change; slow: a post
   // refused by slow mode, and when the wait ends.
-  | { type: "error"; message: string; about?: "manage"; slow?: { channel: number; until: number } }
+  // returned: a refused send's text, for the composer of its chat.
+  | { type: "error"; message: string; about?: "manage"; slow?: { channel: number; until: number }; returned?: { channel: number; text: string } }
   | { type: "upload-token"; token: string }
   // A message's reactions changed (all of them).
   | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
@@ -196,6 +197,8 @@ export type TextState = {
   guestsReadOnly: boolean;
   // Slow mode: when the server said our wait ends, by channel.
   slowUntil: Readonly<Record<number, number>>;
+  // The text of the last refused send (n counts them, see ChatPane).
+  returned?: { channel: number; text: string; n: number };
   captcha: CaptchaLevel;
   // Every connection, once asked for (admins).
   connections: Connection[] | null;
@@ -495,7 +498,10 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "error":
       if (!isStr(v.message)) return null;
-      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until)) return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until } };
+      const returned = isNum(v.channel) && isStr(v.text) ? { returned: { channel: v.channel, text: v.text } } : {};
+      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until))
+        return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until }, ...returned };
+      if (v.about === "refused") return { type: "error", message: v.message, ...returned };
       return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
@@ -683,6 +689,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
             ...state,
             lastError: event.message,
             ...(event.slow && { slowUntil: { ...state.slowUntil, [event.slow.channel]: event.slow.until } }),
+            ...(event.returned && { returned: { ...event.returned, n: (state.returned?.n ?? 0) + 1 } }),
           };
     case "upload-token": // answered by the connection, not state
     case "typing": // short-lived: the client keeps it (lib/typing)
