@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -495,6 +496,53 @@ func TestDeletingTwiceFails(t *testing.T) {
 	}
 	if _, err := s.DeleteMessage(m.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete: %v", err)
+	}
+}
+
+func TestRecentMessagesAndDeletingMany(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	chans, _ := s.Channels()
+	voice, _ := s.VoiceChat(5)
+	dm, _ := s.DirectChat(7, 8)
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	add := func(ch int64, author uint32, verified bool, ago time.Duration, upload int64) int64 {
+		m, err := s.AddMessage(NewMessage{ChannelID: ch, Author: "x", Verified: verified, AuthorID: author, Text: "x", At: now.Add(-ago), UploadID: upload})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.ID
+	}
+	u, _ := s.AddUpload(Upload{Key: "k1", Name: "a.png", Type: "image/png", Size: 1, Author: "x"}, now)
+	old := add(chans[0].ID, 7, true, 2*time.Hour, 0)
+	text := add(chans[0].ID, 7, true, time.Minute, u.ID)
+	inVoice := add(voice, 7, true, 0, 0)
+	add(dm, 7, true, 0, 0)                    // direct chats are left out
+	other := add(chans[0].ID, 8, true, 0, 0)  // another user
+	guest := add(chans[0].ID, 0, false, 0, 0) // a guest
+	guestOld := add(voice, 0, false, 3*time.Hour, 0)
+	since := now.Add(-time.Hour)
+	if ids, err := s.RecentByUser(7, since, 10); err != nil || fmt.Sprint(ids) != fmt.Sprint([]int64{inVoice, text}) {
+		t.Fatalf("by user: %v %v", ids, err)
+	}
+	if ids, _ := s.RecentByUser(7, now.Add(-3*time.Hour), 2); fmt.Sprint(ids) != fmt.Sprint([]int64{inVoice, text}) {
+		t.Fatalf("limit: %v", ids)
+	}
+	if ids, _ := s.RecentAmong([]int64{guest, guestOld, other}, since, 10); fmt.Sprint(ids) != fmt.Sprint([]int64{guest, other}) {
+		t.Fatalf("among: %v", ids)
+	}
+	gone, err := s.DeleteMessages([]int64{text, inVoice, 9999})
+	if err != nil || len(gone) != 2 || gone[0].ID != text || gone[0].Upload == nil || gone[0].Upload.Key != "k1" || gone[1].ChannelID != voice {
+		t.Fatalf("deleted %+v %v", gone, err)
+	}
+	if _, err := s.UploadByKey("k1"); err == nil {
+		t.Fatal("upload still there")
+	}
+	if ids, _ := s.RecentByUser(7, now.Add(-3*time.Hour), 10); fmt.Sprint(ids) != fmt.Sprint([]int64{old}) {
+		t.Fatalf("after delete: %v", ids)
+	}
+	if gone, err := s.DeleteMessages(nil); err != nil || len(gone) != 0 {
+		t.Fatalf("none: %v %v", gone, err)
 	}
 }
 

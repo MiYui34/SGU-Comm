@@ -788,28 +788,102 @@ func (s *Store) EditMessage(id int64, text, mentionAll string, at time.Time) (Me
 // DeleteMessage removes a message and its attachment, and returns it (the
 // caller deletes the attachment's file).
 func (s *Store) DeleteMessage(id int64) (Message, error) {
-	m, err := s.MessageByID(id)
+	gone, err := s.DeleteMessages([]int64{id})
+	if err == nil && len(gone) == 0 {
+		err = ErrNotFound
+	}
 	if err != nil {
 		return Message{}, err
+	}
+	return gone[0], nil
+}
+
+// DeleteMessages removes those of the messages that exist, with their
+// attachments, and returns them by id (without reactions; the caller
+// deletes the attachments' files).
+func (s *Store) DeleteMessages(ids []int64) ([]Message, error) {
+	if len(ids) == 0 {
+		return nil, nil
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return Message{}, err
+		return nil, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`DELETE FROM messages WHERE id = ?`, id)
+	in, args := inList(ids)
+	rows, err := tx.Query(messageSelect+`WHERE m.id IN (`+in+`) ORDER BY m.id`, args...)
 	if err != nil {
-		return Message{}, err
+		return nil, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Message{}, ErrNotFound // deleted meanwhile
-	}
-	if m.Upload != nil {
-		if _, err := tx.Exec(`DELETE FROM uploads WHERE id = ?`, m.Upload.ID); err != nil {
-			return Message{}, err
+	var gone []Message
+	var uploads []int64
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		gone = append(gone, m)
+		if m.Upload != nil {
+			uploads = append(uploads, m.Upload.ID)
 		}
 	}
-	return m, tx.Commit()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM messages WHERE id IN (`+in+`)`, args...); err != nil {
+		return nil, err
+	}
+	if len(uploads) > 0 {
+		in, args := inList(uploads)
+		if _, err := tx.Exec(`DELETE FROM uploads WHERE id IN (`+in+`)`, args...); err != nil {
+			return nil, err
+		}
+	}
+	return gone, tx.Commit()
+}
+
+// RecentByUser: the newest messages (at most limit) of a registered user
+// since a time, outside direct chats; RecentAmong: those of these.
+func (s *Store) RecentByUser(user uint32, since time.Time, limit int) ([]int64, error) {
+	return s.recent(`m.verified = 1 AND m.author_id = ?`, []any{user}, since, limit)
+}
+
+func (s *Store) RecentAmong(ids []int64, since time.Time, limit int) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	in, args := inList(ids)
+	return s.recent(`m.id IN (`+in+`)`, args, since, limit)
+}
+
+func (s *Store) recent(where string, args []any, since time.Time, limit int) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT m.id FROM messages m JOIN channels c ON c.id = m.channel_id
+		WHERE `+where+` AND m.created_at >= ? AND c.dm_low IS NULL ORDER BY m.id DESC LIMIT ?`,
+		append(args, since.UnixMilli(), limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// inList is "?,?,…" and the arguments for a list of values.
+func inList[T any](values []T) (string, []any) {
+	args := make([]any, len(values))
+	for i, v := range values {
+		args[i] = v
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", len(values)), ","), args
 }
 
 // At most this many words of a search are used.
@@ -859,13 +933,10 @@ func (s *Store) Search(text string, channels []int64, author string, limit int) 
 	if q := ftsQuery(text); q != "" {
 		where, args = `m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)`, append(args, q)
 	}
-	marks := make([]string, len(channels))
-	for i, c := range channels {
-		marks[i], args = "?", append(args, c)
-	}
-	args = append(args, author, author, limit)
+	in, chans := inList(channels)
+	args = append(append(args, chans...), author, author, limit)
 	rows, err := s.db.Query(messageSelect+`WHERE `+where+`
-		AND m.channel_id IN (`+strings.Join(marks, ",")+`)
+		AND m.channel_id IN (`+in+`)
 		AND (? = '' OR lower(m.author) = lower(?)) ORDER BY m.id DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
