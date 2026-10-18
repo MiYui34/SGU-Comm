@@ -34,7 +34,7 @@
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
-  import { moderatorAction, roleOf } from "../lib/roles";
+  import { adminAction, moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
@@ -913,6 +913,8 @@
     status={statusOf(menuUser.session)}
     moderator={moderatorAction(server, text, menuUser)}
     onModerator={(on) => menuUser.userId !== null && connection.manage({ moderator: menuUser.userId, on })}
+    admin={adminAction(server, text, menuUser)}
+    onAdmin={(on) => menuUser.userId !== null && connection.manage({ admin: menuUser.userId, on })}
     moderation={menuModeration}
     timedOutUntil={timedOutUntil(text.timeouts, menuUser)}
     onModerate={(a) => moderate(menuUser.session, a)}

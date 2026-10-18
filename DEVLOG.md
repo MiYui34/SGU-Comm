@@ -415,3 +415,9 @@ From `meta/research/discord-comparison.md`.
 - Manual check (web): a member sees both channels and writes; a
   non-member sees no channel, message or search hit; a removed member
   loses the channel and its messages at once.
+
+## Make admins (2026-10-18)
+
+- "Only SuperUser removes admins" holds only for set-admin. An admin has
+  Write in root, so a Mumble client can still edit root's ACL and its
+  "admin" group directly (aclMsg) and remove other admins that way.
