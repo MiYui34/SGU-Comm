@@ -12,5 +12,6 @@
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Invite-only channels](issues/private-channels.md)
+  - [ ] [Invite links for invite-only channels](issues/channel-invite-links.md)
 - [ ] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
 - [ ] [Make admins in the web app](issues/make-admins.md)
