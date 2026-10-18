@@ -27,6 +27,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
+  import { afterUpload, canAttach } from "../lib/composer";
   import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
@@ -150,7 +151,8 @@
     // Why we cannot write now (a time-out); the message box says it.
     cannotWrite?: string | null;
     // Text channels: attach a file (button, paste or drop), with a caption.
-    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => void;
+    // ok: the upload worked (false: busy or failed; the file stays).
+    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
@@ -241,7 +243,11 @@
   };
   const sendFiles = (files: FileList | null | undefined) => {
     const file = files?.[0];
-    if (!file || !onUpload) return;
+    if (!file) return;
+    if (!canAttach(!!onUpload, uploading)) {
+      if (uploading) notify("Wait for the upload to finish");
+      return;
+    }
     cancelPending();
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
   };
@@ -289,12 +295,17 @@
     event.preventDefault();
     const text = draft.trim();
     if (pending && onUpload) {
+      // The file waits while another one is sent (see canAttach).
+      if (uploading) return;
       const { file, spoiler } = pending;
-      onUpload(asSpoiler(file, spoiler), text, replying?.id, replying ? !replying.ping : undefined);
+      const sent = { target, caption: text, file, reply: replying?.id };
       sentAway ||= away;
-      cancelPending();
-      replying = null;
-      draft = "";
+      void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
+        const done = afterUpload(ok, sent, { target, draft, file: pending?.file });
+        if (done.file) cancelPending();
+        if (done.caption) draft = "";
+        if (ok && replying?.id === sent.reply) replying = null;
+      });
       return;
     }
     if (!text || !onSend) return;
@@ -799,7 +810,7 @@
         class="attach"
         title={onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
         aria-label="Upload a file"
-        disabled={!onUpload || uploading}
+        disabled={!canAttach(!!onUpload, uploading)}
         onclick={() => filePicker?.click()}
       >
         <Icon name="plus" size={18} />

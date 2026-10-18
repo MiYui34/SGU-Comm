@@ -628,18 +628,21 @@
     ...new Set([...users.map((u) => u.name), ...textChat.flatMap((m) => (m.actorName ? [m.actorName] : []))]),
     ...((textId ?? voiceChatId) !== null && canManageText(server, text) ? MENTION_ALL : []),
   ]);
-  // One upload at a time. Errors show where server errors show.
+  // One upload at a time. Errors show where server errors show. True:
+  // sent (the message box then lets the file go).
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
   const upload = async (file: File, caption: string, reply?: number, noPing?: boolean) => {
     const channel = chatId;
-    if (channel === null || uploading) return;
+    if (channel === null || uploading) return false;
     uploading = true;
     uploadError = null;
     try {
       connection.sendToTextChannel(channel, caption, await connection.uploadFile(file), reply, noPing);
+      return true;
     } catch (err) {
       uploadError = err instanceof Error ? err.message : String(err);
+      return false;
     } finally {
       uploading = false;
     }
