@@ -9,6 +9,7 @@ import { isMentionAll, type MentionAll } from "./mentions";
 import type { SearchQuery } from "./search";
 import { parsePresence, type PresenceView } from "./presence";
 import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
+import type { Invite } from "./invites";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -109,6 +110,12 @@ export type ServerEvent =
   | { type: "listen-only"; channels: ListenOnlyChannel[] }
   // The private channels we see changed (or their members).
   | { type: "private"; channels: PrivateChannel[] }
+  // A private channel's invite links (for staff), a new link's token
+  // (only to its maker, once), and the channel a redeemed link opens
+  // (channel: a text channel; else the voice channel).
+  | { type: "invites"; voice: number; invites: Invite[] }
+  | { type: "invite-created"; voice: number; token: string }
+  | { type: "invite-joined"; voice: number; channel?: number }
   // The running time-outs changed.
   | { type: "timeouts"; timeouts: Timeout[] }
   // The channel that holds a voice channel's chat.
@@ -153,6 +160,8 @@ export type TextState = {
   // text channel's mirror): their members (for admins and moderators;
   // others get none).
   private: Readonly<Record<number, Speaker[]>>;
+  // Invite links of private channels (staff), once asked for.
+  invites: Readonly<Record<number, Invite[]>>;
   timeouts: readonly Timeout[];
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
@@ -189,6 +198,7 @@ export const initialTextState: TextState = {
   roles: { admins: [], moderators: [] },
   listenOnly: {},
   private: {},
+  invites: {},
   timeouts: [],
   directs: {},
   streams: [],
@@ -239,6 +249,14 @@ const isListenOnly = (v: unknown): v is ListenOnlyChannel[] =>
 const listenOnlyMap = (cs: ListenOnlyChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.speakers]));
 const isPrivateList = (v: unknown): v is PrivateChannel[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.channel) && (c.members === undefined || (Array.isArray(c.members) && c.members.every(isSpeaker))));
+const isInvite = (v: unknown): v is Invite =>
+  isObj(v) &&
+  isNum(v.id) &&
+  isStr(v.creator) &&
+  isNum(v.created) &&
+  isNum(v.uses) &&
+  (v.expires === undefined || isNum(v.expires)) &&
+  (v.maxUses === undefined || isNum(v.maxUses));
 const privateMap = (cs: PrivateChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.members ?? []]));
 const isTimeouts = (v: unknown): v is Timeout[] =>
   Array.isArray(v) && v.every((t) => isObj(t) && isNum(t.until) && (isNum(t.user) !== isNum(t.session)));
@@ -346,6 +364,13 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isListenOnly(v.channels) ? { type: "listen-only", channels: v.channels } : null;
     case "private":
       return isPrivateList(v.channels) ? { type: "private", channels: v.channels } : null;
+    case "invites":
+      return isNum(v.voice) && Array.isArray(v.invites) && v.invites.every(isInvite) ? { type: "invites", voice: v.voice, invites: v.invites } : null;
+    case "invite-created":
+      return isNum(v.voice) && isStr(v.token) ? { type: "invite-created", voice: v.voice, token: v.token } : null;
+    case "invite-joined":
+      if (!isNum(v.voice) || (v.channel !== undefined && !isNum(v.channel))) return null;
+      return { type: "invite-joined", voice: v.voice, ...(v.channel !== undefined && { channel: v.channel }) };
     case "status": {
       const s = parseSessionStatus(v);
       return s && { type: "status", ...s };
@@ -458,6 +483,11 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, listenOnly: listenOnlyMap(event.channels) };
     case "private":
       return { ...state, private: privateMap(event.channels) };
+    case "invites":
+      return { ...state, invites: { ...state.invites, [event.voice]: event.invites } };
+    case "invite-created": // the client shows it once (lib/invites)
+    case "invite-joined":
+      return state;
     case "status": {
       const { type: _, session, ...v } = event;
       const { [session]: __, ...rest } = state.statuses;
@@ -585,6 +615,12 @@ export type ManageAction =
   // A Mumble channel (see TextState.private) private with these members,
   // or public.
   | { setPrivate: number; on: boolean; users: number[] }
+  // Invite links of a private Mumble channel (see lib/invites): list,
+  // make (seconds 0: for ever; uses 0: unlimited), delete, redeem.
+  | { invites: number }
+  | { createInvite: number; seconds: number; uses: number }
+  | { deleteInvite: number }
+  | { redeemInvite: string }
   | { rename: number; name: string }
   | { remove: number }
   | { order: number[] }
@@ -600,6 +636,10 @@ const manageBody = (a: ManageAction) => {
   if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
   if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice };
   if ("setPrivate" in a) return { type: "set-private", voice: a.setPrivate, on: a.on, users: a.users };
+  if ("invites" in a) return { type: "invites", voice: a.invites };
+  if ("createInvite" in a) return { type: "create-invite", voice: a.createInvite, seconds: a.seconds, uses: a.uses };
+  if ("deleteInvite" in a) return { type: "delete-invite", invite: a.deleteInvite };
+  if ("redeemInvite" in a) return { type: "redeem-invite", token: a.redeemInvite };
   if ("rename" in a) return { type: "rename-channel", channel: a.rename, name: a.name };
   if ("remove" in a) return { type: "delete-channel", channel: a.remove };
   if ("moderator" in a) return { type: "set-moderator", user: a.moderator, moderator: a.on };
