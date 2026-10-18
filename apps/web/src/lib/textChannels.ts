@@ -81,6 +81,8 @@ export type ServerEvent =
       listenOnly?: ListenOnlyChannel[];
       private?: PrivateChannel[];
       timeouts?: Timeout[];
+      // Guests may only read (see lib/guests).
+      guestsReadOnly?: boolean;
       // Registered users' direct chats (with messages).
       directs?: DirectChat[];
       streams?: LiveStream[];
@@ -129,6 +131,8 @@ export type ServerEvent =
   | { type: "invite-joined"; voice: number; channel?: number }
   // The running time-outs changed.
   | { type: "timeouts"; timeouts: Timeout[] }
+  // Admins changed whether guests may only read.
+  | { type: "guests-read-only"; on: boolean }
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
@@ -175,6 +179,7 @@ export type TextState = {
   // Invite links of private channels (staff), once asked for.
   invites: Readonly<Record<number, Invite[]>>;
   timeouts: readonly Timeout[];
+  guestsReadOnly: boolean;
   // Direct chats: chat -> the other user.
   directs: Readonly<Record<number, Peer>>;
   // Live screen shares, and their thumbnails by streamer session.
@@ -218,6 +223,7 @@ export const initialTextState: TextState = {
   private: {},
   invites: {},
   timeouts: [],
+  guestsReadOnly: false,
   directs: {},
   streams: [],
   streamPreviews: {},
@@ -368,6 +374,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
         ...(isPrivateList(v.private) ? { private: v.private } : {}),
         ...(isTimeouts(v.timeouts) ? { timeouts: v.timeouts } : {}),
+        ...(v.guestsReadOnly === true ? { guestsReadOnly: true } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
@@ -413,6 +420,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const p = parsePresence(v);
       return p && { type: "own-status", ...p };
     }
+    case "guests-read-only":
+      return typeof v.on === "boolean" ? { type: "guests-read-only", on: v.on } : null;
     case "timeouts":
       return isTimeouts(v.timeouts) ? { type: "timeouts", timeouts: v.timeouts } : null;
     case "streams":
@@ -501,6 +510,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         private: privateMap(event.private ?? []),
         timeouts: event.timeouts ?? [],
+        guestsReadOnly: event.guestsReadOnly === true,
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
         streamPreviews: keepPreviews({}, event.streams ?? []),
@@ -548,6 +558,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     }
     case "timeouts":
       return { ...state, timeouts: event.timeouts };
+    case "guests-read-only":
+      return { ...state, guestsReadOnly: event.on };
     case "streams":
       return { ...state, streams: event.streams, streamPreviews: keepPreviews(state.streamPreviews, event.streams) };
     case "stream-preview": {
@@ -680,7 +692,8 @@ export type ManageAction =
   // Moderation, by voice server session: a ban for some seconds (0: for
   // ever), a time-out (0: end it).
   | { ban: number; reason: string; seconds: number }
-  | { timeout: number; seconds: number };
+  | { timeout: number; seconds: number }
+  | { guestsReadOnly: boolean };
 
 const manageBody = (a: ManageAction) => {
   if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
@@ -698,6 +711,7 @@ const manageBody = (a: ManageAction) => {
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
+  if ("guestsReadOnly" in a) return { type: "set-guests-read-only", on: a.guestsReadOnly };
   return { type: "order-channels", channels: a.order };
 };
 
