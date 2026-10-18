@@ -22,16 +22,23 @@ export type Settings = {
   // desktop app, Safari) on macOS it puts Bluetooth headsets into their
   // call mode, also with another microphone chosen.
   echoCancellation: boolean;
+  // For music: none of the filters above, no automatic gain, more bits
+  // and stereo (see voice/opus.ts).
+  musicMode: boolean;
 };
 
 // What to ask the browser for: exactly the chosen microphone (null: the
 // default), with its own filters as set (browserNoise: its noise filter,
-// when ours are off).
-export const micConstraints = (deviceId: string | null, o: { browserNoise: boolean; cancelEcho: boolean }): MediaTrackConstraints => ({
+// when ours are off). Music: no filters, both channels if it has two.
+export const micConstraints = (
+  deviceId: string | null,
+  o: { browserNoise: boolean; cancelEcho: boolean; music: boolean },
+): MediaTrackConstraints => ({
   deviceId: deviceId ? { exact: deviceId } : undefined,
-  echoCancellation: o.cancelEcho,
-  noiseSuppression: o.browserNoise,
-  autoGainControl: true,
+  echoCancellation: o.cancelEcho && !o.music,
+  noiseSuppression: o.browserNoise && !o.music,
+  autoGainControl: !o.music,
+  ...(o.music && { channelCount: { ideal: 2 } }),
 });
 
 export type ThemeSetting = "dark" | "light" | "system";
@@ -52,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
   noiseSuppression: "browser",
   theme: "dark",
   echoCancellation: true,
+  musicMode: false,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -83,6 +91,7 @@ export const parseSettings = (raw: string | null): Settings => {
     noiseSuppression: d.noiseSuppression === "strong" || d.noiseSuppression === "strongest" ? d.noiseSuppression : "browser",
     theme: d.theme === "light" || d.theme === "system" ? d.theme : "dark",
     echoCancellation: d.echoCancellation !== false,
+    musicMode: d.musicMode === true,
   };
 };
 

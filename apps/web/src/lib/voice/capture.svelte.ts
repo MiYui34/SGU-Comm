@@ -5,10 +5,9 @@ import { levelDb, shouldTransmit, vadStep, voiceLevel, type TransmitMode, type V
 import rnnoiseUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
 import { fallbackMode, noiseLabel, type NoiseMode } from "./noise";
 import { micConstraints } from "../settings";
+import { encoderConfig, FRAME_MS, SAMPLE_RATE, sendChannels } from "./opus";
 
-const SAMPLE_RATE = 48_000;
 const FRAME_SIZE = 960; // 20 ms
-const FRAME_MS = 20;
 // Mumble counts frames in 10 ms steps.
 const MUMBLE_FRAME_US = 10_000;
 const VAD_HOLD_MS = 300;
@@ -71,6 +70,11 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // plays our worklet's frames.
   let noise: NoiseMode = "browser";
   let cancelEcho = true; // see Settings.echoCancellation
+  // See Settings.musicMode: no filter at all. channels: what the frames
+  // have (see the worklet), so what the encoder gets.
+  let music = false;
+  let channels = 1;
+  const filter = (): NoiseMode | null => (music ? null : noise);
   let running = $state<NoiseMode | null>(null);
   let noiseError = $state<string | null>(null);
   let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
@@ -78,7 +82,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   let device: string | null = null; // the one asked for last (see start)
   const echo = new GainNode(ctx, { gain: 0 });
   const ECHO_GAIN = 0.7; // a little quieter: less feedback on speakers
-  // A fresh encoder for every talk spurt (see encoderRotation).
+  // A fresh encoder for every talk spurt (see encoderRotation). madeFor:
+  // the settings of the current one.
+  const encoderKey = () => `${music}/${channels}`;
+  let madeFor = "";
   const makeEncoder = (): AudioEncoder => {
     const encoder: AudioEncoder = new AudioEncoder({
       output: (chunk) => {
@@ -93,13 +100,8 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         micError = `Voice encoder failed: ${err.message}`;
       },
     });
-    encoder.configure({
-      codec: "opus",
-      sampleRate: SAMPLE_RATE,
-      numberOfChannels: 1,
-      bitrate: 40_000,
-      opus: { frameDuration: FRAME_MS * 1000 },
-    });
+    encoder.configure(encoderConfig(music, channels));
+    madeFor = encoderKey();
     // close() throws on an encoder that already failed and closed itself.
     const close = encoder.close.bind(encoder);
     encoder.close = () => {
@@ -116,7 +118,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       format: "f32-planar",
       sampleRate: SAMPLE_RATE,
       numberOfFrames: FRAME_SIZE,
-      numberOfChannels: 1,
+      numberOfChannels: channels,
       timestamp,
       data: samples,
     });
@@ -131,6 +133,14 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
 
   const onFrame = (samples: Float32Array<ArrayBuffer>, voiceProbability: number | undefined) => {
     if (!source) return; // a frame still on its way after stop()
+    // Music mode on or off, or mono and stereo: a new encoder. The old one
+    // gives out the packet it holds back (see encode).
+    channels = samples.length / FRAME_SIZE;
+    if (encoderKey() !== madeFor) {
+      const old = encoders.current();
+      if (old.state === "configured") old.flush().catch(() => {});
+      encoders.renew();
+    }
     level = levelDb(samples);
     vad = vadStep(vad, voiceLevel(level, voiceProbability), FRAME_MS, { thresholdDb, holdMs: VAD_HOLD_MS });
     const next = shouldTransmit({ mode, vadTalking: vad.talking, pttDown, muted });
@@ -180,7 +190,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // a failure counts for the filter that was loading.
   const applyNoise = async () => {
     if (!node) return; // the node applies it when it is made
-    const want = noise;
+    const want = filter();
     if (want !== "strongest" && dfn) {
       dfn.node.disconnect();
       dfn.handlers = null;
@@ -192,10 +202,10 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     try {
       if (want === "strong") {
         const bytes = await loadRnnoise();
-        if (noise === "strong") node.port.postMessage({ denoise: bytes }); // copied: kept for next time
+        if (filter() === "strong") node.port.postMessage({ denoise: bytes }); // copied: kept for next time
       } else if (want === "strongest" && !dfn) {
         const shared = await sharedDfn(ctx);
-        if (closed || noise !== "strongest" || dfn) return;
+        if (closed || filter() !== "strongest" || dfn) return;
         shared.handlers = {
           overload: () => noiseFailed("strongest", "this computer is too slow for it"),
           error: (why) => noiseFailed("strongest", why),
@@ -209,18 +219,26 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     } catch (err) {
       if (want === "strong") rnnoise = null;
       if (want === "strongest") dfns.delete(ctx); // a node that did not start: made again next time
-      noiseFailed(want, err instanceof Error ? err.message : String(err));
+      if (want) noiseFailed(want, err instanceof Error ? err.message : String(err));
     }
   };
   // A filter that failed (or is too slow): the next lighter one, with a
   // note. Not if the user chose another meanwhile. The browser's filter
   // needs the microphone opened again.
   const noiseFailed = (from: NoiseMode, why: string) => {
-    if (noise !== from || from === "browser") return;
+    if (filter() !== from || from === "browser") return;
     noise = fallbackMode(from);
     noiseError = `${noiseLabel(from)} could not run (${why}). Now on: ${noiseLabel(noise)}.`;
     void applyNoise();
     if (noise === "browser" && stream) void start(device);
+  };
+  // The filter changed (was: the one before). The microphone opens again
+  // when the browser's own filter goes on or off (or reopen): it is set
+  // when it opens.
+  const refilter = (was: NoiseMode | null, reopen = false) => {
+    noiseError = null;
+    void applyNoise();
+    if (stream && (reopen || (was === "browser") !== (filter() === "browser"))) void start(device);
   };
   // The microphone goes through DeepFilterNet3 when it runs.
   const route = () => {
@@ -244,17 +262,28 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     let next: MediaStream | null = null; // stopped on failure until it is stream
     try {
       // The browser's noise filter only without ours (not twice).
-      next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, { browserNoise: noise === "browser", cancelEcho }) });
+      const constraints = () => micConstraints(deviceId, { browserNoise: filter() === "browser", cancelEcho, music });
+      const asked = constraints();
+      next = await navigator.mediaDevices.getUserMedia({ audio: asked });
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return stopTracks(next);
-      await workletNode();
+      // The filters changed meanwhile: ask again.
+      if (JSON.stringify(constraints()) !== JSON.stringify(asked)) {
+        stopTracks(next);
+        return await start(deviceId);
+      }
+      const n = await workletNode();
       if (stale()) return stopTracks(next);
       stopStream();
       stream = next;
+      const track = next.getAudioTracks()[0];
+      // Stereo in music mode, if the microphone has two channels.
+      const ch = sendChannels(music, track?.getSettings().channelCount);
+      n.channelCount = ch;
+      n.port.postMessage({ channels: ch });
       source = ctx.createMediaStreamSource(next);
       route();
       micError = null;
-      const track = next.getAudioTracks()[0];
       deviceLabel = track?.label ?? "";
       fellBack = false;
       // Unplugged while in use: go on with the default microphone.
@@ -319,21 +348,26 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     setThreshold: (db: number) => {
       thresholdDb = db;
     },
-    // The microphone opens again when the browser's own filter goes on or
-    // off: it is set when it opens.
     setNoiseSuppression: (m: NoiseMode) => {
       if (m === noise) return;
-      const reopen = (m === "browser") !== (noise === "browser");
+      const was = filter();
       noise = m;
-      noiseError = null;
-      void applyNoise();
-      if (stream && reopen) void start(device);
+      refilter(was);
     },
-    // Also set when the microphone opens: it opens again.
+    // Also set when the microphone opens: it opens again (music mode has
+    // it off anyway).
     setEchoCancellation: (on: boolean) => {
       if (on === cancelEcho) return;
       cancelEcho = on;
-      if (stream) void start(device);
+      if (stream && !music) void start(device);
+    },
+    // The filters, the microphone's settings and (with the next frame) the
+    // encoder all change.
+    setMusicMode: (on: boolean) => {
+      if (on === music) return;
+      const was = filter();
+      music = on;
+      refilter(was, true);
     },
     // The echo test: what the microphone sends, after the filters.
     setEcho: (on: boolean) => {

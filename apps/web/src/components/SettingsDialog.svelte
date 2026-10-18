@@ -177,13 +177,16 @@
     Noise suppression
     <select
       value={settings.noiseSuppression}
+      disabled={settings.musicMode}
       onchange={(e) => onChange({ noiseSuppression: e.currentTarget.value as NoiseMode })}
     >
       <option value="browser">Standard (the browser's)</option>
       <option value="strong">Strong (RNNoise)</option>
       <option value="strongest">Strongest (DeepFilterNet3)</option>
     </select>
-    {#if noiseError}
+    {#if settings.musicMode}
+      <span class="hint">Off in music mode.</span>
+    {:else if noiseError}
       <span class="hint warn" role="status">{noiseError}</span>
     {:else if noiseRunning && noiseRunning === settings.noiseSuppression}
       <span class="hint" role="status">{noiseLabel(noiseRunning)} is running.</span>
@@ -290,9 +293,19 @@
     </div>
   {/if}
   <label class="check">
-    <input type="checkbox" checked={settings.echoCancellation} onchange={(e) => onChange({ echoCancellation: e.currentTarget.checked })} />
+    <input
+      type="checkbox"
+      checked={settings.echoCancellation && !settings.musicMode}
+      disabled={settings.musicMode}
+      onchange={(e) => onChange({ echoCancellation: e.currentTarget.checked })}
+    />
     <span>Echo cancellation</span>
     <span class="hint">Needed with speakers. With a headset you can turn it off: on a Mac, the desktop app and Safari otherwise switch Bluetooth headsets to their call mode, with worse sound.</span>
+  </label>
+  <label class="check">
+    <input type="checkbox" checked={settings.musicMode} onchange={(e) => onChange({ musicMode: e.currentTarget.checked })} />
+    <span>Music mode</span>
+    <span class="hint">For playing music: no noise suppression, echo cancellation or automatic volume, and better sound (stereo if the microphone has two channels). Use a headset.</span>
   </label>
   <label class="check">
     <input

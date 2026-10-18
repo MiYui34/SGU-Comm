@@ -21,13 +21,14 @@ describe("parseSettings", () => {
       streamPreviews: false,
       theme: "system",
       echoCancellation: false,
+      musicMode: true,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
 
   it("replaces invalid values one by one", () => {
     const parsed = parseSettings(
-      JSON.stringify({ mode: "shout", pttKey: 5, vadThresholdDb: -300, inputDeviceId: "mic-2", notifications: "yes", closeMicWhenMuted: 1, noiseSuppression: "max" }),
+      JSON.stringify({ mode: "shout", pttKey: 5, vadThresholdDb: -300, inputDeviceId: "mic-2", notifications: "yes", closeMicWhenMuted: 1, noiseSuppression: "max", musicMode: "on" }),
     );
     expect(parsed).toEqual({ ...DEFAULT_SETTINGS, inputDeviceId: "mic-2" });
   });
@@ -117,12 +118,22 @@ describe("theme", () => {
 
 describe("micConstraints", () => {
   it("asks for exactly the chosen microphone, with the filters as set", () => {
-    expect(micConstraints("mic-2", { browserNoise: false, cancelEcho: false })).toEqual({
+    expect(micConstraints("mic-2", { browserNoise: false, cancelEcho: false, music: false })).toEqual({
       deviceId: { exact: "mic-2" },
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: true,
     });
-    expect(micConstraints(null, { browserNoise: true, cancelEcho: true })).toMatchObject({ deviceId: undefined, echoCancellation: true, noiseSuppression: true });
+    expect(micConstraints(null, { browserNoise: true, cancelEcho: true, music: false })).toMatchObject({ deviceId: undefined, echoCancellation: true, noiseSuppression: true });
+  });
+
+  it("turns off all of the browser's filters in music mode, and asks for stereo", () => {
+    expect(micConstraints("mic-2", { browserNoise: true, cancelEcho: true, music: true })).toEqual({
+      deviceId: { exact: "mic-2" },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+    });
   });
 });

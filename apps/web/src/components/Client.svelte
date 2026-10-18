@@ -149,6 +149,8 @@
   // Before the microphone opens (the effect below): no extra reopening.
   const echoCancellation = $derived(prefs.echoCancellation);
   $effect(() => capture?.setEchoCancellation(echoCancellation));
+  const musicMode = $derived(prefs.musicMode);
+  $effect(() => capture?.setMusicMode(musicMode));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
@@ -1130,6 +1132,7 @@
         <VoiceBar
           channel={channelName}
           onLeave={leaveVoice}
+          music={musicMode}
           sharing={streamClient?.sharing ?? false}
           onShare={streamClient && text.voiceChats && !phone ? () => (streamClient.sharing ? streamClient.stopSharing() : void streamClient.startSharing()) : undefined}
         />

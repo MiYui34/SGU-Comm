@@ -22,6 +22,13 @@ export const createEncoderRotation = <E extends Closable, R>(make: () => E) => {
     }
   };
 
+  const renew = () => {
+    retired.add(current);
+    closeIfDone(current);
+    current = make();
+    used = false;
+  };
+
   return {
     current: () => current,
     encoded: (e: E, input: R) => {
@@ -34,12 +41,10 @@ export const createEncoderRotation = <E extends Closable, R>(make: () => E) => {
       return input;
     },
     startSpurt: () => {
-      if (!used) return;
-      retired.add(current);
-      closeIfDone(current);
-      current = make();
-      used = false;
+      if (used) renew();
     },
+    // A new encoder now, for example for new settings.
+    renew,
     closeAll: () => {
       for (const e of [...retired, current]) e.close();
       retired.clear();
