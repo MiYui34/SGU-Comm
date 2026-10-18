@@ -2,23 +2,35 @@
   import type { Registered } from "@kallisti/protocol";
   import { untrack } from "svelte";
   import { memberCandidates, type Member } from "../lib/privateChannels";
+  import { expiryChoices, inviteExpiry, inviteUses, useChoices, type Invite } from "../lib/invites";
 
   // The members of a private channel, for admins and moderators: remove
-  // them, or add registered users (the server checks again).
+  // them, or add registered users (the server checks again). Invite links
+  // apply at once (not on Save).
   let {
     name,
     members,
     registered,
+    invites,
+    link,
     onLoad,
     onSubmit,
+    onCreateInvite,
+    onDeleteInvite,
     onClose,
   }: {
     name: string;
     members: readonly Member[];
-    // Registered users (null: not loaded yet; onLoad asks for them).
+    // Registered users and invite links (null: not loaded yet; onLoad asks
+    // for them).
     registered: readonly Registered[] | null;
+    invites: readonly Invite[] | null;
+    // A link just made: shown only now.
+    link: string | null;
     onLoad: () => void;
     onSubmit: (members: Member[]) => void;
+    onCreateInvite: (seconds: number, uses: number) => void;
+    onDeleteInvite: (id: number) => void;
     onClose: () => void;
   } = $props();
 
@@ -28,6 +40,12 @@
   const addable = $derived(memberCandidates(registered, list));
   $effect(() => dialog?.showModal());
   $effect(() => untrack(onLoad));
+
+  let seconds = $state<number>(expiryChoices[0].seconds);
+  let uses = $state<number>(useChoices[0].uses);
+  let copied = $state<string | null>(null); // the link copied
+  const copy = (text: string) => void navigator.clipboard?.writeText(text).then(() => (copied = text));
+  const now = Date.now();
 
   const add = (event: Event & { currentTarget: HTMLSelectElement }) => {
     const u = addable.find((a) => String(a.id) === event.currentTarget.value);
@@ -69,6 +87,37 @@
       </select>
     {:else}
       <p class="note">All registered users are members.</p>
+    {/if}
+    <h3>Invite links</h3>
+    {#if link}
+      <div class="row">
+        <input readonly value={link} aria-label="New invite link" onfocus={(e) => e.currentTarget.select()} />
+        <button type="button" class="action" onclick={() => copy(link)}>{copied === link ? "Copied" : "Copy"}</button>
+      </div>
+      <p class="note">Copy it now: it is shown only once.</p>
+    {/if}
+    <div class="row">
+      <select aria-label="Valid for" bind:value={seconds}>
+        {#each expiryChoices as c (c.seconds)}<option value={c.seconds}>{c.label}</option>{/each}
+      </select>
+      <select aria-label="Uses" bind:value={uses}>
+        {#each useChoices as c (c.uses)}<option value={c.uses}>{c.label}</option>{/each}
+      </select>
+      <button type="button" class="action" onclick={() => onCreateInvite(seconds, uses)}>Create link</button>
+    </div>
+    {#if invites === null}
+      <p class="note">Loading invite links…</p>
+    {:else if invites.length}
+      <ul class="links" aria-label="Active invite links">
+        {#each invites as i (i.id)}
+          <li>
+            <span class="ellipsis">{inviteUses(i)}, {inviteExpiry(i.expires, now)}, by {i.creator}</span>
+            <button type="button" aria-label="Delete the link by {i.creator}, {inviteUses(i)}" onclick={() => onDeleteInvite(i.id)}>×</button>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="note">No active invite links.</p>
     {/if}
     <footer>
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
@@ -140,6 +189,41 @@
   li button {
     padding: 0 6px;
     color: var(--text-muted);
+  }
+  h3 {
+    margin: 16px 0 8px;
+    font-size: 14px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .row > * {
+    min-width: 0;
+  }
+  .row input {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+    font: inherit;
+  }
+  .action {
+    flex: none;
+    padding: 10px 12px;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    color: var(--text);
+  }
+  .links {
+    flex-direction: column;
+  }
+  .links li {
+    justify-content: space-between;
+    border-radius: 4px;
   }
   select {
     width: 100%;
