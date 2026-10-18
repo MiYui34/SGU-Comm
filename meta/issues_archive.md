@@ -188,3 +188,8 @@
 - [x] [Connection stats on the server](issues/connection-stats-server.md)
 - [x] [Admin view of all connections](issues/connection-admin-view.md)
 - [x] [Connection quality](issues/connection-quality.md)
+- [x] [Anti-spam](issues/anti-spam.md)
+- [x] [Slow mode](issues/slow-mode.md)
+- [x] [Limits for new accounts](issues/new-account-limits.md)
+- [x] [Word and link filter](issues/word-link-filter.md)
+- [x] [Captcha on registration](issues/registration-captcha.md)
