@@ -126,6 +126,7 @@ func run() error {
 		accounts.NameTaken = mumble.nameTaken
 		accounts.MumbleLogin = mumble.srv.CheckPassword
 		accounts.GuestAccounts = true // the built-in server can remove their registrations
+		accounts.Captcha = mumble.srv.Captcha
 		accounts.OnPermanent = func(name string) {
 			mumble.srv.AccountPermanent(name) // its users may write again
 			hub.AccountPermanent(name)

@@ -55,6 +55,7 @@ type fakeVoice struct {
 	// Guest sessions, and whether they may only read.
 	guests         map[uint32]bool
 	guestsReadOnly bool
+	captcha        string // "": off
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {
