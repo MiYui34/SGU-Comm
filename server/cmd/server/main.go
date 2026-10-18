@@ -109,6 +109,7 @@ func run() error {
 		hub.Previews, linkImages = previews, previews
 	}
 	hub.OnUploadDeleted = fileHandler.Remove
+	hub.UploadMax = cfg.UploadMaxBytes
 	hub.SaveFile = fileHandler.Save
 	dial, upstream := murmurDialer(cfg)
 	var builtinServer *builtin

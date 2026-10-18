@@ -187,6 +187,8 @@ type Hub struct {
 	// Guest messages of this run: message id -> voice server session (see
 	// wrote).
 	guestMessages map[int64]uint32
+	// UploadMax: the size limit per upload, for clients to check first.
+	UploadMax int64
 	// OnUploadDeleted removes the file of a deleted message's attachment.
 	OnUploadDeleted func(key string)
 	// Previews makes link previews (nil: none).
@@ -323,7 +325,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.sendAccess(id) // a registration can change what it sees
 	}
 	if becomesReady {
-		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji()}
+		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
 			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()

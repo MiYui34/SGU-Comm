@@ -322,3 +322,14 @@ func TestFail(t *testing.T) {
 		t.Fatalf("got %v", m)
 	}
 }
+
+func TestReadyTellsTheUploadLimit(t *testing.T) {
+	h := newHub(t, "general")
+	h.UploadMax = 10 << 20
+	c := h.Connect()
+	defer c.Close()
+	c.SetIdentity(mumble.Identity{Session: 1, Name: "alice"})
+	if m := next(t, c); m["uploadMax"] != float64(10<<20) {
+		t.Fatalf("got %v", m["uploadMax"])
+	}
+}
