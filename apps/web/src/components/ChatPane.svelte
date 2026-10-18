@@ -614,7 +614,7 @@
     {:else}
       <Icon name={kind === "text" ? "hash" : "speaker"} size={22} />
     {/if}
-    <h1>{title}</h1>
+    <h1 class="ellipsis">{title}</h1>
     {#if topic}
       <span class="divider-v" aria-hidden="true"></span>
       <span class="topic ellipsis" title={topic}>{topic}</span>
@@ -1166,6 +1166,11 @@
     padding: 0 8px 0 16px;
     border-bottom: 1px solid var(--border);
     color: var(--text-faint);
+  }
+  /* The title and topic give way when the header gets tight, not the icons. */
+  header > :global(svg),
+  .at {
+    flex-shrink: 0;
   }
   .at {
     font-size: 22px;
@@ -1878,10 +1883,29 @@
   .composer textarea::placeholder {
     color: var(--text-faint);
   }
-  /* Phones: touch targets of at least 44 px. */
+  /* Phones: touch targets of at least 44 px; a narrower search field,
+     wider while typing, with its suggestions as wide as the header. */
   @media (max-width: 700px) {
+    header {
+      position: relative;
+      padding-left: 8px;
+    }
     .tools button {
       padding: 11px;
+    }
+    .search input {
+      width: 96px;
+    }
+    .search input:focus {
+      width: 140px;
+    }
+    .search {
+      position: static;
+    }
+    .search :global(.below) {
+      top: calc(100% - 2px);
+      right: 8px;
+      left: 8px;
     }
   }
   /* The member list is hidden on narrow screens: so is its toggle. */
