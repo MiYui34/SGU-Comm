@@ -246,6 +246,7 @@ func (s *Server) identifyAccount(h hello, a *WebAccount) (identity, []byte) {
 			return fail(err)
 		}
 		r = &Registered{ID: id, Name: a.Name}
+		s.userChanged(id, a.Name)
 	} else if names.Key(r.Name) != names.Key(a.Name) {
 		// An admin renamed the registration: the account keeps its name.
 		return identity{}, mumble.RejectFrame(pb.Reject_InvalidUsername,

@@ -40,6 +40,7 @@ type fakeVoice struct {
 	names  map[uint32]string
 	native map[uint32]bool
 	sentTo []string
+	bios   map[uint32]string
 	// Bans by Ban; time-outs by session.
 	bans     []string
 	timeouts map[uint32]time.Time

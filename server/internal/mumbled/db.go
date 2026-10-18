@@ -590,6 +590,16 @@ func (d *DB) UserContent(id uint32) (comment string, texture []byte, err error) 
 	return comment, texture, err
 }
 
+// comment is a registered user's comment ("": none, or no such user).
+func (d *DB) comment(id uint32) (string, error) {
+	var comment string
+	err := d.db.QueryRow(`SELECT comment FROM mumble_users WHERE id = ?`, id).Scan(&comment)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return comment, err
+}
+
 // textureByName is a registered user's avatar (nil: none, or no such user).
 func (d *DB) textureByName(name string) ([]byte, error) {
 	var texture []byte

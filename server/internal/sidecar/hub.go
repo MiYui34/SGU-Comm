@@ -82,6 +82,10 @@ type Voice interface {
 	SendPrivateText(from uint32, fromName string, toUser uint32, text string) bool
 	// UserNames: the names of registered users (unknown ids are left out).
 	UserNames(ids []uint32) map[uint32]string
+	// Users: all registered users' names but SuperUser's, by id. Bio: a
+	// registered user's saved comment ("": none).
+	Users() map[uint32]string
+	Bio(user uint32) string
 	// MumbleClient: the session is a Mumble client (not a web client), and
 	// who it is.
 	MumbleClient(session uint32) (MumbleUser, bool)
@@ -311,7 +315,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji()}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
-			ready["private"] = c.hub.privateFor(id)
+			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
@@ -418,7 +422,7 @@ type request struct {
 	Reply     int64    `json:"reply"`     // send: the message it answers
 	NoPing    bool     `json:"noPing"`    // send: the reply does not ping
 	Author    string   `json:"author"`    // search: only this author
-	User      uint32   `json:"user"`      // set-moderator, set-admin: registered user id
+	User      uint32   `json:"user"`      // set-moderator, set-admin, dm, bio: registered user id
 	Moderator bool     `json:"moderator"` // set-moderator
 	Admin     bool     `json:"admin"`     // set-admin
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
@@ -508,6 +512,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "dm":
 		c.direct(*id, req.User)
+		return
+	case "bio":
+		c.bio(req.User)
 		return
 	case "set-status":
 		c.setStatus(*id, req)

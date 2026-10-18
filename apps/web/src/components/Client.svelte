@@ -34,6 +34,7 @@
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage } from "../lib/textChannels";
+  import { offlineMembers } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
@@ -679,9 +680,25 @@
     }
   };
 
-  // Open user menu.
-  let menu = $state<{ session: number; x: number; y: number } | null>(null);
-  const menuUser = $derived(menu && server.users[menu.session]);
+  // Registered users who are offline (built-in server), for the member list.
+  const offline = $derived(text.voiceChats ? offlineMembers(text.members, users) : []);
+  // Open user menu: of an online user (session) or an offline one (user id).
+  type MenuAt = { x: number; y: number };
+  let menu = $state<((MenuAt & { session: number }) | (MenuAt & { userId: number })) | null>(null);
+  const menuUser = $derived(menu && "session" in menu ? server.users[menu.session] : undefined);
+  const offlineUser = $derived.by(() => {
+    const m = menu;
+    return m && "userId" in m ? offline.find((p) => p.id === m.userId) : undefined;
+  });
+  // A primitive: the bio is asked for once per menu, not on every event.
+  const offlineMenuId = $derived(offlineUser?.id ?? null);
+  const openOfflineMenu = (userId: number, event: MouseEvent) => {
+    event.preventDefault();
+    menu = { userId, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
+  };
+  $effect(() => {
+    if (offlineMenuId !== null) connection.requestBio(offlineMenuId);
+  });
   const openMenu = (session: number, event: MouseEvent) => {
     event.preventDefault();
     menu = { session, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
@@ -689,9 +706,10 @@
     const user = server.users[session];
     if (user && session !== server.session) for (const id of permissionsToAsk(server, text, user)) connection.send(queryPermissions(id));
   };
-  // The user left: close their menu (Murmur reuses session numbers).
+  // The user left: close their menu (Murmur reuses session numbers). An
+  // offline user's closes when they come online or are removed.
   $effect(() => {
-    if (menu && !menuUser) menu = null;
+    if (menu && !menuUser && !offlineUser) menu = null;
   });
   // Long comments (bios) load when shown: in the menu, ours in the settings.
   $effect(() => {
@@ -958,6 +976,27 @@
       (confirming = { kind, session: menuUser.session, name: menuUser.name, timedBans: menuModeration?.timedBans ?? false })}
     onClose={() => (menu = null)}
   />
+{:else if menu && offlineUser}
+  {@const p = offlineUser}
+  <UserMenu
+    user={{ name: p.name, comment: text.bios[p.id] ?? "", mute: false, deaf: false }}
+    offline
+    isMe={false}
+    audio={audioOf(p.name)}
+    x={menu.x}
+    y={menu.y}
+    onAudio={() => {}}
+    blocked={blockedUsers.has(p.name)}
+    onBlock={() => blockedUsers.toggle(p.name)}
+    onMessage={me?.userId != null ? () => openDirect(p) : undefined}
+    onSettings={() => {}}
+    role={roleOf(text.roles, p.id)}
+    moderator={moderatorAction(server, text, { userId: p.id })}
+    onModerator={(on) => connection.manage({ moderator: p.id, on })}
+    admin={adminAction(server, text, { userId: p.id })}
+    onAdmin={(on) => connection.manage({ admin: p.id, on })}
+    onClose={() => (menu = null)}
+  />
 {/if}
 
 {#if confirming}
@@ -1201,6 +1240,8 @@
       onUserMenu={openMenu}
       roleOf={(u) => roleOf(text.roles, u.userId)}
       statusOf={(u) => statusOf(u.session)}
+      {offline}
+      onOfflineMenu={openOfflineMenu}
       here={users.filter((u) => u.channelId === channelId)}
       elsewhere={users.filter((u) => u.channelId !== channelId)}
     />

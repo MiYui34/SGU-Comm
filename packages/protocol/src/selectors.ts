@@ -3,7 +3,7 @@ import type { Channel, ChatMessage, ServerState, User } from "./state";
 
 export type ChannelNode = { channel: Channel; children: ChannelNode[] };
 
-const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
+export const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
 
 const byPositionThenName = (a: Channel, b: Channel) =>
   a.position - b.position || byName(a.name, b.name);

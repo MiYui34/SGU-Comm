@@ -54,6 +54,7 @@ import { texturesToFetch } from "./avatar";
 import type { SearchQuery } from "./search";
 import { reactRequest } from "./reactions";
 import { previewsRequest } from "./linkPreview";
+import { bioRequest } from "./members";
 import { awayRequest, setStatusRequest, type CustomStatus, type Presence } from "./presence";
 import { createCapture } from "./voice/capture.svelte";
 import { createStreamClient, streamingSupported } from "./stream/client.svelte";
@@ -302,6 +303,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     requestDirect: (user: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(directRequest(user));
+    },
+    requestBio: (user: number) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(bioRequest(user));
     },
     requestPins: (channel: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(pinsRequest(channel));

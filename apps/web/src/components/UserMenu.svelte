@@ -12,6 +12,7 @@
 
   let {
     user,
+    offline = false,
     isMe,
     audio,
     x,
@@ -33,7 +34,9 @@
     onConfirm,
     onClose,
   }: {
-    user: User;
+    user: Pick<User, "name" | "comment" | "mute" | "deaf">;
+    // A registered user who is offline: no voice items (volume, mute).
+    offline?: boolean;
     isMe: boolean;
     audio: UserAudio;
     x: number;
@@ -42,7 +45,8 @@
     // Their text messages hidden for me (see lib/blocked).
     blocked: boolean;
     onBlock: () => void;
-    onMessage: () => void;
+    // None: we cannot write to them (an offline user, we are a guest).
+    onMessage?: () => void;
     onSettings: () => void;
     role?: Role | null;
     status?: UserStatus | null;
@@ -72,7 +76,7 @@
 
 <ContextMenu {x} {y} label="Actions for {user.name}" {onClose}>
   <div class="who">
-    <Avatar name={user.name} size={32} status={status?.presence} />
+    <Avatar name={user.name} size={32} status={status?.presence} registered={offline} />
     <span class="names">
       <span class="line"><span>{user.name}</span><RoleTag {role} /></span>
       {#if status?.custom}
@@ -85,30 +89,34 @@
   {#if isMe}
     <button onclick={act(onSettings)}>Settings</button>
   {:else}
-    <button onclick={act(onMessage)}>Message</button>
-    <div class="sep"></div>
-    <label class="volume">
-      <span class="row">
-        User volume <span class="value">{Math.round(audio.volume * 100)}%</span>
-      </span>
-      <input
-        type="range"
-        min="0"
-        max={MAX_VOLUME * 100}
-        step="5"
-        value={Math.round(audio.volume * 100)}
-        oninput={(e) => onAudio({ volume: Number(e.currentTarget.value) / 100 })}
-        aria-valuetext="{Math.round(audio.volume * 100)}%"
-      />
-    </label>
-    <button
-      role="switch"
-      aria-checked={audio.muted}
-      onclick={() => onAudio({ muted: !audio.muted })}
-    >
-      Mute
-      <span class="box" class:on={audio.muted} aria-hidden="true"></span>
-    </button>
+    {#if onMessage}
+      <button onclick={act(onMessage)}>Message</button>
+      <div class="sep"></div>
+    {/if}
+    {#if !offline}
+      <label class="volume">
+        <span class="row">
+          User volume <span class="value">{Math.round(audio.volume * 100)}%</span>
+        </span>
+        <input
+          type="range"
+          min="0"
+          max={MAX_VOLUME * 100}
+          step="5"
+          value={Math.round(audio.volume * 100)}
+          oninput={(e) => onAudio({ volume: Number(e.currentTarget.value) / 100 })}
+          aria-valuetext="{Math.round(audio.volume * 100)}%"
+        />
+      </label>
+      <button
+        role="switch"
+        aria-checked={audio.muted}
+        onclick={() => onAudio({ muted: !audio.muted })}
+      >
+        Mute
+        <span class="box" class:on={audio.muted} aria-hidden="true"></span>
+      </button>
+    {/if}
     <button role="switch" aria-checked={blocked} onclick={onBlock}>
       Block messages
       <span class="box" class:on={blocked} aria-hidden="true"></span>

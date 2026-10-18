@@ -462,6 +462,7 @@ func (s *Server) userListMsg(c *client, m *pb.UserList) {
 		s.mu.Lock()
 		s.registrationChangedLocked(id, e.Name, c.session)
 		s.mu.Unlock()
+		s.userChanged(id, e.GetName())
 		if e.Name == nil {
 			s.rolesChanged() // its group memberships are gone
 		}
@@ -541,6 +542,7 @@ func (s *Server) Unregister(certHash string) (gone bool, err error) {
 	s.mu.Lock()
 	s.registrationChangedLocked(r.ID, nil, 0)
 	s.mu.Unlock()
+	s.userChanged(r.ID, "")
 	s.rolesChanged() // its group memberships are gone
 	return true, nil
 }

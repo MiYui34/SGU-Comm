@@ -48,6 +48,9 @@ type Config struct {
 	OnPrivateText func(PrivateText)
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
+	// OnUserChanged hears registrations made or renamed (name), or removed
+	// (name ""), in order, outside the server lock (see Users).
+	OnUserChanged func(id uint32, name string)
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
 	// ListenOnly).
 	OnListenOnlyChanged func()
@@ -215,8 +218,10 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
-	if cfg.OnUserMoved != nil {
+	if cfg.OnUserMoved != nil || cfg.OnUserChanged != nil {
 		srv.events = newEventQueue()
+	}
+	if cfg.OnUserMoved != nil {
 		state.OnMove = func(session, from, to uint32) {
 			srv.events.add(func() { cfg.OnUserMoved(session, from, to) })
 		}

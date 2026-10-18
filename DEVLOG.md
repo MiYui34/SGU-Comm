@@ -436,3 +436,18 @@ From `meta/research/discord-comparison.md`.
 - Links of channels that stop being private are pruned on every access
   change (PrivateChanged); redeem also checks that the channel is still
   private, so pruning is only cleanup.
+
+## Offline members (2026-10-18)
+
+- Guest accounts are Mumble registrations too; only the store knows they
+  are temporary (by name). The sidecar filters them, mumbled stays
+  unaware of Kallisti accounts.
+- The list is sent once with ready, then "member" deltas (add, rename,
+  gone). Other lists (roles, private) are resent whole, but registrations
+  come with every guest join, so a full resend would be wasteful.
+- Bios are not in the list: Mumble comments can be large (HTML with
+  inline images). The menu asks for an offline user's stored comment
+  ("bio" request) when it opens.
+- Stored DMs to offline users already worked (DirectChat needs only the
+  user id); the menu just offers "Message". Role changes also worked
+  (setRole checks the registration, not a session).
