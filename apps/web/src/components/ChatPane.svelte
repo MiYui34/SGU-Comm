@@ -6,6 +6,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
   import { hold } from "../lib/longPress";
+  import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToText } from "../lib/htmlText";
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
@@ -27,7 +28,8 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { chatItems, formatDay, formatTime, formatTimestamp, type MessageGroup } from "../lib/chat";
+  import { afterUpload, canAttach, switchDraft } from "../lib/composer";
+  import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
   import { tick, untrack, type Snippet } from "svelte";
@@ -82,6 +84,7 @@
     previewOf,
     httpBase = "",
     cannotWrite = null,
+    chatKey,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -149,8 +152,11 @@
     httpBase?: string;
     // Why we cannot write now (a time-out); the message box says it.
     cannotWrite?: string | null;
+    // Tells the chats apart (see chatKeyOf); else the title.
+    chatKey?: string;
     // Text channels: attach a file (button, paste or drop), with a caption.
-    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => void;
+    // ok: the upload worked (false: busy or failed; the file stays).
+    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
     uploading?: boolean;
     // Missing: the conversation is read-only (the other user left).
     // reply: the stored message it answers (stored chats only).
@@ -235,20 +241,37 @@
   // A chosen file waits above the message box until it is sent with Enter
   // (with the typed text as caption) or cancelled.
   let pending = $state<{ file: File; preview: string | null; spoiler: boolean } | null>(null);
+  const WAIT_UPLOAD = "Wait for the upload to finish";
   const cancelPending = () => {
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
     pending = null;
   };
   const sendFiles = (files: FileList | null | undefined) => {
     const file = files?.[0];
-    if (!file || !onUpload) return;
+    if (!file) return;
+    if (!canAttach(!!onUpload, uploading)) {
+      if (uploading) notify(WAIT_UPLOAD);
+      return;
+    }
     cancelPending();
     pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
   };
-  // Another conversation: drop a waiting file.
+  // Another conversation: drop a waiting file, the reply and the edit (the
+  // ids are of the old chat). The typed text is kept per chat (see
+  // switchDraft); draftFor: the chat of `draft`.
+  const chat = $derived(chatKey ?? target);
+  let drafts: ReadonlyMap<string, string> = new Map();
+  let draftFor = "";
   $effect(() => {
-    void target;
-    untrack(cancelPending);
+    const to = chat;
+    untrack(() => {
+      if (to === draftFor) return;
+      ({ drafts, draft } = switchDraft(drafts, draftFor, to, draft));
+      draftFor = to;
+      cancelPending();
+      replying = null;
+      editing = null;
+    });
   });
   const onPaste = (event: ClipboardEvent) => {
     if (onUpload && event.clipboardData?.files.length) {
@@ -262,39 +285,30 @@
     sendFiles(event.dataTransfer?.files);
   };
 
-  let held = false;
-  const release = () => {
-    if (!held) return;
-    held = false;
-    onHoldTalk?.(false);
-  };
-  // The button can disappear while held (wider screen, mode change): the
-  // microphone must not stay on.
-  let lastHold: typeof onHoldTalk;
+  // The button can disappear while held (wider screen, mode change, this
+  // pane closed): then the press is released (see createHoldTalk).
+  const holdTalk = createHoldTalk();
   $effect(() => {
-    const hold = onHoldTalk;
-    lastHold = hold;
-    return () => {
-      if (held && !lastHold) {
-        held = false;
-        hold?.(false);
-      }
-    };
+    if (!onHoldTalk) holdTalk.release();
   });
-  $effect(() => () => {
-    if (held) onHoldTalk?.(false);
-  });
+  $effect(() => holdTalk.release);
 
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft.trim();
     if (pending && onUpload) {
+      // The file waits while another one is sent (see canAttach).
+      if (uploading) return void notify(WAIT_UPLOAD);
       const { file, spoiler } = pending;
-      onUpload(asSpoiler(file, spoiler), text, replying?.id, replying ? !replying.ping : undefined);
+      const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
-      cancelPending();
-      replying = null;
-      draft = "";
+      void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
+        const done = afterUpload(ok, sent, { chat, draft, file: pending?.file, drafts });
+        if (done.file) cancelPending();
+        if (done.caption) draft = "";
+        drafts = done.drafts;
+        if (ok && replying?.id === sent.reply) replying = null;
+      });
       return;
     }
     if (!text || !onSend) return;
@@ -717,13 +731,13 @@
     {/if}
 
     <ol class="messages">
-      {#each items as item (item.kind === "day" ? `day-${item.at}` : (item.kind === "group" ? item.group : item.groups[0]!).messages[0])}
+      {#each items as item (itemKey(item))}
         {#if item.kind === "day"}
           <li class="divider" role="separator"><span>{formatDay(item.at)}</span></li>
         {:else if item.kind === "group"}
           {@render lines(item.group)}
         {:else if item.groups.some((g) => unblocked.has(groupKey(g)))}
-          {#each item.groups as group (group.messages[0])}{@render lines(group)}{/each}
+          {#each item.groups as group (messageKey(group.messages[0]!))}{@render lines(group)}{/each}
         {:else}
           {@const n = item.groups.reduce((a, g) => a + g.messages.length, 0)}
           {@const users = new Set(item.groups.map((g) => g.actorName)).size}
@@ -743,12 +757,11 @@
       onpointerdown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
-        held = true;
-        onHoldTalk(true);
+        holdTalk.press(onHoldTalk);
       }}
-      onpointerup={release}
-      onpointercancel={release}
-      onlostpointercapture={release}
+      onpointerup={holdTalk.release}
+      onpointercancel={holdTalk.release}
+      onlostpointercapture={holdTalk.release}
       oncontextmenu={(e) => e.preventDefault()}
     >
       {talking ? "Talking…" : "Hold to talk"}
@@ -799,7 +812,7 @@
         class="attach"
         title={onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
         aria-label="Upload a file"
-        disabled={!onUpload || uploading}
+        disabled={!canAttach(!!onUpload, uploading)}
         onclick={() => filePicker?.click()}
       >
         <Icon name="plus" size={18} />
@@ -902,7 +915,7 @@
 {/if}
 
 {#snippet lines(group: MessageGroup)}
-  {#each group.messages as m, i (m)}
+  {#each group.messages as m, i (messageKey(m))}
     <li class="line" class:first={i === 0} class:mentioned={pingsMe(pingText(m), group.actorName, replyPing(m as DisplayMessage), me, allOf(m))}
       class:flash={idOf(m) !== undefined && idOf(m) === flashed}
       class:sheet-open={sheetMessage === m}

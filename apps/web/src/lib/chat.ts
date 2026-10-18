@@ -49,6 +49,22 @@ export const chatItems = (messages: readonly ChatMessage[], blocked: (name: stri
   return items;
 };
 
+// Keys of the message rows: stored messages by id (a reaction or an edit
+// makes a new object), Mumble chat lines by their object (it never
+// changes), as a number given on first sight.
+const lineKeys = new WeakMap<ChatMessage, string>();
+let nextLine = 0;
+export const messageKey = (m: ChatMessage & { source?: { id: number } }) => {
+  if (m.source) return `s${m.source.id}`;
+  let key = lineKeys.get(m);
+  if (!key) lineKeys.set(m, (key = `m${nextLine++}`));
+  return key;
+};
+
+// Groups (and hidden blocked ones) by their first message.
+export const itemKey = (item: ChatItem) =>
+  item.kind === "day" ? `day-${item.at}` : messageKey((item.kind === "group" ? item.group : item.groups[0]!).messages[0]!);
+
 export const formatTime = (at: number, locale?: string) =>
   new Date(at).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
 
