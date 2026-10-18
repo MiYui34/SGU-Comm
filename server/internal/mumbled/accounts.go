@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+	"kallisti.chat/server/internal/clientip"
 	"kallisti.chat/server/internal/names"
 )
 
@@ -68,7 +69,7 @@ func findGhost(online []Presence, p Presence) (ghost uint32, inUse bool) {
 	return 0, false
 }
 
-// Failed logins per IP, instead of Murmur's autoban: after
+// Failed logins per IP (an IPv6 /64), instead of Murmur's autoban: after
 // maxLoginFailures within loginFailureWindow, logins from that IP are
 // refused until the count goes down again.
 const (
@@ -85,11 +86,12 @@ type logins struct {
 func (l *logins) blocked(ip netip.Addr) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	f := l.failures[ip]
+	f := l.failures[clientip.Prefix(ip)]
 	return f != nil && f.Tokens() < 1
 }
 
 func (l *logins) failed(ip netip.Addr) {
+	ip = clientip.Prefix(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.failures == nil {

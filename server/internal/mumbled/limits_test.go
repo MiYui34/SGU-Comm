@@ -129,6 +129,25 @@ func TestConnectionCounts(t *testing.T) {
 	}
 }
 
+func TestLoginFailuresCountIPv6Slash64s(t *testing.T) {
+	var l logins
+	for range maxLoginFailures {
+		l.failed(netip.MustParseAddr("2001:db8:1:2::1"))
+	}
+	if !l.blocked(netip.MustParseAddr("2001:db8:1:2::2")) {
+		t.Error("the same /64 is not blocked")
+	}
+	if l.blocked(netip.MustParseAddr("2001:db8:1:3::1")) {
+		t.Error("another /64 is blocked")
+	}
+	for range maxLoginFailures {
+		l.failed(netip.MustParseAddr("192.0.2.1"))
+	}
+	if l.blocked(netip.MustParseAddr("192.0.2.2")) {
+		t.Error("another IPv4 address is blocked")
+	}
+}
+
 func TestParsePingRefusesOtherBytes(t *testing.T) {
 	for _, b := range [][]byte{{0x0a, 0x01, 0x00}, {0x08}, {0x18, 0x01}} {
 		if _, _, ok := parsePing(b); ok {

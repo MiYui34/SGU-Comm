@@ -277,6 +277,22 @@ func TestRejectsConnectionsAboveThePerIPLimit(t *testing.T) {
 	}
 }
 
+func TestPerIPLimitCountsIPv6Slash64s(t *testing.T) {
+	// Not closed: Close would wait for the connections counted here.
+	b := New(Options{MaxConnections: 10, MaxPerIP: 1})
+	admit := func(ip string, want int) {
+		t.Helper()
+		if s := b.admit(ip); s != want {
+			t.Errorf("%s: %d, want %d", ip, s, want)
+		}
+	}
+	admit("2001:db8:1:2::1", 0)
+	admit("2001:db8:1:2::2", http.StatusTooManyRequests) // the same /64
+	admit("2001:db8:1:3::1", 0)
+	admit("192.0.2.1", 0)
+	admit("192.0.2.2", 0)
+}
+
 func TestKeepsSilentClientsAlive(t *testing.T) {
 	// The page's timers may sleep in a background tab: the bridge pings
 	// upstream itself (the echo sends the ping back).

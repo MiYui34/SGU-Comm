@@ -1,9 +1,11 @@
-// Package clientip finds the client's IP address of a request.
+// Package clientip finds the client's IP address of a request, and the
+// key that rate and connection limits count it under.
 package clientip
 
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -23,4 +25,25 @@ func Of(r *http.Request, trustForwarded bool) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// Prefix is the key of all rate and connection limits: one IPv6 /64 counts
+// as one address (one user usually has all of it). IPv4, also mapped into
+// IPv6, stays the full address. Identity, bans and logs keep the address.
+func Prefix(ip netip.Addr) netip.Addr {
+	ip = ip.Unmap()
+	if ip.Is6() {
+		p, _ := ip.Prefix(64)
+		return p.Addr()
+	}
+	return ip
+}
+
+// Key is Prefix for an address as text; other text stays as it is.
+func Key(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	return Prefix(addr).String()
 }

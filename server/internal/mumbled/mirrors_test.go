@@ -84,6 +84,31 @@ func TestSyncTextChannels(t *testing.T) {
 	}
 }
 
+// The first mirror is at position 0 without a description: as it was
+// made, but still new.
+func TestTheFirstMirrorIsSavedAndAnnounced(t *testing.T) {
+	db := testDB(t)
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	s.SyncTextChannels(nil) // the parent is there before
+	alice := dial(t, addr, "alice")
+	ids, err := s.SyncTextChannels([]TextMirror{{Name: "general"}})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("sync: %v %v", ids, err)
+	}
+	for {
+		var m pb.ChannelState
+		proto.Unmarshal(alice.expect(mumble.TypeChannelState), &m)
+		if m.GetChannelId() == ids[0] {
+			break
+		}
+	}
+	s.Close()
+	s2, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	if again, err := s2.SyncTextChannels([]TextMirror{{Channel: ids[0], Name: "general"}}); err != nil || !slices.Equal(again, ids) {
+		t.Fatalf("after restart: %v %v, want %v", again, err, ids)
+	}
+}
+
 func TestSyncRecreatesMissingMirrors(t *testing.T) {
 	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: testDB(t)}, nil)
 	ids, _ := s.SyncTextChannels([]TextMirror{{Name: "general"}})

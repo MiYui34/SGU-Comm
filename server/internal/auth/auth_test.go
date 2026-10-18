@@ -166,15 +166,6 @@ func TestCrossSiteFormsAreRefused(t *testing.T) {
 	}
 }
 
-func TestLimiterKeys(t *testing.T) {
-	if limiterKey("2001:db8:1:2:3:4:5:6") != limiterKey("2001:db8:1:2:ffff::1") {
-		t.Error("IPv6 addresses of one /64 must share a limit")
-	}
-	if limiterKey("192.0.2.1") == limiterKey("192.0.2.2") {
-		t.Error("IPv4 addresses must not share a limit")
-	}
-}
-
 func TestPasswordChangeEndsOtherSessions(t *testing.T) {
 	a, srv := setup(t)
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "erin", "password": "old password"}, nil)

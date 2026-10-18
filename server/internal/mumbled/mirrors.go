@@ -90,6 +90,7 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 				slog.Error("text channel mirror", "name", name, "err", err)
 				continue
 			}
+			touched[ch.ID] = true // new, even if it already matches
 		}
 		desc := html.EscapeString(w.Topic)
 		if ch.Name != name || ch.Position != pos || ch.Description != desc {
