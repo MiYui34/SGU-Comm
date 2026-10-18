@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"kallisti.chat/server/internal/cryptstate"
+	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 )
 
@@ -160,6 +161,11 @@ type Server struct {
 	timeouts map[timeoutKey]*timeout
 	// Snapshots of the connections (see watch.go).
 	watch watch
+	// Message rules, and limited users' last messages (see
+	// messagerules.go). Under mu.
+	rules    msgrules.Rules
+	lastPost map[timeoutKey]time.Time
+	now      func() time.Time
 }
 
 type client struct {
@@ -221,21 +227,28 @@ func New(cfg Config) (*Server, error) {
 	}
 	state := NewState(cfg.RootName, saved)
 	state.SetLastChannelID(lastID)
+	var rules msgrules.Rules
 	if cfg.DB != nil {
 		var err error
 		if state.GuestsReadOnly, err = cfg.DB.GuestsReadOnly(); err != nil {
+			return nil, err
+		}
+		if rules, err = cfg.DB.MessageRules(); err != nil {
 			return nil, err
 		}
 	} else {
 		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
 	}
 	srv := &Server{
-		cfg:     cfg,
-		state:   state,
-		clients: map[uint32]*client{},
-		byAddr:  map[netip.AddrPort]*client{},
-		byHost:  map[netip.Addr]map[*client]bool{},
-		streams: map[uint32]*streamUser{},
+		cfg:      cfg,
+		state:    state,
+		clients:  map[uint32]*client{},
+		byAddr:   map[netip.AddrPort]*client{},
+		byHost:   map[netip.Addr]map[*client]bool{},
+		streams:  map[uint32]*streamUser{},
+		rules:    rules,
+		lastPost: map[timeoutKey]time.Time{},
+		now:      time.Now,
 	}
 	srv.bans.Store(&bans)
 	if err := srv.loadTimeouts(); err != nil {

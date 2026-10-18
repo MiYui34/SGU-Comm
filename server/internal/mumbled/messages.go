@@ -621,6 +621,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		c.deny(timedOutText("you are", until))
 		return
 	}
+	if err := s.checkMessageLocked(actor, mumbleMessage(text, m.GetMessage(), len(images) > 0)); err != nil {
+		c.deny(deny(pb.PermissionDenied_Text, "%s", err))
+		return
+	}
 	// TextMessage in every target channel, tree and user's channel, or
 	// nothing is sent (as Murmur). Inside a tree, channels without it are
 	// skipped.
@@ -767,7 +771,7 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if u := s.state.Users[target]; u != nil {
-		u.Registered, u.UserID = true, id
+		u.Registered, u.UserID, u.Since = true, id, s.now()
 		s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id)})
 		s.permissionsChangedLocked(nil) // @auth and user entries apply now
 		if u.Comment != "" || len(u.Texture) > 0 {
