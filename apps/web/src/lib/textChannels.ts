@@ -589,6 +589,7 @@ export type ManageAction =
   | { remove: number }
   | { order: number[] }
   | { moderator: number; on: boolean }
+  | { admin: number; on: boolean }
   | { listenOnly: number; on: boolean; users: number[] }
   | { topic: number; text: string }
   // Moderation, by voice server session: a ban for some seconds (0: for
@@ -603,6 +604,7 @@ const manageBody = (a: ManageAction) => {
   if ("rename" in a) return { type: "rename-channel", channel: a.rename, name: a.name };
   if ("remove" in a) return { type: "delete-channel", channel: a.remove };
   if ("moderator" in a) return { type: "set-moderator", user: a.moderator, moderator: a.on };
+  if ("admin" in a) return { type: "set-admin", user: a.admin, admin: a.on };
   if ("listenOnly" in a) return { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users };
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };

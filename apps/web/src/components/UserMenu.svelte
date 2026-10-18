@@ -25,6 +25,8 @@
     status = null,
     moderator = null,
     onModerator,
+    admin = null,
+    onAdmin,
     moderation = null,
     timedOutUntil = null,
     onModerate,
@@ -44,9 +46,12 @@
     onSettings: () => void;
     role?: Role | null;
     status?: UserStatus | null;
-    // What we may do about the user's role (see moderatorAction).
+    // What we may do about the user's role (see moderatorAction,
+    // adminAction).
     moderator?: "make" | "remove" | null;
     onModerator?: (on: boolean) => void;
+    admin?: "make" | "remove" | null;
+    onAdmin?: (on: boolean) => void;
     // What we may do to the user (see userModeration): onModerate acts at
     // once, onConfirm asks first (kick, ban, time-out).
     moderation?: UserModeration | null;
@@ -108,10 +113,17 @@
       Block messages
       <span class="box" class:on={blocked} aria-hidden="true"></span>
     </button>
-    {#if moderator && onModerator}
+    {#if (moderator && onModerator) || (admin && onAdmin)}
       <div class="sep"></div>
+    {/if}
+    {#if moderator && onModerator}
       <button onclick={act(() => onModerator(moderator === "make"))}>
         {moderator === "make" ? "Make moderator" : "Remove moderator"}
+      </button>
+    {/if}
+    {#if admin && onAdmin}
+      <button onclick={act(() => onAdmin(admin === "make"))}>
+        {admin === "make" ? "Make admin" : "Remove admin"}
       </button>
     {/if}
     {#if timedOutUntil !== null}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, Perm, type ServerState, type User } from "@kallisti/protocol";
-import { moderatorAction, roleOf } from "../src/lib/roles";
-import { initialTextState, type TextState } from "../src/lib/textChannels";
+import { adminAction, moderatorAction, roleOf } from "../src/lib/roles";
+import { initialTextState, manageRequest, type TextState } from "../src/lib/textChannels";
 
 const text: TextState = { ...initialTextState, voiceChats: true, roles: { admins: [3], moderators: [5] } };
 const admin: ServerState = { ...initialState, rootPermissions: Perm.Write | Perm.MakeChannel };
@@ -19,6 +19,30 @@ describe("moderatorAction", () => {
     expect(moderatorAction(admin, text, user(0))).toBeNull();
     expect(moderatorAction({ ...admin, rootPermissions: Perm.MakeChannel }, text, user(6))).toBeNull();
     expect(moderatorAction(admin, { ...text, voiceChats: false }, user(6))).toBeNull();
+  });
+});
+
+describe("adminAction", () => {
+  // I am session 1, with this user id.
+  const as = (userId: number): ServerState => ({ ...admin, session: 1, users: { 1: user(userId) } });
+
+  it("lets admins make admins, and only SuperUser remove them", () => {
+    expect(adminAction(as(3), text, user(6))).toBe("make");
+    expect(adminAction(as(3), text, user(5))).toBe("make"); // a moderator
+    expect(adminAction(as(3), text, user(4))).toBe("make");
+    expect(adminAction(as(0), text, user(3))).toBe("remove");
+    expect(adminAction(as(3), { ...text, roles: { admins: [3, 4], moderators: [] } }, user(4))).toBeNull();
+  });
+
+  it("offers nothing for SuperUser, guests, or without the right", () => {
+    expect(adminAction(as(0), text, user(0))).toBeNull();
+    expect(adminAction(as(0), text, user(null))).toBeNull();
+    expect(adminAction({ ...as(3), rootPermissions: Perm.MakeChannel }, text, user(6))).toBeNull();
+    expect(adminAction(as(0), { ...text, voiceChats: false }, user(6))).toBeNull();
+  });
+
+  it("asks the server", () => {
+    expect(JSON.parse(manageRequest({ admin: 6, on: true }))).toEqual({ type: "set-admin", user: 6, admin: true });
   });
 });
 
