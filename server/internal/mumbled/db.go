@@ -2,10 +2,12 @@ package mumbled
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"time"
 
+	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/names"
 )
 
@@ -74,6 +76,11 @@ CREATE TABLE IF NOT EXISTS mumble_timeouts (
 	user_id INTEGER PRIMARY KEY,
 	until   INTEGER NOT NULL -- Unix milliseconds
 );
+-- Settings that are no numbers (see mumble_meta), as JSON.
+CREATE TABLE IF NOT EXISTS mumble_settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mumble_channel_links (
 	a INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
 	b INTEGER NOT NULL REFERENCES mumble_channels(id) ON DELETE CASCADE,
@@ -86,6 +93,8 @@ var migrations = []struct{ table, column, def string }{
 	{"mumble_channels", "no_inherit_acl", "INTEGER NOT NULL DEFAULT 0"},
 	{"mumble_users", "comment", "TEXT NOT NULL DEFAULT ''"},
 	{"mumble_users", "texture", "BLOB"},
+	// Unix milliseconds; 0: registered before it was kept (an old account).
+	{"mumble_users", "registered_at", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 func OpenDB(db *sql.DB) (*DB, error) {
@@ -331,18 +340,50 @@ func (d *DB) SetGuestsReadOnly(on bool) error {
 	return d.setMeta("guests_read_only", n)
 }
 
+// MessageRules are the saved rules (see Server.SetMessageRules).
+func (d *DB) MessageRules() (msgrules.Rules, error) {
+	var r msgrules.Rules
+	var v string
+	err := d.db.QueryRow(`SELECT value FROM mumble_settings WHERE key = 'message_rules'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, nil
+	}
+	if err != nil {
+		return r, err
+	}
+	return r, json.Unmarshal([]byte(v), &r)
+}
+
+func (d *DB) SetMessageRules(r msgrules.Rules) error {
+	v, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Exec(`INSERT INTO mumble_settings (key, value) VALUES ('message_rules', ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, string(v))
+	return err
+}
+
 func (d *DB) SaveNextChannel(n uint32) error {
 	_, err := d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('last_channel_id', ?)
 		ON CONFLICT (key) DO UPDATE SET value = max(value, excluded.value)`, n)
 	return err
 }
 
-const userColumns = `id, name, COALESCE(cert_hash, ''), password_hash, last_channel`
+const userColumns = `id, name, COALESCE(cert_hash, ''), password_hash, last_channel, registered_at`
+
+func scanUser(row interface{ Scan(...any) error }) (Registered, error) {
+	var r Registered
+	var since int64
+	err := row.Scan(&r.ID, &r.Name, &r.CertHash, &r.PasswordHash, &r.LastChannel, &since)
+	if since > 0 {
+		r.Since = time.UnixMilli(since)
+	}
+	return r, err
+}
 
 func (d *DB) userWhere(where string, arg any) (*Registered, error) {
-	var r Registered
-	err := d.db.QueryRow(`SELECT `+userColumns+` FROM mumble_users WHERE `+where, arg).
-		Scan(&r.ID, &r.Name, &r.CertHash, &r.PasswordHash, &r.LastChannel)
+	r, err := scanUser(d.db.QueryRow(`SELECT `+userColumns+` FROM mumble_users WHERE `+where, arg))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -389,8 +430,8 @@ func (d *DB) RegisterUser(name, certHash string) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(`INSERT INTO mumble_users (id, name, name_key, cert_hash) VALUES (?, ?, ?, NULLIF(?, ''))`,
-		id, name, names.Key(name), certHash); err != nil {
+	if _, err := tx.Exec(`INSERT INTO mumble_users (id, name, name_key, cert_hash, registered_at) VALUES (?, ?, ?, NULLIF(?, ''), ?)`,
+		id, name, names.Key(name), certHash, time.Now().UnixMilli()); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('last_user_id', ?)
@@ -477,8 +518,8 @@ func (d *DB) Users() ([]Registered, error) {
 	defer rows.Close()
 	var out []Registered
 	for rows.Next() {
-		var r Registered
-		if err := rows.Scan(&r.ID, &r.Name, &r.CertHash, &r.PasswordHash, &r.LastChannel); err != nil {
+		r, err := scanUser(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, r)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/store"
 )
@@ -55,6 +56,9 @@ type fakeVoice struct {
 	// Guest sessions, and whether they may only read.
 	guests         map[uint32]bool
 	guestsReadOnly bool
+	// The message rules, and the messages checked.
+	rules   msgrules.Rules
+	checked []msgrules.Message
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/store"
 )
@@ -111,6 +112,11 @@ type Voice interface {
 	ReadOnly(session uint32) bool
 	// Connections: every connection over the recent window (admins).
 	Connections(session uint32) ([]Connection, error)
+	// CheckMessage: why the message rules refuse a session's message (nil:
+	// they do not). MessageRules, SetMessageRules: the rules (admins).
+	CheckMessage(session uint32, m msgrules.Message) error
+	MessageRules(session uint32) (msgrules.Rules, error)
+	SetMessageRules(session uint32, r msgrules.Rules) (msgrules.Rules, error)
 }
 
 // LiveStream is a screen share in a voice channel, by its streamer's
@@ -439,33 +445,34 @@ func toWire(m store.Message) wireMessage {
 }
 
 type request struct {
-	Type      string   `json:"type"`
-	Name      string   `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
-	Channels  []int64  `json:"channels"` // order-channels
-	Voice     uint32   `json:"voice"`    // voice-chat: the Mumble channel
-	Channel   int64    `json:"channel"`
-	Before    int64    `json:"before"`
-	Text      string   `json:"text"`
-	Upload    string   `json:"upload"`    // key of an upload to attach
-	Message   int64    `json:"message"`   // edit-message, delete-message
-	Reply     int64    `json:"reply"`     // send: the message it answers
-	NoPing    bool     `json:"noPing"`    // send: the reply does not ping
-	Author    string   `json:"author"`    // search: only this author
-	User      uint32   `json:"user"`      // set-moderator, set-admin, dm, bio, delete-messages: registered user id
-	Moderator bool     `json:"moderator"` // set-moderator
-	Admin     bool     `json:"admin"`     // set-admin
-	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
-	Messages  []int64  `json:"messages"`  // previews
-	Emoji     string   `json:"emoji"`     // react
-	On        bool     `json:"on"`        // react: add (or remove); pin; away; set-guests-read-only
-	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
-	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
-	Session   uint32   `json:"session"`   // ban, time-out, delete-messages: the user's voice server session
-	Seconds   int64    `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds), set-slow-mode (0: off)
-	Private   bool     `json:"private"`   // create-channel: a private one
-	Uses      int      `json:"uses"`      // create-invite (0: unlimited; seconds 0: for ever)
-	Invite    int64    `json:"invite"`    // delete-invite
-	Token     string   `json:"token"`     // redeem-invite
+	Type      string          `json:"type"`
+	Name      string          `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
+	Channels  []int64         `json:"channels"` // order-channels
+	Voice     uint32          `json:"voice"`    // voice-chat: the Mumble channel
+	Channel   int64           `json:"channel"`
+	Before    int64           `json:"before"`
+	Text      string          `json:"text"`
+	Upload    string          `json:"upload"`    // key of an upload to attach
+	Message   int64           `json:"message"`   // edit-message, delete-message
+	Reply     int64           `json:"reply"`     // send: the message it answers
+	NoPing    bool            `json:"noPing"`    // send: the reply does not ping
+	Author    string          `json:"author"`    // search: only this author
+	User      uint32          `json:"user"`      // set-moderator, set-admin, dm, bio, delete-messages: registered user id
+	Moderator bool            `json:"moderator"` // set-moderator
+	Admin     bool            `json:"admin"`     // set-admin
+	Users     []uint32        `json:"users"`     // set-listen-only: who may speak
+	Messages  []int64         `json:"messages"`  // previews
+	Emoji     string          `json:"emoji"`     // react
+	On        bool            `json:"on"`        // react: add (or remove); pin; away; set-guests-read-only
+	Status    string          `json:"status"`    // set-status: "online", "idle" or "dnd"
+	Until     int64           `json:"until"`     // set-status: end of the custom status (Unix ms)
+	Session   uint32          `json:"session"`   // ban, time-out, delete-messages: the user's voice server session
+	Seconds   int64           `json:"seconds"`   // ban (0: forever), time-out (0: end it), delete-messages (the last seconds), set-slow-mode (0: off)
+	Private   bool            `json:"private"`   // create-channel: a private one
+	Uses      int             `json:"uses"`      // create-invite (0: unlimited; seconds 0: for ever)
+	Invite    int64           `json:"invite"`    // delete-invite
+	Token     string          `json:"token"`     // redeem-invite
+	Rules     *msgrules.Rules `json:"rules"`     // set-message-rules
 }
 
 // Handle answers one request from the browser.
@@ -486,7 +493,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.sendError("too many requests, slow down")
 		return
 	}
-	if c.readOnly(*id, req) {
+	if c.readOnly(*id, req) || c.refused(*id, req) {
 		return
 	}
 	if req.Type == "upload-token" {
@@ -598,6 +605,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "connections":
 		c.connections(id.Session)
+		return
+	case "message-rules", "set-message-rules":
+		c.messageRules(*id, req)
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).

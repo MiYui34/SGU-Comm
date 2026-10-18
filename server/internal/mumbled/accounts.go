@@ -17,6 +17,7 @@ type Registered struct {
 	CertHash     string // SHA-1 of the client certificate, hex
 	PasswordHash string // argon2id, see internal/password
 	LastChannel  uint32
+	Since        time.Time // the registration; zero: before it was kept
 }
 
 // authenticate decides who connects, as Murmur does: a registered name

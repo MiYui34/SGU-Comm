@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"kallisti.chat/server/internal/mumble/pb"
@@ -59,8 +60,10 @@ type User struct {
 	// A Kallisti guest account: registered, but a guest (see
 	// State.GuestsReadOnly).
 	GuestAccount bool
-	Hash         string   // client certificate, or ""
-	Tokens       []string // access tokens (Authenticate.tokens)
+	// The registration (zero: before it was kept, see msgrules.Author).
+	Since  time.Time
+	Hash   string   // client certificate, or ""
+	Tokens []string // access tokens (Authenticate.tokens)
 
 	Targets   map[uint32]VoiceTarget // whisper and shout targets by id
 	Listening map[uint32]bool        // channels it listens to

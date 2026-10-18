@@ -1091,6 +1091,9 @@
     onGuestsReadOnly={(on) => connection.manage({ guestsReadOnly: on })}
     connections={text.connections}
     onPollConnections={mayChangeGuests(server, text) ? () => connection.manage({ connections: true }) : undefined}
+    messageRules={text.messageRules}
+    onLoadMessageRules={mayChangeGuests(server, text) ? () => connection.manage({ messageRules: true }) : undefined}
+    onSaveMessageRules={(rules) => connection.manage({ setMessageRules: rules })}
     onClose={() => (showModeration = false)}
   />
 {/if}

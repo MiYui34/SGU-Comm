@@ -650,3 +650,45 @@ From `meta/research/discord-comparison.md`.
   (a tree message is not stored in a mirror, see mumbled textMsg).
 - Web and Mumble share one turn per user and channel: a registered user
   waits on the web after writing from Mumble.
+
+## Message rules (2026-10-18)
+
+- One rule set for both issues (new-account limits, word and link
+  filter): `internal/msgrules` is pure (rules, matching, `Check`);
+  mumbled keeps the rules (JSON in a new `mumble_settings` table:
+  `mumble_meta` holds integers), the registration times and the last
+  message times, so a limited user has one rate over web and Mumble.
+  The sidecar has one hook (`refused`, next to `readOnly`) that calls
+  `Voice.CheckMessage`. With Murmur there are no rules.
+- Registration time is a new `mumble_users.registered_at` (0 for rows
+  from before, so old accounts are never new). A Kallisti account gets
+  its Mumble registration on its first visit, so an account made before
+  the update and first used after it counts as new once. A guest
+  account that gets a password keeps the time of its first visit.
+- Words: NFKC, without format characters (zero-width spaces) and
+  fillers that count as letters (Hangul fillers, Arabic tatweel), Unicode
+  case folding, without the accents of Latin, Greek and Cyrillic letters
+  (not of others: a Japanese dakuten makes another letter). Then whole
+  words (letters, digits, marks; `_` and `.` separate, so "spam" also
+  blocks "spam.example"), phrases as word sequences. Han, kana, Thai,
+  Lao, Khmer and Myanmar have no spaces between words: there an entry
+  matches anywhere. Entries are words of letters and digits (with ' - . _
+  between): "c++" would be the word "c" and block every "c". Homoglyphs
+  (Cyrillic а for Latin a) and spaced letters ("s p a m") are not
+  caught.
+- Domains: every host-like token in the text (also bare "junk.example",
+  markdown links, `user@host`, the ideographic full stop, percent-encoded
+  hosts, which browsers decode) in its IDNA ASCII form, against each
+  entry and its subdomains; a host that is no valid IDNA is compared as
+  it is. Mumble texts count by their plain text: mumbled strips the tags
+  (link targets too) before it sends a text on.
+- Links for new accounts are what clients make links of: a scheme
+  (`x://`) or `www.`. A bare domain is no link. @everyone/@here only
+  pings for staff anyway; for limited users it is refused as noise on
+  the web (Mumble texts never ping, and are not checked for it).
+- The wait of limited users starts with a message the rules let
+  through, also if the send fails later (channel rights, length).
+- Refusals go to the author: on the web as an error in the composer, to
+  Mumble clients as PermissionDenied (Text) with the reason, which their
+  log shows. There is no moderator channel: blocked words and domains
+  are a server log line (`message refused`, without the text).
