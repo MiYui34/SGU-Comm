@@ -267,7 +267,8 @@ type Conn struct {
 	ready    bool
 	closed   bool
 	// Messages were dropped (full outbox): the client must reload.
-	lagged bool
+	lagged  bool
+	dropped uint64 // messages lost so far (see Overflows)
 	// The last typing signal passed on, per channel (see typing).
 	typed map[int64]time.Time
 	// The chosen status (kept for registered users) and no input for a
@@ -901,6 +902,7 @@ func (c *Conn) send(v any) {
 	}
 	if c.lagged {
 		if len(c.out) > cap(c.out)-2 { // room for the resync and this message
+			c.dropped++
 			return
 		}
 		c.out <- resync
@@ -910,8 +912,23 @@ func (c *Conn) send(v any) {
 	case c.out <- b:
 	default:
 		c.lagged = true
+		c.dropped++
 		slog.Warn("sidecar outbox full, client will resync")
 	}
+}
+
+// Overflows is the number of messages each connection lost to a full
+// outbox, by voice server session (only those that lost some).
+func (h *Hub) Overflows() map[uint32]uint64 {
+	out := map[uint32]uint64{}
+	for _, c := range h.all() {
+		c.mu.Lock()
+		if c.dropped > 0 && c.identity != nil {
+			out[c.identity.Session] += c.dropped
+		}
+		c.mu.Unlock()
+	}
+	return out
 }
 
 func (h *Hub) issueUploadToken(author, emoji string) string {

@@ -567,3 +567,30 @@ From `meta/research/discord-comparison.md`.
 - Levels: good below 100 ms and 2 %, fair below 250 ms and 8 %, else poor
   (the worse of both). The page cannot see whether the desktop bridge
   uses UDP, so it says "UDP or TCP".
+
+## Connection stats (2026-10-18)
+
+- Mumble numbers voice in 10 ms frames, so the frame number of a 20 ms
+  packet goes up by 2. The web client takes it from the capture
+  timestamp. Over TCP, mumbled counts by frame number: the step is the
+  smallest one in a transmission, a gap is lost frames, an older number
+  is late. A terminator, or a jump of more than 50 steps, starts a new
+  transmission (the web client's numbers jump after a pause). Over TCP,
+  "lost" means frames the client never sent, for example a throttled
+  tab, not network loss.
+- The web bridge sends its own keep-alive Pings (timestamp only)
+  upstream, between the browser's. Murmur takes every ping field as it
+  is. mumbled keeps only the fields a Ping has, otherwise each bridge
+  ping would set the ping times to 0.
+- The server cannot measure TCP round trips itself: a Mumble client
+  takes every Ping it gets as the answer to its own. For web users the
+  bridge's WebSocket ping could measure it, but nothing does that yet.
+- UserStats follows Murmur's msgUserStats: version, address and
+  certificates for oneself and for Register in root (not with
+  stats_only); counters for the same channel; others need Enter (else
+  PermissionDenied). Hidden users still get no answer. `from_client`
+  is UDP (crypt) plus TCP (frame numbers). The Ping answer stays UDP
+  only, because Mumble clients read it as their UDP stats.
+- `Server.ConnectionStats()` is for the admin view. Sidecar overflows
+  come in through `Config.TextOverflows` (`Hub.Overflows`), so mumbled
+  does not import the sidecar.

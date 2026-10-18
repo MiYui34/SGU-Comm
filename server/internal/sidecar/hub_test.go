@@ -300,6 +300,10 @@ func TestResyncAfterOverflow(t *testing.T) {
 	for i := 0; i < outboxSize+5; i++ {
 		h.broadcast(map[string]any{"type": "message"})
 	}
+	// Lost messages are counted per session, for the connection stats.
+	if got := h.Overflows(); got[1] != 5 || len(got) != 1 {
+		t.Fatalf("overflows %v", got)
+	}
 	// Drain the full outbox; the next message must be a resync.
 	for i := 0; i < outboxSize; i++ {
 		next(t, slow)

@@ -100,6 +100,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly func()
 	var onUser func(id uint32, name string)
+	var textOverflows func() map[uint32]uint64
 	sv := &streamVoice{}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
@@ -107,6 +108,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
 		onGuestsReadOnly = hub.GuestsReadOnlyChanged
 		onUser = hub.UserChanged
+		textOverflows = hub.Overflows
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
 			streams.Moved(session, to)
@@ -164,6 +166,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnTimeoutsChanged:       onTimeouts,
 		OnGuestsReadOnlyChanged: onGuestsReadOnly,
 		OnUserMoved:             onMoved,
+		TextOverflows:           textOverflows,
 	})
 	if err != nil {
 		return nil, err

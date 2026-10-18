@@ -19,7 +19,6 @@ import (
 
 	"kallisti.chat/server/internal/cryptstate"
 	"kallisti.chat/server/internal/mumble"
-	"kallisti.chat/server/internal/mumble/pb"
 )
 
 type Config struct {
@@ -67,7 +66,10 @@ type Config struct {
 	// OnUserMoved hears users join (from NoChannel), change channels and
 	// leave (to NoChannel), in order, outside the server lock.
 	OnUserMoved func(session, from, to uint32)
-	DB          *DB // nil: nothing is saved
+	// TextOverflows is the number of sidecar messages each session lost
+	// (see ConnectionStats). Nil: none.
+	TextOverflows func() map[uint32]uint64
+	DB            *DB // nil: nothing is saved
 }
 
 const (
@@ -167,6 +169,12 @@ type client struct {
 	host      netip.Addr
 	legacy    bool // a client before 1.5: legacy UDP format
 	web       bool // a web client through the bridge (ServeConn), not a Mumble client
+	opus      bool
+	// What it said about itself, and its certificates (for UserStats).
+	version                uint64
+	release, os, osVersion string
+	certs                  [][]byte
+
 	limiter   *rate.Limiter
 	bandwidth *rate.Limiter // voice bytes per second
 	// VoiceTarget messages: own limit, whisper keys send them often.
@@ -181,6 +189,10 @@ type client struct {
 	crypt       *cryptstate.CryptState
 	lastGood    time.Time
 	lastRequest time.Time
+	resyncs     uint32
+
+	stats   connStats     // see stats.go
+	dropped atomic.Uint64 // voice frames dropped from a full queue
 }
 
 func New(cfg Config) (*Server, error) {
@@ -330,7 +342,9 @@ func (c *client) send(frame []byte, voice bool) {
 	select {
 	case c.out <- frame:
 	default:
-		if !voice {
+		if voice {
+			c.dropped.Add(1)
+		} else {
 			c.close()
 		}
 	}
@@ -364,12 +378,11 @@ func (c *client) writer() {
 	}
 }
 
-func (c *client) stats() *pb.UserStats_Stats {
+// cryptStats counts the UDP packets from the client.
+func (c *client) cryptStats() VoiceStats {
 	c.cryptMu.Lock()
 	defer c.cryptMu.Unlock()
-	return &pb.UserStats_Stats{
-		Good: proto.Uint32(c.crypt.Good), Late: proto.Uint32(c.crypt.Late), Lost: proto.Uint32(c.crypt.Lost),
-	}
+	return VoiceStats{Good: c.crypt.Good, Late: c.crypt.Late, Lost: c.crypt.Lost, Resync: c.resyncs}
 }
 
 // banned returns the ban that applies to an address or certificate.
