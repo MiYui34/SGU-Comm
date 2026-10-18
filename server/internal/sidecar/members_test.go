@@ -55,6 +55,24 @@ func TestUserChangesReachEveryone(t *testing.T) {
 	}
 }
 
+func TestAGuestAccountMadePermanentIsListed(t *testing.T) {
+	h := membersHub(t)
+	c := ready(t, h, "someone")
+	acc, err := h.store.AccountByName("Guest-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.MakePermanent(acc.ID, "hash"); err != nil {
+		t.Fatal(err)
+	}
+	h.AccountPermanent("Guest-1")
+	if m := next(t, c); m["type"] != "member" || m["id"] != float64(30) || m["name"] != "guest-1" {
+		t.Fatalf("member %v", m)
+	}
+	h.AccountPermanent("nobody") // no registration (yet): its first visit tells
+	empty(t, c)
+}
+
 func TestBioOfARegisteredUser(t *testing.T) {
 	h := membersHub(t)
 	c := ready(t, h, "someone")

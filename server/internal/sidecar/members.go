@@ -44,6 +44,20 @@ func (h *Hub) UserChanged(id uint32, name string) {
 	h.broadcast(map[string]any{"type": "member", "id": id, "name": name})
 }
 
+// AccountPermanent lists a guest account that became a normal account (see
+// auth.Service.OnPermanent): its registration has the account's name.
+func (h *Hub) AccountPermanent(name string) {
+	if h.voice == nil {
+		return
+	}
+	for id, n := range h.voice.Users() {
+		if names.Key(n) == names.Key(name) {
+			h.UserChanged(id, n)
+			return
+		}
+	}
+}
+
 // bio answers a registered user's saved bio (the Mumble comment), for the
 // menu of an offline user.
 func (c *Conn) bio(user uint32) {
