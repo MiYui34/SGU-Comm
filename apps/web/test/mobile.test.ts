@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextPanel, swipeDirection } from "../src/lib/mobile";
+import { nextPanel, swipeDirection, togglePins } from "../src/lib/mobile";
 
 const at = (x: number, y: number, t: number) => ({ x, y, t });
 
@@ -31,5 +31,17 @@ describe("nextPanel", () => {
     expect(nextPanel("channels", "right")).toBe("channels");
     expect(nextPanel("members", "left")).toBe("members");
     expect(nextPanel("chat", null)).toBe("chat");
+  });
+});
+
+describe("togglePins", () => {
+  it("shows the pins, and hides them when they are on screen", () => {
+    expect(togglePins("members", true)).toBe("pins");
+    expect(togglePins("search", true)).toBe("pins");
+    expect(togglePins("pins", true)).toBe("members");
+  });
+
+  it("shows pins kept in a closed phone drawer", () => {
+    expect(togglePins("pins", false)).toBe("pins");
   });
 });

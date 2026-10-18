@@ -27,7 +27,7 @@
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
-  import { nextPanel, swipeDirection, type Panel } from "../lib/mobile";
+  import { nextPanel, swipeDirection, togglePins, type Panel, type Side } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
@@ -601,8 +601,13 @@
   // Server settings (bans, registered users) for moderators and admins.
   let showModeration = $state(false);
   const moderation = $derived({ ...moderationRights(server), emoji: canManageText(server, text) });
-  // Search: the results panel, and a message to scroll to.
-  let searchOpen = $state(false);
+  // The right column: members, search results or pins. On phones, search
+  // and pins open the right drawer, and closing them closes it.
+  let side = $state<Side>("members");
+  const openSide = (next: Side) => {
+    side = next;
+    if (phone) panel = next === "members" ? "chat" : "members";
+  };
   // Where a stored message is: "#general", or a voice channel's name.
   const whereOf = (m: TextMessage) => {
     const ch = text.channels.find((c) => c.id === m.channel);
@@ -612,12 +617,10 @@
     const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
     return server.channels[Number(voice)]?.name ?? "a voice chat";
   };
-  // The pinned messages of the open chat, in place of the member list.
-  let pinsOpen = $state(false);
   const resyncs = $derived(text.resyncs); // a number: changes only on a resync
   $effect(() => {
     void resyncs; // a resync forgets them: ask again
-    if (pinsOpen && chatId !== null) connection.requestPins(chatId);
+    if (side === "pins" && chatId !== null) connection.requestPins(chatId);
   });
   let jumpTarget = $state<number | null>(null);
   const joinedAt = Date.now() - 60_000; // allows for clock differences
@@ -969,7 +972,8 @@
 
 <div
   class="layout"
-  class:members={membersOpen}
+  class:members={membersOpen || side !== "members"}
+  class:side={side !== "members"}
   data-panel={phone ? panel : undefined}
 >
   <div class="left" bind:this={leftEl} inert={phone && panel !== "channels"}>
@@ -1068,20 +1072,16 @@
         ? (q) => {
             searchQuery = q;
             connection.search(parseSearch(q, searchChats));
-            searchOpen = true;
-            pinsOpen = false;
+            openSide("search");
           }
         : undefined}
       onOpenChannel={(id) => show({ kind: "text", id })}
       stage={streamClient?.watching.length ? stage : undefined}
       error={pane.error ?? streamClient?.error}
       onPins={text.voiceChats && chatId !== null
-        ? () => {
-            pinsOpen = !pinsOpen;
-            searchOpen = false;
-          }
+        ? () => openSide(togglePins(side, !phone || panel === "members"))
         : undefined}
-      {pinsOpen}
+      pinsOpen={side === "pins"}
       mayPin={directChatId !== null || canManageText(server, text)}
       onPin={connection.pin}
       jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
@@ -1101,20 +1101,22 @@
       httpBase={connection.httpBase}
     />
   </div>
-  {#if searchOpen}
+  {#if side === "search"}
     <SearchPanel
+      inert={phone && panel !== "members"}
       text={text.search ? searchQuery : null}
       messages={(text.search?.messages ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
       onOpen={(m) => openMessage({ chat: m.channel, message: m.id })}
       onClose={() => {
-        searchOpen = false;
+        openSide("members");
         document.querySelector<HTMLInputElement>('input[aria-label="Search messages"]')?.focus();
       }}
     />
-  {:else if pinsOpen && chatId !== null}
+  {:else if side === "pins" && chatId !== null}
     <SearchPanel
+      inert={phone && panel !== "members"}
       text={text.pins[chatId] ? "" : null /* null: loading */}
       heading="Pinned messages"
       label="Pinned messages"
@@ -1122,8 +1124,11 @@
       messages={(text.pins[chatId] ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
       canOpen={() => true}
-      onOpen={(m) => (jumpTarget = m.id)}
-      onClose={() => (pinsOpen = false)}
+      onOpen={(m) => {
+        jumpTarget = m.id;
+        panel = "chat";
+      }}
+      onClose={() => openSide("members")}
     />
   {:else if membersOpen || phone}
     <MemberList
@@ -1186,8 +1191,21 @@
     .layout.members {
       grid-template-columns: 72px 240px 1fr;
     }
-    .layout > :global(aside) {
+    /* Members do not fit; search and pins slide over the chat. */
+    .layout {
+      position: relative;
+    }
+    .layout:not(.side) > :global(aside) {
       display: none;
+    }
+    .layout.side > :global(aside) {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      width: min(320px, 40vw);
+      box-shadow: -4px 0 16px rgb(0 0 0 / 0.3);
     }
   }
   /* Phones: the chat fills the screen, side panels slide over it. */

@@ -17,3 +17,10 @@ export const nextPanel = (panel: Panel, swipe: "left" | "right" | null): Panel =
   if (swipe === "left") return panel === "chat" ? "members" : panel === "channels" ? "chat" : panel;
   return panel;
 };
+
+// What the right column (the right drawer on phones) shows: the members, or
+// search results or the open chat's pins in their place.
+export type Side = "members" | "search" | "pins";
+
+// The pins button. shown: the column is on screen (not a closed drawer).
+export const togglePins = (side: Side, shown: boolean): Side => (side === "pins" && shown ? "members" : "pins");

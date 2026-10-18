@@ -6,6 +6,7 @@ import {
   initialTextState,
   markReadRequest,
   linkify,
+  pageAnswered,
   manageRequest,
   parseServerEvent,
   reduceText,
@@ -86,6 +87,33 @@ describe("reduceText", () => {
   it("reads the topic of an error", () => {
     expect(parseServerEvent('{"type":"error","message":"m","about":"manage"}')).toEqual({ type: "error", message: "m", about: "manage" });
     expect(parseServerEvent('{"type":"error","message":"m","about":"other"}')).toEqual({ type: "error", message: "m" });
+  });
+});
+
+describe("pageAnswered", () => {
+  const ready = reduceText(initialTextState, { type: "ready", channels: [{ id: 1, name: "general" }] });
+  const first = reduceText(ready, { type: "history", channel: 1, messages: [msg(10), msg(11)], more: true });
+  const page = { channel: 1, before: 10 };
+
+  it("stays pending on unrelated events", () => {
+    let s = reduceText(first, { type: "message", message: msg(12) });
+    s = reduceText(s, { type: "history", channel: 2, messages: [msg(1, 2)], more: false });
+    s = reduceText(s, { type: "message-deleted", channel: 1, id: 11 });
+    expect(pageAnswered(s, page)).toBe(false);
+  });
+
+  it("is answered by older messages of the channel", () => {
+    const s = reduceText(first, { type: "history", channel: 1, messages: [msg(8), msg(9)], more: true });
+    expect(pageAnswered(s, page)).toBe(true);
+  });
+
+  it("is answered by an empty last page", () => {
+    const s = reduceText(first, { type: "history", channel: 1, messages: [], more: false });
+    expect(pageAnswered(s, page)).toBe(true);
+  });
+
+  it("ends when a resync drops the history", () => {
+    expect(pageAnswered(reduceText(first, { type: "resync" }), page)).toBe(true);
   });
 });
 

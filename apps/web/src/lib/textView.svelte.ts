@@ -1,7 +1,7 @@
 import { untrack } from "svelte";
 import type { Connection } from "./connection.svelte";
 import { mentionCounts } from "./mentions";
-import { unreadTextIds } from "./textChannels";
+import { pageAnswered, unreadTextIds } from "./textChannels";
 
 // Text channel behaviour of the client view: load history once per channel,
 // page back, track what was seen. Call during component setup (it uses
@@ -19,7 +19,8 @@ export const createTextView = (
   const text = $derived(connection().text);
   const requested = new Set<number>();
   let seen = $state<Record<number, number>>({});
-  let loadingOlder = $state(false);
+  // The page of older messages asked for, until its answer (or an error).
+  let page = $state<{ channel: number; before: number } | null>(null);
 
   // In one effect with the load, so the order is fixed: after a resync the
   // history is gone and the open channel loads again.
@@ -37,23 +38,27 @@ export const createTextView = (
   });
 
   // An error answers some request: allow retries, end a pending page load.
+  // (Derived: text is new on every event, the error only on a new one.)
+  const lastError = $derived(text.lastError);
   $effect(() => {
-    if (!text.lastError) return;
+    if (!lastError) return;
     untrack(() => {
       requested.clear();
-      loadingOlder = false;
+      page = null;
     });
   });
 
-  // New messages in the open channel: a page load is done, and they count
-  // as seen.
+  $effect(() => {
+    if (page && pageAnswered(text, page)) page = null;
+  });
+
+  // New messages in the open channel count as seen.
   $effect(() => {
     const id = currentId();
     if (id === null) return;
     const newest = text.messages[id]?.at(-1)?.id ?? 0;
     void text.messages[id]?.length;
     untrack(() => {
-      loadingOlder = false;
       if ((read[id] ?? 0) >= newest) return;
       seen = { ...seen, [id]: newest };
       queueMark(id, newest);
@@ -97,13 +102,13 @@ export const createTextView = (
       return mentions;
     },
     get loadingOlder() {
-      return loadingOlder;
+      return page !== null && page.channel === currentId();
     },
     loadOlder: () => {
       const id = currentId();
       const oldest = id === null ? undefined : text.messages[id]?.[0];
-      if (id === null || !oldest || loadingOlder) return;
-      loadingOlder = true;
+      if (id === null || !oldest || page?.channel === id) return;
+      page = { channel: id, before: oldest.id };
       connection().requestHistory(id, oldest.id);
     },
   };

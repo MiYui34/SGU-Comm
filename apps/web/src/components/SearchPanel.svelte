@@ -17,6 +17,7 @@
     canOpen,
     onOpen,
     onClose,
+    inert = false,
   }: {
     text: string | null; // null: searching (loading)
     heading?: string;
@@ -29,13 +30,14 @@
     canOpen: (m: TextMessage) => boolean;
     onOpen: (m: TextMessage) => void;
     onClose: () => void;
+    inert?: boolean; // in a closed phone drawer
   } = $props();
   const now = Date.now();
   let closeButton: HTMLButtonElement | undefined = $state();
   $effect(() => closeButton?.focus());
 </script>
 
-<aside class="search" aria-label={label}>
+<aside class="search" aria-label={label} {inert}>
   <header aria-live="polite">
     <span class="ellipsis">
       {#if text === null}{heading ? "Loading…" : "Searching…"}{:else if heading}{heading}{:else}{messages.length} {messages.length === 1 ? "result" : "results"} for “{text}”{/if}
