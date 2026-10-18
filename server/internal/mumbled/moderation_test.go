@@ -277,3 +277,47 @@ func TestTimedBans(t *testing.T) {
 		t.Fatalf("bans %+v", bans)
 	}
 }
+
+func TestWhoseMessagesStaffMayDelete(t *testing.T) {
+	s, addr := rolesServer(t)
+	su := superUser(t, addr)
+	alice, aliceID := registered(t, addr, "alice")
+	s.SetModerator(su.session, aliceID, true)
+	carol, carolID := registered(t, addr, "carol")
+	s.SetModerator(su.session, carolID, true)
+	_, daveID := registered(t, addr, "dave")
+	s.SetAdmin(su.session, daveID, true)
+	bob, bobID := registered(t, addr, "bob")
+	guest := dial(t, addr, "guest")
+	for _, c := range []struct {
+		name                 string
+		actor, session, user uint32
+	}{
+		{"a plain user", bob.session, guest.session, 0},
+		{"a moderator on a moderator", alice.session, carol.session, 0},
+		{"a moderator on an admin by id", alice.session, 0, daveID},
+		{"on SuperUser", alice.session, su.session, 0},
+		{"on SuperUser by id", su.session, 0, 0},
+		{"a session that is gone", alice.session, 999, 0},
+	} {
+		if _, _, err := s.MessagesOf(c.actor, c.session, c.user); err == nil {
+			t.Errorf("%s: no error", c.name)
+		}
+	}
+	for _, c := range []struct {
+		name                 string
+		actor, session, user uint32
+		registered           bool
+		id                   uint32
+	}{
+		{"a registered user by session", alice.session, bob.session, 0, true, bobID},
+		{"a registered user by id", alice.session, 0, bobID, true, bobID},
+		{"a guest by session", alice.session, guest.session, 0, false, guest.session},
+		{"an admin on a moderator", su.session, carol.session, 0, true, carolID},
+	} {
+		registered, id, err := s.MessagesOf(c.actor, c.session, c.user)
+		if err != nil || registered != c.registered || id != c.id {
+			t.Errorf("%s: %v %d %v", c.name, registered, id, err)
+		}
+	}
+}

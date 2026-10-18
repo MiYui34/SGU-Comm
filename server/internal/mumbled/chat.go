@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"errors"
 	"html"
 	"strings"
 
@@ -108,4 +109,26 @@ func (s *Server) MayManage(session uint32) bool {
 	defer s.mu.Unlock()
 	u := s.state.Users[session]
 	return u != nil && s.state.Has(u, 0, MakeChannel) // admins and moderators
+}
+
+// MessagesOf: whose recent messages an actor may delete at once (those who
+// MayManage, as single messages; on staff as kicks), and how they are
+// known: a connected user by session (session 0: a registered user by id,
+// online or not), registered ones by user id, guests by session.
+func (s *Server) MessagesOf(actor, session, user uint32) (registered bool, id uint32, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, u := s.state.Users[actor], &User{Registered: true, UserID: user}
+	if session != 0 {
+		u = s.state.Users[session]
+	}
+	switch {
+	case a == nil || u == nil:
+		return false, 0, errors.New("no such user")
+	case !s.state.Has(a, 0, MakeChannel) || !s.mayActOn(a, u):
+		return false, 0, errors.New("you may not delete this user's messages")
+	case u.Registered:
+		return true, u.UserID, nil
+	}
+	return false, u.Session, nil
 }
