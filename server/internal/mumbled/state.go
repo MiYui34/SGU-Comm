@@ -19,6 +19,8 @@ type State struct {
 	Users       map[uint32]*User
 	nextChannel uint32
 	gen         uint64 // see Changed
+	// Guests may not write (see guests.go).
+	GuestsReadOnly bool
 	// OnMove hears every change of a user's channel; NoChannel stands for
 	// joining or leaving the server. It runs under the server lock.
 	OnMove func(session, from, to uint32)
@@ -54,8 +56,11 @@ type User struct {
 	// (SuperUser is registered with id 0).
 	Registered bool
 	UserID     uint32
-	Hash       string   // client certificate, or ""
-	Tokens     []string // access tokens (Authenticate.tokens)
+	// A Kallisti guest account: registered, but a guest (see
+	// State.GuestsReadOnly).
+	GuestAccount bool
+	Hash         string   // client certificate, or ""
+	Tokens       []string // access tokens (Authenticate.tokens)
 
 	Targets   map[uint32]VoiceTarget // whisper and shout targets by id
 	Listening map[uint32]bool        // channels it listens to

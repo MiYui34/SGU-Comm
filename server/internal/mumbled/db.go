@@ -294,29 +294,41 @@ func (d *DB) DeleteChannels(ids []uint32) error {
 
 // NextChannel is the highest channel id given out, so ids of removed and
 // temporary channels are not reused.
-// TextParent is the parent of the text channel mirrors (0: none yet).
-func (d *DB) TextParent() (uint32, error) {
+func (d *DB) NextChannel() (uint32, error) { return d.meta("last_channel_id") }
+
+// meta is a number in mumble_meta (0: none yet).
+func (d *DB) meta(key string) (uint32, error) {
 	var n uint32
-	err := d.db.QueryRow(`SELECT value FROM mumble_meta WHERE key = 'text_parent'`).Scan(&n)
+	err := d.db.QueryRow(`SELECT value FROM mumble_meta WHERE key = ?`, key).Scan(&n)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
 	return n, err
 }
 
-func (d *DB) SetTextParent(id uint32) error {
-	_, err := d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('text_parent', ?)
-		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, id)
+func (d *DB) setMeta(key string, n uint32) error {
+	_, err := d.db.Exec(`INSERT INTO mumble_meta (key, value) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, n)
 	return err
 }
 
-func (d *DB) NextChannel() (uint32, error) {
+// TextParent is the parent of the text channel mirrors (0: none yet).
+func (d *DB) TextParent() (uint32, error) { return d.meta("text_parent") }
+
+func (d *DB) SetTextParent(id uint32) error { return d.setMeta("text_parent", id) }
+
+// GuestsReadOnly is the setting (see Server.SetGuestsReadOnly).
+func (d *DB) GuestsReadOnly() (bool, error) {
+	n, err := d.meta("guests_read_only")
+	return n != 0, err
+}
+
+func (d *DB) SetGuestsReadOnly(on bool) error {
 	var n uint32
-	err := d.db.QueryRow(`SELECT value FROM mumble_meta WHERE key = 'last_channel_id'`).Scan(&n)
-	if err == sql.ErrNoRows {
-		return 0, nil
+	if on {
+		n = 1
 	}
-	return n, err
+	return d.setMeta("guests_read_only", n)
 }
 
 func (d *DB) SaveNextChannel(n uint32) error {

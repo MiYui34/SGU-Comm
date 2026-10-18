@@ -46,6 +46,11 @@ type Config struct {
 	// per recipient), to store them; web recipients get them from there,
 	// not from this server. It runs outside the server's lock.
 	OnPrivateText func(PrivateText)
+	// GuestAccount: the Kallisti account with this name is a guest account
+	// (see SetGuestsReadOnly). Nil: none is.
+	GuestAccount func(name string) bool
+	// OnGuestsReadOnlyChanged runs after an admin changed the setting.
+	OnGuestsReadOnlyChanged func()
 	// OnRolesChanged runs after admins or moderators changed (see Roles).
 	OnRolesChanged func()
 	// OnUserChanged hears registrations made or renamed (name), or removed
@@ -202,7 +207,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	state := NewState(cfg.RootName, saved)
 	state.SetLastChannelID(lastID)
-	if cfg.DB == nil {
+	if cfg.DB != nil {
+		var err error
+		if state.GuestsReadOnly, err = cfg.DB.GuestsReadOnly(); err != nil {
+			return nil, err
+		}
+	} else {
 		state.Channels[0].ACLs, state.Channels[0].Groups = DefaultRootACL()
 	}
 	srv := &Server{

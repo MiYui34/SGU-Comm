@@ -81,9 +81,19 @@ func (s *State) chain(id uint32) []*Channel {
 
 func isSuperUser(u *User) bool { return u.Registered && u.UserID == 0 }
 
-// Permissions is what a user may do in a channel, as Murmur computes it
-// (ChanACL::effectivePermissions).
+// Permissions is what a user may do in a channel: the ACLs, and read-only
+// guests may not write.
 func (s *State) Permissions(u *User, channel uint32) Perm {
+	p := s.aclPermissions(u, channel)
+	if s.readOnly(u) {
+		p &^= TextMessage
+	}
+	return p
+}
+
+// aclPermissions is what the ACLs allow, as Murmur computes it
+// (ChanACL::effectivePermissions).
+func (s *State) aclPermissions(u *User, channel uint32) Perm {
 	if isSuperUser(u) {
 		return AllPerms &^ (Speak | Whisper)
 	}
