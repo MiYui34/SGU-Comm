@@ -126,7 +126,10 @@ func run() error {
 		accounts.NameTaken = mumble.nameTaken
 		accounts.MumbleLogin = mumble.srv.CheckPassword
 		accounts.GuestAccounts = true // the built-in server can remove their registrations
-		accounts.OnPermanent = hub.AccountPermanent
+		accounts.OnPermanent = func(name string) {
+			mumble.srv.AccountPermanent(name) // its users may write again
+			hub.AccountPermanent(name)
+		}
 		cleanup = func(now time.Time) { cleanGuests(db, now, mumble.srv.Unregister) }
 		if cfg.Builtin.Password == "" { // a private server keeps them private
 			avatars = mumble.db.Avatars()

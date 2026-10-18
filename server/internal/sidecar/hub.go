@@ -100,6 +100,11 @@ type Voice interface {
 	SetTimeout(actor, session uint32, d time.Duration) error
 	TimedOut(session uint32) (time.Time, bool)
 	Timeouts() []Timeout
+	// SetGuestsReadOnly: guests may only read, or write again (admins).
+	// ReadOnly: the session's user is a guest that may not write now.
+	SetGuestsReadOnly(session uint32, on bool) error
+	GuestsReadOnly() bool
+	ReadOnly(session uint32) bool
 }
 
 // LiveStream is a screen share in a voice channel, by its streamer's
@@ -329,6 +334,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
 			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
+			ready["guestsReadOnly"] = c.hub.voice.GuestsReadOnly()
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
@@ -441,7 +447,7 @@ type request struct {
 	Users     []uint32 `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64  `json:"messages"`  // previews
 	Emoji     string   `json:"emoji"`     // react
-	On        bool     `json:"on"`        // react: add (or remove); pin; away
+	On        bool     `json:"on"`        // react: add (or remove); pin; away; set-guests-read-only
 	Status    string   `json:"status"`    // set-status: "online", "idle" or "dnd"
 	Until     int64    `json:"until"`     // set-status: end of the custom status (Unix ms)
 	Session   uint32   `json:"session"`   // ban, time-out: the user's voice server session
@@ -468,6 +474,9 @@ func (c *Conn) Handle(raw []byte) {
 	}
 	if !c.limit.Allow() {
 		c.sendError("too many requests, slow down")
+		return
+	}
+	if c.readOnly(*id, req) {
 		return
 	}
 	if req.Type == "upload-token" {
@@ -565,6 +574,14 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "redeem-invite":
 		c.redeemInvite(*id, req.Token)
+		return
+	case "set-guests-read-only":
+		// The voice server reports the change (GuestsReadOnlyChanged).
+		if c.hub.voice == nil {
+			c.manageError("this setting needs the built-in Mumble server")
+		} else if err := c.hub.voice.SetGuestsReadOnly(id.Session, req.On); err != nil {
+			c.manageError(err.Error())
+		}
 		return
 	case "set-listen-only":
 		// The voice server reports the change (ListenOnlyChanged).

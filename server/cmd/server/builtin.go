@@ -98,13 +98,14 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	}
 	var onText func(mumbled.ChannelText)
 	var onPrivate func(mumbled.PrivateText)
-	var onRoles, onListenOnly, onPrivateChannels, onTimeouts func()
+	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly func()
 	var onUser func(id uint32, name string)
 	sv := &streamVoice{}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
+		onGuestsReadOnly = hub.GuestsReadOnlyChanged
 		onUser = hub.UserChanged
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
@@ -149,15 +150,20 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 			acc, err := db.AccountByName(name)
 			return err == nil && accountCertHash(acc) == hash
 		},
-		AccountLogin:        accountLogin(db),
-		OnChannelText:       onText,
-		OnPrivateText:       onPrivate,
-		OnRolesChanged:      onRoles,
-		OnUserChanged:       onUser,
-		OnListenOnlyChanged: onListenOnly,
-		OnPrivateChanged:    onPrivateChannels,
-		OnTimeoutsChanged:   onTimeouts,
-		OnUserMoved:         onMoved,
+		GuestAccount: func(name string) bool {
+			acc, err := db.AccountByName(name)
+			return err == nil && acc.Temporary
+		},
+		AccountLogin:            accountLogin(db),
+		OnChannelText:           onText,
+		OnPrivateText:           onPrivate,
+		OnRolesChanged:          onRoles,
+		OnUserChanged:           onUser,
+		OnListenOnlyChanged:     onListenOnly,
+		OnPrivateChanged:        onPrivateChannels,
+		OnTimeoutsChanged:       onTimeouts,
+		OnGuestsReadOnlyChanged: onGuestsReadOnly,
+		OnUserMoved:             onMoved,
 	})
 	if err != nil {
 		return nil, err
