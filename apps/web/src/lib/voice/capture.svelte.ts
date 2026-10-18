@@ -4,6 +4,7 @@ import { shouldFallBack } from "./fallback";
 import { levelDb, shouldTransmit, vadStep, voiceLevel, type TransmitMode, type VadState } from "./vad";
 import rnnoiseUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
 import { fallbackMode, noiseLabel, type NoiseMode } from "./noise";
+import { micConstraints } from "../settings";
 
 const SAMPLE_RATE = 48_000;
 const FRAME_SIZE = 960; // 20 ms
@@ -69,6 +70,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // browser's is off. running: the one that really runs. The echo test
   // plays our worklet's frames.
   let noise: NoiseMode = "browser";
+  let cancelEcho = true; // see Settings.echoCancellation
   let running = $state<NoiseMode | null>(null);
   let noiseError = $state<string | null>(null);
   let rnnoise: Promise<ArrayBuffer> | null = null; // its bytes (see the worklet)
@@ -241,14 +243,8 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     const stale = () => closed || mine !== generation;
     let next: MediaStream | null = null; // stopped on failure until it is stream
     try {
-      next = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          echoCancellation: true,
-          noiseSuppression: noise === "browser", // ours do it, not twice
-          autoGainControl: true,
-        },
-      });
+      // The browser's noise filter only without ours (not twice).
+      next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, { browserNoise: noise === "browser", cancelEcho }) });
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return stopTracks(next);
       await workletNode();
@@ -332,6 +328,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       noiseError = null;
       void applyNoise();
       if (stream && reopen) void start(device);
+    },
+    // Also set when the microphone opens: it opens again.
+    setEchoCancellation: (on: boolean) => {
+      if (on === cancelEcho) return;
+      cancelEcho = on;
+      if (stream) void start(device);
     },
     // The echo test: what the microphone sends, after the filters.
     setEcho: (on: boolean) => {

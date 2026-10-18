@@ -18,7 +18,21 @@ export type Settings = {
   noiseSuppression: NoiseMode;
   // Colours: "system" follows the system's light or dark setting.
   theme: ThemeSetting;
+  // The browser's echo cancellation. Off with a headset: in WebKit (the
+  // desktop app, Safari) on macOS it puts Bluetooth headsets into their
+  // call mode, also with another microphone chosen.
+  echoCancellation: boolean;
 };
+
+// What to ask the browser for: exactly the chosen microphone (null: the
+// default), with its own filters as set (browserNoise: its noise filter,
+// when ours are off).
+export const micConstraints = (deviceId: string | null, o: { browserNoise: boolean; cancelEcho: boolean }): MediaTrackConstraints => ({
+  deviceId: deviceId ? { exact: deviceId } : undefined,
+  echoCancellation: o.cancelEcho,
+  noiseSuppression: o.browserNoise,
+  autoGainControl: true,
+});
 
 export type ThemeSetting = "dark" | "light" | "system";
 export const themeOf = (setting: ThemeSetting, systemDark: boolean): "dark" | "light" =>
@@ -37,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   streamPreviews: true,
   noiseSuppression: "browser",
   theme: "dark",
+  echoCancellation: true,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -67,6 +82,7 @@ export const parseSettings = (raw: string | null): Settings => {
     streamPreviews: d.streamPreviews !== false,
     noiseSuppression: d.noiseSuppression === "strong" || d.noiseSuppression === "strongest" ? d.noiseSuppression : "browser",
     theme: d.theme === "light" || d.theme === "system" ? d.theme : "dark",
+    echoCancellation: d.echoCancellation !== false,
   };
 };
 

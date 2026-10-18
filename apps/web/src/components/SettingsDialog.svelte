@@ -290,6 +290,11 @@
     </div>
   {/if}
   <label class="check">
+    <input type="checkbox" checked={settings.echoCancellation} onchange={(e) => onChange({ echoCancellation: e.currentTarget.checked })} />
+    <span>Echo cancellation</span>
+    <span class="hint">Needed with speakers. With a headset you can turn it off: on a Mac, the desktop app and Safari otherwise switch Bluetooth headsets to their call mode, with worse sound.</span>
+  </label>
+  <label class="check">
     <input
       type="checkbox"
       checked={settings.closeMicWhenMuted}

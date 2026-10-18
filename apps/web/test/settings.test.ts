@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction, pttBlocksDefault, themeOf } from "../src/lib/settings";
+import { DEFAULT_SETTINGS, keyLabel, meterPercent, parseSettings, pttAction, pttBlocksDefault, themeOf, micConstraints } from "../src/lib/settings";
 
 describe("parseSettings", () => {
   it("uses defaults for missing or broken input", () => {
@@ -20,6 +20,7 @@ describe("parseSettings", () => {
       noiseSuppression: "strong",
       streamPreviews: false,
       theme: "system",
+      echoCancellation: false,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -94,6 +95,14 @@ describe("pttBlocksDefault", () => {
   });
 });
 
+describe("echo cancellation", () => {
+  it("is on unless turned off", () => {
+    expect(DEFAULT_SETTINGS.echoCancellation).toBe(true);
+    expect(parseSettings('{"echoCancellation":false}').echoCancellation).toBe(false);
+    expect(parseSettings('{"echoCancellation":"no"}').echoCancellation).toBe(true);
+  });
+});
+
 describe("theme", () => {
   it("is dark unless chosen, light or as the system", () => {
     expect(DEFAULT_SETTINGS.theme).toBe("dark");
@@ -103,5 +112,17 @@ describe("theme", () => {
     expect(themeOf("system", true)).toBe("dark");
     expect(themeOf("system", false)).toBe("light");
     expect(themeOf("light", true)).toBe("light");
+  });
+});
+
+describe("micConstraints", () => {
+  it("asks for exactly the chosen microphone, with the filters as set", () => {
+    expect(micConstraints("mic-2", { browserNoise: false, cancelEcho: false })).toEqual({
+      deviceId: { exact: "mic-2" },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: true,
+    });
+    expect(micConstraints(null, { browserNoise: true, cancelEcho: true })).toMatchObject({ deviceId: undefined, echoCancellation: true, noiseSuppression: true });
   });
 });

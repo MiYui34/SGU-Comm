@@ -138,6 +138,9 @@
   $effect(() => capture?.setThreshold(prefs.vadThresholdDb));
   const noiseMode = $derived(prefs.noiseSuppression);
   $effect(() => capture?.setNoiseSuppression(noiseMode));
+  // Before the microphone opens (the effect below): no extra reopening.
+  const echoCancellation = $derived(prefs.echoCancellation);
+  $effect(() => capture?.setEchoCancellation(echoCancellation));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
