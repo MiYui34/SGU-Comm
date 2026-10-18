@@ -415,3 +415,17 @@ From `meta/research/discord-comparison.md`.
 - Manual check (web): a member sees both channels and writes; a
   non-member sees no channel, message or search hit; a removed member
   loses the channel and its messages at once.
+
+## Invite links (2026-10-18)
+
+- Links are /invite/<token> paths: the server already answers every
+  unknown path with the app, and the address stays through login or guest
+  join (no reload), so no token has to be stored in the browser.
+- Invites are keyed by the Mumble channel (a voice channel, or a text
+  channel's mirror), like private channel access itself. The redeem
+  answer names the text channel if there is one.
+- A use is counted (one conditional UPDATE) before the member is added:
+  no limit is overrun, but a failed add loses the use.
+- Links of channels that stop being private are pruned on every access
+  change (PrivateChanged); redeem also checks that the channel is still
+  private, so pruning is only cleanup.
