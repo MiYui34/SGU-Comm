@@ -621,3 +621,30 @@ From `meta/research/discord-comparison.md`.
   easily.
 - `sidecar.Connection` has the same fields as `mumbled.Connection`, so
   cmd/server converts it with a plain struct conversion.
+
+## Registration captcha (2026-10-18)
+
+- Stateless challenges: the token is salt and end, signed with an HMAC
+  key made at start (a restart only voids open challenges). Only used
+  ones are kept (at most 100 000, until they end), keyed by the decoded
+  payload: Go's base64 decoder skips line breaks, so one payload has
+  many spellings.
+- The server checks the hash against the level now, not the level in
+  the token: raising the level voids easier solutions found before.
+- The check comes after the name and password checks (a taken name
+  does not use up 1 to 2 s of work) and before bcrypt.
+- Calibration: crypto.subtle in a worker did 340 000 SHA-256 a second
+  in headless Chrome on an Apple M-series laptop (Node: 185 000).
+  One `digest` at a time was half as fast in Node: the solver awaits
+  batches of 512.
+  Normal is 18 bits (0.8 s there, about 1.5 to 2 s on a mid laptop),
+  hard 20 bits. Proof of work varies: 3 times the mean in 5 % of cases.
+- crypto.subtle exists only in secure contexts: on plain http (not
+  localhost) the check cannot run. Guests then join as classic guests,
+  account creation shows the error.
+- Classic web guests (no guest account) and Mumble clients do no check;
+  they have the connection limits. The setting needs the built-in
+  server (as guests read only).
+- The worker is a separate file (`new Worker(new URL(...))`), so the
+  desktop CSP needs no change: no `worker-src`, so `script-src 'self'`
+  applies.
