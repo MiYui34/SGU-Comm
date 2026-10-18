@@ -81,9 +81,9 @@ type Voice interface {
 	// it is gone); false: nobody got it.
 	SendPrivateText(from uint32, fromName string, toUser uint32, text string) bool
 	// UserNames: the names of registered users (unknown ids are left out).
+	UserNames(ids []uint32) map[uint32]string
 	// Users: all registered users' names but SuperUser's, by id. Bio: a
 	// registered user's saved comment ("": none).
-	UserNames(ids []uint32) map[uint32]string
 	Users() map[uint32]string
 	Bio(user uint32) string
 	// MumbleClient: the session is a Mumble client (not a web client), and
