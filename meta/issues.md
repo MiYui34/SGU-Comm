@@ -13,4 +13,3 @@
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [ ] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
-- [ ] [Offline members: follow-ups](issues/offline-members-follow-ups.md)

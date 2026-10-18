@@ -173,3 +173,4 @@
 - [x] [Only SuperUser removes admins, also through Mumble's ACL editor](issues/admin-group-acl-guard.md)
 - [x] [Offline members in the member list](issues/offline-members.md)
 - [x] [Upload: a spinner instead of the "Uploading…" text](issues/upload-spinner.md)
+- [x] [Offline members: follow-ups](issues/offline-members-follow-ups.md)
