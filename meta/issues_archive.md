@@ -181,3 +181,4 @@
 - [x] [Desktop: Kallisti mode](issues/desktop-kallisti-mode.md)
 - [x] [Desktop app as a Kallisti client](issues/desktop-kallisti-client.md)
 - [x] [Streaming: screen share, picture only](issues/streaming-screen-share.md)
+- [x] [Phone: chat header icons cut off](issues/phone-header-overflow.md)
