@@ -1,0 +1,371 @@
+/* Kallisti's website: dark, bold and round, after Discord's site, in
+   Kallisti's teal. No build step, no external fonts. */
+:root {
+  --bg: #0d1117;
+  --bg-2: #151b23;
+  --card: #1c2430;
+  --text: #f2f4f7;
+  --muted: #a9b1bd;
+  --accent: #3eb1a3;
+  --accent-deep: #1d5f58;
+  --radius: 28px;
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+h1 {
+  font-size: clamp(40px, 6vw, 72px);
+  text-transform: uppercase;
+}
+
+h2 {
+  font-size: clamp(32px, 4vw, 48px);
+}
+
+p {
+  margin: 0 0 16px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* Navigation */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 32px;
+  align-items: center;
+  padding: 16px clamp(16px, 5vw, 64px);
+  background: rgb(13 17 23 / 0.85);
+  backdrop-filter: blur(12px);
+}
+
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 20px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.brand img {
+  border-radius: 8px;
+}
+
+.nav nav {
+  display: flex;
+  flex: 1;
+  gap: 28px;
+  justify-content: center;
+}
+
+.nav nav a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.nav nav a:hover {
+  text-decoration: underline;
+}
+
+/* Buttons: round, like Discord's */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 32px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    box-shadow 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.button.small {
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.button.light {
+  background: #fff;
+  color: #10141a;
+}
+
+.button.light:hover {
+  color: var(--accent-deep);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+.button.dark {
+  background: #222831;
+  color: #fff;
+}
+
+.button.dark:hover {
+  background: #2c3440;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+/* Hero */
+.hero {
+  position: relative;
+  display: grid;
+  gap: 48px;
+  justify-items: center;
+  padding: clamp(48px, 8vw, 112px) clamp(16px, 5vw, 64px) 0;
+  overflow: hidden;
+  text-align: center;
+  background:
+    radial-gradient(60% 60% at 50% 0%, rgb(62 177 163 / 0.45), transparent 70%),
+    linear-gradient(180deg, #12302f 0%, var(--bg) 85%);
+}
+
+.hero-text {
+  max-width: 840px;
+}
+
+.hero-text p {
+  margin-inline: auto;
+  max-width: 720px;
+  font-size: 20px;
+  color: #d5dbe3;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+.hero-shot {
+  width: min(1200px, 100%);
+  margin-bottom: -4px;
+}
+
+.hero-shot img,
+.feature img {
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 30px 80px rgb(0 0 0 / 0.55);
+}
+
+.hero-shot img {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Features: picture and text, alternating sides */
+.feature {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: clamp(32px, 6vw, 96px);
+  align-items: center;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: clamp(64px, 9vw, 128px) clamp(16px, 5vw, 64px);
+}
+
+.feature.reverse {
+  grid-template-columns: 1fr 1.4fr;
+}
+
+/* Long lines (the commands) must not widen a column. */
+.feature > * {
+  min-width: 0;
+}
+
+.feature.reverse > :first-child {
+  order: 2;
+}
+
+.pair {
+  position: relative;
+}
+
+.pair img:not(.phone) {
+  width: 92%;
+  margin-left: auto;
+}
+
+.pair .phone {
+  position: absolute;
+  bottom: -32px;
+  left: 0;
+  z-index: 1;
+  width: 28%;
+  border-radius: 24px;
+}
+
+.card {
+  padding: 32px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.code .caption {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.code pre {
+  margin: 0;
+  padding: 20px;
+  overflow-x: auto;
+  border-radius: 16px;
+  background: #0b0f14;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.link {
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* Downloads */
+.download {
+  padding: clamp(64px, 9vw, 128px) clamp(16px, 5vw, 64px);
+  text-align: center;
+  background:
+    radial-gradient(50% 80% at 50% 100%, rgb(62 177 163 / 0.3), transparent 70%),
+    var(--bg-2);
+}
+
+.download .sub {
+  margin-inline: auto;
+  max-width: 640px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1080px;
+  margin: 40px auto;
+}
+
+.platform {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  border: 2px solid transparent;
+}
+
+.platform h3 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.platform p {
+  margin-bottom: 16px;
+}
+
+/* The visitor's system (see main.js) */
+.platform.yours {
+  border-color: var(--accent);
+}
+
+.alt {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Footer */
+footer {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 48px 16px 64px;
+  text-align: center;
+}
+
+footer p {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* Narrow screens */
+@media (max-width: 860px) {
+  .nav nav {
+    display: none;
+  }
+
+  .nav {
+    justify-content: space-between;
+  }
+
+  .feature,
+  .feature.reverse {
+    grid-template-columns: 1fr;
+  }
+
+  .feature.reverse > :first-child {
+    order: 0;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .pair .phone {
+    bottom: -16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

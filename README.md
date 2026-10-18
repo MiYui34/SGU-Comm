@@ -107,6 +107,12 @@ Bots are plain Mumble clients, so any Mumble bot works. For example,
 [kallisti-jukebox](https://github.com/lambadalambda/kallisti-jukebox) plays
 music from Jellyfin in a voice channel, controlled with chat commands.
 
+## Website
+
+`site/` is the website at [kallisti.chat](https://kallisti.chat): plain HTML,
+CSS and a little JavaScript (no build step), published to GitHub Pages by
+`.github/workflows/site.yml` on every change.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri app around the same web client. With a Kallisti

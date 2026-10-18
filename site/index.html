@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kallisti — voice and text chat for your group</title>
+    <meta name="description" content="Kallisti is voice and text chat for your group: channels, voice, screen sharing and more, on your own server. Built on Mumble." />
+    <meta property="og:title" content="Kallisti" />
+    <meta property="og:description" content="Voice and text chat for your group, on your own server. Built on Mumble." />
+    <meta property="og:image" content="img/chat.png" />
+    <link rel="icon" href="img/favicon.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="#top"><img src="img/logo.png" alt="" width="32" height="32" />Kallisti</a>
+      <nav aria-label="Main">
+        <a href="#features">Features</a>
+        <a href="#download">Download</a>
+        <a href="#self-host">Run a server</a>
+        <a href="https://github.com/lambadalambda/kallisti">GitHub</a>
+      </nav>
+      <a class="button small light" href="https://chat.kallisti.chat">Open Kallisti</a>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-text">
+          <h1>A place to hang out and talk</h1>
+          <p>
+            Kallisti is voice and text chat for your group: channels, voice, screen sharing, reactions and everything else
+            you know, on a server that belongs to you. It is built on Mumble, so Mumble apps can join too.
+          </p>
+          <div class="actions">
+            <a class="button light" id="hero-download" href="#download">Download</a>
+            <a class="button dark" href="https://chat.kallisti.chat">Open in your browser</a>
+          </div>
+        </div>
+        <div class="hero-shot">
+          <img src="img/chat.png" alt="Kallisti: text channels on the left, a chat with reactions in the middle, people in voice channels" width="1440" height="900" />
+        </div>
+      </section>
+
+      <section class="feature" id="features">
+        <img src="img/voice.png" alt="A voice channel with people in it and its chat" width="1440" height="900" loading="lazy" />
+        <div>
+          <h2>Hop in when you're free</h2>
+          <p>
+            Voice channels are always open: click one and you are in. Push-to-talk or voice activity, strong noise
+            suppression, a volume for each person, and screen sharing with sound.
+          </p>
+        </div>
+      </section>
+
+      <section class="feature reverse">
+        <img src="img/picker.png" alt="The emoji picker with the server's own emoji" width="1440" height="900" loading="lazy" />
+        <div>
+          <h2>Chat the way you are used to</h2>
+          <p>
+            Text channels with history, replies, reactions, your server's own emoji, spoilers, pictures and files, pins,
+            search and direct messages. Set a status, mute a channel, or find any channel with Ctrl+K.
+          </p>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="pair">
+          <img class="phone" src="img/phone.png" alt="Kallisti on a phone" width="390" height="844" loading="lazy" />
+          <img src="img/light.png" alt="Kallisti in the light theme" width="1440" height="900" loading="lazy" />
+        </div>
+        <div>
+          <h2>On every screen</h2>
+          <p>
+            In the browser, as an app for macOS, Windows and Linux, and on your phone. Dark or light, as you like it.
+          </p>
+        </div>
+      </section>
+
+      <section class="feature reverse" id="self-host">
+        <div class="card code">
+          <p class="caption">Your own server, in three commands</p>
+          <pre><code>git clone https://github.com/lambadalambda/kallisti &amp;&amp; cd kallisti
+printf 'DOMAIN=chat.example.org\nSUPERUSER_PASSWORD=%s\n' "$(openssl rand -hex 16)" &gt; deploy/.env
+docker compose -f deploy/compose.yml up -d</code></pre>
+        </div>
+        <div>
+          <h2>Your server, your rules</h2>
+          <p>
+            One Docker setup with everything in it, including the voice server and HTTPS. Your messages stay on your
+            machine.
+            Moderators can mute, move, time out and ban, and anything that speaks Mumble can connect.
+          </p>
+          <p><a class="link" href="https://github.com/lambadalambda/kallisti/blob/main/docs/install-docker.md">How to install it →</a></p>
+        </div>
+      </section>
+
+      <section class="download" id="download">
+        <h2>Get Kallisti</h2>
+        <p class="sub" id="version">The latest release, free and open source.</p>
+        <div class="cards">
+          <div class="card platform" data-os="mac">
+            <h3>macOS</h3>
+            <p>Apple Silicon and Intel</p>
+            <a class="button light" data-asset=".dmg" href="https://github.com/lambadalambda/kallisti/releases/latest">Download</a>
+          </div>
+          <div class="card platform" data-os="windows">
+            <h3>Windows</h3>
+            <p>Windows 10 and 11</p>
+            <a class="button light" data-asset="-setup.exe" href="https://github.com/lambadalambda/kallisti/releases/latest">Download</a>
+            <a class="alt" data-asset=".msi" href="https://github.com/lambadalambda/kallisti/releases/latest">.msi installer</a>
+          </div>
+          <div class="card platform" data-os="linux">
+            <h3>Linux</h3>
+            <p>Any distribution</p>
+            <a class="button light" data-asset=".AppImage" href="https://github.com/lambadalambda/kallisti/releases/latest">AppImage</a>
+            <a class="alt" data-asset=".deb" href="https://github.com/lambadalambda/kallisti/releases/latest">.deb</a>
+            <a class="alt" data-asset=".rpm" href="https://github.com/lambadalambda/kallisti/releases/latest">.rpm</a>
+          </div>
+        </div>
+        <p class="sub">Or simply open it in your browser: nothing to install.</p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="brand"><img src="img/logo.png" alt="" width="24" height="24" />Kallisti</div>
+      <p>Free software (Unlicense), built on <a href="https://www.mumble.info">Mumble</a>.</p>
+      <p><a href="https://github.com/lambadalambda/kallisti">GitHub</a> · <a href="https://github.com/lambadalambda/kallisti/releases">Releases</a></p>
+    </footer>
+    <script src="main.js"></script>
+  </body>
+</html>
