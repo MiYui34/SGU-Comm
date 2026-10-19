@@ -195,3 +195,4 @@
 - [x] [Captcha on registration](issues/registration-captcha.md)
 - [x] [Dialog headers stay in view](issues/sticky-dialog-header.md)
 - [x] [Jumbo emoji](issues/jumbo-emoji.md)
+- [x] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
