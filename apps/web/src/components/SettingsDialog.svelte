@@ -3,7 +3,7 @@
   import ProfilePicture from "./ProfilePicture.svelte";
   import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notificationPermission } from "../lib/notify";
-  import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush } from "../lib/push";
+  import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush, type PushPrefs } from "../lib/push";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
@@ -44,7 +44,7 @@
     // Logged in to an account: log out, password.
     account?: AccountActions;
     // Push notifications for this account (see lib/push).
-    push?: { base: string; name: string; quiet: number[] };
+    push?: { base: string; name: string; prefs: PushPrefs };
     // Our avatar picture.
     profile?: ComponentProps<typeof ProfilePicture>;
     // Our bio as plain text (loading: a long one is not here yet).
@@ -73,7 +73,7 @@
   const setPush = async (on: boolean) => {
     if (!push) return;
     pushBusy = true;
-    pushNote = on ? await turnOnPush(push.base, push.name, push.quiet) : (await turnOffPush(push.base), null);
+    pushNote = on ? await turnOnPush(push.base, push.name, push.prefs) : (await turnOffPush(push.base), null);
     pushOn = await pushIsOn(push.base, push.name);
     pushBusy = false;
   };

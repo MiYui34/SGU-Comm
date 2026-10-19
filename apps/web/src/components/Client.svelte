@@ -61,7 +61,7 @@
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
-  import { browserPushSupport, syncPush } from "../lib/push";
+  import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
@@ -464,13 +464,17 @@
     return true;
   };
   // Push notifications (see lib/push), for accounts with a password: on
-  // start and when channel settings change, the server learns this session
-  // and the channels set to "nothing". A click on one in an open window
-  // comes from the service worker.
+  // start and when channel settings or blocks change, the server learns
+  // this session, the channels set to "nothing" and the blocked users (as
+  // a string: the same prefs post nothing). A click on one in an open
+  // window comes from the service worker.
   const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
-  const pushQuiet = $derived(nothingIds(channelPrefs.value, connection.httpBase));
+  const pushPrefsKey = $derived(
+    JSON.stringify({ quiet: nothingIds(channelPrefs.value, connection.httpBase).sort(), blocked: [...blockedUsers.list].sort() }),
+  );
+  const pushPrefs = $derived(JSON.parse(pushPrefsKey) as PushPrefs);
   $effect(() => {
-    if (pushName && browserPushSupport() === "ok") void syncPush(connection.httpBase, pushName, pushQuiet);
+    if (pushName && browserPushSupport() === "ok") void syncPush(connection.httpBase, pushName, pushPrefs);
   });
   $effect(() => {
     const sw = navigator.serviceWorker;
@@ -1133,7 +1137,7 @@
     onChange={settings.update}
     onEcho={capture ? (on) => capture?.setEcho(on) : undefined}
     {account}
-    push={pushName ? { base: connection.httpBase, name: pushName, quiet: pushQuiet } : undefined}
+    push={pushName ? { base: connection.httpBase, name: pushName, prefs: pushPrefs } : undefined}
     profile={me && {
       name: me.name,
       hasPicture: me.texture !== null || me.textureHash !== null,

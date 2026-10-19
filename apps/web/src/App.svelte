@@ -114,13 +114,13 @@
       return account?.temporary ?? false;
     },
     logout: async () => {
-      await stopPush();
+      void stopPush(); // not waited for: the logout ends it on the server too
       const ok = await api.logout();
       if (ok) account = null;
       leave(ok ? null : "Logging out did not finish: you may still be logged in.");
     },
     logoutAll: async () => {
-      await stopPush();
+      void stopPush();
       await api.logoutAll();
       account = null;
       leave("Logged out on all devices.");

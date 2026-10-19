@@ -65,7 +65,8 @@ Used unless `MUMBLE_HOST` is set.
   but only while they have no open connection (the open app notifies
   them) and are not in "do not disturb". `@here` sends none. The push says
   who and where, never the message. At most one per user and chat per
-  minute. A channel set to "Nothing" on a device sends none to that
+  minute (later pings in that minute are dropped). A channel set to
+  "Nothing" on a device, and users blocked there, send none to that
   device; mutes do not stop mentions, as in the app. A subscription ends
   with the login session that made it (log out, password change, expiry).
   The server sends only to the browsers' push services (Google, Mozilla,

@@ -746,9 +746,13 @@ From `meta/research/discord-comparison.md`.
 - The server posts only to the browsers' push services (allowlist of
   hosts); otherwise any account could make it post to internal
   addresses.
-- Channel settings stay in the browser. Only the channels set to
-  "Nothing" go to the server, per subscription (per device): mutes let
-  mentions through anyway, and pushes are only for pings.
+- Channel settings and blocks stay in the browser. Only the channels set
+  to "Nothing" and the blocked names go to the server, per subscription
+  (per device): mutes let mentions through anyway, and pushes are only
+  for pings. Without the blocks a blocked user could still ping a closed
+  phone.
+- Most messages ping nobody: without "@", a reply, @everyone or a direct
+  chat, the decision makes no queries.
 - Rate: one push per user and chat per minute (in memory), plus the
   `Topic` header, so a push service keeps only the newest per chat.
 - The service worker is a second Vite entry (`src/sw.ts` to `/sw.js`),

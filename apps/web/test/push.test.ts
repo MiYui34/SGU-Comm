@@ -39,9 +39,14 @@ describe("keys", () => {
 });
 
 describe("subscriptions", () => {
-  it("are sent with the quiet channels", () => {
+  it("are sent with the quiet channels and blocked users", () => {
     const json = { endpoint: "https://push.example/x", keys: { p256dh: "P", auth: "A" }, expirationTime: null };
-    expect(subscriptionBody(json, [3, 4])).toEqual({ endpoint: "https://push.example/x", keys: { p256dh: "P", auth: "A" }, quiet: [3, 4] });
+    expect(subscriptionBody(json, { quiet: [3, 4], blocked: ["bob"] })).toEqual({
+      endpoint: "https://push.example/x",
+      keys: { p256dh: "P", auth: "A" },
+      quiet: [3, 4],
+      blocked: ["bob"],
+    });
   });
 
   it("belong to one account on one server", () => {

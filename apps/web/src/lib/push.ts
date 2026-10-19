@@ -49,8 +49,11 @@ export const keyMatches = (current: ArrayBuffer | null, key: string): boolean =>
 
 export const pushOwner = (base: string, name: string) => `${base} ${name.toLowerCase()}`;
 
-// quiet: text channels set to "nothing" here (no pushes for them).
-export const subscriptionBody = (sub: PushSubscriptionJSON, quiet: number[]) => ({ endpoint: sub.endpoint, keys: sub.keys, quiet });
+// What this browser wants no pushes for: text channels set to "nothing",
+// and users it blocked.
+export type PushPrefs = { quiet: number[]; blocked: readonly string[] };
+
+export const subscriptionBody = (sub: PushSubscriptionJSON, prefs: PushPrefs) => ({ endpoint: sub.endpoint, keys: sub.keys, ...prefs });
 
 const OWNER_KEY = "pushOwner";
 
@@ -75,7 +78,7 @@ const registration = async () => navigator.serviceWorker?.getRegistration("/");
 
 // Subscribes (again, if the server's key changed) and tells the server,
 // for the session now.
-const subscribe = async (base: string, owner: string, quiet: number[]) => {
+const subscribe = async (base: string, owner: string, prefs: PushPrefs) => {
   const key = await serverKey(base);
   await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   const reg = await navigator.serviceWorker.ready;
@@ -85,7 +88,7 @@ const subscribe = async (base: string, owner: string, quiet: number[]) => {
     sub = null;
   }
   sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationServerKey(key) });
-  await send(base, "POST", subscriptionBody(sub.toJSON(), quiet));
+  await send(base, "POST", subscriptionBody(sub.toJSON(), prefs));
   safeSet(localStorage, OWNER_KEY, owner);
 };
 
@@ -93,10 +96,10 @@ export const pushIsOn = async (base: string, name: string) =>
   safeGet(localStorage, OWNER_KEY) === pushOwner(base, name) && !!(await (await registration())?.pushManager.getSubscription());
 
 // null: on; else why not.
-export const turnOnPush = async (base: string, name: string, quiet: number[]): Promise<string | null> => {
+export const turnOnPush = async (base: string, name: string, prefs: PushPrefs): Promise<string | null> => {
   if ((await Notification.requestPermission()) !== "granted") return "The browser does not allow notifications for this site.";
   try {
-    await subscribe(base, pushOwner(base, name), quiet);
+    await subscribe(base, pushOwner(base, name), prefs);
     return null;
   } catch (err) {
     return `Push notifications did not turn on: ${err instanceof Error ? err.message : err}`;
@@ -113,12 +116,12 @@ export const turnOffPush = async (base: string) => {
   await reg?.unregister().catch(() => {});
 };
 
-// On start and when channel settings change: push that is on for this
-// account follows the session and the quiet channels (and comes back if
-// the browser dropped the subscription); another account's goes.
-export const syncPush = async (base: string, name: string, quiet: number[]) => {
+// On start and when the prefs change: push that is on for this account
+// follows the session and the prefs (and comes back if the browser dropped
+// the subscription); another account's goes.
+export const syncPush = async (base: string, name: string, prefs: PushPrefs) => {
   const owner = safeGet(localStorage, OWNER_KEY);
   if (owner === pushOwner(base, name) && Notification.permission === "granted")
-    await subscribe(base, owner, quiet).catch((err) => console.warn("push", err));
+    await subscribe(base, owner, prefs).catch((err) => console.warn("push", err));
   else if (owner || (await registration().catch(() => undefined))) await turnOffPush(base);
 };
