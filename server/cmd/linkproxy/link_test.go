@@ -28,3 +28,30 @@ func TestReserveWithoutLimit(t *testing.T) {
 		t.Fatalf("got %v", got.Sub(t0))
 	}
 }
+
+func TestJitterKeepsOrderAndChangesEachPeriod(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	draws := []float64{0.5, 0, 1}
+	j := &jitter{max: 100 * time.Millisecond, every: 50 * time.Millisecond, rand: func() float64 { v := draws[0]; draws = draws[1:]; return v }}
+	if got := j.at(t0, 20*time.Millisecond); !got.Equal(t0.Add(70 * time.Millisecond)) {
+		t.Fatalf("first: %v", got.Sub(t0))
+	}
+	// Same period: the same extra delay, no new draw.
+	if got := j.at(t0.Add(10*time.Millisecond), 20*time.Millisecond); !got.Equal(t0.Add(80 * time.Millisecond)) {
+		t.Fatalf("same period: %v", got.Sub(t0))
+	}
+	// Next period, less delay: never before the chunk ahead (TCP keeps order).
+	if got := j.at(t0.Add(60*time.Millisecond), 0); !got.Equal(t0.Add(80 * time.Millisecond)) {
+		t.Fatalf("in order: %v", got.Sub(t0))
+	}
+	if got := j.at(t0.Add(120*time.Millisecond), 0); !got.Equal(t0.Add(220 * time.Millisecond)) {
+		t.Fatalf("more delay: %v", got.Sub(t0))
+	}
+}
+
+func TestNoJitter(t *testing.T) {
+	t0 := time.Unix(100, 0)
+	if got := (&jitter{}).at(t0, 20*time.Millisecond); !got.Equal(t0.Add(20 * time.Millisecond)) {
+		t.Fatalf("got %v", got.Sub(t0))
+	}
+}
