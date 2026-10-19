@@ -15,3 +15,4 @@
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Join and leave sounds](issues/join-leave-sounds.md)
 - [ ] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
+- [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
