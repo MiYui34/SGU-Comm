@@ -203,3 +203,4 @@
 - [x] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)
 - [x] [Streaming from OBS (WHIP)](issues/obs-whip-ingest.md)
 - [x] [Playback buffer setting and a music buffer](issues/playback-buffer.md)
+- [x] [One "Go live" button](issues/go-live-menu.md)
