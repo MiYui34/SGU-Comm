@@ -8,20 +8,14 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
 	"flag"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"log"
-	"math/big"
 	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
@@ -30,6 +24,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 )
@@ -74,32 +69,24 @@ func main() {
 	wg.Wait()
 }
 
-// cert loads the user's certificate from dir, or makes and saves one.
+// cert loads the user's certificate from dir, or makes and saves one (key
+// appended to the certificate).
 func cert(dir, name string) (tls.Certificate, error) {
 	path := filepath.Join(dir, name+".pem")
 	if b, err := os.ReadFile(path); err == nil {
-		if c, err := tls.X509KeyPair(b, b); err == nil {
+		if c, err := certs.Load(b, b); err == nil {
 			return c, nil
 		}
 	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	certPEM, keyPEM, err := certs.Generate(name)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(5, 0, 0)}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	kb, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	b := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kb})...)
+	b := append(certPEM, keyPEM...)
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return tls.Certificate{}, err
 	}
-	return tls.X509KeyPair(b, b)
+	return certs.Load(b, b)
 }
 
 // avatar: random noise compresses badly, so the side sets the size.
@@ -155,7 +142,7 @@ func runUser(server, dir, name string, i int, channel string, packets [][]byte) 
 	}()
 	channels := map[string]uint32{}
 	var session uint32
-	textured, talking := false, false
+	registering, textured, talking := false, false, false
 	header := make([]byte, 6)
 	for {
 		if _, err := io.ReadFull(conn, header); err != nil {
@@ -179,16 +166,21 @@ func runUser(server, dir, name string, i int, channel string, packets [][]byte) 
 			var m pb.ServerSync
 			proto.Unmarshal(body, &m)
 			session = m.GetSession()
-			send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(session), ChannelId: proto.Uint32(channels[channel])})
+			id, ok := channels[channel]
+			if !ok {
+				log.Fatalf("no channel %q", channel)
+			}
+			send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(session), ChannelId: proto.Uint32(id)})
 		case mumble.TypeUserState:
 			var m pb.UserState
 			if proto.Unmarshal(body, &m) != nil || m.GetSession() != session || session == 0 {
 				continue
 			}
 			// Register first: the server keeps avatars of registered users.
-			if m.UserId == nil && !textured {
+			if m.UserId == nil && !registering {
+				registering = true
 				send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(session), UserId: proto.Uint32(0)})
-			} else if !textured {
+			} else if m.UserId != nil && !textured {
 				textured = true
 				send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(session), Texture: avatar(i)})
 			}
