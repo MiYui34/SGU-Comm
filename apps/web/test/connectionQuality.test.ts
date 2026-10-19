@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   badPercent,
+  biggerBuffer,
   connectionLabel,
+  latePercent,
   meanVariance,
   qualityLevel,
   recent,
@@ -22,6 +24,26 @@ describe("meanVariance", () => {
 
   it("has nothing for no values", () => {
     expect(meanVariance([])).toBeNull();
+  });
+});
+
+describe("latePercent", () => {
+  it("counts late audio only", () => {
+    expect(latePercent({ good: 100, late: 0, lost: 0 }, { good: 190, late: 6, lost: 4 })).toBe(6);
+    expect(latePercent({ good: 5, late: 1, lost: 0 }, { good: 5, late: 1, lost: 0 })).toBeNull();
+  });
+});
+
+describe("biggerBuffer", () => {
+  it("suggests the next level from 2 % late audio", () => {
+    expect(biggerBuffer(2, "low")).toBe("medium");
+    expect(biggerBuffer(5, "medium")).toBe("high");
+  });
+
+  it("suggests nothing below that, without audio, or at the top", () => {
+    expect(biggerBuffer(1.9, "low")).toBeNull();
+    expect(biggerBuffer(null, "low")).toBeNull();
+    expect(biggerBuffer(10, "high")).toBeNull();
   });
 });
 

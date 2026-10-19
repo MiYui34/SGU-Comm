@@ -27,7 +27,7 @@ describe("createConnectionInfo", () => {
     info.pong(info.ping(5000).timestamp, 5050);
     setCounters({ good: 95, late: 4, lost: 1 });
     expect(info.ping(10_000).stats).toEqual({ good: 95, late: 4, lost: 1, tcpPackets: 2, tcpPingAvg: 40, tcpPingVar: 100 });
-    expect(info.info).toMatchObject({ rtt: 40, spread: 10, bad: 5, level: "fair" });
+    expect(info.info).toMatchObject({ rtt: 40, spread: 10, bad: 5, late: 4, level: "fair" });
   });
 
   it("forgets what is older than 30 s", () => {
@@ -36,6 +36,6 @@ describe("createConnectionInfo", () => {
     setCounters({ good: 0, late: 50, lost: 0 });
     info.ping(5000);
     info.pong(info.ping(31_000).timestamp, 31_020);
-    expect(info.info).toMatchObject({ rtt: 20, bad: null, level: "good" });
+    expect(info.info).toMatchObject({ rtt: 20, bad: null, late: null, level: "good" });
   });
 });
