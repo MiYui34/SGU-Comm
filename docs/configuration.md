@@ -59,6 +59,12 @@ Used unless `MUMBLE_HOST` is set.
   to trust a self-signed one. Reloaded when they change; until they exist the
   self-signed certificate is used. They must be readable by the server's
   user.
+- `RECORDING_DIR` (`recordings` next to `DB_PATH`): channel recordings
+  (admins and moderators record a voice channel; one Ogg Opus file per
+  speaker). Back it up or not: finished recordings are removed after
+  `RECORDING_KEEP_DAYS` (7).
+- `RECORDING_MAX_MINUTES` (240) and `RECORDING_MAX_MB` (1024): one
+  recording stops by itself at either limit.
 
 ## In front of an existing Murmur
 
