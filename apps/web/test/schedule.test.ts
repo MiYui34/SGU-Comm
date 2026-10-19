@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkOutcome, nextStart, type PlayoutConfig } from "../src/lib/voice/schedule";
+import { chunkOutcome, nextStart, startsAnew, type PlayoutConfig } from "../src/lib/voice/schedule";
 
 // In samples at 48 kHz: 60 ms start delay, 300 ms maximum queue.
 const cfg: PlayoutConfig = { startDelay: 2880, maxLatency: 14400 };
@@ -24,6 +24,15 @@ describe("nextStart", () => {
 
   it("rounds a fractional clock to whole samples", () => {
     expect(nextStart(null, now + 0.4, cfg)).toBe(now + 2880);
+  });
+});
+
+describe("startsAnew", () => {
+  it("is true for a new or stalled stream only", () => {
+    expect(startsAnew(null, now)).toBe(true);
+    expect(startsAnew(now - 10, now)).toBe(true);
+    expect(startsAnew(now, now + 0.4)).toBe(false);
+    expect(startsAnew(now + 4800, now)).toBe(false);
   });
 });
 

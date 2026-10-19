@@ -164,6 +164,7 @@
   const musicMode = $derived(prefs.musicMode);
   $effect(() => capture?.setMusicMode(musicMode));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
+  $effect(() => connection.playback?.setBuffer(prefs.playbackBuffer));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
   // on every settings change, and only a device change may reopen it.

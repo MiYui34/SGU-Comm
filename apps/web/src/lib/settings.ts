@@ -1,4 +1,5 @@
 import { DEFAULT_QUALITY, parseQuality, type Kind, type Quality } from "./stream/quality";
+import type { PlaybackBuffer } from "./voice/buffer";
 import type { NoiseMode } from "./voice/noise";
 import type { TransmitMode } from "./voice/vad";
 
@@ -26,6 +27,8 @@ export type Settings = {
   // For music: none of the filters above, no automatic gain, more bits
   // and stereo (see voice/opus.ts).
   musicMode: boolean;
+  // For every speaker (see voice/buffer.ts).
+  playbackBuffer: PlaybackBuffer;
   // The camera to stream (null: the default), and the quality of each kind
   // of stream (also changed while live).
   cameraDeviceId: string | null;
@@ -65,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   echoCancellation: true,
   musicMode: false,
+  playbackBuffer: "low",
   cameraDeviceId: null,
   streamQuality: DEFAULT_QUALITY,
 };
@@ -100,6 +104,7 @@ export const parseSettings = (raw: string | null): Settings => {
     theme: d.theme === "light" || d.theme === "system" ? d.theme : "dark",
     echoCancellation: d.echoCancellation !== false,
     musicMode: d.musicMode === true,
+    playbackBuffer: d.playbackBuffer === "medium" || d.playbackBuffer === "high" ? d.playbackBuffer : "low",
     cameraDeviceId: str(d.cameraDeviceId),
     streamQuality: { screen: parseQuality(quality.screen, "screen"), camera: parseQuality(quality.camera, "camera") },
   };
