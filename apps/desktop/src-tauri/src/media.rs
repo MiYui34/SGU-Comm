@@ -1,6 +1,7 @@
 //! Microphone, camera and screen for the page. WebKitGTK (Linux) denies
 //! getUserMedia unless the app answers its permission request: our own page
 //! gets them, any other page not. macOS and Windows ask the user themselves.
+//! The same for web notifications.
 
 /// Whether a page address is on one of the app's origins.
 pub fn own_page(uri: &str, origins: &[String]) -> bool {
@@ -14,7 +15,7 @@ pub fn own_page(uri: &str, origins: &[String]) -> bool {
 #[cfg(target_os = "linux")]
 pub fn allow_own_media(window: &tauri::WebviewWindow, origins: Vec<String>) -> tauri::Result<()> {
     use webkit2gtk::glib::prelude::*;
-    use webkit2gtk::{PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt};
+    use webkit2gtk::{NotificationPermissionRequest, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt};
 
     window.with_webview(move |w| {
         let view = w.inner();
@@ -25,7 +26,8 @@ pub fn allow_own_media(window: &tauri::WebviewWindow, origins: Vec<String>) -> t
             }
         }
         view.connect_permission_request(move |view, request| {
-            if !request.is::<UserMediaPermissionRequest>() {
+            // Notifications too (the page uses the system's, see lib.rs).
+            if !request.is::<UserMediaPermissionRequest>() && !request.is::<NotificationPermissionRequest>() {
                 return false; // WebKitGTK's default
             }
             if view.uri().is_some_and(|u| own_page(u.as_str(), &origins)) {
