@@ -56,6 +56,9 @@ func pipe(dst, src net.Conn, l *link, delay time.Duration) {
 		for c := range q {
 			time.Sleep(time.Until(c.at.Add(delay)))
 			if _, err := dst.Write(c.b); err != nil {
+				src.Close() // ends the reader below
+				for range q {
+				}
 				return
 			}
 		}
