@@ -1,7 +1,8 @@
-// Browser features that voice needs (WebCodecs for Opus, a worklet for
-// capture), by the names that are missing.
+// Browser features that voice needs (a worklet for capture, WebAssembly
+// for Opus where WebCodecs lacks it: see codec.ts), by the names that are
+// missing.
 export const missingVoiceApis = (g: object = globalThis): string[] =>
-  ["AudioEncoder", "AudioDecoder", "AudioWorkletNode"].filter((name) => typeof (g as Record<string, unknown>)[name] === "undefined");
+  ["AudioWorkletNode", "WebAssembly"].filter((name) => typeof (g as Record<string, unknown>)[name] === "undefined");
 
 export const voiceSupported = () => missingVoiceApis().length === 0;
 
