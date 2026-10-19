@@ -2025,6 +2025,7 @@ dependencies = [
  "url",
  "webkit2gtk",
  "webpki-roots",
+ "zbus",
 ]
 
 [[package]]

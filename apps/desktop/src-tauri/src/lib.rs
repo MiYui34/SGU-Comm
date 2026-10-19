@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod crypt;
 pub mod frames;
 pub mod media;
+pub mod notify;
 pub mod ocb2;
 pub mod pins;
 pub mod udp;
@@ -9,7 +10,8 @@ pub mod udp;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_notification::NotificationExt;
 
 /// The local bridge's address, for the web client.
@@ -29,6 +31,29 @@ fn bridge_info(state: tauri::State<'_, BridgeInfo>) -> BridgeInfo {
 #[tauri::command]
 fn trust_server(host: String, port: u16, fingerprint: String, pins: tauri::State<'_, Arc<pins::PinStore>>) -> Result<(), String> {
     pins.confirm(&format!("{host}:{port}"), &fingerprint)
+}
+
+/// Shows a system notification. A click reports "notification-action" to
+/// the page, as the plugin's onAction would.
+#[tauri::command]
+async fn notify(app: tauri::AppHandle, id: i32, title: String, body: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    return tauri::async_runtime::spawn_blocking(move || app.state::<notify::Notifier>().show(id, &title, &body))
+        .await
+        .map_err(|err| err.to_string())?;
+    #[cfg(not(target_os = "linux"))]
+    app.notification().builder().id(id).title(title).body(body).show().map_err(|err| err.to_string())
+}
+
+/// A click on a notification brings the window forward; the page opens the
+/// chat.
+fn tapped(app: &tauri::AppHandle, id: i32) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.emit("notification-action", serde_json::json!({ "actionId": "tap", "notification": { "id": id } }));
+    }
 }
 
 // The app window's origins (macOS/Linux, Windows); debug builds also the
@@ -53,19 +78,23 @@ pub fn run() {
             let b = tauri::async_runtime::block_on(bridge::start(origins(), pins.clone()))?;
             app.manage(BridgeInfo { port: b.port, secret: b.secret });
             app.manage(pins);
-            // A click on a notification brings the window forward; the page
-            // opens the chat.
             let handle = app.handle().clone();
+            #[cfg(not(target_os = "linux"))]
             app.notification().on_action(move |action| {
-                if action.action_id() != "tap" {
-                    return;
-                }
-                if let Some(window) = handle.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let (Some(n), "tap") = (action.notification(), action.action_id()) {
+                    tapped(&handle, n.id());
                 }
             })?;
+            #[cfg(target_os = "linux")]
+            {
+                // Without it only the icon is missing.
+                let dir = app.path().app_cache_dir().map_err(std::io::Error::other);
+                let icon = dir.and_then(|dir| notify::write_icon(&dir)).unwrap_or_else(|err| {
+                    eprintln!("notification icon not written: {err}");
+                    String::new()
+                });
+                app.manage(notify::Notifier::new(icon, move |id| tapped(&handle, id)));
+            }
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
                 // Without it only voice is off: start anyway.
@@ -75,7 +104,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![bridge_info, trust_server])
+        .invoke_handler(tauri::generate_handler![bridge_info, trust_server, notify])
         .run(tauri::generate_context!())
         .expect("error while running the Kallisti app");
 }
