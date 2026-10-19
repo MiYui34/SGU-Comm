@@ -46,7 +46,9 @@ export const interleave = (planar: Float32Array<ArrayBuffer>, channels: number):
 export const deinterleave = (mixed: Float32Array<ArrayBuffer>, channels: number): Float32Array<ArrayBuffer>[] => {
   if (channels === 1) return [mixed];
   const frames = mixed.length / channels;
-  return Array.from({ length: channels }, (_, ch) => Float32Array.from({ length: frames }, (_, i) => mixed[i * channels + ch]!));
+  const out = Array.from({ length: channels }, () => new Float32Array(frames));
+  for (let ch = 0; ch < channels; ch++) for (let i = 0; i < frames; i++) out[ch]![i] = mixed[i * channels + ch]!;
+  return out;
 };
 
 // libopus's constants (opus_defines.h). WebCodecs' default application is
@@ -82,10 +84,10 @@ export const whenReady = <T extends Closable>(loading: Promise<T>, onError: (err
   };
   loading.then(
     (t) => {
-      if (closed) return t.close();
-      ready = t;
-      for (const fn of queue) call(t, fn);
-      queue = [];
+      // Calls made meanwhile queue up behind; a close() stops it.
+      while (!closed && queue.length) call(t, queue.shift()!);
+      if (closed) t.close();
+      else ready = t;
     },
     (err) => closed || onError(asError(err)),
   );

@@ -98,6 +98,30 @@ describe("whenReady", () => {
     await p;
     expect(c).toMatchObject({ calls: [], closed: true });
   });
+  it("puts calls made while the queue runs behind it", async () => {
+    const { p, resolve } = later<ReturnType<typeof fake>>();
+    const r = whenReady(p, () => {});
+    r.run((c) => {
+      c.calls.push(1);
+      r.run((c) => c.calls.push(3));
+    });
+    r.run((c) => c.calls.push(2));
+    const c = fake();
+    resolve(c);
+    await p;
+    expect(c.calls).toEqual([1, 2, 3]);
+  });
+  it("stops running queued calls when one closes it", async () => {
+    const { p, resolve } = later<ReturnType<typeof fake>>();
+    const r = whenReady(p, () => {});
+    r.run((c) => c.calls.push(1));
+    r.run(() => r.close());
+    r.run((c) => c.calls.push(2));
+    const c = fake();
+    resolve(c);
+    await p;
+    expect(c).toMatchObject({ calls: [1], closed: true });
+  });
   it("closes once", async () => {
     const c = fake();
     const close = vi.spyOn(c, "close");
