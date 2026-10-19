@@ -240,6 +240,19 @@ func cmpErr(a, b error) error {
 	return b
 }
 
+// The picture clock starts with the first packet's arrival, not when the
+// first whole picture comes out (later: it waits for the next packet).
+func TestPictureClockStartsWithTheFirstPacket(t *testing.T) {
+	v := newVideoIn()
+	var got []timed
+	for i, p := range packets(clipFrames(t), 0, 0) {
+		got = append(got, v.push(p, 1000+int64(i)*20_000)...)
+	}
+	if len(got) == 0 || got[0].ts != 1000 {
+		t.Fatalf("first picture at %v", got)
+	}
+}
+
 func TestClock(t *testing.T) {
 	c := clock{rate: 90_000}
 	if got := c.micros(4294967000, 1000); got != 1000 {

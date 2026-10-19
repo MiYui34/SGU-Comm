@@ -41,6 +41,7 @@ func TestCheckOffer(t *testing.T) {
 		{offerSDP(opusMedia), "video"},
 		{offerSDP(aacMedia, h264Media), "Opus"},
 		{offerSDP(h264Media, h264Media), "one video"},
+		{offerSDP(h264Media + "a=rid:h send\r\na=rid:l send\r\na=simulcast:send h;l\r\n"), "simulcast"},
 		{offerSDP(opusMedia, opusMedia, h264Media), "one audio"},
 	} {
 		if _, err := checkOffer(c.sdp); err == nil || !strings.Contains(err.Error(), c.want) {

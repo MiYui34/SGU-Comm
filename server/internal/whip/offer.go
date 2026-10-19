@@ -33,6 +33,9 @@ func checkOffer(s string) (offer, error) {
 			if videos++; videos > 1 {
 				return offer{}, errors.New("only one video track, please: " + errCodecs.Error())
 			}
+			if _, ok := m.Attribute("simulcast"); ok {
+				return offer{}, errors.New("turn simulcast off in OBS: " + errCodecs.Error())
+			}
 			h264 := false
 			for _, c := range codecs {
 				if strings.EqualFold(c.name, "H264") {

@@ -46,7 +46,7 @@ type videoIn struct {
 }
 
 const (
-	maxLatePackets = 512 // a 1 MB keyframe in 1200-byte packets fits
+	maxLatePackets = 1024 // a 1 MB keyframe (the hub's limit) in 1200-byte packets fits
 	maxLate        = 500 * time.Millisecond
 )
 
@@ -66,6 +66,9 @@ type timed struct {
 }
 
 func (v *videoIn) push(p *rtp.Packet, arrival int64) []timed {
+	if !v.clock.started { // pictures come out a packet later
+		v.clock.micros(p.Timestamp, arrival)
+	}
 	v.sb.Push(p)
 	var out []timed
 	for s := v.sb.Pop(); s != nil; s = v.sb.Pop() {

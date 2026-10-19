@@ -46,6 +46,7 @@ type Handler struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	closed   bool
 }
 
 const (
@@ -107,11 +108,10 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// A new stream of the account replaces its old one (OBS reconnecting).
-	for _, old := range h.takeAccount(name) {
-		old.close()
+	s, old, err := h.reserve(name)
+	for _, o := range old {
+		o.close()
 	}
-	s, err := h.reserve(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -133,21 +133,23 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, answer)
 }
 
-// reserve makes a session (not yet open) if there is room.
-func (h *Handler) reserve(account string) (*session, error) {
+// reserve makes a session (not yet open) if there is room. It replaces
+// the account's old ones (OBS reconnecting), returned to be closed.
+func (h *Handler) reserve(account string) (*session, []*session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	old := h.takeAccountLocked(account)
 	if h.sessions == nil {
 		h.sessions = map[string]*session{}
 	}
-	if len(h.sessions) >= h.MaxSessions {
-		return nil, errors.New("too many streams from OBS at once, try again later")
+	if h.closed || len(h.sessions) >= h.MaxSessions {
+		return nil, old, errors.New("too many streams from OBS at once, try again later")
 	}
 	b := make([]byte, 16)
 	rand.Read(b)
 	s := newSession(h, hex.EncodeToString(b), account)
 	h.sessions[s.id] = s
-	return s, nil
+	return s, old, nil
 }
 
 // take removes a session from the list (to close it).
@@ -162,6 +164,10 @@ func (h *Handler) take(id string) *session {
 func (h *Handler) takeAccount(name string) []*session {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.takeAccountLocked(name)
+}
+
+func (h *Handler) takeAccountLocked(name string) []*session {
 	var out []*session
 	for id, s := range h.sessions {
 		if s.account == name {
@@ -183,7 +189,7 @@ func (h *Handler) EndAccount(name string) {
 func (h *Handler) Close() {
 	h.mu.Lock()
 	all := h.sessions
-	h.sessions = nil
+	h.sessions, h.closed = nil, true
 	h.mu.Unlock()
 	for _, s := range all {
 		s.close()

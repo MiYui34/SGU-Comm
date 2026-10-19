@@ -25,6 +25,7 @@ type session struct {
 	feed        *feed
 	begun       time.Time
 	videoSSRC   atomic.Uint32
+	sound       atomic.Bool   // a sound track is read
 	pli         chan struct{} // a keyframe is wanted
 	connected   chan struct{}
 	connectOnce sync.Once
@@ -69,12 +70,15 @@ func (s *session) open(o offer, sdp string, voice uint32) (string, error) {
 		}
 	})
 	s.pc.OnTrack(func(t *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		switch strings.ToLower(t.Codec().MimeType) {
+		switch strings.ToLower(t.Codec().MimeType) { // the first track of each kind only
 		case "video/h264":
-			s.videoSSRC.Store(uint32(t.SSRC()))
-			go s.readVideo(t)
+			if s.videoSSRC.CompareAndSwap(0, uint32(t.SSRC())) {
+				go s.readVideo(t)
+			}
 		case "audio/opus":
-			go s.readSound(t)
+			if !s.sound.Swap(true) {
+				go s.readSound(t)
+			}
 		}
 	})
 	if err := s.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp}); err != nil {
