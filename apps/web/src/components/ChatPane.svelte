@@ -28,7 +28,8 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
+  import { afterUpload, canAttach, clipboardImage, emptyPaste, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
+  import { isDesktop } from "../lib/desktop";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
@@ -308,10 +309,13 @@
     });
   });
   const onPaste = (event: ClipboardEvent) => {
-    const files = onUpload ? pastedFiles(event.clipboardData) : [];
+    if (!onUpload) return;
+    const files = pastedFiles(event.clipboardData);
     if (files.length) {
       event.preventDefault();
       sendFiles(files);
+    } else if (isDesktop() && emptyPaste(event.clipboardData)) {
+      void clipboardImage(() => navigator.clipboard.read()).then((file) => file && sendFiles([file]));
     }
   };
   const onDrop = (event: DragEvent) => {

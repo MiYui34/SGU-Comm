@@ -5,13 +5,33 @@ import type { View } from "./place";
 // One upload at a time: no new file waits while one is sent.
 export const canAttach = (uploads: boolean, uploading: boolean) => uploads && !uploading;
 
-// Files in a paste: some engines (WebKitGTK) give a pasted image only as
-// an item, not in files.
+// Files in a paste: some engines give a pasted image only as an item, not
+// in files.
 type Pasted = { files: ArrayLike<File>; items: ArrayLike<{ kind: string; getAsFile(): File | null }> };
 export const pastedFiles = (data: Pasted | null | undefined): File[] => {
   if (!data) return [];
   if (data.files.length) return Array.from(data.files);
   return Array.from(data.items).flatMap((i) => (i.kind === "file" ? (i.getAsFile() ?? []) : []));
+};
+
+// WebKitGTK (the Linux app) gives the page nothing on an image paste: no
+// files, no items, no types. The clipboard API still reads the image then.
+export const emptyPaste = (data: { types: ArrayLike<string> } | null | undefined) =>
+  !Array.from(data?.types ?? []).some((t) => t === "Files" || t === "text/plain");
+
+type Read = () => Promise<{ types: readonly string[]; getType(type: string): Promise<Blob> }[]>;
+// The first image on the clipboard as a file, or null (also without
+// clipboard access).
+export const clipboardImage = async (read: Read): Promise<File | null> => {
+  try {
+    for (const item of await read()) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) return new File([await item.getType(type)], `pasted.${type.split(/[/+]/)[1]}`, { type });
+    }
+  } catch {
+    // no clipboard API or no access
+  }
+  return null;
 };
 
 // A send the server refused comes back; it fills the box only if the user
