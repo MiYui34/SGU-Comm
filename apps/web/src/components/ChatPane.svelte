@@ -29,7 +29,7 @@
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
   import { afterUpload, canAttach, clipboardImage, emptyPaste, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
-  import { isDesktop } from "../lib/desktop";
+  import { isDesktop, linuxAgent } from "../lib/desktop";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
@@ -314,7 +314,7 @@
     if (files.length) {
       event.preventDefault();
       sendFiles(files);
-    } else if (isDesktop() && emptyPaste(event.clipboardData)) {
+    } else if (isDesktop() && linuxAgent(navigator.userAgent) && emptyPaste(event.clipboardData)) {
       void clipboardImage(() => navigator.clipboard.read()).then((file) => file && sendFiles([file]));
     }
   };

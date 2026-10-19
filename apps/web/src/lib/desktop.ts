@@ -29,6 +29,8 @@ export const bridgeUrl = (bridge: BridgeInfo, server: ServerAddress) => {
 
 // Running inside the Tauri app?
 export const isDesktop = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+// A Linux user agent (WebKitGTK in the desktop app), not Android.
+export const linuxAgent = (ua: string) => /Linux/.test(ua) && !/Android/.test(ua);
 
 export const getBridge = async (): Promise<BridgeInfo> => {
   const { invoke } = await import("@tauri-apps/api/core");

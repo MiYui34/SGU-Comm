@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bridgeUrl, certificateProblem, formatFingerprint, isKallisti, kallistiOrigin, kallistiSocket, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
+import { bridgeUrl, certificateProblem, formatFingerprint, isKallisti, kallistiOrigin, kallistiSocket, linuxAgent, parseAddress, registerGlobalPtt } from "../src/lib/desktop";
 
 describe("parseAddress", () => {
   it("reads host and optional port", () => {
@@ -98,5 +98,14 @@ describe("Kallisti servers", () => {
   it("are reached on their WebSocket, with the token as a subprotocol", () => {
     expect(kallistiSocket("https://chat.example", "abc")).toEqual({ url: "wss://chat.example/ws", protocols: ["kallisti", "kallisti.session.abc"] });
     expect(kallistiSocket("http://localhost:18083", null)).toEqual({ url: "ws://localhost:18083/ws", protocols: [] });
+  });
+});
+
+describe("linuxAgent", () => {
+  it("is Linux, not Android, macOS or Windows", () => {
+    expect(linuxAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe(true);
+    expect(linuxAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8)")).toBe(false);
+    expect(linuxAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toBe(false);
+    expect(linuxAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(false);
   });
 });
