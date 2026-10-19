@@ -13,3 +13,4 @@
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Recording a voice channel](issues/channel-recording.md)
 - [ ] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)
+- [ ] [Resize custom emoji when adding them](issues/emoji-resize.md)
