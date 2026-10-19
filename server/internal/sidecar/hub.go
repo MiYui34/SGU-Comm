@@ -93,9 +93,11 @@ type Voice interface {
 	// UserNames: the names of registered users (unknown ids are left out).
 	UserNames(ids []uint32) map[uint32]string
 	// Users: all registered users' names but SuperUser's, by id. Bio: a
-	// registered user's saved comment ("": none).
+	// registered user's saved comment ("": none). Pictures: the registered
+	// users with a saved picture (at /api/avatars/<name>).
 	Users() map[uint32]string
 	Bio(user uint32) string
+	Pictures() map[uint32]bool
 	// Online: the connected registered users but SuperUser, by id, in any
 	// channel.
 	Online() map[uint32]OnlineUser

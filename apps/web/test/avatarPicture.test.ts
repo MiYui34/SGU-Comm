@@ -90,13 +90,15 @@ describe("imageSize", () => {
     expect(pictureUrl(png(6000, 5000))).toBeNull();
   });
 
-  it("finds online users' pictures, else the saved one of registered users", () => {
-    const lookup = pictureLookup(new Map([["alice", "data:alice"], ["bob", null]]), "https://chat.example");
+  it("finds online users' pictures, else the saved one of registered users who have one", () => {
+    const saved = new Set(["bob", "carol / x"]);
+    const lookup = pictureLookup(new Map([["alice", "data:alice"], ["bob", null]]), saved, "https://chat.example");
     expect(lookup("alice", true)).toBe("data:alice");
     // Online without a picture: none (no request).
     expect(lookup("bob", true)).toBeNull();
     expect(lookup("carol / x", true)).toBe("https://chat.example/api/avatars/carol%20%2F%20x");
-    // Guests who left have none.
+    // Members without a saved picture, and guests who left, have none.
+    expect(lookup("erin", true)).toBeNull();
     expect(lookup("dave", false)).toBeNull();
   });
 });

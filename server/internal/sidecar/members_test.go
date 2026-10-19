@@ -9,8 +9,9 @@ import (
 	"kallisti.chat/server/internal/store"
 )
 
-func (f *fakeVoice) Users() map[uint32]string { return maps.Clone(f.names) }
-func (f *fakeVoice) Bio(user uint32) string   { return f.bios[user] }
+func (f *fakeVoice) Users() map[uint32]string  { return maps.Clone(f.names) }
+func (f *fakeVoice) Bio(user uint32) string    { return f.bios[user] }
+func (f *fakeVoice) Pictures() map[uint32]bool { return maps.Clone(f.pictures) }
 
 func (f *fakeVoice) Online() map[uint32]OnlineUser {
 	f.mu.Lock()
@@ -24,15 +25,15 @@ func (f *fakeVoice) setOnline(online map[uint32]OnlineUser) {
 	f.online = online
 }
 
-// membersHub has registered users alice (10), bob (20) and a guest
-// account (30).
+// membersHub has registered users alice (10, with a picture), bob (20)
+// and a guest account (30).
 func membersHub(t *testing.T) *Hub {
 	t.Helper()
 	h := newHub(t, "general")
 	if _, err := h.store.CreateAccount(store.Account{Name: "Guest-1", Temporary: true, CertPEM: []byte("c"), KeyPEM: []byte("k")}, clock); err != nil {
 		t.Fatal(err)
 	}
-	h.SetVoice(&fakeVoice{names: map[uint32]string{20: "bob", 10: "alice", 30: "guest-1"}, bios: map[uint32]string{20: "<b>hi</b>"}}, "")
+	h.SetVoice(&fakeVoice{names: map[uint32]string{20: "bob", 10: "alice", 30: "guest-1"}, bios: map[uint32]string{20: "<b>hi</b>"}, pictures: map[uint32]bool{10: true}}, "")
 	return h
 }
 
@@ -42,14 +43,25 @@ func TestReadyListsRegisteredUsersButGuestAccounts(t *testing.T) {
 	t.Cleanup(c.Close)
 	c.SetIdentity(mumble.Identity{Session: 2, Name: "someone"}) // guests see it too
 	m := next(t, c)
-	members := m["members"].([]any)
-	if len(members) != 2 {
-		t.Fatalf("members %v", members)
+	want := []any{
+		map[string]any{"id": float64(10), "name": "alice", "picture": true},
+		map[string]any{"id": float64(20), "name": "bob"},
 	}
-	for i, want := range []float64{10, 20} {
-		if id, _ := peerOf(map[string]any{"peer": members[i]}); id != want {
-			t.Fatalf("members %v", members)
-		}
+	if !reflect.DeepEqual(m["members"], want) {
+		t.Fatalf("members %v", m["members"])
+	}
+}
+
+func TestPictureChangesReachEveryone(t *testing.T) {
+	h := membersHub(t)
+	c := ready(t, h, "someone")
+	h.PictureChanged(20, true)
+	if m := next(t, c); m["type"] != "member" || m["id"] != float64(20) || m["picture"] != true || m["name"] != nil {
+		t.Fatalf("picture %v", m)
+	}
+	h.PictureChanged(10, false)
+	if m := next(t, c); m["type"] != "member" || m["id"] != float64(10) || m["picture"] != false {
+		t.Fatalf("no picture %v", m)
 	}
 }
 

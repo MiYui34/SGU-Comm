@@ -21,6 +21,20 @@ func (s *Server) Users() map[uint32]string {
 	return out
 }
 
+// Pictures: the registered users with a saved avatar that Avatars serves
+// (see Config.OnPictureChanged).
+func (s *Server) Pictures() map[uint32]bool {
+	if s.cfg.DB == nil {
+		return map[uint32]bool{}
+	}
+	out, err := s.cfg.DB.Pictures()
+	if err != nil {
+		slog.Error("listing pictures", "err", err)
+		return map[uint32]bool{}
+	}
+	return out
+}
+
 // OnlineUser is a connected registered user (see Online).
 type OnlineUser struct {
 	Name    string

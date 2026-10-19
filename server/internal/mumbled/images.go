@@ -45,12 +45,20 @@ func extractImages(msg string) (string, []Image) {
 		if err != nil {
 			return ""
 		}
-		if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) {
+		if typ := imageType(data); typ != "" {
 			images = append(images, Image{Type: typ, Data: data})
 		}
 		return ""
 	})
 	return rest, images
+}
+
+// imageType is the type of data that is an allowed image ("": none).
+func imageType(data []byte) string {
+	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) {
+		return typ
+	}
+	return ""
 }
 
 // imagesHTML is the server's own tags for checked images.

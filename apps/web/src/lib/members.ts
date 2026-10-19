@@ -38,5 +38,9 @@ export const onlineRows = <U extends { name: string }>(users: readonly U[], hidd
   return [...users.map((user) => ({ user })), ...hidden.map((member) => ({ member }))].sort((a, b) => byName(name(a), name(b)));
 };
 
+// The names of members with a saved picture (see TextState.pictures).
+export const pictureNames = (members: Members, pictures: ReadonlySet<number>) =>
+  new Set([...pictures].flatMap((id) => (members[id] === undefined ? [] : [members[id]])));
+
 // An offline user's bio (online ones come with their user state).
 export const bioRequest = (user: number) => JSON.stringify({ type: "bio", user });

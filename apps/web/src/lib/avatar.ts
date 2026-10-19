@@ -95,13 +95,14 @@ export const setAvatarPictures = (lookup: Lookup) => setContext(KEY, lookup);
 export const pictureFor = (): Lookup => getContext<Lookup | undefined>(KEY) ?? (() => null);
 
 // online: pictures of online users by name (null: none). Registered users
-// who are offline: the server's saved picture (404 if none).
+// who are offline: the server's saved picture, if they have one (saved:
+// their names, see pictureNames).
 export const pictureLookup =
-  (online: ReadonlyMap<string, string | null>, httpBase: string): Lookup =>
+  (online: ReadonlyMap<string, string | null>, saved: ReadonlySet<string>, httpBase: string): Lookup =>
   (name, registered = false) =>
     online.has(name)
       ? online.get(name)!
-      : registered
+      : registered && saved.has(name)
         ? `${httpBase}/api/avatars/${encodeURIComponent(name)}`
         : null;
 
