@@ -57,7 +57,10 @@ pub fn run() {
             // opens the chat.
             let handle = app.handle().clone();
             app.notification().on_action(move |action| {
-                if let Some(window) = handle.get_webview_window("main").filter(|_| action.action_id() == "tap") {
+                if action.action_id() != "tap" {
+                    return;
+                }
+                if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
