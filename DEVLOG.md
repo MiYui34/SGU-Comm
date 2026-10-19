@@ -968,3 +968,33 @@ From `meta/research/discord-comparison.md`.
   audio; it lists no audio outputs and has no setSinkId, so the output
   picker stays hidden there.
 - KALLISTI_DEVTOOLS=1 turns on the web inspector on Linux.
+
+## Native notifications (2026-10-19)
+
+- Report: "desktop notifications not supported" in the Linux AppImage.
+  WebKitGTK asks the app for a NotificationPermissionRequest (we only
+  answered UserMedia: refused), WKWebView (macOS) has no web Notification
+  API, WebView2 (Windows) has one.
+- The desktop app now uses tauri-plugin-notification 2.7 (system
+  notifications on all three). notify.ts picks a notifier: the plugin in
+  the app, the Notification API in browsers, none without it. The
+  plugin's permission is read once at start (on desktop it always says
+  granted; a block in the system settings is not visible to us).
+- The plugin also replaces window.Notification with a shim that calls
+  it, so web code that uses the constructor still works in the app, but
+  without onclick.
+- Clicks: 2.7 reports "tap" on desktop too (macOS and Windows: a thread
+  per notification waits for it; Windows only while the toast is on
+  screen, not from the Action Center; Linux: D-Bus ActionInvoked). Rust
+  brings the window forward (unminimize, show, set_focus); the page maps
+  the notification id to its handler and opens the chat. Ids start at a
+  random number, so old notifications after a reload do not open the
+  wrong chat.
+- media.rs also allows NotificationPermissionRequest for our own page
+  (with the shim it should not come).
+- In the app, a visible window behind other windows counts as not seen:
+  notifications for the open chat need the window focus (chatSeen).
+- Verified on macOS (release .app, no signing): permission granted and
+  the notification sent through the plugin without error. Seeing the
+  banner and clicking it was not checked here; Linux (cargo check in
+  podman) and Windows by users.

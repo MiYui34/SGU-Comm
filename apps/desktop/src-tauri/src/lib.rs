@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 
 /// The local bridge's address, for the web client.
 #[derive(Clone, Serialize)]
@@ -44,11 +45,27 @@ pub fn run() {
     tauri::Builder::default()
         // Push-to-talk while the app is in the background.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // System notifications (the web view's own: none on macOS, refused
+        // on Linux).
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let pins = Arc::new(pins::PinStore::load(app.path().app_data_dir()?.join("pins.json")));
             let b = tauri::async_runtime::block_on(bridge::start(origins(), pins.clone()))?;
             app.manage(BridgeInfo { port: b.port, secret: b.secret });
             app.manage(pins);
+            // A click on a notification brings the window forward; the page
+            // opens the chat.
+            let handle = app.handle().clone();
+            app.notification().on_action(move |action| {
+                if action.action_id() != "tap" {
+                    return;
+                }
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            })?;
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
                 // Without it only voice is off: start anyway.

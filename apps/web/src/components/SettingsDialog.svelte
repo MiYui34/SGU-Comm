@@ -2,7 +2,7 @@
   import type { ComponentProps } from "svelte";
   import ProfilePicture from "./ProfilePicture.svelte";
   import { BIO_MAX, bioToSave } from "../lib/bio";
-  import { notificationPermission } from "../lib/notify";
+  import { notifier, permissionNote, type Permission } from "../lib/notify";
   import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush, type PushPrefs } from "../lib/push";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
@@ -130,13 +130,9 @@
     if (event.code !== "Escape") onChange({ pttKey: event.code });
     recordingKey = false;
   };
-  const blockedNote =
-    typeof Notification === "undefined"
-      ? "This browser has no desktop notifications."
-      : "The browser blocks notifications for this site.";
-  let notificationNote = $state<string | null>(
-    typeof Notification === "undefined" || Notification.permission === "denied" ? blockedNote : null,
-  );
+  // Not granted after asking: blocked (or the prompt was dismissed).
+  const blockedNote = (p: Permission) => permissionNote(p === "unsupported" ? p : "denied", isDesktop());
+  let notificationNote = $state<string | null>(permissionNote(notifier().permission(), isDesktop()));
 </script>
 
 <svelte:window onkeydowncapture={recordKey} />
@@ -379,11 +375,11 @@
       checked={settings.notifications}
       onchange={async (e) => {
         const box = e.currentTarget;
-        let on = box.checked;
-        if (on && notificationPermission() !== "granted" && typeof Notification !== "undefined") {
-          on = (await Notification.requestPermission()) === "granted";
-        }
-        notificationNote = on || !box.checked ? null : blockedNote;
+        const n = notifier();
+        let [on, permission] = [box.checked, n.permission()];
+        if (on && permission !== "granted" && permission !== "unsupported") permission = await n.request();
+        on &&= permission === "granted";
+        notificationNote = on || !box.checked ? null : blockedNote(permission);
         box.checked = on;
         onChange({ notifications: on });
       }}
