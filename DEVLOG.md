@@ -741,3 +741,36 @@ From `meta/research/discord-comparison.md`.
   0.15 s sound lead out of sync).
 - Headless Chromium enters PiP (the promise resolves) but
   did not enter full screen; full screen was not checked there.
+
+## Camera streams (2026-10-19)
+
+- A user has one screen share and one camera at most. The hub keys
+  streams by an id: the session for a screen share, the session with
+  bit 31 set for a camera (`stream.ID`). Frames up carry a camera flag
+  (bit 2); frames down carry the id, so viewers and the channel list
+  need no other change. Cameras have no sound. There is no server-wide
+  limit on the number of streams; one upload limit (1 MiB/s) covers
+  both streams of a user. The server sends it in "ready".
+- Watching a camera is opt-in like a screen share (a camera button next
+  to LIVE). Simple; Discord shows cameras at once in its voice grid.
+- Quality while live: 480p/720p/1080p and 15/30/60 fps, default 720p at
+  30 fps (about 4 Mbit/s; screen shares were 1080p at 15 fps, so small
+  text is less sharp by default now). The frame loop compares the wanted
+  encoder settings with the current ones on each frame. A new size: a
+  new encoder (it starts with a keyframe) and a new "stream" config to
+  the viewers, who keep their decoder (it takes the new size at the
+  keyframe; a new decoder missed that keyframe while it was set up, and
+  the server asks for keyframes at most once a second). A new bitrate or
+  frame rate only: the same encoder is configured again. Checked in
+  headless Chromium: 720p to 1080p60 (screen) and 720p to 480p and back
+  (camera) while watched, without an end.
+- Alone, a stream may use 80% of the upload limit; screen and camera
+  together share it 65/35.
+- Camera switch (a phone's front and back): the current camera closes
+  before the next opens, because phones open one camera at a time.
+- Headless Chromium crashed its renderer on `enumerateDevices`, also
+  with the fake media flags. The browser check used an init script that
+  replaces getUserMedia, getDisplayMedia and enumerateDevices with
+  canvas streams.
+- Watching no longer needs getDisplayMedia (it needs decoders only), so
+  phones without screen capture can watch too.
