@@ -7,6 +7,7 @@
     y,
     up = false,
     label,
+    anchor,
     onClose,
     children,
   }: {
@@ -15,6 +16,8 @@
     // Open above the point (see fitMenu).
     up?: boolean;
     label: string;
+    // The button that opened it: a press there is its own (it toggles).
+    anchor?: HTMLElement;
     onClose: () => void;
     children: Snippet;
   } = $props();
@@ -41,7 +44,7 @@
   // (relatedTarget null) is not a reason: window blur has its own handler.
   const closeOnFocusOut = (event: FocusEvent) => {
     const next = event.relatedTarget as Node | null;
-    if (next && !menu?.contains(next)) onClose();
+    if (next && !menu?.contains(next) && !anchor?.contains(next)) onClose();
   };
 
   // Arrow keys move between the items that can be used (sliders and
@@ -57,7 +60,8 @@
   };
 
   const closeOutside = (event: PointerEvent) => {
-    if (menu && !menu.contains(event.target as Node)) onClose();
+    const target = event.target as Node;
+    if (menu && !menu.contains(target) && !anchor?.contains(target)) onClose();
   };
   const closeOnEscape = (event: KeyboardEvent) => {
     if (event.key === "Escape") onClose();

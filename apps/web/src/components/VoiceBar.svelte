@@ -32,6 +32,7 @@
   } = $props();
 
   let menu = $state<{ x: number; y: number } | null>(null);
+  let liveButton: HTMLButtonElement | undefined = $state();
   const choose = (action: GoLiveAction) => {
     menu = null;
     onGoLive?.(action);
@@ -57,9 +58,10 @@
       aria-pressed={live}
       aria-haspopup="menu"
       aria-expanded={!!menu}
+      bind:this={liveButton}
       onclick={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
-        menu = { x: r.left, y: r.top - 4 };
+        menu = menu ? null : { x: r.left, y: r.top - 4 };
       }}
     >
       <Icon name="screen" size={20} />
@@ -71,7 +73,7 @@
 </section>
 
 {#if menu}
-  <ContextMenu x={menu.x} y={menu.y} up label="Go live" onClose={() => (menu = null)}>
+  <ContextMenu x={menu.x} y={menu.y} up label="Go live" anchor={liveButton} onClose={() => (menu = null)}>
     {#each entries as e (e.action)}
       <button class="item" disabled={!!e.off} onclick={() => choose(e.action)}>
         {e.label}
