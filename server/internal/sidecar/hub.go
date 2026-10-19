@@ -285,6 +285,7 @@ type Conn struct {
 	hub      *Hub
 	out      chan []byte
 	limit    *rate.Limiter
+	limitLog time.Time // the last "over the limit" log line (one a minute)
 	mu       sync.Mutex
 	identity *mumble.Identity
 	ready    bool
@@ -494,6 +495,27 @@ type request struct {
 }
 
 // Handle answers one request from the browser.
+// overLimit answers a request over the rate limit, marked so the client
+// does not show it as a lasting error (a send comes back for the composer),
+// and logs which requests do it, once a minute per connection.
+func (c *Conn) overLimit(id mumble.Identity, req request) {
+	const text = "too many requests, slow down"
+	c.mu.Lock()
+	logIt := time.Since(c.limitLog) > time.Minute
+	if logIt {
+		c.limitLog = time.Now()
+	}
+	c.mu.Unlock()
+	if logIt {
+		slog.Warn("requests over the limit", "user", id.Name, "session", id.Session, "type", req.Type)
+	}
+	if req.Type == "send" {
+		c.send(map[string]any{"type": "error", "message": text, "about": "refused", "channel": req.Channel, "text": req.Text})
+		return
+	}
+	c.send(map[string]any{"type": "error", "message": text, "about": "rate"})
+}
+
 func (c *Conn) Handle(raw []byte) {
 	var req request
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -508,7 +530,7 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	if !c.limit.Allow() {
-		c.sendError("too many requests, slow down")
+		c.overLimit(*id, req)
 		return
 	}
 	if c.readOnly(*id, req) || c.refused(*id, req) {

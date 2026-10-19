@@ -210,6 +210,25 @@ func TestRateLimit(t *testing.T) {
 	}
 }
 
+// Over the limit: marked, so the client can tell it from a real error; a
+// send comes back with its text for the composer.
+func TestRateLimitIsMarked(t *testing.T) {
+	h := newHub(t, "general")
+	c := ready(t, h, "alice")
+	for i := 0; i < burst; i++ {
+		c.Handle([]byte(`{"type":"history","channel":1}`))
+		next(t, c)
+	}
+	c.Handle([]byte(`{"type":"history","channel":1}`))
+	if m := next(t, c); m["type"] != "error" || m["about"] != "rate" {
+		t.Fatalf("history: %v", m)
+	}
+	c.Handle([]byte(`{"type":"send","channel":1,"text":"hi"}`))
+	if m := next(t, c); m["about"] != "refused" || m["text"] != "hi" || m["channel"] != 1.0 {
+		t.Fatalf("send: %v", m)
+	}
+}
+
 func TestUploadTokens(t *testing.T) {
 	h := newHub(t, "general")
 	c := ready(t, h, "alice")
