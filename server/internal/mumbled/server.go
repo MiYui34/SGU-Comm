@@ -177,7 +177,9 @@ type Server struct {
 	lastPost map[timeoutKey]time.Time
 	now      func() time.Time
 	// Running recordings by channel (see recording.go). Under mu.
-	recordings map[uint32]*recording.Recording
+	// recordingEnds: those of removed channels, ending.
+	recordings    map[uint32]*recording.Recording
+	recordingEnds sync.WaitGroup
 }
 
 type client struct {
@@ -275,7 +277,9 @@ func New(cfg Config) (*Server, error) {
 		srv.events = newEventQueue()
 	}
 	state.OnMove = func(session, from, to uint32) {
-		srv.tellRecordingLocked(session, to)
+		if from != NoChannel { // a join is told after ServerSync (see join)
+			srv.tellRecordingLocked(session, to)
+		}
 		if cfg.OnUserMoved != nil {
 			srv.events.add(func() { cfg.OnUserMoved(session, from, to) })
 		}

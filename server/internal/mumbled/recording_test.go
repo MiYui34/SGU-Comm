@@ -183,13 +183,23 @@ func TestARecordingAtItsLimitEnds(t *testing.T) {
 	}
 }
 
+// Also those of channels removed just before.
 func TestClosingTheServerFinishesRecordings(t *testing.T) {
 	s, addr, lib, _ := recordingServer(t, recording.Limits{})
 	su := superUser(t, addr)
-	lounge := su.createChannel(0, "Lounge", false)
+	lounge, other := su.createChannel(0, "Lounge", false), su.createChannel(0, "Other", false)
 	s.StartRecording(su.session, lounge)
+	s.StartRecording(su.session, other)
+	s.mu.Lock()
+	s.stopRecordingsLocked([]uint32{other}, "channel deleted")
+	s.mu.Unlock()
 	s.Close()
-	if got := lib.List(); len(got) != 1 || got[0].Reason != "server shutdown" {
-		t.Fatalf("finished %+v", got)
+	reasons := []string{}
+	for _, info := range lib.List() {
+		reasons = append(reasons, info.Reason)
+	}
+	slices.Sort(reasons)
+	if !slices.Equal(reasons, []string{"channel deleted", "server shutdown"}) {
+		t.Fatalf("finished %v", reasons)
 	}
 }

@@ -84,6 +84,10 @@ func (s *Server) StartRecording(actor, channel uint32) error {
 		rec.Stop("cancelled")
 		return err
 	}
+	if rec.Ended() { // at a limit already: recordingEnded found nothing
+		s.mu.Unlock()
+		return errors.New("the recording ended at once")
+	}
 	if s.recordings == nil {
 		s.recordings = map[uint32]*recording.Recording{}
 	}
@@ -148,7 +152,7 @@ func (s *Server) stopRecordingsLocked(channels []uint32, reason string) {
 	for _, ch := range channels {
 		if rec := s.recordings[ch]; rec != nil {
 			delete(s.recordings, ch)
-			go s.endRecording(ch, rec, reason)
+			s.recordingEnds.Go(func() { s.endRecording(ch, rec, reason) })
 		}
 	}
 }
@@ -162,6 +166,7 @@ func (s *Server) stopAllRecordings() {
 	for _, rec := range recs {
 		rec.Stop("server shutdown")
 	}
+	s.recordingEnds.Wait()
 }
 
 // channelTextLocked tells the Mumble clients in a channel (web clients

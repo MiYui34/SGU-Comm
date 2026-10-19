@@ -89,6 +89,20 @@ func TestRecordingIndicatorReachesThoseWhoSeeTheChannel(t *testing.T) {
 	if m := next(t, user); m["type"] != "error" || len(rec.Recording()) != 2 {
 		t.Fatalf("user stopped it: %v", m)
 	}
+
+	// Let in to the hidden channel: the indicator comes too.
+	v.mu.Lock()
+	v.hidden = nil
+	v.mu.Unlock()
+	h.PrivateChanged()
+	for {
+		if m := next(t, user); m["type"] == "recording" {
+			if !slices.Equal(channels(m["channels"]), []float64{2, 7}) {
+				t.Fatalf("after access %v", m)
+			}
+			break
+		}
+	}
 }
 
 func TestOnlyStaffListAndDownloadRecordings(t *testing.T) {
