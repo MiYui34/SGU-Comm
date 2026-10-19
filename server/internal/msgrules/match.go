@@ -14,15 +14,16 @@ import (
 // Matching of blocked words and replaced phrases. Each character (with its
 // combining marks) is folded on its own, so that a match maps back to the
 // original text: compatibility forms (full-width, mathematical letters),
-// without the accents of Latin, Greek and Cyrillic letters (other scripts'
-// marks, as Japanese dakuten, make other letters), common lookalikes
-// (Cyrillic а, Greek ο, small capitals) as Latin letters, case-folded.
-// Invisible format characters and fillers fold to nothing.
+// without marks on Latin, Greek and Cyrillic letters and on what is no
+// letter or digit (other scripts' marks, as Japanese dakuten, make other
+// letters), case-folded, common lookalikes (Cyrillic а, Greek ο, small
+// capitals) as Latin letters. Invisible format characters and fillers fold
+// to nothing.
 
-// lookalikes: pairs of a letter and the Latin letter it looks like.
+// lookalikes: pairs of a lower-case letter and the Latin letter it looks
+// like (Cyrillic в н к м т as small capitals: their capitals look Latin).
 var lookalikes = func() map[rune]rune {
-	pairs := []rune("аaеeоoрpсcуyхxѕsіiјjԁdһhԛqԝwӏlүy" + "АAВBЕEКKМMНHОOРPСCТTХXУYЅSІIЈJԚQԜWӀI" +
-		"αaοoνvιiκkρpυuχx" + "ΑAΒBΕEΖZΗHΙIΚKΜMΝNΟOΡPΤTΥYΧX" +
+	pairs := []rune("аaвbеeкkмmнhоoрpсcтtуyхxѕsіiјjԁdһhԛqԝwӏlүy" + "αaβbεeηnιiκkνvοoρpτtυuχx" +
 		"ıiɑaɡgᴀaʙbᴄcᴅdᴇeɢgʜhɪiᴊjᴋkʟlᴍmɴnᴏoᴘpʀrꜱsᴛtᴜuᴠvᴡwʏyᴢz")
 	m := map[rune]rune{}
 	for i := 0; i < len(pairs); i += 2 {
@@ -36,18 +37,21 @@ func foldChar(c string) string {
 		return ""
 	}
 	var b strings.Builder
-	accented := false
+	marks := false // marks count: after a letter or digit of another script
 	for _, r := range norm.NFD.String(norm.NFKC.String(c)) {
-		if unicode.Is(unicode.Mn, r) && accented {
+		if !unicode.Is(unicode.M, r) {
+			marks = (unicode.IsLetter(r) || unicode.IsNumber(r)) && !unicode.In(r, unicode.Latin, unicode.Greek, unicode.Cyrillic)
+		} else if !marks {
 			continue
-		}
-		accented = unicode.In(r, unicode.Latin, unicode.Greek, unicode.Cyrillic)
-		if l, ok := lookalikes[r]; ok {
-			r = l
 		}
 		b.WriteRune(r)
 	}
-	return norm.NFC.String(cases.Fold().String(b.String()))
+	return norm.NFC.String(strings.Map(func(r rune) rune {
+		if l, ok := lookalikes[r]; ok {
+			return l
+		}
+		return r
+	}, cases.Fold().String(b.String())))
 }
 
 // folded is text as it is matched; from and to give, for each byte of s,
@@ -81,10 +85,11 @@ func fold(text string) folded {
 	return f
 }
 
-// word: a folded word and its bytes in the original.
+// word: a folded word, its bytes in the original and in the folded text.
 type word struct {
 	key        string
 	start, end int
+	i, j       int
 }
 
 func isWordChar(r rune) bool {
@@ -119,11 +124,11 @@ func (f folded) words() []word {
 			}
 			j += m
 		}
-		w := word{f.s[i:j], f.from[i], f.to[j-1]}
+		w := word{f.s[i:j], f.from[i], f.to[j-1], i, j}
 		separated := !strings.ContainsFunc(f.s[gap:i], func(r rune) bool { return !isSeparator(r) })
 		if k := len(ws) - 1; joining && single(w.key) && separated {
 			ws[k].key += w.key
-			ws[k].end = w.end
+			ws[k].end, ws[k].j = w.end, w.j
 		} else {
 			ws = append(ws, w)
 			joining = single(w.key)
@@ -170,8 +175,9 @@ func key(s string) string {
 // three times or more where the entry has it fewer times ("asss" for
 // "ass"; "aas" stays another word, as "too" is not "to").
 func sameWord(have, want string) bool {
-	if have == want {
-		return true
+	// Runs in have are never shorter than in want.
+	if len(have) <= len(want) || have[0] != want[0] {
+		return have == want
 	}
 	a, b := []rune(have), []rune(want)
 	runLen := func(s []rune) int {
@@ -198,15 +204,24 @@ func sameWord(have, want string) bool {
 type match struct{ start, end, entry int }
 
 // find gives the entries in a text, in order and not overlapping; of
-// entries at one place, the longest.
-func find(entries []entry, text string) []match {
+// entries at one place, the longest. tight: only separators between the
+// words of a phrase (else anything that is no letter or digit).
+func find(entries []entry, text string, tight bool) []match {
 	f := fold(text)
 	ws := f.words()
+	matchesAt := func(i int, e entry) bool {
+		for k, want := range e.words {
+			if !sameWord(ws[i+k].key, want) || tight && k > 0 && strings.ContainsFunc(f.s[ws[i+k-1].j:ws[i+k].i], func(r rune) bool { return !isSeparator(r) }) {
+				return false
+			}
+		}
+		return true
+	}
 	var ms []match
 	for i := 0; i < len(ws); {
 		best, n := 0, 0
 		for k, e := range entries {
-			if l := len(e.words); l > n && i+l <= len(ws) && slices.EqualFunc(ws[i:i+l], e.words, func(w word, s string) bool { return sameWord(w.key, s) }) {
+			if l := len(e.words); l > n && i+l <= len(ws) && matchesAt(i, e) {
 				best, n = k, l
 			}
 		}

@@ -208,7 +208,7 @@ func clean(s string) string {
 
 // blockedWord: the text has a blocked word or phrase.
 func blockedWord(blocked []string, text string) bool {
-	return len(blocked) > 0 && len(find(entries(blocked, func(s string) string { return s }), text)) > 0
+	return len(blocked) > 0 && len(find(entries(blocked, func(s string) string { return s }), text, false)) > 0
 }
 
 func entries[T any](list []T, phrase func(T) string) []entry {
@@ -222,18 +222,21 @@ func entries[T any](list []T, phrase func(T) string) []entry {
 // Replace gives the text with the replaced phrases, each match with one of
 // its replacements (pick(n): a random number below n), in the case of the
 // match where simple: "Nice ass" → "Beautiful behind", "ASS" → "BEHIND".
-// For everyone, staff too.
+// Not in code, links, mentions, channel names and emoji names, and only
+// with separators (spaces . - _) between the words of a phrase: the
+// message's markup stays. For everyone, staff too.
 func Replace(r Rules, text string, pick func(int) int) string {
 	if len(r.Replacements) == 0 {
 		return text
 	}
+	keep := kept.FindAllStringIndex(text, -1)
 	var b strings.Builder
 	last := 0
-	for _, m := range find(entries(r.Replacements, func(p Replacement) string { return p.Phrase }), text) {
-		with := r.Replacements[m.entry].With
-		if len(with) == 0 {
+	for _, m := range find(entries(r.Replacements, func(p Replacement) string { return p.Phrase }), text, true) {
+		if slices.ContainsFunc(keep, func(k []int) bool { return m.start < k[1] && k[0] < m.end }) {
 			continue
 		}
+		with := r.Replacements[m.entry].With
 		b.WriteString(text[last:m.start])
 		b.WriteString(sameCase(text[m.start:m.end], with[pick(len(with))]))
 		last = m.end
@@ -267,7 +270,9 @@ var (
 	// one of ' - . _ between them (other symbols would split a word, so
 	// "c++" would block every "c").
 	wordEntry = regexp.MustCompile(`^[\p{L}\p{N}\p{M}]+(?:(?: |['’._-])[\p{L}\p{N}\p{M}]+)*$`)
-	// Replacements: words of letters, digits, marks and emoji with spaces
+	// Where nothing is replaced: code, links, mentions, channels, emoji.
+	kept = regexp.MustCompile("```[\\s\\S]*?```|`[^`\\n]+`|[a-zA-Z][a-zA-Z0-9+.-]*://\\S+|www\\.\\S+|[@#][\\p{L}\\p{N}_-]+|:[\\p{L}\\p{N}_-]+:")
+	// Replacements (as PLAIN in apps/web src/lib/messageRules.ts): words of letters, digits, marks and emoji with spaces
 	// and ' . , ! ? - between them. Nothing that formats (* _ ~ ` | >),
 	// links (:/), mentions (@ #) or is HTML.
 	plainText = regexp.MustCompile(`^[\p{L}\p{N}\p{M}\p{So}\x{1F3FB}-\x{1F3FF}\x{200D}\x{FE0F}]+(?:[ '’.,!?-]+[\p{L}\p{N}\p{M}\p{So}\x{1F3FB}-\x{1F3FF}\x{200D}\x{FE0F}]+)*[.,!?]*$`)

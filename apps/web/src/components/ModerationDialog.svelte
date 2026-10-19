@@ -285,7 +285,8 @@
         {#each replacements.errors as error (error)}<p class="error" role="alert">{error}</p>{/each}
         <p class="note">
           A message with the phrase is posted with one of its replacements, picked at random, for everyone (staff too). Matched as
-          blocked words; replacements are plain text: letters, digits, emoji, spaces and ' . , ! ? -.
+          blocked words, but not in code, links or mentions. Replacements are plain text: letters, digits, emoji, spaces and ' .
+          , ! ? -.
         </p>
         {#if rulesError}<p class="error" role="alert">{rulesError}</p>{/if}
         <button type="submit">Save</button>

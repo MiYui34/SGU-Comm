@@ -45,7 +45,7 @@ func TestBlockedWords(t *testing.T) {
 		{"s_p_a_m", true},
 		{"S . P . A . M", true},
 		{"ѕраm", true},   // Cyrillic lookalikes
-		{"ЅΡΑΜ", true},   // Cyrillic and Greek capitals
+		{"ЅΡΑМ", true},   // Cyrillic and Greek capitals
 		{"𝐬𝐩𝐚𝐦", true},   // mathematical letters
 		{"spaaam", true}, // a letter three times or more
 		{"SPAMMMM", true},
@@ -61,6 +61,15 @@ func TestBlockedWords(t *testing.T) {
 		}
 		if err != nil && err != ErrWord {
 			t.Errorf("%q: %v", c.text, err)
+		}
+	}
+}
+
+// Lookalikes match in either case.
+func TestLookalikeCase(t *testing.T) {
+	for _, c := range [][2]string{{"нах", "НАХ"}, {"νυ", "ΝΥ"}, {"bot", "ВОТ"}, {"bot", "вот"}} {
+		if Check(Rules{Words: []string{c[0]}}, Author{}, Message{Text: c[1]}, now, time.Time{}) == nil {
+			t.Errorf("%q does not block %q", c[0], c[1])
 		}
 	}
 }
@@ -250,6 +259,14 @@ func TestReplace(t *testing.T) {
 		{"nice\na s s", "beautiful behind"},
 		{"これは広告です", "これは宣伝です"},
 		{"class assistant passage bass glass", "class assistant passage bass glass"},
+		// Not in links, code, mentions, channels and emoji.
+		{"https://x.example/nice-ass ass", "https://x.example/nice-ass behind"},
+		{"`nice ass` ```\nass\n``` :nice_ass: @ass #ass", "`nice ass` ```\nass\n``` :nice_ass: @ass #ass"},
+		// Only spaces, dots and dashes between the words of a phrase:
+		// markup stays.
+		{"**nice** ass", "**nice** behind"},
+		{"||nice|| ass ||secret||", "||nice|| behind ||secret||"},
+		{"nice - ass", "beautiful behind"},
 		{"", ""},
 	} {
 		if got := Replace(r, c.text, picks(0)); got != c.want {

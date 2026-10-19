@@ -38,7 +38,7 @@ export const formatList = (list: readonly string[]) => list.join("\n");
 // Replacements are edited one phrase per line: "nice ass => beautiful
 // behind | lovely posterior". The checks are the server's: a phrase is
 // words (as blocked words), a replacement plain text that nothing formats,
-// links or mentions.
+// links or mentions (as wordEntry and plainText in server/internal/msgrules).
 const MAX_ENTRY = 100;
 const MAX_WITH = 20;
 const PHRASE = /^[\p{L}\p{N}\p{M}]+(?:(?: |['’._-])[\p{L}\p{N}\p{M}]+)*$/u;
