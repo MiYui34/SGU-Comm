@@ -147,13 +147,15 @@ func TestPrivateTextChannelsAreOnlyForWhoSeesTheirMirror(t *testing.T) {
 }
 
 // When access changes, each client gets its channel list and the private
-// channels it sees again; members only for staff.
+// channels it sees again; members for staff and the channel's members.
 func TestAccessChangesSendTheChannelsAgain(t *testing.T) {
 	h, v, _ := privateHub(t)
 	staff := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 10})
 	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 20})
+	// Dave sees the channel (by a Mumble ACL), but is no member.
+	dave := joinAs(t, h, mumble.Identity{Session: 4, Name: "dave", Registered: true, UserID: 40})
 	v.mu.Lock()
-	v.members[2] = true
+	v.members[2], v.members[4] = true, true
 	v.mu.Unlock()
 	h.PrivateChanged()
 	if m := next(t, bob); m["type"] != "channels" || !slices.Equal(channelNames(m), []string{"general", "secret"}) {
@@ -161,8 +163,13 @@ func TestAccessChangesSendTheChannelsAgain(t *testing.T) {
 	}
 	m := next(t, bob)
 	p := m["channels"].([]any)
-	if m["type"] != "private" || len(p) != 1 || p[0].(map[string]any)["members"] != nil {
+	if m["type"] != "private" || len(p) != 1 || len(p[0].(map[string]any)["members"].([]any)) != 1 {
 		t.Fatalf("bob got %v", m)
+	}
+	next(t, dave)
+	m = next(t, dave)
+	if p := m["channels"].([]any); m["type"] != "private" || len(p) != 1 || p[0].(map[string]any)["members"] != nil {
+		t.Fatalf("dave got %v", m)
 	}
 	// What depends on the channels seen comes along.
 	if m := next(t, bob); m["type"] != "listen-only" {
