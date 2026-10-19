@@ -16,3 +16,4 @@
 - [ ] [Join and leave sounds](issues/join-leave-sounds.md)
 - [ ] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
+- [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)

@@ -28,7 +28,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
+  import { afterUpload, canAttach, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
@@ -270,7 +270,7 @@
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
     pending = null;
   };
-  const sendFiles = (files: FileList | null | undefined) => {
+  const sendFiles = (files: ArrayLike<File> | null | undefined) => {
     const file = files?.[0];
     if (!file) return;
     if (!canAttach(!!onUpload, uploading)) {
@@ -308,9 +308,10 @@
     });
   });
   const onPaste = (event: ClipboardEvent) => {
-    if (onUpload && event.clipboardData?.files.length) {
+    const files = onUpload ? pastedFiles(event.clipboardData) : [];
+    if (files.length) {
       event.preventDefault();
-      sendFiles(event.clipboardData.files);
+      sendFiles(files);
     }
   };
   const onDrop = (event: DragEvent) => {

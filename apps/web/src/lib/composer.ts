@@ -5,6 +5,15 @@ import type { View } from "./place";
 // One upload at a time: no new file waits while one is sent.
 export const canAttach = (uploads: boolean, uploading: boolean) => uploads && !uploading;
 
+// Files in a paste: some engines (WebKitGTK) give a pasted image only as
+// an item, not in files.
+type Pasted = { files: ArrayLike<File>; items: ArrayLike<{ kind: string; getAsFile(): File | null }> };
+export const pastedFiles = (data: Pasted | null | undefined): File[] => {
+  if (!data) return [];
+  if (data.files.length) return Array.from(data.files);
+  return Array.from(data.items).flatMap((i) => (i.kind === "file" ? (i.getAsFile() ?? []) : []));
+};
+
 // A send the server refused comes back; it fills the box only if the user
 // has not typed something new.
 export const refusedDraft = (draft: string, text: string) => (draft.trim() ? draft : text);
