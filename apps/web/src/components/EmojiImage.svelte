@@ -32,7 +32,10 @@
         if (!l.animated) crop = middleCrop(l.image.width, l.image.height);
         return (loaded = l);
       },
-      () => ((failed = !stale), null),
+      () => {
+        if (!stale) failed = true;
+        return null;
+      },
     );
     return () => {
       stale = true;
@@ -50,8 +53,8 @@
   // not cropped, or cannot be read (the server checks it).
   export const output = async (): Promise<File | null> => {
     const l = await loading;
-    if (!file || !l || l.animated || keepsOriginal({ ...l.original, animated: false, cropping })) return file;
-    const blob = await encodeEmoji(renderEmoji(l.image, cropping ? crop : null));
+    if (!file || !l || l.animated || !rendered || keepsOriginal({ ...l.original, animated: false, cropping })) return file;
+    const blob = await encodeEmoji(rendered);
     return new File([blob], `${name || "emoji"}.${blob.type === "image/webp" ? "webp" : "png"}`, { type: blob.type });
   };
 

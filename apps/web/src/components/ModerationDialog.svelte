@@ -127,7 +127,7 @@
     adding = true;
     try {
       // Checked as uploaded: still images are scaled down first.
-      const file = (await emojiImage?.output()) ?? emojiFile;
+      const file = (await emojiImage?.output()) ?? null;
       emojiError = emojiFormError(name, file, emoji);
       if (emojiError || !file) return;
       await onAddEmoji(name, file);
@@ -293,6 +293,7 @@
       <input
         bind:this={fileInput}
         type="file"
+        disabled={adding}
         accept={EMOJI_TYPES.join(",")}
         aria-label="Emoji image"
         onchange={(e) => {

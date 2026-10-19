@@ -42,7 +42,7 @@ export const renderEmoji = (image: HTMLCanvasElement, crop: Crop | null) => {
 };
 
 // PNG, or WebP if the browser has it and it is smaller; both keep
-// transparency (quality 1: lossless WebP in Chromium).
+// transparency (quality 1: lossless WebP in Chromium, lossy in Firefox).
 export const encodeEmoji = async (c: HTMLCanvasElement): Promise<Blob> => {
   const blob = (type: string) => new Promise<Blob | null>((resolve) => c.toBlob(resolve, type, 1));
   const [png, webp] = await Promise.all([blob("image/png"), blob("image/webp")]);
