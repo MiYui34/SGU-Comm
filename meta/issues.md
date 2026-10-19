@@ -10,3 +10,7 @@
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)
+- [ ] [Word replacements](issues/word-replacements.md)
+- [ ] [Collapse very long messages](issues/long-message-collapse.md)
+- [ ] [Who can read a private channel](issues/private-channel-readers.md)
+- [ ] [Moderators for single channels](issues/channel-moderators.md)
