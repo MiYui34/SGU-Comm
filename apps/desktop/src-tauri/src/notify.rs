@@ -112,12 +112,20 @@ mod linux {
             let rule =
                 zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).path(path)?.interface(interface)?.build();
             let signals = MessageIterator::for_match_rule(rule, &connection, None)?;
-            let (shown, on_click) = (self.shown.clone(), self.on_click.clone());
+            let (shown, on_click, closer) = (self.shown.clone(), self.on_click.clone(), connection.clone());
             std::thread::Builder::new().name("notifications".into()).spawn(move || {
                 for message in signals.flatten() {
-                    let clicked = signal(&message).and_then(|s| shown.lock().unwrap_or_else(PoisonError::into_inner).on(s));
+                    let Some(signal) = signal(&message) else { continue };
+                    let server_id = match &signal {
+                        Signal::Action(id, _) => *id,
+                        Signal::Closed(id) => *id,
+                    };
+                    let clicked = shown.lock().unwrap_or_else(PoisonError::into_inner).on(signal);
                     if let Some(id) = clicked {
                         on_click(id);
+                        // Some servers (LXQt) keep it after a click: done now.
+                        let (destination, path, interface) = BUS;
+                        let _ = closer.call_method(Some(destination), path, Some(interface), "CloseNotification", &(server_id,));
                     }
                 }
             })?;
