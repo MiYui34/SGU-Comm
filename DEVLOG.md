@@ -1176,3 +1176,26 @@ From `meta/research/discord-comparison.md`.
   same calls, so the cause is not in our code. Tests in agent-browser
   must stub all three (getUserMedia, enumerateDevices and
   mediaDevices.addEventListener); then Settings open.
+
+## Join and leave sounds (2026-10-19)
+
+- Sounds for others joining or leaving our voice channel, our own join
+  (also a move into another channel) and leave, mute and deafen. Our own
+  notes, synthesized like the mention ping (ping.ts now has a shared
+  `playNotes`): rising for joins and unmuting, falling for leaves and
+  muting, three notes for our own steps, lower ones for deafening.
+- Pure logic in lib/sounds.ts: `voiceSound(prev, next)` compares two
+  snapshots of the state and gives at most one sound. No previous
+  snapshot (the sync at login: Client is mounted per connection) gives
+  none. Deafen changes win over everything; while deafened nothing else
+  plays. Others only count when they enter or leave our channel.
+- Burst limit: one sound per 500 ms (`allowSound`), for all sounds.
+  After a reconnect none for about 3 s: the server restart brings
+  everyone back at once, and the client goes back into its old channel
+  and mute state (which would give a join and a mute sound).
+- Setting "Sounds" (on by default) with a volume slider in Settings.
+  Played on the chosen output device (setSinkId where it exists).
+- Checked in headless Chromium against a local server, with
+  createOscillator wrapped to log the notes: join, mute, another user's
+  login into the lobby (silent), join and leave, deafen and undeafen.
+- Gap: a reconnect was not tested by hand.
