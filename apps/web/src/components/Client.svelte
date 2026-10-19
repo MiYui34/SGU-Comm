@@ -60,7 +60,8 @@
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
-  import { mutedIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { browserPushSupport, syncPush } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
@@ -462,6 +463,23 @@
     jumpTarget = link.message;
     return true;
   };
+  // Push notifications (see lib/push), for accounts with a password: on
+  // start and when channel settings change, the server learns this session
+  // and the channels set to "nothing". A click on one in an open window
+  // comes from the service worker.
+  const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
+  const pushQuiet = $derived(nothingIds(channelPrefs.value, connection.httpBase));
+  $effect(() => {
+    if (pushName && browserPushSupport() === "ok") void syncPush(connection.httpBase, pushName, pushQuiet);
+  });
+  $effect(() => {
+    const sw = navigator.serviceWorker;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === "open" && typeof e.data.url === "string") openMessage(parseMessageLink(e.data.url, site));
+    };
+    sw?.addEventListener("message", onMessage);
+    return () => sw?.removeEventListener("message", onMessage);
+  });
   // Opened with a message link: there once the channels are known.
   let linked = untrack(() => parseMessageLink(location.href, site));
   $effect(() => {
@@ -1115,6 +1133,7 @@
     onChange={settings.update}
     onEcho={capture ? (on) => capture?.setEcho(on) : undefined}
     {account}
+    push={pushName ? { base: connection.httpBase, name: pushName, quiet: pushQuiet } : undefined}
     profile={me && {
       name: me.name,
       hasPicture: me.texture !== null || me.textureHash !== null,

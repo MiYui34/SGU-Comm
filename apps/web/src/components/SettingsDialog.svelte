@@ -3,6 +3,7 @@
   import ProfilePicture from "./ProfilePicture.svelte";
   import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notificationPermission } from "../lib/notify";
+  import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush } from "../lib/push";
   import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
@@ -21,6 +22,7 @@
     onClose,
     onEcho,
     account,
+    push,
     profile,
     bio,
   }: {
@@ -41,6 +43,8 @@
     onEcho?: (on: boolean) => void;
     // Logged in to an account: log out, password.
     account?: AccountActions;
+    // Push notifications for this account (see lib/push).
+    push?: { base: string; name: string; quiet: number[] };
     // Our avatar picture.
     profile?: ComponentProps<typeof ProfilePicture>;
     // Our bio as plain text (loading: a long one is not here yet).
@@ -56,6 +60,22 @@
   const saveBio = () => {
     const text = bio ? bioToSave(bioDraft, bioText) : null;
     if (text !== null) bio?.onSave(text);
+  };
+
+  // The switch shows the browser's subscription; changes wait for it.
+  const pushSupport = browserPushSupport();
+  let pushOn = $state(false);
+  let pushBusy = $state(false);
+  let pushNote = $state<string | null>(null);
+  $effect(() => {
+    if (push && pushSupport === "ok") void pushIsOn(push.base, push.name).then((on) => (pushOn = on));
+  });
+  const setPush = async (on: boolean) => {
+    if (!push) return;
+    pushBusy = true;
+    pushNote = on ? await turnOnPush(push.base, push.name, push.quiet) : (await turnOffPush(push.base), null);
+    pushOn = await pushIsOn(push.base, push.name);
+    pushBusy = false;
   };
 
   let dialog: HTMLDialogElement | undefined = $state();
@@ -339,6 +359,19 @@
     <span>Desktop notifications (mentions and direct messages; per channel in its menu)</span>
     {#if notificationNote}<span class="hint warn" role="status">{notificationNote}</span>{/if}
   </label>
+  {#if push && pushSupport === "ok"}
+    <label class="check">
+      <input type="checkbox" checked={pushOn} disabled={pushBusy} onchange={(e) => setPush(e.currentTarget.checked)} />
+      <span>Push notifications on this device</span>
+      <span class="hint">Mentions and direct messages also while Kallisti is closed. They say who and where, not the message.</span>
+      {#if pushNote}<span class="hint warn" role="status">{pushNote}</span>{/if}
+    </label>
+  {:else if push && pushSupport === "install"}
+    <p class="hint">
+      For push notifications on this iPhone or iPad: tap Share, then "Add to Home Screen", and open Kallisti from there
+      (iOS 16.4 or later).
+    </p>
+  {/if}
   {#if account}
     <form class="account" onsubmit={changePassword}>
       {#if account.temporary}

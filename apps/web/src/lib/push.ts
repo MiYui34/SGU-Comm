@@ -71,7 +71,7 @@ const serverKey = async (base: string): Promise<string> => {
   return key;
 };
 
-const registration = () => navigator.serviceWorker.getRegistration("/");
+const registration = async () => navigator.serviceWorker?.getRegistration("/");
 
 // Subscribes (again, if the server's key changed) and tells the server,
 // for the session now.
