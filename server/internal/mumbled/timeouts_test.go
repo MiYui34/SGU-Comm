@@ -9,7 +9,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 // timeoutServer: SuperUser's password is "admin"; changed counts the
@@ -17,8 +16,7 @@ import (
 func timeoutServer(t *testing.T) (*Server, string, *DB, *atomic.Int32) {
 	t.Helper()
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	changed := &atomic.Int32{}
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnTimeoutsChanged: func() { changed.Add(1) }}, nil)
 	return s, addr, db, changed

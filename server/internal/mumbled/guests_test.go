@@ -9,7 +9,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 func (c *testClient) say(channel uint32, text string) {
@@ -25,8 +24,7 @@ func (c *testClient) expectNoText() {
 
 func TestGuestsReadOnly(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	changed := &atomic.Int32{}
 	guestAccounts := map[string]bool{"gina": true, "gus": true}
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{
@@ -104,8 +102,7 @@ func TestGuestsReadOnly(t *testing.T) {
 
 func TestCaptchaSetting(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
 	su := superUser(t, addr)
 	alice, _ := registered(t, addr, "alice")

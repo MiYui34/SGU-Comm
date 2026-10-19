@@ -12,7 +12,6 @@ import (
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 	"kallisti.chat/server/internal/names"
-	"kallisti.chat/server/internal/password"
 )
 
 // webClient joins through ServeConn, as the Kallisti server's web bridge
@@ -116,8 +115,7 @@ func TestReservedNamesCannotBeSelfRegistered(t *testing.T) {
 
 func TestAccountNamesCannotBeRegisteredOrTaken(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	reserved := map[string]bool{"carol": true}
 	cfg := Config{DB: db, ReservedName: func(n string) bool { return reserved[n] }}
 	s, addr := startServerAndListen(t, "127.0.0.1", cfg, nil)
@@ -223,8 +221,7 @@ func eventually(t *testing.T, ok func() bool) {
 
 func TestAccountRegistrationsKeepTheirName(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	reserved := map[string]bool{"alice": true}
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, ReservedName: func(n string) bool { return reserved[n] }}, nil)
 	joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "alice", CertHash: "aaa"}}, "alice"))
@@ -285,8 +282,7 @@ func accountLogin(accounts map[string]string, guests map[string]bool) func(name,
 
 func TestMumbleClientsLogInWithAnAccountPassword(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin pw")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin pw")
 	reserved := map[string]bool{"alice": true, "bob": true, "gus": true}
 	cfg := Config{DB: db, Password: "server pw", ReservedName: func(n string) bool { return reserved[n] },
 		AccountLogin: accountLogin(map[string]string{"alice": "secret", "bob": "bobpw", "gus": "", "superuser": "other"}, map[string]bool{"gus": true})}

@@ -12,7 +12,6 @@ import (
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 func TestRegistrationTimes(t *testing.T) {
@@ -40,8 +39,7 @@ func TestRegistrationTimes(t *testing.T) {
 
 func TestMessageRulesAreForAdmins(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
 	su := superUser(t, addr)
 	alice, _ := registered(t, addr, "alice")
@@ -70,8 +68,7 @@ func TestMessageRulesAreForAdmins(t *testing.T) {
 
 func TestMessageRules(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	var later atomic.Int64 // the clock runs ahead by this
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, GuestAccount: func(name string) bool { return name == "gina" }},
 		func(s *Server) { s.now = func() time.Time { return time.Now().Add(time.Duration(later.Load())) } })

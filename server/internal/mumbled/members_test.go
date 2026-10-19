@@ -11,7 +11,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 // expectEvent waits for the next OnUserChanged call ("id name").
@@ -29,8 +28,7 @@ func expectEvent(t *testing.T, events <-chan string, want string) {
 
 func TestUsersChangesAreReported(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	events := make(chan string, 10)
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnUserChanged: func(id uint32, name string) {
 		events <- fmt.Sprint(id, " ", name)
@@ -60,8 +58,7 @@ func TestUsersChangesAreReported(t *testing.T) {
 func TestNewUsersAreOnlineWhenReported(t *testing.T) {
 	var s *Server
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	events := make(chan string, 10)
 	_, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnUserChanged: func(id uint32, name string) {
 		_, on := s.Online()[id]
