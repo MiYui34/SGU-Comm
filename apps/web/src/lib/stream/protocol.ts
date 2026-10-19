@@ -44,6 +44,23 @@ export const pickCodec = async (supported: (codec: string) => Promise<boolean>):
   return null;
 };
 
+// A decoder that fails again and again without a picture cannot decode the
+// stream (see above: H.264 without proprietary codecs). Give up after so
+// many errors in a row instead of showing a black picture.
+export const decodeWatch = (limit: number) => {
+  let errors = 0;
+  return {
+    decoded: () => void (errors = 0),
+    failed: () => ++errors >= limit,
+  };
+};
+
+// Why a stream does not play. Streams from OBS are always H.264.
+export const cannotPlay = (codec: string) =>
+  codec.startsWith("avc1")
+    ? "This browser cannot play H.264 video (streams from OBS are H.264). Try another browser, for example Chrome, Edge or Firefox."
+    : "This browser cannot play this screen share.";
+
 // Picture and sound in sync: stream timestamps (microseconds) on the audio
 // context's clock (seconds). The first sound sets the offset, played lead
 // seconds ahead (a small buffer); pictures show when the clock reaches

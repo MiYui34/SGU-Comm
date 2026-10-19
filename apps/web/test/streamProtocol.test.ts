@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFrame, encodeFrame, fitSize, pickCodec } from "../src/lib/stream/protocol";
+import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, fitSize, pickCodec } from "../src/lib/stream/protocol";
 
 describe("stream frames", () => {
   it("go up with flags and a timestamp, and come down with the streamer's session", () => {
@@ -25,6 +25,23 @@ describe("pickCodec", () => {
     expect(await pickCodec(async () => true)).toBe("vp8");
     expect(await pickCodec(async (c) => c.startsWith("avc1"))).toMatch(/^avc1/);
     expect(await pickCodec(async () => false)).toBeNull();
+  });
+});
+
+describe("decoder failures", () => {
+  it("give up after errors in a row without a picture", () => {
+    const watch = decodeWatch(3);
+    expect(watch.failed()).toBe(false);
+    expect(watch.failed()).toBe(false);
+    watch.decoded(); // a picture: the count starts over
+    expect(watch.failed()).toBe(false);
+    expect(watch.failed()).toBe(false);
+    expect(watch.failed()).toBe(true);
+  });
+
+  it("say why for H.264 (streams from OBS)", () => {
+    expect(cannotPlay("avc1.640028")).toMatch(/H\.264/);
+    expect(cannotPlay("vp8")).toBe("This browser cannot play this screen share.");
   });
 });
 

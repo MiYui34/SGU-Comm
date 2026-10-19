@@ -1,4 +1,4 @@
-import { createAvClock, decodeFrame, encodeFrame, fitSize, pickCodec } from "./protocol";
+import { cannotPlay, createAvClock, decodeFrame, decodeWatch, encodeFrame, fitSize, pickCodec } from "./protocol";
 import Ticker from "./ticker.worker?worker";
 
 // Screen sharing over the stream connection (/api/stream, see the server's
@@ -10,6 +10,7 @@ const BITRATE = 2_500_000;
 const KEYFRAME_EVERY = FPS * 8; // frames; viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
 const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
+const MAX_DECODE_ERRORS = 5; // decoder errors in a row without a picture: give up
 // Thumbnails for people not watching: small JPEGs, now and then.
 const PREVIEW_EVERY_MS = 15_000;
 const PREVIEW_FIRST_MS = 2_000;
@@ -34,6 +35,7 @@ type Viewer = {
   clock: ReturnType<typeof createAvClock>;
   queue: VideoFrame[];
   raf: number;
+  failures: ReturnType<typeof decodeWatch>;
 };
 type Text = { type: string; session?: number; sessions?: number[]; codec?: string; audio?: string; message?: string };
 
@@ -258,7 +260,17 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const watch = async (session: number) => {
     error = null;
     if (watched.has(session)) return;
-    watched.set(session, { decoder: null, needKey: true, canvas: null, sound: null, gain: null, clock: createAvClock(SOUND_LEAD), queue: [], raf: 0 });
+    watched.set(session, {
+      decoder: null,
+      needKey: true,
+      canvas: null,
+      sound: null,
+      gain: null,
+      clock: createAvClock(SOUND_LEAD),
+      queue: [],
+      raf: 0,
+      failures: decodeWatch(MAX_DECODE_ERRORS),
+    });
     watching = [...watched.keys()];
     try {
       await open();
@@ -272,7 +284,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const configureIfSupported = async (session: number, codec: string, withSound: boolean) => {
     if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
       unwatch(session);
-      error = "This browser cannot play this screen share.";
+      error = cannotPlay(codec);
       return;
     }
     configure(session, codec);
@@ -326,6 +338,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     v.needKey = true;
     v.decoder = new VideoDecoder({
       output: (frame) => {
+        v.failures.decoded();
         // With sound, pictures wait for it (see listen); before the first
         // sound, and without, they show at once. So too in a hidden tab
         // (no animation frames there): picture-in-picture goes on.
@@ -338,7 +351,12 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
         draw(v, frame);
         frame.close();
       },
-      error: () => watched.get(session) === v && configure(session, codec), // start over
+      error: () => {
+        if (watched.get(session) !== v) return;
+        if (!v.failures.failed()) return configure(session, codec); // start over
+        unwatch(session);
+        error = cannotPlay(codec);
+      },
     });
     v.decoder.configure({ codec, optimizeForLatency: true });
     send({ type: "keyframe", session });
