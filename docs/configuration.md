@@ -73,8 +73,8 @@ Used unless `MUMBLE_HOST` is set.
   only over HTTPS (or on `localhost`).
   - `PUSH=0`: no push notifications.
   - `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (made on the first start and
-    kept in the database): the server's push keys, base64url. Changed keys
-    end all subscriptions (users turn push on again).
+    kept in the database): the server's push keys, base64url. With changed
+    keys, browsers subscribe again when the app next opens there.
   - `PUSH_SUBJECT` (the first `ALLOWED_ORIGINS` address if it is HTTPS,
     else `https://kallisti.chat`): a `mailto:` or `https:` contact that
     push services see.

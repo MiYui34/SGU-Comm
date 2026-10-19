@@ -719,3 +719,41 @@ From `meta/research/discord-comparison.md`.
 - The worker is a separate file (`new Worker(new URL(...))`), so the
   desktop CSP needs no change: no `worker-src`, so `script-src 'self'`
   applies.
+
+## Web Push (2026-10-19)
+
+- New dependency: `github.com/SherClockHolmes/webpush-go` (RFC 8291
+  encryption and RFC 8292 VAPID; by hand it is easy to get wrong). It
+  pulls in `golang-jwt/jwt/v5`. Its `Subscriber` adds `mailto:` to
+  anything that is not `https:`: `PUSH_SUBJECT=mailto:x` must lose the
+  prefix first.
+- Who gets a push is decided in the sidecar (`push.go`): `pings` (name
+  mention, reply without no_ping, @everyone, direct message; not the
+  author) and `wantsPush` (may read the chat, not connected, not in do
+  not disturb). @here never pushes: it is for who is there, and pushes
+  only go to who is not.
+- "Not connected" is `Voice.Online()` (web and Mumble clients): an open
+  tab notifies by itself, so there are no double notifications. A phone
+  whose PWA is in the background but still connected gets neither.
+- Offline users have no session, so access needs new questions to the
+  voice server: `UserSees` and `UserMayRead` build a registered user by
+  id (in no channel). Groups and roles by id count; a certificate hash
+  or tokens in ACLs do not.
+- A subscription belongs to the login session (foreign key, cascade):
+  logout, "log out everywhere", password change and expiry end it
+  without extra code. The client subscribes again for the new session
+  on the next start (`syncPush`).
+- The server posts only to the browsers' push services (allowlist of
+  hosts); otherwise any account could make it post to internal
+  addresses.
+- Channel settings stay in the browser. Only the channels set to
+  "Nothing" go to the server, per subscription (per device): mutes let
+  mentions through anyway, and pushes are only for pings.
+- Rate: one push per user and chat per minute (in memory), plus the
+  `Topic` header, so a push service keeps only the newest per chat.
+- The service worker is a second Vite entry (`src/sw.ts` to `/sw.js`),
+  registered only while push is on, with no fetch handler: no caching,
+  the update check works as before. It must stay one file (no shared
+  chunks): only it imports `lib/pushNotice.ts`.
+- The WebWorker TypeScript lib clashes with DOM: sw.ts declares the few
+  worker types it uses.
