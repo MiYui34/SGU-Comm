@@ -7,7 +7,8 @@
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
   import { hold } from "../lib/longPress";
   import { createHoldTalk } from "../lib/holdTalk";
-  import { htmlToText } from "../lib/htmlText";
+  import { htmlToLines, htmlToText } from "../lib/htmlText";
+  import { collapses, MAX_HEIGHT_PX } from "../lib/collapse";
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
@@ -306,6 +307,7 @@
       cancelPending();
       replying = null;
       editing = null;
+      expanded = new Set();
     });
   });
   const onPaste = (event: ClipboardEvent) => {
@@ -488,6 +490,33 @@
   const sheetMessage = $derived(
     sheetFor && (sheetFor.id === undefined ? sheetFor.m : messages.find((m) => idOf(m) === sheetFor!.id)),
   );
+  // Long messages show collapsed (see lib/collapse); expanded: their keys
+  // while this chat is open. tall: Mumble HTML with images, by the measured
+  // height. Collapsed text is only clipped: screen readers read all of it.
+  let expanded = $state<ReadonlySet<string>>(new Set());
+  let tall = $state<ReadonlySet<string>>(new Set());
+  const isLong = (m: ChatMessage | DisplayMessage) =>
+    "source" in m && m.source ? collapses(m.source.text) : collapses(htmlToLines(m.text)) || tall.has(messageKey(m));
+  // Mumble HTML (no source): also by its height (images, blank lines).
+  const measure = (el: HTMLElement, key: string | null) => {
+    if (!key) return;
+    const check = () => {
+      if (tall.has(key) || el.scrollHeight <= MAX_HEIGHT_PX) return;
+      tall = new Set([...tall, key]);
+      void tick().then(keepBottom);
+    };
+    check();
+    el.addEventListener("load", check, true); // images in the message
+    return { destroy: () => el.removeEventListener("load", check, true) };
+  };
+  // Expanding keeps the place (the message grows below); folding a long
+  // message brings its line back into view.
+  const toggleLong = async (key: string, line: Element | null, open = !expanded.has(key)) => {
+    expanded = open ? new Set([...expanded, key]) : new Set([...expanded].filter((k) => k !== key));
+    await tick();
+    if (!open) line?.scrollIntoView({ block: "nearest" });
+    trackBottom();
+  };
   // A short notice at the bottom (copied, a link that cannot open).
   let notice = $state({ n: 0, text: "" });
   const notify = (text: string) => (notice = { n: notice.n + 1, text });
@@ -1043,12 +1072,32 @@
       <span class="hint">Escape to cancel, Enter to save, Shift+Enter for a new line</span>
     </form>
   {:else if m.text}
-    <div class="text" class:jumbo={jumboEmoji(m.text, custom.urls)}>
+    {@const key = messageKey(m)}
+    {@const long = isLong(m)}
+    {@const open = expanded.has(key)}
+    <div
+      class="text"
+      class:jumbo={jumboEmoji(m.text, custom.urls)}
+      class:collapsed={long && !open}
+      id={long ? `${listId}-${key}` : undefined}
+      use:measure={"source" in m && m.source ? null : key}
+      onfocusin={(e) => long && !open && toggleLong(key, e.currentTarget.closest("li"), true)}
+    >
       {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok, custom.urls)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
     </div>
+    {#if long}
+      <button
+        type="button"
+        class="more"
+        aria-expanded={open}
+        aria-controls="{listId}-{key}"
+        aria-label={open ? undefined : "Show more of the message"}
+        onclick={(e) => toggleLong(key, e.currentTarget.closest("li"))}>{open ? "Show less" : "Show more"}</button
+      >
+    {/if}
   {/if}
   {@render attachment(m)}
   {#if "source" in m && m.source && previewOf?.(m.source.id)}
@@ -1472,6 +1521,24 @@
   }
   .text :global(.spoiler:not(.shown):hover) {
     background: var(--bg-active);
+  }
+  /* Long messages (see lib/collapse): the first lines, fading out. */
+  .text.collapsed {
+    max-height: calc(12 * 1.375em); /* 12 lines */
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 4em), transparent);
+  }
+  .more {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--link);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .more:hover {
+    text-decoration: underline;
   }
   .blocked-line {
     padding: 4px 16px 4px 72px;

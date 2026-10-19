@@ -1176,3 +1176,19 @@ From `meta/research/discord-comparison.md`.
   same calls, so the cause is not in our code. Tests in agent-browser
   must stub all three (getUserMedia, enumerateDevices and
   mediaDevices.addEventListener); then Settings open.
+
+## Long message collapse (2026-10-19)
+
+- A message collapses when its written text has more than 20 lines; a
+  line longer than 120 characters counts as more lines (lib/collapse).
+  Code blocks count with their lines. A full 2000-character line is 17
+  lines: it stays open on a wide screen (on a phone it is taller).
+- Mumble HTML has no source text: its lines come from htmlToLines, and
+  its measured height also counts (over 400 px, again after each image
+  load): htmlToLines folds blank lines, and images have no lines.
+- Collapsed: 12 lines, faded with mask-image, then "Show more". The text
+  is only clipped, so screen readers read all of it; focus (Tab) in it
+  expands it. Expanding keeps the scroll place; "Show less" scrolls the
+  line back into view.
+- Search results and pins are not collapsed: they show plain text with
+  the newlines folded, so they stay short.
