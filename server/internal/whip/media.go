@@ -3,6 +3,7 @@ package whip
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -182,5 +183,6 @@ func (f *feed) start() (*stream.Ingest, error) {
 		return nil, sizeError(err, f.config)
 	}
 	f.ingest.Store(in)
+	slog.Info("stream from OBS is live", "session", f.session, "codec", f.config.Codec, "width", f.config.Width, "height", f.config.Height, "audio", f.config.Audio)
 	return in, nil
 }

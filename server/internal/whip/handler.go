@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -126,6 +127,8 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	go s.run()
 	w.Header().Set("Content-Type", "application/sdp")
 	w.Header().Set("Location", Path+"/"+s.id)
+	// Not chunked: FFmpeg's WHIP client reads the end of a chunked body as an error.
+	w.Header().Set("Content-Length", strconv.Itoa(len(answer)))
 	w.WriteHeader(http.StatusCreated)
 	io.WriteString(w, answer)
 }
