@@ -19,6 +19,7 @@
     offline = [],
     hidden = [],
     readers = null,
+    voiceFirst = false,
     onMemberMenu = () => {},
     roleOf = () => null,
     statusOf = () => ({ presence: "online", custom: null }),
@@ -37,6 +38,8 @@
     hidden?: OnlineMember[];
     // In a private channel: who reads it, instead of the groups above.
     readers?: ReaderGroup<User>[] | null;
+    // A voice channel's view: who is in it stays on top of the readers.
+    voiceFirst?: boolean;
     onMemberMenu?: (userId: number, event: MouseEvent) => void;
     roleOf?: (user: Pick<User, "userId">) => Role | null;
     statusOf?: (session: number) => UserStatus;
@@ -87,6 +90,7 @@
 
 <aside aria-label="Members" {inert}>
   {#if readers}
+    {#if voiceFirst}{@render rows(`In ${channelName}`, onlineRows(here, []))}{/if}
     {#each readers as g (g.title)}
       {@render rows(g.title, g.rows)}
     {/each}

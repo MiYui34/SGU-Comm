@@ -1514,6 +1514,7 @@
       {offline}
       {hidden}
       {readers}
+      voiceFirst={view.kind === "voice"}
       onMemberMenu={openMemberMenu}
       here={users.filter((u) => u.channelId === channelId)}
       elsewhere={users.filter((u) => u.channelId !== channelId)}
