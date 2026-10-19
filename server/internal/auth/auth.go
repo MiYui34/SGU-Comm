@@ -70,6 +70,9 @@ type Service struct {
 	// Captcha: the admins' level for new accounts and guest accounts (see
 	// challenge.go). Nil: none.
 	Captcha func() string
+	// StreamKeyChanged hears that an account's stream key was replaced or
+	// removed (streams with the old one end). Nil: none.
+	StreamKeyChanged func(name string)
 
 	logins, guests limiter
 	challenges     challenges
@@ -150,6 +153,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.logoutAll(w, r)
 	case r.URL.Path == "/api/password" && r.Method == http.MethodPost:
 		a.changePassword(w, r)
+	case r.URL.Path == "/api/stream-key":
+		a.streamKey(w, r)
 	case r.URL.Path == "/api/me" && r.Method == http.MethodGet:
 		if acc, ok := a.AccountFor(r); ok {
 			writeJSON(w, http.StatusOK, map[string]any{"name": acc.Name, "temporary": acc.Temporary})
