@@ -23,7 +23,7 @@
   import { createChannelManagement } from "../lib/channelManagement.svelte";
   import { canManageText } from "../lib/channelManagement";
   import type { Connection } from "../lib/connection.svelte";
-  import { pictureLookup, pictureUrl, setAvatarPictures } from "../lib/avatar";
+  import { onlinePicture, pictureLookup, setAvatarPictures } from "../lib/avatar";
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
@@ -126,7 +126,8 @@
   const serverName = $derived(server.channels[0]?.name ?? "Server");
   const users = $derived(usersSorted(server));
   // Avatars show the pictures of online users, by name.
-  const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, pictureUrl(u.texture)])));
+  const pictureBase = $derived(connection.text.avatars ? connection.httpBase : null);
+  const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, onlinePicture(u, pictureBase)])));
   // Offline members: the saved picture, only of those who have one.
   const saved = $derived(pictureNames(connection.text.members, connection.text.pictures));
   const lookup = $derived(pictureLookup(pictures, saved, connection.httpBase));

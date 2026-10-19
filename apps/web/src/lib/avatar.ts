@@ -1,4 +1,4 @@
-import { blobsToFetch, missingTextures, type ServerState } from "@kallisti/protocol";
+import { blobsToFetch, missingTextures, type ServerState, type User } from "@kallisti/protocol";
 import { getContext, setContext } from "svelte";
 
 const COLORS = ["#e2745b", "#d9a33b", "#5aa469", "#3ba99c", "#4f8fd6", "#8a6fd1", "#c763a6", "#7c8794"];
@@ -106,8 +106,22 @@ export const pictureLookup =
         ? `${httpBase}/api/avatars/${encodeURIComponent(name)}`
         : null;
 
-// Avatars known only by their hash, to fetch (all of them, see blobsToFetch).
-export const texturesToFetch = (state: ServerState, asked: ReadonlySet<string>) => {
-  const { ids, asked: next } = blobsToFetch(missingTextures(state), (s) => state.users[s]?.textureHash, asked);
+// An online user's picture: the bytes we have, else a registered user's
+// saved one over HTTP (http: the server's base where it serves them, see
+// ready's avatars; the hash makes the URL cacheable for good). Not over
+// the voice connection, where 25 pictures of 100 KB hold voice back for
+// seconds on a slow link.
+export const onlinePicture = (u: User, http: string | null): string | null =>
+  u.texture
+    ? pictureUrl(u.texture)
+    : http && u.userId !== null && u.textureHash
+      ? `${http}/api/avatars/${encodeURIComponent(u.name)}?v=${u.textureHash}`
+      : null;
+
+// Avatars known only by their hash, to fetch (all of them, see
+// blobsToFetch); overHttp: registered users' come over HTTP instead.
+export const texturesToFetch = (state: ServerState, asked: ReadonlySet<string>, overHttp = false) => {
+  const missing = missingTextures(state).filter((s) => !overHttp || state.users[s]?.userId === null);
+  const { ids, asked: next } = blobsToFetch(missing, (s) => state.users[s]?.textureHash, asked);
   return { sessions: ids, asked: next };
 };

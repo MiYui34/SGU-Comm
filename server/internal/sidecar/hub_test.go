@@ -356,3 +356,21 @@ func TestReadyTellsTheUploadLimit(t *testing.T) {
 		t.Fatalf("got %v", m["uploadMax"])
 	}
 }
+
+// Avatars: online users' pictures are at /api/avatars/<name> too.
+func TestReadyTellsWhetherAvatarsAreServed(t *testing.T) {
+	h := newHub(t, "general")
+	c := h.Connect()
+	defer c.Close()
+	c.SetIdentity(mumble.Identity{Session: 4, Name: "alice"})
+	if m := next(t, c); m["avatars"] != nil {
+		t.Fatalf("got %v", m)
+	}
+	h.Avatars = true
+	c2 := h.Connect()
+	defer c2.Close()
+	c2.SetIdentity(mumble.Identity{Session: 5, Name: "bob"})
+	if m := next(t, c2); m["avatars"] != true {
+		t.Fatalf("got %v", m)
+	}
+}

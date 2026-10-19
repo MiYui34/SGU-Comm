@@ -50,6 +50,10 @@ describe("parseServerEvent", () => {
     expect(reduceText(initialTextState, ev!).uploadMax).toBe(1048576);
     expect(parseServerEvent('{"type":"ready","channels":[],"uploadMax":"x"}')).not.toHaveProperty("uploadMax");
   });
+  it("reads from ready whether avatars are served over HTTP", () => {
+    expect(reduceText(initialTextState, parseServerEvent('{"type":"ready","channels":[],"avatars":true}')!).avatars).toBe(true);
+    expect(reduceText(initialTextState, parseServerEvent('{"type":"ready","channels":[],"avatars":1}')!).avatars).toBe(false);
+  });
   it("accepts known events", () => {
     expect(parseServerEvent('{"type":"ready","channels":[{"id":1,"name":"general"}]}')).toEqual({
       type: "ready",

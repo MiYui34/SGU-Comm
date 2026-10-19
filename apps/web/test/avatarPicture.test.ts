@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyUser, initialState, type ServerState } from "@kallisti/protocol";
-import { imageSize, imageType, pictureLookup, pictureUrl, squareCrop, texturesToFetch } from "../src/lib/avatar";
+import { imageSize, imageType, onlinePicture, pictureLookup, pictureUrl, squareCrop, texturesToFetch } from "../src/lib/avatar";
 
 const bytes = (...b: number[]) => new Uint8Array(b);
 
@@ -47,6 +47,26 @@ describe("texturesToFetch", () => {
     const gone = texturesToFetch(state(), first.asked);
     expect(gone.asked.size).toBe(0);
     expect(texturesToFetch(state(user(1, "aa")), gone.asked).sessions).toEqual([1]);
+  });
+
+  it("leaves registered users' pictures to HTTP where the server serves them", () => {
+    const users = state(user(1, "aa"), { ...user(2, "bb"), userId: 7 });
+    expect(texturesToFetch(users, new Set(), true).sessions).toEqual([1]);
+    expect(texturesToFetch(users, new Set(), false).sessions).toEqual([1, 2]);
+  });
+});
+
+describe("onlinePicture", () => {
+  const png = bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1, 0, 0, 0, 1);
+  const base = "https://chat.example";
+  it("shows the bytes it has, else a registered user's picture by name and hash", () => {
+    const alice = { ...emptyUser(1), name: "alice / x", userId: 3, textureHash: "ab12" };
+    expect(onlinePicture(alice, base)).toBe("https://chat.example/api/avatars/alice%20%2F%20x?v=ab12");
+    expect(onlinePicture({ ...alice, texture: png }, base)).toMatch(/^data:image\/png/);
+    // The server does not serve them, guests, no picture.
+    expect(onlinePicture(alice, null)).toBeNull();
+    expect(onlinePicture({ ...alice, userId: null }, base)).toBeNull();
+    expect(onlinePicture({ ...alice, textureHash: null }, base)).toBeNull();
   });
 });
 

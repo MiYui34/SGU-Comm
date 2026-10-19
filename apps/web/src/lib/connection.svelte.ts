@@ -66,6 +66,8 @@ import { recordingUrl } from "./recording";
 // The server drops clients after 30 s without a ping. Each ping also
 // measures the round trip (see connectionInfo), so as in Mumble: often.
 const PING_INTERVAL_MS = 5_000;
+// Without ready by then, the server has no text channels (see fetchTextures).
+const NO_READY_MS = 3_000;
 
 // account: logged in to a Kallisti account (the server connects with the
 // account's certificate, and the client registers it on Murmur).
@@ -130,11 +132,13 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     askedDescriptions = next.asked;
     if (next.ids.length) send(requestDescriptions(next.ids));
   };
-  // Avatars too (see texturesToFetch).
+  // Avatars too (see texturesToFetch), once ready tells whether they come
+  // over HTTP, or a while after the sync without ready (no Kallisti server).
   let askedTextures: ReadonlySet<string> = new Set();
+  let noReady = false;
   const fetchTextures = () => {
-    if (state.status !== "synced") return;
-    const next = texturesToFetch(state, askedTextures);
+    if (state.status !== "synced" || !(text.available || noReady)) return;
+    const next = texturesToFetch(state, askedTextures, text.avatars);
     askedTextures = next.asked;
     if (next.sessions.length) send(requestTextures(next.sessions));
   };
@@ -173,7 +177,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   const routeAudio = (msg: MumbleMessage) => {
     if (msg.type === "Ping") info.pong(Number(msg.message.timestamp), performance.now());
     if (!playback) return;
-    if (msg.type === "UDPTunnel") {
+    // Not before the sync (the server may send voice first): local mutes
+    // and volumes are not set yet.
+    if (msg.type === "UDPTunnel" && state.status === "synced") {
       const packet = decodeAudio(audioFormat(state), msg.packet);
       if (packet) playback.handle(packet);
     } else if (msg.type === "UserRemove") {
@@ -199,6 +205,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       else if (ev?.type === "error" && ev.about === "manage" && tokenWaiter?.emoji) tokenWaiter.reject(new Error(ev.message));
       else if (ev?.type === "stream-token" || ev?.type === "recording-token") tokenWaiters[ev.type].shift()?.(ev.token);
       else if (ev) text = reduceText(text, ev);
+      if (ev?.type === "ready") fetchTextures();
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
     }
@@ -212,6 +219,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
         // The first measured one, after the first render: a busy page
         // reads the answer late.
         setTimeout(sendPing, 1000);
+        setTimeout(() => ((noReady = true), fetchTextures()), NO_READY_MS);
       }
       fetchDescriptions();
       fetchTextures();

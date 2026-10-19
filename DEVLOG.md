@@ -1029,3 +1029,52 @@ From `meta/research/discord-comparison.md`.
   music buffer. The bitrate rule keeps its 3 s.
 - The "larger playback buffer" hint counts only late audio of speech: the
   music buffer covers music speakers, the setting does not change them.
+
+## Audio after start (2026-10-19)
+
+- Setup: local built-in server, 25 registered Mumble users with avatars
+  (random-noise PNGs, 50-120 KB, 2 MB in all) in "General", one of them
+  talking without pause (20 ms Opus frames), 400 messages in "general"
+  (every 4th with a 70 KB JPEG). Listener: headless Chromium over raw
+  CDP, a guest who joins General at once; a hook counted per Mumble
+  message type and JSON event the bytes and arrival times on the socket,
+  and sampled playback's good/late/lost every 100 ms. Slow link: a TCP
+  proxy that gives all connections one bottleneck (8 or 3 Mbit/s down,
+  20 ms each way); Chromium's network throttling was not used. CPU x4:
+  CDP CPU throttling. 15 s per run, fresh profile (no cache).
+- Before, 8 Mbit/s: in the first 2.3 s the socket carried 2.0 MB of
+  avatar blobs (RequestBlob answers for all online users), then voice;
+  JSON (ready, one history page, voice chat) was 12 KB. Voice reached
+  the listener 2.2 s after the join, as a burst: 96 late (dropped)
+  chunks, then smooth. 3 Mbit/s: 5.6 s and 270 late chunks, the
+  reported "jerky for about 5 s, smooth once the history is in" (the
+  history page itself comes early: it goes out beside the blobs).
+  Unthrottled with CPU x4: 0.6 s and 19 late. So the cause was head-of-
+  line blocking in the per-client queue, not main-thread work.
+- After (a, below), same runs: voice 0.08 s (8 Mbit/s) and 0.15 s
+  (3 Mbit/s) after the join, 0 late chunks in 10 s (one run: 1), also
+  with CPU x4 and x6. The avatars still cross the same link over HTTP,
+  but no longer queue ahead of voice. Long tasks stayed at 140-170 ms
+  (CPU x1) and 370-640 ms (x4-x6) in the first 10 s without late audio,
+  so main-thread work (d) and deferring history or previews (b) were not
+  done: the numbers do not show them.
+- (a) Online registered users' pictures come from /api/avatars/<name>
+  ?v=<texture hash> (from UserState) instead of RequestBlob; the hash
+  makes them cacheable for good. For online users the endpoint serves
+  the live texture: the database gets it a moment after the UserState
+  with the new hash, and a client that asked in between would keep the
+  old picture (or a cached 404). ready's `avatars` says the server
+  serves them (built-in server without a password: as for offline
+  members, a private server keeps them private). The client asks for
+  textures only after ready, or 3 s after the sync without one (no
+  Kallisti server); guests and servers without the flag still use
+  RequestBlob.
+- (c) mumbled sends queued voice before other queued frames. Without
+  HTTP avatars (private server): voice starts after 0.7 s instead of
+  2.2 s (8 Mbit/s), late chunks 97 -> 47; at 3 Mbit/s 271 -> 225 with
+  gaps up to 1 s. Most of the backlog is below the queue (the pipe to the
+  bridge, the bridge's 32 KB writes, the TCP send buffer), so this only
+  helps a little; Murmur upstreams get nothing from it. Voice can now
+  come before ServerSync, so the web client plays voice only once
+  synced (local mutes and volumes are set then).
+- Not measured: WebKitGTK (Chromium only), the desktop app's UDP voice.
