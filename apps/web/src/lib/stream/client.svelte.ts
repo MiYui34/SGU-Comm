@@ -1,5 +1,6 @@
 import { shouldFallBack } from "../voice/fallback";
-import { cannotPlay, createAvClock, decodeFrame, decodeWatch, encodeFrame, pickCodec } from "./protocol";
+import { createPlayout, lastDue, type Playout } from "./playout";
+import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, pickCodec } from "./protocol";
 import { DEFAULT_LIMITS, DEFAULT_QUALITY, KINDS, cameraConstraints, encoding, nextCamera, parseLimits, sources, type Kind, type Quality } from "./quality";
 import Ticker from "./ticker.worker?worker";
 
@@ -10,7 +11,7 @@ import Ticker from "./ticker.worker?worker";
 
 const KEYFRAME_EVERY_MS = 8_000; // viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
-const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
+const MAX_DECODE_QUEUE = 30; // frames waiting in a decoder: skip to a keyframe
 const MAX_DECODE_ERRORS = 5; // decoder errors in a row without a picture: give up
 // Thumbnails for people not watching: small JPEGs, now and then.
 const PREVIEW_EVERY_MS = 15_000;
@@ -19,24 +20,31 @@ const PREVIEW_WIDTH = 320;
 const MAX_PREVIEW = 60_000; // characters of the data URL (the server takes 64 KiB)
 
 // Stream sound: Opus, 48 kHz mono, 20 ms frames (what Mumble clients get
-// too); played this far ahead, pictures waiting for it.
+// too).
 const SOUND: AudioEncoderConfig = { codec: "opus", sampleRate: 48_000, numberOfChannels: 1, bitrate: 64_000 };
-const SOUND_LEAD = 0.15;
-// A picture this far ahead of the sound clock: the clocks disagree, show it.
-const MAX_AHEAD = 1;
-const MAX_QUEUED_PICTURES = 30;
+// Watched pictures wait encoded for their time (see playout.ts) and go to
+// the decoder this long before it.
+const DECODE_AHEAD = 0.1;
+const MAX_PENDING = 240; // encoded pictures waiting: start over at a keyframe
+const MAX_QUEUED_PICTURES = 30; // decoded ones
 
 type Viewer = {
   decoder: VideoDecoder | null;
   codec: string;
   needKey: boolean;
   canvas: HTMLCanvasElement | null;
-  // With sound: its decoder, volume, clock and the pictures waiting for it.
+  // With sound: its decoder and volume.
   sound: AudioDecoder | null;
   gain: GainNode | null;
-  clock: ReturnType<typeof createAvClock>;
-  queue: VideoFrame[];
-  raf: number;
+  // Picture and sound on one clock: the audio context's with sound, else
+  // the page's.
+  playout: Playout;
+  // Encoded pictures and their play times (null: late, decoded for the
+  // ones after it but not shown), the play times of those in the decoder,
+  // and decoded ones waiting.
+  pending: { chunk: EncodedVideoChunk; when: number | null }[];
+  decoding: Map<number, number | null>;
+  queue: { frame: VideoFrame; when: number }[];
   failures: ReturnType<typeof decodeWatch>;
 };
 // One of our own streams (a screen share or the camera) while it runs.
@@ -385,11 +393,13 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       canvas: null,
       sound: null,
       gain: null,
-      clock: createAvClock(SOUND_LEAD),
+      playout: createPlayout(),
+      pending: [],
+      decoding: new Map(),
       queue: [],
-      raf: 0,
       failures: decodeWatch(MAX_DECODE_ERRORS),
     });
+    startLoop();
     watching = [...watched.keys()];
     try {
       await open();
@@ -416,17 +426,18 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   };
 
   // The stream's sound, into the app's audio context with its own volume.
+  // The playout's clock is the audio context's from now on.
   const listen = (session: number, v: Viewer) => {
     if (!audio || typeof AudioDecoder === "undefined") return;
     v.gain = new GainNode(audio, { gain: deaf ? 0 : (sounds[session] ?? 1) });
     v.gain.connect(audio.destination);
     v.sound = new AudioDecoder({
       output: (data) => {
-        const at = v.clock.at(data.timestamp, audio.currentTime);
+        const at = v.playout.at(data.timestamp, audio.currentTime);
         if (at !== null && v.gain) {
           const buffer = audio.createBuffer(1, data.numberOfFrames, data.sampleRate);
           data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
-          const src = new AudioBufferSourceNode(audio, { buffer });
+          const src = new AudioBufferSourceNode(audio, { buffer, playbackRate: v.playout.rate() });
           src.connect(v.gain);
           src.start(at);
         }
@@ -435,22 +446,69 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       error: () => {}, // the picture goes on
     });
     v.sound.configure(SOUND);
+    // Pictures timed on the page's clock are not shown.
+    v.playout.reset();
+    for (const p of v.pending) p.when = null;
+    for (const t of v.decoding.keys()) v.decoding.set(t, null);
+    v.queue.splice(0).forEach((q) => q.frame.close());
     sounds = { ...sounds, [session]: sounds[session] ?? 1 };
-    const present = () => {
-      v.raf = requestAnimationFrame(present);
-      let due: VideoFrame | undefined;
-      while (v.queue.length) {
-        const t = v.clock.time(v.queue[0]!.timestamp);
-        if (t !== null && t > audio.currentTime && t - audio.currentTime < MAX_AHEAD) break;
-        due?.close();
-        due = v.queue.shift();
-      }
-      if (due) {
-        draw(v, due);
-        due.close();
-      }
+  };
+
+  // Watched pictures are drawn on animation frames; in a hidden tab (none
+  // there) on a worker's timer, so picture-in-picture goes on, in sync.
+  let raf = 0;
+  let ticker: Worker | null = null;
+  const pumpAll = () => watched.forEach((v, session) => pump(session, v));
+  const tickRate = () => ticker?.postMessage(document.hidden ? 1000 / 60 : 1000);
+  const startLoop = () => {
+    if (ticker) return;
+    ticker = new Ticker();
+    ticker.onmessage = () => document.hidden && pumpAll();
+    tickRate();
+    document.addEventListener("visibilitychange", tickRate);
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      pumpAll();
     };
-    v.raf = requestAnimationFrame(present);
+    raf = requestAnimationFrame(frame);
+  };
+  const stopLoop = () => {
+    cancelAnimationFrame(raf);
+    document.removeEventListener("visibilitychange", tickRate);
+    ticker?.terminate();
+    ticker = null;
+  };
+
+  const clockOf = (v: Viewer) => (v.sound && audio ? audio.currentTime : performance.now() / 1000);
+
+  // Each tick: pictures whose time nears go to the decoder; the newest
+  // decoded one whose time came is drawn.
+  const pump = (session: number, v: Viewer) => {
+    const now = clockOf(v);
+    while (v.pending.length && (v.pending[0]!.when ?? 0) <= now + DECODE_AHEAD) decodeNext(session, v);
+    const i = lastDue(
+      v.queue.map((q) => q.when),
+      now,
+    );
+    if (i < 0) return;
+    const shown = v.queue.splice(0, i + 1);
+    draw(v, shown[i]!.frame);
+    shown.forEach((q) => q.frame.close());
+  };
+
+  const decodeNext = (session: number, v: Viewer) => {
+    const { chunk, when } = v.pending.shift()!;
+    const decoder = v.decoder;
+    if (!decoder || decoder.state !== "configured") return;
+    if (chunk.type !== "key" && decoder.decodeQueueSize > MAX_DECODE_QUEUE) return skipToKey(session, v); // too slow: skip ahead
+    v.decoding.set(chunk.timestamp, when);
+    decoder.decode(chunk);
+  };
+
+  const skipToKey = (session: number, v: Viewer) => {
+    if (!v.needKey) send({ type: "keyframe", session });
+    v.needKey = true;
+    v.pending = [];
   };
 
   // A decoder for a stream, then a keyframe to start from.
@@ -459,21 +517,20 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (!v) return;
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     v.needKey = true;
+    v.pending = [];
+    v.decoding.clear();
     v.codec = codec;
     v.decoder = new VideoDecoder({
       output: (frame) => {
         v.failures.decoded();
-        // With sound, pictures wait for it (see listen); before the first
-        // sound, and without, they show at once. So too in a hidden tab
-        // (no animation frames there): picture-in-picture goes on.
-        if (v.sound && !document.hidden && v.clock.time(frame.timestamp) !== null) {
-          v.queue.push(frame);
-          while (v.queue.length > MAX_QUEUED_PICTURES) v.queue.shift()!.close();
-          return;
+        const when = v.decoding.get(frame.timestamp);
+        for (const t of v.decoding.keys()) {
+          v.decoding.delete(t); // and older ones without output
+          if (t === frame.timestamp) break;
         }
-        v.queue.splice(0).forEach((f) => f.close()); // older than this one
-        draw(v, frame);
-        frame.close();
+        if (when == null) return frame.close(); // late
+        v.queue.push({ frame, when });
+        while (v.queue.length > MAX_QUEUED_PICTURES) v.queue.shift()!.frame.close();
       },
       error: () => {
         if (watched.get(session) !== v) return;
@@ -494,13 +551,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       if (v.sound?.state === "configured") v.sound.decode(new EncodedAudioChunk({ type: "key", timestamp: f.timestamp, data: f.data }));
       return;
     }
-    if (!f.key && (v.needKey || v.decoder.decodeQueueSize > MAX_DECODE_QUEUE)) {
-      if (!v.needKey) send({ type: "keyframe", session: f.session }); // too slow: skip ahead
-      v.needKey = true;
-      return;
+    if (!f.key && v.needKey) return;
+    if (v.pending.length >= MAX_PENDING) {
+      skipToKey(f.session, v);
+      if (!f.key) return;
     }
     v.needKey = false;
-    v.decoder.decode(new EncodedVideoChunk({ type: f.key ? "key" : "delta", timestamp: f.timestamp, data: f.data }));
+    const chunk = new EncodedVideoChunk({ type: f.key ? "key" : "delta", timestamp: f.timestamp, data: f.data });
+    v.pending.push({ chunk, when: v.playout.at(f.timestamp, clockOf(v)) });
   };
 
   const unwatch = (session: number, tell = true) => {
@@ -509,10 +567,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (tell) send({ type: "unwatch", session });
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     if (v.sound && v.sound.state !== "closed") v.sound.close();
-    cancelAnimationFrame(v.raf);
-    v.queue.forEach((f) => f.close());
+    v.queue.forEach((q) => q.frame.close());
     v.gain?.disconnect();
     watched.delete(session);
+    if (!watched.size) stopLoop();
     watching = [...watched.keys()];
     const { [session]: _, ...rest } = sounds;
     sounds = rest;

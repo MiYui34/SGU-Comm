@@ -152,6 +152,8 @@ func (c *conn) SendFrame(b []byte) bool {
 	}
 }
 
+func (c *conn) Room() bool { return len(c.frames) <= outFrames/4 }
+
 func (c *conn) SendText(v any) {
 	b, _ := json.Marshal(v) // our own messages always marshal
 	select {

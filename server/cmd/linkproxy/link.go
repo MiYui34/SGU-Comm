@@ -26,3 +26,31 @@ func (l *link) reserve(n int, now time.Time) time.Time {
 	l.free = start.Add(time.Duration(float64(n*8) / l.bps * float64(time.Second)))
 	return l.free
 }
+
+// jitter is one direction's varying delay, shared by all connections: an
+// extra delay up to max, drawn again each period (a link that stalls and
+// catches up, as Wi-Fi does). Chunks keep their order.
+type jitter struct {
+	mu    sync.Mutex
+	max   time.Duration // 0: none
+	every time.Duration
+	rand  func() float64 // in [0, 1)
+	extra time.Duration
+	drawn time.Time // when extra was drawn
+	last  time.Time // the latest arrival so far
+}
+
+// at returns when a chunk that passed the bottleneck at end arrives.
+func (j *jitter) at(end time.Time, delay time.Duration) time.Time {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.max > 0 && (j.drawn.IsZero() || end.Sub(j.drawn) >= j.every) {
+		j.extra, j.drawn = time.Duration(j.rand()*float64(j.max)), end
+	}
+	t := end.Add(delay + j.extra)
+	if t.Before(j.last) {
+		t = j.last
+	}
+	j.last = t
+	return t
+}

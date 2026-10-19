@@ -38,6 +38,7 @@ func (s *sink) SendFrame(b []byte) bool {
 	s.frames = append(s.frames, b)
 	return true
 }
+func (s *sink) Room() bool { return s.room != 0 }
 func (s *sink) SendText(v any) {
 	var m map[string]any
 	b, _ := json.Marshal(v)
@@ -215,16 +216,85 @@ func TestViewersAskForKeyframes(t *testing.T) {
 	h.now = func() time.Time { return time.Unix(100, 0) }
 	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
 	h.Watch(2, 1)
-	asked := func() int { return strings.Count(strings.Join(sinks[1].types(), ","), "keyframe") }
-	before := asked()
+	before := keyAsks(sinks[1])
 	h.now = func() time.Time { return time.Unix(102, 0) }
 	h.RequestKey(3, 1) // not a viewer
-	if asked() != before {
+	if keyAsks(sinks[1]) != before {
 		t.Fatal("a non-viewer asked for a keyframe")
 	}
 	h.RequestKey(2, 1)
-	if asked() != before+1 {
+	if keyAsks(sinks[1]) != before+1 {
 		t.Fatal("the viewer's request did not reach the streamer")
+	}
+}
+
+func keyAsks(s *sink) int { return strings.Count(strings.Join(s.types(), ","), "keyframe") }
+
+// A request within the limit waits for its end (a new viewer's decoder asks
+// right after the watch did; the keyframe for the watch came too early).
+func TestKeyframeRequestsWithinTheLimitAreKeptForLater(t *testing.T) {
+	h, _, sinks := setup()
+	now := time.Unix(100, 0)
+	h.now = func() time.Time { return now }
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	if keyAsks(sinks[1]) != 1 {
+		t.Fatal("the watch did not ask")
+	}
+	now = now.Add(100 * time.Millisecond)
+	h.RequestKey(2, 1)
+	h.Frame(1, frame(false, 1))
+	if keyAsks(sinks[1]) != 1 {
+		t.Fatal("asked within the limit")
+	}
+	now = now.Add(keyframeEvery)
+	h.Frame(1, frame(false, 2))
+	h.Frame(1, frame(false, 3))
+	if keyAsks(sinks[1]) != 2 {
+		t.Fatalf("asks: %d, want 2", keyAsks(sinks[1]))
+	}
+}
+
+// A viewer that was full asks for its keyframe once it has room again (a
+// keyframe asked for at once would find it still full).
+func TestAFullViewerAsksForAKeyframeWhenItHasRoom(t *testing.T) {
+	h, _, sinks := setup()
+	now := time.Unix(100, 0)
+	h.now = func() time.Time { return now }
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	h.Watch(2, 1)
+	h.Frame(1, frame(true, 1))
+	now = now.Add(time.Second)
+	sinks[2].room = 0 // full
+	h.Frame(1, frame(false, 2))
+	h.Frame(1, frame(false, 3))
+	if keyAsks(sinks[1]) != 1 {
+		t.Fatal("asked while the viewer is full")
+	}
+	sinks[2].room = -1
+	h.Frame(1, frame(false, 4))
+	h.Frame(1, frame(false, 5))
+	if keyAsks(sinks[1]) != 2 {
+		t.Fatalf("asks: %d, want 2", keyAsks(sinks[1]))
+	}
+	h.Frame(1, frame(true, 6))
+	if f := sinks[2].frames[len(sinks[2].frames)-1]; f[len(f)-1] != 6 {
+		t.Fatal("the keyframe did not reach the viewer")
+	}
+	// Full again soon: one slow viewer does not bring keyframes for all
+	// twice a second.
+	now = now.Add(time.Second)
+	sinks[2].room = 0
+	h.Frame(1, frame(false, 7))
+	sinks[2].room = -1
+	h.Frame(1, frame(false, 8))
+	if keyAsks(sinks[1]) != 2 {
+		t.Fatal("asked again within the viewer's limit")
+	}
+	now = now.Add(roomAskEvery)
+	h.Frame(1, frame(false, 9))
+	if keyAsks(sinks[1]) != 3 {
+		t.Fatalf("asks: %d, want 3", keyAsks(sinks[1]))
 	}
 }
 

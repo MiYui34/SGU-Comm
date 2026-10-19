@@ -120,3 +120,75 @@ Long tasks after: 140-170 ms (CPU x1), 370-640 ms (x4-x6).
 Smoke runs (5 users, 10 s, after the fix): `local` 0.02 s and 0 late
 (another run: 3, all in the first second), `8m` 0.08 s and 0 late,
 `3m:4` 0.15 s and 0 late.
+
+# Perf: stream playback
+
+Also manual. It checks how smoothly a viewer sees and hears a screen
+share on a slow, jittery link. It is the setup behind the DEVLOG entry
+"Stream playout buffer (2026-10-20)".
+
+`stream.sh` starts a fresh built-in server (no seed, no warmload) and,
+per scenario, one `linkproxy` with a bandwidth, a one-way delay and a
+varying extra delay (`-jitter`, drawn again every 300 ms; with
+`-jitter-chance` below 1, only that share of periods has one: spikes of
+half to full `-jitter`, as TCP resends after a loss). Then `stream.mjs`
+opens three headless Chromiums (`chrome.mjs`, the same raw CDP as
+measure.mjs):
+
+- a streamer (direct) whose `getDisplayMedia` gives a 1280x720 canvas at
+  30 fps: high motion like a video (moving gradients, noise, shapes) or,
+  with `MOTION=tab`, scrolling text; with a 440 Hz tone unless `SOUND=0`.
+  The app shares it at its default quality (720p30, about 4 Mbit/s);
+- a viewer direct and a viewer through the proxy, who join General and
+  click "Watch".
+
+Each page records what went over the stream socket (time, key/sound
+flags, timestamp, bytes), the streamer its encoder calls, the viewers
+each drawn picture (the canvas `drawImage` of a `VideoFrame`) and each
+scheduled sound buffer. Times are wall-clock times, so the pages can be
+compared. `stream-analyze.mjs` matches pictures by timestamp.
+
+```sh
+pnpm --filter @kallisti/web build
+CHROME=... tests/perf/stream.sh before
+```
+
+Scenarios (`SCENARIOS`, each run with and without sound, `SOUNDS`):
+`name=<down bits/s>:<delay>:<jitter>:<jitter chance>`. The default:
+
+| Name | Down | Delay | Jitter |
+| --- | --- | --- | --- |
+| local | no limit | 0 | none |
+| far | 10 Mbit/s | 75 ms (150 ms RTT) | spikes of 200-400 ms, 15 % of periods |
+| jitter | 8 Mbit/s | 20 ms | 0-200 ms, always |
+| tight | 5 Mbit/s | 75 ms | spikes of 150-300 ms, 15 % |
+
+Also used for the DEVLOG: `spiky=10e6:75ms:800ms:0.1` and
+`slow=3e6:75ms:0s:1` (below the stream's bitrate). One run with sound and
+one without per scenario, 20 s each (`DURATION`), takes about 40 s.
+`WORK` (default `$TMPDIR/kallisti-perf-stream`), `PORT` (18111),
+`PROXY_PORT` (18112) and `MUMBLE_PORT` (64830) as in run.sh.
+
+Output, per run: one streamer row (encodes and pictures sent per second,
+Mbit/s, keyframes and the largest, the mean delta frame, the encoder's
+queue, frames captured but not encoded, sends while the socket held over
+1.5 MB, keyframe requests from the server), then per viewer (by port;
+18112 is the proxy), from 3 s after the watch click on:
+
+- start s: first drawn picture after the click;
+- got fps, arr p95/max: pictures that arrived, and gaps between them;
+- draw fps, draw p50/p95/max: drawn pictures, and gaps between draws;
+- freezes: gaps over 200 ms between draws (count, total ms);
+- lost: pictures sent but never received (dropped by the server: upload
+  limit, or the viewer's queue full); undrawn: received, not drawn;
+- waits: runs of sent pictures that were not drawn, over 100 ms of
+  stream time (count, longest), as a wait for a keyframe;
+- latency: from send to draw;
+- sound got/dropped/jumps: packets received, not scheduled (late), and
+  breaks in the schedule (a gap or a new start of the clock);
+- key asks: keyframe requests of the viewer;
+- a/v: a picture's draw against its sound, ms (positive: the picture
+  late).
+
+The last 2 s of sent pictures are left out of lost, undrawn, waits and
+latency (still on the way).

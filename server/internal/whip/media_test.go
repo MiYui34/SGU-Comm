@@ -42,6 +42,8 @@ type got struct {
 	data       []byte
 }
 
+func (v *viewer) Room() bool { return true }
+
 func (v *viewer) SendFrame(b []byte) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()

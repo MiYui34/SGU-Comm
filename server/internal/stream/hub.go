@@ -22,10 +22,12 @@ type Voice interface {
 }
 
 // Sink is one session's stream connection. Sends never block: SendFrame
-// reports false when the connection is full (the frame is dropped). Close
-// ends a connection that a newer one of the session replaced.
+// reports false when the connection is full (the frame is dropped); Room
+// reports that it has room again (little is queued). Close ends a
+// connection that a newer one of the session replaced.
 type Sink interface {
 	SendFrame(b []byte) bool
+	Room() bool
 	SendText(v any)
 	Close()
 }
@@ -77,8 +79,9 @@ const (
 	audioFlag     = 2
 	cameraFlag    = 4
 	maxFrame      = 1 << 20
-	keyframeEvery = time.Second // keyframe requests to a streamer, at most
-	maxSound      = 1500        // bytes of one Opus packet (20 ms), at most
+	keyframeEvery = 500 * time.Millisecond // keyframe requests to a streamer, at most
+	roomAskEvery  = 2 * time.Second        // keyframe requests for a viewer that was full, at most
+	maxSound      = 1500                   // bytes of one Opus packet (20 ms), at most
 	speakEvery    = 2 * time.Second
 	previewEvery  = 5 * time.Second // thumbnails, at most
 	maxSide       = 4096
@@ -99,11 +102,16 @@ type stream struct {
 	config             Config
 	viewers            map[uint32]*viewer
 	askedKey           time.Time
+	wantKey            bool    // a keyframe request waits for the limit
 	ingest             *Ingest // a screen share fed by the server (WHIP), not by the connection
 }
 
-// viewer: waiting for a keyframe (new, or frames were dropped).
-type viewer struct{ needKey bool }
+// viewer: waiting for a keyframe (new, or frames were dropped), whether
+// the streamer was asked for it, and when it asked after it was full.
+type viewer struct {
+	needKey, asked bool
+	roomAsk        time.Time
+}
 
 type Hub struct {
 	voice Voice
@@ -229,7 +237,7 @@ func (h *Hub) Watch(viewerSession, streamer uint32) error {
 	case viewerSession == owner(streamer):
 		return errors.New("that is your own stream")
 	}
-	st.viewers[viewerSession] = &viewer{needKey: true}
+	st.viewers[viewerSession] = &viewer{needKey: true, asked: true}
 	h.viewersLocked(streamer, st)
 	h.text(viewerSession, streamText(streamer, st.config))
 	h.askKeyLocked(streamer, st)
@@ -318,6 +326,9 @@ func (h *Hub) forward(session uint32, f []byte, from *Ingest) {
 			h.OnSound(session, f[headerSize:], binary.BigEndian.Uint64(f[1:headerSize]))
 		}
 	}()
+	if st.wantKey {
+		h.askKeyLocked(streamer, st)
+	}
 	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
 	out = append(out, f...)
 	for v, vw := range st.viewers {
@@ -330,13 +341,18 @@ func (h *Hub) forward(session uint32, f []byte, from *Ingest) {
 			continue
 		}
 		if vw.needKey && !key {
+			// Full a moment ago: the keyframe is asked for once there is
+			// room for it (at once, it would be dropped too).
+			if now := h.now(); !vw.asked && sink.Room() && now.Sub(vw.roomAsk) >= roomAskEvery {
+				vw.asked, vw.roomAsk = true, now
+				h.askKeyLocked(streamer, st)
+			}
 			continue
 		}
 		if sink.SendFrame(out) {
 			vw.needKey = false
-		} else if !vw.needKey { // asked once; a viewer that stays full waits for the periodic keyframe
-			vw.needKey = true
-			h.askKeyLocked(streamer, st)
+		} else {
+			vw.needKey, vw.asked = true, false
 		}
 	}
 }
@@ -358,7 +374,7 @@ func (h *Hub) Dropped(streamer uint32) {
 
 func (h *Hub) droppedLocked(id uint32, st *stream) {
 	for _, vw := range st.viewers {
-		vw.needKey = true
+		vw.needKey, vw.asked = true, true
 	}
 	h.askKeyLocked(id, st)
 }
@@ -437,9 +453,12 @@ func streamText(session uint32, c Config) map[string]any {
 	return map[string]any{"type": "stream", "session": session, "codec": c.Codec, "width": c.Width, "height": c.Height, "audio": c.Audio}
 }
 
+// askKeyLocked asks the streamer for a keyframe, or, within the limit,
+// at the next frame after it.
 func (h *Hub) askKeyLocked(id uint32, st *stream) {
+	st.wantKey = true
 	if now := h.now(); now.Sub(st.askedKey) >= keyframeEvery {
-		st.askedKey = now
+		st.askedKey, st.wantKey = now, false
 		if st.ingest != nil {
 			st.ingest.hooks.Keyframe()
 		} else {

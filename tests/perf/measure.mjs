@@ -6,68 +6,13 @@
 //   CHROME=<headless chromium> node measure.mjs <app URL> <out.json> [cpu slowdown]
 //
 // DURATION: seconds after the join (default 15).
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { GENERAL, launch, loginAsGuest, sleep } from "./chrome.mjs";
 
 const [url, out, cpuArg] = process.argv.slice(2);
 if (!url || !out) throw new Error("usage: node measure.mjs <app URL> <out.json> [cpu slowdown]");
 const cpu = Number(cpuArg ?? 1);
 const DURATION = Number(process.env.DURATION ?? 15);
-const CHROME = process.env.CHROME;
-if (!CHROME) throw new Error("set CHROME to a Chromium binary (see README.md)");
-
-const port = 9300 + Math.floor(Math.random() * 600);
-const profile = mkdtempSync(join(tmpdir(), "kallisti-perf-chrome-"));
-// --headless: also keeps a full Chrome off the screen (the headless shell
-// ignores it).
-const chrome = spawn(
-  CHROME,
-  [
-    "--headless",
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`,
-    "--autoplay-policy=no-user-gesture-required",
-    "--use-fake-ui-for-media-stream",
-    "--use-fake-device-for-media-stream",
-    "--no-first-run",
-    "--no-sandbox",
-    "--disable-gpu",
-    "about:blank",
-  ],
-  { stdio: "ignore" },
-);
-process.on("exit", () => chrome.kill());
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-let target;
-for (let i = 0; i < 50 && !target; i++) {
-  await sleep(200);
-  try {
-    target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
-  } catch {}
-}
-if (!target) throw new Error(`no DevTools on port ${port}: is CHROME a Chromium?`);
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => {
-  ws.onopen = resolve;
-  ws.onerror = () => reject(new Error("DevTools connection failed"));
-});
-let id = 0;
-const waiting = new Map();
-ws.onmessage = (e) => {
-  const m = JSON.parse(e.data);
-  if (m.id && waiting.has(m.id)) waiting.get(m.id)(m), waiting.delete(m.id);
-};
-const cdp = (method, params = {}) =>
-  new Promise((resolve) => {
-    const n = ++id;
-    waiting.set(n, resolve);
-    ws.send(JSON.stringify({ id: n, method, params }));
-  });
-const evaluate = async (expr) => (await cdp("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
 // Runs in the page before the app: a silent microphone, the perf hook, and
 // a WebSocket wrapper that splits the Mumble socket's stream into frames.
@@ -114,25 +59,14 @@ const instrument = `(() => {
   };
 })();`;
 
-await cdp("Page.enable");
-await cdp("Runtime.enable");
-await cdp("Page.addScriptToEvaluateOnNewDocument", { source: instrument });
-if (cpu > 1) await cdp("Emulation.setCPUThrottlingRate", { rate: cpu });
+const page = await launch({ init: instrument, cpu });
+const { cdp, evaluate, waitFor } = page;
 await cdp("Page.navigate", { url });
-const waitFor = async (expr, timeout = 20000) => {
-  for (const end = Date.now() + timeout; Date.now() < end; await sleep(20)) if (await evaluate(expr)) return true;
-  throw new Error("timeout: " + expr);
-};
-const general = `[...document.querySelectorAll("nav button")].find((b) => /^\\s*General/.test(b.textContent))`;
-await waitFor(`!!document.querySelector("input[required]")`);
-await evaluate(`(() => { const i = document.querySelector("input[required]"); i.value = "listener${Math.floor(Math.random() * 1e4)}"; i.dispatchEvent(new Event("input", { bubbles: true })); document.querySelector("button[type=submit]").click(); })()`);
-await waitFor(`!!${general}`);
-await evaluate(`${general}.click(); window.__warm.joined = performance.now();`);
+await loginAsGuest(page, `listener${Math.floor(Math.random() * 1e4)}`);
+await waitFor(`!!${GENERAL}`);
+await evaluate(`${GENERAL}.click(); window.__warm.joined = performance.now();`);
 await sleep(DURATION * 1000);
 const avatars = await evaluate(`[...document.querySelectorAll("img")].filter((i) => i.naturalWidth && /avatars|data:image/.test(i.src)).length`);
 writeFileSync(out, await evaluate(`JSON.stringify(window.__warm)`));
-ws.close();
-chrome.kill();
-await once(chrome, "exit");
-rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+await page.close();
 console.log(`saved ${out} (${avatars} avatars shown)`);
