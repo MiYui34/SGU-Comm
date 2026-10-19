@@ -197,13 +197,14 @@ func run() error {
 			AllowedOrigins: cfg.AllowedOrigins, BytesPerSecond: streamBytesPerSecond,
 		})
 		if cfg.Builtin.WHIPPort != 0 {
-			wh, err := startWHIP(cfg.Builtin, builtinServer, accounts)
-			if err != nil {
-				return err
+			// Chat and voice go on without it (a name that did not resolve).
+			if wh, err := startWHIP(cfg.Builtin, builtinServer, accounts); err != nil {
+				slog.Error("streams from OBS are off", "err", err)
+			} else {
+				defer wh.Close()
+				mux.Handle(whip.Path, wh)
+				mux.Handle(whip.Path+"/", wh)
 			}
-			defer wh.Close()
-			mux.Handle(whip.Path, wh)
-			mux.Handle(whip.Path+"/", wh)
 		}
 	}
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything

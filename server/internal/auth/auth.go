@@ -509,7 +509,7 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Access-Control-Allow-Origin", origin)
-	h.Set("Access-Control-Allow-Methods", "GET, POST")
+	h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
 	h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kallisti-Session")
 	// The desktop app sends its token, never cookies.
 	if !config.IsAppOrigin(origin) {
