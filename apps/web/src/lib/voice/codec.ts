@@ -5,6 +5,7 @@
 // in, packets out, and back.
 import type { Closable } from "./encoderRotation";
 import { encoderConfig, SAMPLE_RATE } from "./opus";
+import { linuxApp } from "../desktop";
 
 export type CodecKind = "webcodecs" | "wasm";
 type EncoderConfig = ReturnType<typeof encoderConfig>;
@@ -33,6 +34,11 @@ export const chooseCodec = async (g: object = globalThis): Promise<CodecKind> =>
     return "wasm";
   }
 };
+
+// WebKitGTK 2.50 and 2.52 keep about 16 KB per decoded stereo frame when
+// AudioData.copyTo converts to f32-planar (copying f32 as it is crashes the
+// page): 0.8 MB/s for a music stream. The Linux app decodes with libopus.
+export const decoderKind = (kind: CodecKind, linux: boolean): CodecKind => (linux ? "wasm" : kind);
 
 // libopus wants interleaved samples; WebAudio and our worklet are planar.
 export const interleave = (planar: Float32Array<ArrayBuffer>, channels: number): Float32Array<ArrayBuffer> => {
@@ -197,7 +203,7 @@ export const voiceEncoder = (config: EncoderConfig, sink: EncoderSink): VoiceEnc
 
 export const voiceDecoder = (sink: DecoderSink): VoiceDecoder => {
   const r = whenReady(
-    codec().then((kind) => (kind === "webcodecs" ? webCodecsDecoder(sink) : wasmDecoder(sink))),
+    codec().then((kind) => (decoderKind(kind, linuxApp()) === "webcodecs" ? webCodecsDecoder(sink) : wasmDecoder(sink))),
     sink.error,
   );
   return { decode: (opus, timestamp) => r.run((d) => d.decode(opus, timestamp)), close: r.close };

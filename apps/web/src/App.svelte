@@ -11,6 +11,7 @@
     isKallisti,
     kallistiOrigin,
     kallistiSocket,
+    linuxApp,
     parseAddress,
     trustServer,
     type CertificateProblem,
@@ -24,6 +25,7 @@
   import { checkForUpdate } from "./lib/update";
   import { browserPushSupport, turnOffPush } from "./lib/push";
   import { voiceSupported } from "./lib/voice/support";
+  import { loadCaptureWorklet, startAfter } from "./lib/voice/worklet";
   import { settings } from "./lib/settings.svelte";
   import { themeOf } from "./lib/settings";
 
@@ -249,6 +251,8 @@
     void audio?.close();
     // Created here: browsers allow audio only after a user gesture.
     audio = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
+    // Linux app: the capture module first, then the output (see startAfter).
+    if (audio && linuxApp()) startAfter(audio, loadCaptureWorklet(audio));
     try {
       const { url, protocols } = await urlFor(credentials);
       if (mine !== starts) return;

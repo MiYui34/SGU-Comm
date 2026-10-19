@@ -7,6 +7,7 @@ import { fallbackMode, noiseLabel, type NoiseMode } from "./noise";
 import { micConstraints } from "../settings";
 import { encoderConfig, FRAME_MS, sendChannels } from "./opus";
 import { voiceEncoder, type VoiceEncoder } from "./codec";
+import { loadCaptureWorklet } from "./worklet";
 
 const FRAME_SIZE = 960; // 20 ms
 // Mumble counts frames in 10 ms steps.
@@ -137,7 +138,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   const workletNode = () => {
     if (nodePromise) return nodePromise;
     nodePromise = (async () => {
-      await ctx.audioWorklet.addModule(new URL("./capture.worklet.js", import.meta.url));
+      await loadCaptureWorklet(ctx);
       node = new AudioWorkletNode(ctx, "capture", {
         numberOfOutputs: 1,
         outputChannelCount: [1],
