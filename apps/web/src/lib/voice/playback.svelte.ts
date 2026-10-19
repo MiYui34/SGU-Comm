@@ -5,6 +5,7 @@ import { playoutFor, type PlaybackBuffer } from "./buffer";
 import { createMusicDetector, trackMusic, type MusicDetector } from "./music";
 import { chunkOutcome, nextStart, startsAnew, type PlayoutConfig } from "./schedule";
 import type { Counters } from "../connectionQuality";
+import { voiceDecoder, type VoiceDecoder } from "./codec";
 
 const SAMPLE_RATE = 48_000;
 // Mumble counts frames in 10 ms steps.
@@ -13,7 +14,7 @@ const SPEAKING_TIMEOUT_MS = 250;
 
 type Speaker = {
   session: number;
-  decoder: AudioDecoder;
+  decoder: VoiceDecoder;
   gain: GainNode;
   end: number | null;
   // The playout timing of the current stream (see playoutFor).
@@ -47,38 +48,38 @@ export const createPlayback = (ctx: AudioContext) => {
   // For the connection info (counters only: this is the audio path).
   const counters: Counters = { good: 0, late: 0, lost: 0 };
 
-  const play = (speaker: Speaker, data: AudioData) => {
+  // planes: one per channel (see VoiceDecoder).
+  const play = (speaker: Speaker, planes: Float32Array<ArrayBuffer>[], timestamp: number) => {
     const now = ctx.currentTime * SAMPLE_RATE;
     // A changed buffer (setting, music) applies from the next start: never
     // cut a stream.
     if (startsAnew(speaker.end, now))
       speaker.cfg = playoutFor(delaySetting, speaker.music.music || listenOnly.has(speaker.session));
     const start = nextStart(speaker.end, now, speaker.cfg);
-    const duration = (data.numberOfFrames / SAMPLE_RATE) * 1e6;
-    const chunk = speaker.queued.shift() ?? { at: data.timestamp, end: false };
+    const frames = planes[0]?.length ?? 0;
+    const duration = (frames / SAMPLE_RATE) * 1e6;
+    const chunk = speaker.queued.shift() ?? { at: timestamp, end: false };
     const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: chunk.at, duration, start, prevEnd: speaker.end, now });
     counters[late ? "late" : "good"]++;
     counters.lost += lost;
     speaker.next = chunk.end ? null : chunk.at + duration;
-    if (start === null) return data.close();
+    if (start === null || !frames) return;
     // Stereo streams (music bots) keep both channels; voice is mono in
     // both.
-    const buffer = ctx.createBuffer(data.numberOfChannels, data.numberOfFrames, data.sampleRate);
-    for (let ch = 0; ch < data.numberOfChannels; ch++)
-      data.copyTo(buffer.getChannelData(ch), { planeIndex: ch, format: "f32-planar" });
+    const buffer = ctx.createBuffer(planes.length, frames, SAMPLE_RATE);
+    planes.forEach((plane, ch) => buffer.copyToChannel(plane, ch));
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(speaker.gain);
     source.start(start / SAMPLE_RATE);
-    speaker.end = start + data.numberOfFrames;
-    data.close();
+    speaker.end = start + frames;
   };
 
   const remove = (session: number) => {
     const speaker = speakers.get(session);
     if (!speaker) return;
     clearTimeout(speaker.timer);
-    if (speaker.decoder.state !== "closed") speaker.decoder.close();
+    speaker.decoder.close();
     speaker.gain.disconnect();
     speakers.delete(session);
     speaking.delete(session);
@@ -98,15 +99,14 @@ export const createPlayback = (ctx: AudioContext) => {
       music: createMusicDetector(),
       next: null,
       queued: [],
-      decoder: new AudioDecoder({
-        output: (data) => play(speaker, data),
+      // Two channels: stereo packets keep their image, mono ones come out
+      // the same on both sides.
+      decoder: voiceDecoder({
+        output: (planes, timestamp) => play(speaker, planes, timestamp),
         // A broken stream: drop the decoder, the next packet makes a new one.
         error: (err) => (console.warn("decoder error", session, err), remove(session)),
       }),
     };
-    // Two channels: stereo packets keep their image, mono ones come out the
-    // same on both sides.
-    speaker.decoder.configure({ codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 });
     speakers.set(session, speaker);
     return speaker;
   };
@@ -138,10 +138,10 @@ export const createPlayback = (ctx: AudioContext) => {
         }
         trackMusic(speaker.music, packet.opus);
         speaker.queued.push({ at, end: packet.terminator });
-        speaker.decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: at, data: packet.opus }));
+        speaker.decoder.decode(packet.opus, at);
       } catch (err) {
-        // For example a decoder that failed and is closed, before its error
-        // callback ran. Drop it, the next packet makes a new one.
+        // Decoder failures go to its error callback; this is for anything
+        // else. Drop the decoder, the next packet makes a new one.
         console.warn("voice packet dropped", packet.session, err);
         remove(packet.session);
       }

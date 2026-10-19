@@ -5,7 +5,8 @@ import { levelDb, shouldTransmit, vadStep, voiceLevel, type TransmitMode, type V
 import rnnoiseUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
 import { fallbackMode, noiseLabel, type NoiseMode } from "./noise";
 import { micConstraints } from "../settings";
-import { encoderConfig, FRAME_MS, SAMPLE_RATE, sendChannels } from "./opus";
+import { encoderConfig, FRAME_MS, sendChannels } from "./opus";
+import { voiceEncoder, type VoiceEncoder } from "./codec";
 
 const FRAME_SIZE = 960; // 20 ms
 // Mumble counts frames in 10 ms steps.
@@ -86,13 +87,11 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // the settings of the current one.
   const encoderKey = () => `${music}/${channels}`;
   let madeFor = "";
-  const makeEncoder = (): AudioEncoder => {
-    const encoder: AudioEncoder = new AudioEncoder({
-      output: (chunk) => {
+  const makeEncoder = (): VoiceEncoder => {
+    const encoder = voiceEncoder(encoderConfig(music, channels), {
+      output: (opus) => {
         const input = encoders.output(encoder);
         if (!input) return; // after the last input (see encoderRotation)
-        const opus = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(opus);
         send({ target: 0, frameNumber: Math.round(input.timestamp / MUMBLE_FRAME_US), opus, terminator: input.terminator });
       },
       error: (err) => {
@@ -100,35 +99,19 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
         micError = `Voice encoder failed: ${err.message}`;
       },
     });
-    encoder.configure(encoderConfig(music, channels));
     madeFor = encoderKey();
-    // close() throws on an encoder that already failed and closed itself.
-    const close = encoder.close.bind(encoder);
-    encoder.close = () => {
-      if (encoder.state !== "closed") close();
-    };
     return encoder;
   };
-  const encoders = createEncoderRotation<AudioEncoder, { timestamp: number; terminator: boolean }>(makeEncoder);
+  const encoders = createEncoderRotation<VoiceEncoder, { timestamp: number; terminator: boolean }>(makeEncoder);
 
   const encode = (samples: Float32Array<ArrayBuffer>, terminator: boolean) => {
     const encoder = encoders.current();
-    if (encoder.state !== "configured") return;
-    const data = new AudioData({
-      format: "f32-planar",
-      sampleRate: SAMPLE_RATE,
-      numberOfFrames: FRAME_SIZE,
-      numberOfChannels: channels,
-      timestamp,
-      data: samples,
-    });
     encoders.encoded(encoder, { timestamp, terminator });
+    encoder.encode(samples, timestamp);
     timestamp += FRAME_MS * 1000;
-    encoder.encode(data);
-    data.close();
     // The last frame: flush, so an encoder that holds a packet back gives it
     // out. An extra packet after it (Chrome's lookahead) is dropped.
-    if (terminator) encoder.flush().catch(() => {}); // closed meanwhile
+    if (terminator) encoder.flush();
   };
 
   const onFrame = (samples: Float32Array<ArrayBuffer>, voiceProbability: number | undefined) => {
@@ -137,8 +120,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     // gives out the packet it holds back (see encode).
     channels = samples.length / FRAME_SIZE;
     if (encoderKey() !== madeFor) {
-      const old = encoders.current();
-      if (old.state === "configured") old.flush().catch(() => {});
+      encoders.current().flush();
       encoders.renew();
     }
     level = levelDb(samples);

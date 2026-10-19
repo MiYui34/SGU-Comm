@@ -1,6 +1,7 @@
 pub mod bridge;
 pub mod crypt;
 pub mod frames;
+pub mod media;
 pub mod ocb2;
 pub mod pins;
 pub mod udp;
@@ -48,6 +49,13 @@ pub fn run() {
             let b = tauri::async_runtime::block_on(bridge::start(origins(), pins.clone()))?;
             app.manage(BridgeInfo { port: b.port, secret: b.secret });
             app.manage(pins);
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                // Without it only voice is off: start anyway.
+                if let Err(err) = media::allow_own_media(&window, origins()) {
+                    eprintln!("microphone access not set up: {err}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![bridge_info, trust_server])

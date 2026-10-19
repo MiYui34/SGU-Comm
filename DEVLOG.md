@@ -940,3 +940,31 @@ From `meta/research/discord-comparison.md`.
 - A member "picture" event goes out on every texture save by a
   registered user, also when the flag stays the same: the web only keeps
   the set of ids, and the URL is revalidated by ETag anyway.
+
+## Linux desktop audio (2026-10-19)
+
+- Report: the AppImage had no voice in or out. Reproduced in podman
+  (Ubuntu 22.04 arm64, the CI's WebKitGTK 2.50.4) with the real app
+  binary and AppImage, Xvfb and PulseAudio null devices. Three causes:
+  - No GStreamer plugins in the AppImage. WebKitGTK plays WebAudio,
+    records the microphone and does WebCodecs Opus with them. Without:
+    "autoaudiosink not found" (the AudioContext stays suspended), no
+    capture devices, and isConfigSupported says no to Opus. Fix:
+    `bundleMediaFramework` (+10 MB on arm64; the AppImage carries what
+    the runner has installed, so CI installs plugins-base and -good;
+    pulsesink/pulsesrc are in -good and also serve PipeWire).
+  - getUserMedia: NotAllowedError until the app answers WebKitGTK's
+    permission-request. media.rs allows UserMediaPermissionRequest for
+    our own origins only. enable-media-stream is on by default in 2.50,
+    set anyway for older ones. No DeviceInfoPermissionRequest came for
+    enumerateDevices (labels come after getUserMedia, as elsewhere).
+  - WebCodecs may lack Opus (no plugins, older WebKitGTK): codec.ts
+    falls back to libopus-wasm (MIT, 440 kB chunk, loaded only then;
+    the CSP already allowed wasm-unsafe-eval). The choice is made once
+    per page from isConfigSupported. Encoder and decoder have one small
+    interface (planar floats in, packets out); calls made while the
+    codec loads wait in order.
+- WebKitGTK 2.50 has AudioWorklet, AudioContext at 48 kHz and WebCodecs
+  audio; it lists no audio outputs and has no setSinkId, so the output
+  picker stays hidden there.
+- KALLISTI_DEVTOOLS=1 turns on the web inspector on Linux.
