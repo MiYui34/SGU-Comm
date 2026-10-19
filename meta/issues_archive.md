@@ -201,3 +201,4 @@
 - [x] [Recording a voice channel](issues/channel-recording.md)
 - [x] [Streaming: camera and quality while live](issues/streaming-camera.md)
 - [x] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)
+- [x] [Streaming from OBS (WHIP)](issues/obs-whip-ingest.md)
