@@ -8,6 +8,7 @@
 - [ ] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
   - [ ] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
   - [ ] [Streaming: camera and quality while live](issues/streaming-camera.md)
+  - [ ] [Streaming from OBS (WHIP)](issues/obs-whip-ingest.md)
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Recording a voice channel](issues/channel-recording.md)
