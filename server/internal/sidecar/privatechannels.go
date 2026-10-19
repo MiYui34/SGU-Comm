@@ -16,7 +16,7 @@ import (
 // channel's mirror) and its members.
 type PrivateChannel struct {
 	Channel uint32   `json:"channel"`
-	Members []Member `json:"members,omitempty"` // for staff only
+	Members []Member `json:"members,omitempty"` // for staff and members only
 }
 
 // Member is a registered user in a private channel.
@@ -30,7 +30,9 @@ func (h *Hub) channelsFor(id mumble.Identity) []wireChannel {
 	return slices.DeleteFunc(all, func(c wireChannel) bool { return !h.may(id, chat{id: c.ID}, false) })
 }
 
-// privateFor: the private channels the user sees, with members for staff.
+// privateFor: the private channels the user sees, with members for staff
+// and the channel's members (who reads it, see the member list); not for
+// others who see it (by an ACL from a Mumble client).
 func (h *Hub) privateFor(id mumble.Identity) []PrivateChannel {
 	staff := h.voice.MayManage(id.Session)
 	out := []PrivateChannel{}
@@ -38,7 +40,7 @@ func (h *Hub) privateFor(id mumble.Identity) []PrivateChannel {
 		if !h.voice.Sees(id.Session, p.Channel) {
 			continue
 		}
-		if !staff {
+		if !staff && !(id.Registered && slices.ContainsFunc(p.Members, func(m Member) bool { return m.ID == id.UserID })) {
 			p.Members = nil
 		}
 		out = append(out, p)

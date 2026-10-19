@@ -1,4 +1,5 @@
 import { byName } from "@kallisti/protocol";
+import { roleOf, type Roles } from "./roles";
 import type { Peer } from "./textChannels";
 
 // Registered users by id (built-in server, without guest accounts): the
@@ -36,6 +37,38 @@ export type OnlineRow<U> = { user: U } | { member: OnlineMember };
 export const onlineRows = <U extends { name: string }>(users: readonly U[], hidden: readonly OnlineMember[]): OnlineRow<U>[] => {
   const name = (r: OnlineRow<U>) => ("user" in r ? r.user.name : r.member.name);
   return [...users.map((user) => ({ user })), ...hidden.map((member) => ({ member }))].sort((a, b) => byName(name(a), name(b)));
+};
+
+// Who reads a private channel: its members, then staff (admins and
+// moderators, who see every private channel), each user once. Online
+// first, then offline (faded), each by name. Names from the member list,
+// the channel's list (also guest accounts) and the users we see. Null for
+// us (me) if we are neither (the server sends members to readers only).
+export type ReaderRow<U> = OnlineRow<U> | { offline: Peer };
+export type ReaderGroup<U> = { title: "Members" | "Staff"; rows: ReaderRow<U>[] };
+export const readerGroups = <U extends { name: string; userId: number | null }>(
+  members: readonly Peer[],
+  roles: Roles,
+  registered: Members,
+  online: Online,
+  users: readonly U[],
+  me: number | null,
+): ReaderGroup<U>[] | null => {
+  const isStaff = (id: number) => roleOf(roles, id) !== null;
+  if (me === null || !(isStaff(me) || members.some((m) => m.id === me))) return null;
+  const names: Record<number, string> = { ...registered, ...Object.fromEntries(members.map((m) => [m.id, m.name])) };
+  for (const u of users) if (u.userId !== null) names[u.userId] = u.name;
+  const rows = (ids: number[]): ReaderRow<U>[] => {
+    const some: Members = Object.fromEntries(ids.map((id) => [id, names[id]!]));
+    const seen = users.filter((u) => u.userId !== null && u.userId in some);
+    const offline = offlineMembers(some, online, users).map((p) => ({ offline: p }));
+    return [...onlineRows(seen, hiddenMembers(some, online, users)), ...offline];
+  };
+  const groups: ReaderGroup<U>[] = [
+    { title: "Members", rows: rows(members.map((m) => m.id).filter((id) => !isStaff(id))) },
+    { title: "Staff", rows: rows(Object.keys(names).map(Number).filter(isStaff)) },
+  ];
+  return groups.filter((g) => g.rows.length);
 };
 
 // The names of members with a saved picture (see TextState.pictures).

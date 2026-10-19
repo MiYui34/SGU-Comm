@@ -3,7 +3,7 @@
   import type { UserStatus } from "../lib/presence";
   import type { User } from "@kallisti/protocol";
   import type { Peer } from "../lib/textChannels";
-  import { onlineRows, type OnlineMember } from "../lib/members";
+  import { onlineRows, type OnlineMember, type ReaderGroup, type ReaderRow } from "../lib/members";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
   import Emoji from "./Emoji.svelte";
@@ -18,6 +18,7 @@
     onUserMenu,
     offline = [],
     hidden = [],
+    readers = null,
     onMemberMenu = () => {},
     roleOf = () => null,
     statusOf = () => ({ presence: "online", custom: null }),
@@ -34,6 +35,8 @@
     // cannot see (see lib/members): their menu goes by user id.
     offline?: Peer[];
     hidden?: OnlineMember[];
+    // In a private channel: who reads it, instead of the groups above.
+    readers?: ReaderGroup<User>[] | null;
     onMemberMenu?: (userId: number, event: MouseEvent) => void;
     roleOf?: (user: Pick<User, "userId">) => Role | null;
     statusOf?: (session: number) => UserStatus;
@@ -60,18 +63,22 @@
   </li>
 {/snippet}
 
-<!-- Members in channels we cannot see: online, without a channel. -->
-{#snippet section(title: string, users: User[], members: OnlineMember[] = [])}
-  {#if users.length || members.length}
-    <h2>{title} — {users.length + members.length}</h2>
+<!-- A group: users we see, members online in channels we cannot see
+     (without a channel), offline members. -->
+{#snippet rows(title: string, list: ReaderRow<User>[])}
+  {#if list.length}
+    <h2>{title} — {list.length}</h2>
     <ul>
-      {#each onlineRows(users, members) as r ("user" in r ? `s${r.user.session}` : `u${r.member.id}`)}
+      {#each list as r ("user" in r ? `s${r.user.session}` : "member" in r ? `u${r.member.id}` : `o${r.offline.id}`)}
         {#if "user" in r}
           {@const user = r.user}
           {@render row(user.name, roleOf(user), statusOf(user.session), speaking.has(user.session), (e) => onUserMenu(user.session, e))}
-        {:else}
+        {:else if "member" in r}
           {@const p = r.member}
           {@render row(p.name, roleOf({ userId: p.id }), statusOf(p.session), false, (e) => onMemberMenu(p.id, e))}
+        {:else}
+          {@const p = r.offline}
+          {@render row(p.name, roleOf({ userId: p.id }), null, false, (e) => onMemberMenu(p.id, e))}
         {/if}
       {/each}
     </ul>
@@ -79,15 +86,14 @@
 {/snippet}
 
 <aside aria-label="Members" {inert}>
-  {@render section(`In ${channelName}`, here)}
-  {@render section("Online", elsewhere, hidden)}
-  {#if offline.length}
-    <h2>Offline — {offline.length}</h2>
-    <ul>
-      {#each offline as p (p.id)}
-        {@render row(p.name, roleOf({ userId: p.id }), null, false, (e) => onMemberMenu(p.id, e))}
-      {/each}
-    </ul>
+  {#if readers}
+    {#each readers as g (g.title)}
+      {@render rows(g.title, g.rows)}
+    {/each}
+  {:else}
+    {@render rows(`In ${channelName}`, onlineRows(here, []))}
+    {@render rows("Online", onlineRows(elsewhere, hidden))}
+    {@render rows("Offline", offline.map((p) => ({ offline: p })))}
   {/if}
 </aside>
 

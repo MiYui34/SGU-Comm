@@ -1215,3 +1215,15 @@ From `meta/research/discord-comparison.md`.
   createOscillator wrapped to log the notes: join, mute, another user's
   login into the lobby (silent), join and leave, deafen and undeafen.
 - Gap: a reconnect was not tested by hand.
+
+## Who reads a private channel (2026-10-19)
+
+- No new event: the "private" list (sent again on every access, member
+  and role change) now has the members also for the channel's members.
+  Others who see the channel (by an ACL from a Mumble client) still get
+  it without members; the client then shows the normal list, as it
+  cannot tell "no members" from "not told".
+- Staff come from the roles list, which everyone already gets. Each user
+  shows once: a staff member who is also a member is under Staff.
+- Groups keep online users first, offline ones faded below, instead of
+  four headings (Members online/offline, Staff online/offline).
