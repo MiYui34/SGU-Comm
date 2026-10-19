@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyUser, initialState, type ServerState, type User } from "@kallisti/protocol";
-import { listenOnlyAction, speakerCandidates } from "../src/lib/listenOnly";
+import { listenOnlyAction, listenOnlySessions, speakerCandidates } from "../src/lib/listenOnly";
 import { initialTextState, manageRequest, parseServerEvent, reduceText } from "../src/lib/textChannels";
 
 const user = (session: number, name: string, userId: number | null): User => ({ ...emptyUser(session), name, userId });
@@ -17,6 +17,14 @@ describe("speakerCandidates", () => {
       { id: 9, name: "jukebox" },
       { id: 5, name: "zoe" },
     ]);
+  });
+});
+
+describe("listenOnlySessions", () => {
+  it("finds who is in a listen-only channel (only speakers can speak there)", () => {
+    const s = server({ ...user(1, "jukebox", 9), channelId: 4 }, { ...user(2, "amy", 6), channelId: 3 }, user(3, "zoe", 5));
+    expect(listenOnlySessions(s, { 4: [] })).toEqual(new Set([1]));
+    expect(listenOnlySessions(s, {})).toEqual(new Set());
   });
 });
 

@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ConnectionInfo } from "../lib/connectionInfo.svelte";
-  import { connectionLabel, WINDOW_MS } from "../lib/connectionQuality";
+  import { biggerBuffer, connectionLabel, WINDOW_MS } from "../lib/connectionQuality";
+  import { settings } from "../lib/settings.svelte";
+  import { bufferLabel, type PlaybackBuffer } from "../lib/voice/buffer";
 
   // The signal icon next to "Voice connected", as in Discord; its popup has
   // the numbers. They change with each ping (every 5 s).
@@ -14,6 +16,21 @@
   // Bars lit: good 3, fair 2, poor 1, not known yet 0.
   const bars = $derived(info.level === "good" ? 3 : info.level === "fair" ? 2 : info.level === "poor" ? 1 : 0);
   const ms = (v: number) => `${Math.round(v)} ms`;
+  // Much late audio: offer the next playback buffer. After a change the
+  // old late audio stays in the window: no second offer until it is out
+  // (checked with each ping, when `info` changes).
+  const next = $derived(biggerBuffer(info.late, settings.value.playbackBuffer));
+  let changed = $state<{ buffer: PlaybackBuffer; at: number } | null>(null);
+  const justChanged = $derived.by(() => {
+    void info;
+    return changed && performance.now() - changed.at <= WINDOW_MS ? changed.buffer : null;
+  });
+  const useBuffer = (b: PlaybackBuffer) => {
+    settings.update({ playbackBuffer: b });
+    changed = { buffer: b, at: performance.now() };
+    // The clicked button goes away.
+    button?.focus();
+  };
 
   const close = (e: Event) => {
     if (!open) return;
@@ -54,6 +71,17 @@
         <dd>{info.transport}</dd>
       </dl>
       <p>Over the last {WINDOW_MS / 1000} s.</p>
+      <!-- Always there, so screen readers announce the change. -->
+      <div role="status">
+        {#if justChanged}
+          <p class="tip">Playback buffer: {bufferLabel(justChanged)}.</p>
+        {:else if next}
+          <p class="tip">
+            Late audio: {Math.round(info.late ?? 0)} %. Try a larger playback buffer.
+            <button type="button" class="link" onclick={() => useBuffer(next)}>Use {bufferLabel(next)}</button>
+          </p>
+        {/if}
+      </div>
     </div>
   {/if}
 </span>
@@ -121,5 +149,16 @@
     margin: 6px 0 0;
     color: var(--text-faint);
     font-size: 11px;
+  }
+  .tip {
+    max-width: 220px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .link {
+    color: var(--link);
+  }
+  .link:hover {
+    text-decoration: underline;
   }
 </style>

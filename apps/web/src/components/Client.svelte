@@ -66,6 +66,7 @@
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
+  import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
   import StreamStage from "./StreamStage.svelte";
@@ -164,6 +165,7 @@
   const musicMode = $derived(prefs.musicMode);
   $effect(() => capture?.setMusicMode(musicMode));
   $effect(() => connection.playback?.setOutputDevice(prefs.outputDeviceId));
+  $effect(() => connection.playback?.setBuffer(prefs.playbackBuffer));
   // Opens the microphone while it is used (see micWanted), and reopens it
   // when the device setting changes. Own deriveds: `prefs` is a new object
   // on every settings change, and only a device change may reopen it.
@@ -393,6 +395,8 @@
   // Text channels (Kallisti server only). Like Discord, open the first one
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
+  const listenOnlyUsers = $derived(listenOnlySessions(server, text.listenOnly));
+  $effect(() => connection.playback?.setListenOnly(listenOnlyUsers));
   // Recorded voice channels; staff record and download (see lib/recording).
   const recorded = $derived(new Set(text.recording ?? []));
   const staffRecords = $derived(mayRecord(server, text));

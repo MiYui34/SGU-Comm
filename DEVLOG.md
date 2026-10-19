@@ -908,3 +908,25 @@ From `meta/research/discord-comparison.md`.
   picture in a browser was not checked; it now shows the H.264 message.
 - Opening Settings in headless Chromium leaves the page (about:blank),
   also before this change: the Settings section was not checked there.
+
+## Playback buffer (2026-10-19)
+
+- Setting "Playback buffer": Low 60 ms (default), Medium 120 ms, High
+  250 ms. The maximum queue is the start delay + 240 ms (60 ms gave the
+  old 300 ms), so a larger buffer is not cut away.
+- Music gets 500 ms (or the setting, if larger): who is in a listen-only
+  channel (only speakers can speak there; `listenOnlySessions`), and who
+  sends music. Music: per 1 s of audio (durations from the Opus TOC), a
+  stereo packet or more than 64 kbps (our speech is 40 kbps mono, music
+  mode 128 kbps). 3 music seconds in a row switch to music, 10 speech
+  seconds back; silence counts for neither, so a jukebox stays music
+  between tracks. Counters only, in place: it runs for each packet.
+- Each speaker's timing is chosen when its stream starts or stalls, so a
+  change never cuts audio mid-stream.
+- The connection info offers the next level ("Use Medium (120 ms)")
+  from 2 % late audio (the "good" limit). A button that sets the level
+  was simpler than opening the settings at the right place. The old late
+  audio stays in the 30 s window, so after a change it shows the new
+  level instead of a second offer.
+- The desktop app's bridge forwards voice to the same web playback, so
+  all of this applies there too.

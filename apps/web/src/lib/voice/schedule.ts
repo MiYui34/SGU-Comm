@@ -7,13 +7,17 @@
 // latency cannot grow and audio never overlaps.
 export type PlayoutConfig = { startDelay: number; maxLatency: number };
 
+// A new stream, or one whose queue ran dry: the next chunk waits
+// `startDelay`.
+export const startsAnew = (prevEnd: number | null, now: number) => prevEnd === null || prevEnd < Math.round(now);
+
 export const nextStart = (
   prevEnd: number | null,
   now: number,
   cfg: PlayoutConfig,
 ): number | null => {
   const t = Math.round(now);
-  if (prevEnd === null || prevEnd < t) return t + cfg.startDelay;
+  if (prevEnd === null || startsAnew(prevEnd, now)) return t + cfg.startDelay;
   return prevEnd > t + cfg.maxLatency ? null : prevEnd;
 };
 

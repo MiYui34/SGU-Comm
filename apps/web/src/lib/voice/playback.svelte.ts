@@ -1,20 +1,24 @@
 import type { AudioPacket } from "@kallisti/protocol";
 import { SvelteSet } from "svelte/reactivity";
 import { createLimiter } from "./limiter";
-import { chunkOutcome, nextStart, type PlayoutConfig } from "./schedule";
+import { playoutFor, type PlaybackBuffer } from "./buffer";
+import { createMusicDetector, trackMusic, type MusicDetector } from "./music";
+import { chunkOutcome, nextStart, startsAnew, type PlayoutConfig } from "./schedule";
 import type { Counters } from "../connectionQuality";
 
 const SAMPLE_RATE = 48_000;
 // Mumble counts frames in 10 ms steps.
 const FRAME_US = 10_000;
 const SPEAKING_TIMEOUT_MS = 250;
-// 60 ms start delay, 300 ms maximum queue, in samples.
-const PLAYOUT: PlayoutConfig = { startDelay: 2880, maxLatency: 14_400 };
 
 type Speaker = {
+  session: number;
   decoder: AudioDecoder;
   gain: GainNode;
   end: number | null;
+  // The playout timing of the current stream (see playoutFor).
+  cfg: PlayoutConfig;
+  music: MusicDetector;
   // Where the stream goes on (µs, null: a new talk spurt), and for each
   // chunk in the decoder (outputs come in order) its frame time and whether
   // it ends a spurt (see chunkOutcome). Not the output's timestamp: a
@@ -37,12 +41,19 @@ export const createPlayback = (ctx: AudioContext) => {
   output.connect(limiter.input);
   limiter.output.connect(ctx.destination);
   let deaf = false;
+  let delaySetting: PlaybackBuffer = "low";
+  // Who is in a listen-only channel: they get the music buffer.
+  let listenOnly: ReadonlySet<number> = new Set();
   // For the connection info (counters only: this is the audio path).
   const counters: Counters = { good: 0, late: 0, lost: 0 };
 
   const play = (speaker: Speaker, data: AudioData) => {
     const now = ctx.currentTime * SAMPLE_RATE;
-    const start = nextStart(speaker.end, now, PLAYOUT);
+    // A changed buffer (setting, music) applies from the next start: never
+    // cut a stream.
+    if (startsAnew(speaker.end, now))
+      speaker.cfg = playoutFor(delaySetting, speaker.music.music || listenOnly.has(speaker.session));
+    const start = nextStart(speaker.end, now, speaker.cfg);
     const duration = (data.numberOfFrames / SAMPLE_RATE) * 1e6;
     const chunk = speaker.queued.shift() ?? { at: data.timestamp, end: false };
     const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: chunk.at, duration, start, prevEnd: speaker.end, now });
@@ -80,8 +91,11 @@ export const createPlayback = (ctx: AudioContext) => {
     gain.gain.value = gains.get(session) ?? 1;
     gain.connect(output);
     const speaker: Speaker = {
+      session,
       gain,
       end: null,
+      cfg: playoutFor(delaySetting, false),
+      music: createMusicDetector(),
       next: null,
       queued: [],
       decoder: new AudioDecoder({
@@ -122,6 +136,7 @@ export const createPlayback = (ctx: AudioContext) => {
           else if (packet.terminator) speaker.next = null;
           return;
         }
+        trackMusic(speaker.music, packet.opus);
         speaker.queued.push({ at, end: packet.terminator });
         speaker.decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: at, data: packet.opus }));
       } catch (err) {
@@ -150,6 +165,12 @@ export const createPlayback = (ctx: AudioContext) => {
     setOutputDevice: (deviceId: string | null) => {
       const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
       void sink.setSinkId?.(deviceId ?? "").catch((err) => console.warn("output device", err));
+    },
+    setBuffer: (value: PlaybackBuffer) => {
+      delaySetting = value;
+    },
+    setListenOnly: (sessions: ReadonlySet<number>) => {
+      listenOnly = sessions;
     },
     setDeaf: (value: boolean) => {
       deaf = value;

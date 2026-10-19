@@ -1,3 +1,5 @@
+import { BUFFERS, type PlaybackBuffer } from "./voice/buffer";
+
 // The connection info next to "Voice connected": ping and late or lost
 // audio over the last 30 s, and a level from them.
 
@@ -21,11 +23,13 @@ export const meanVariance = (values: readonly number[]): { mean: number; varianc
 
 // Late and lost audio in percent of all audio between two snapshots (null:
 // no audio came).
-export const badPercent = (from: Counters, to: Counters): number | null => {
-  const bad = to.late - from.late + (to.lost - from.lost);
-  const total = bad + to.good - from.good;
+const percentOf = (from: Counters, to: Counters, bad: number): number | null => {
+  const total = to.good - from.good + (to.late - from.late) + (to.lost - from.lost);
   return total > 0 ? (bad / total) * 100 : null;
 };
+export const badPercent = (from: Counters, to: Counters) => percentOf(from, to, to.late - from.late + (to.lost - from.lost));
+// Late only: what a larger playback buffer helps against.
+export const latePercent = (from: Counters, to: Counters) => percentOf(from, to, to.late - from.late);
 
 // Discord-like: at 100 ms people start to talk over each other, beyond
 // 250 ms talking is hard. Late audio is a gap in the speech: a few in 100
@@ -38,6 +42,11 @@ const LIMITS: [Level, number, number][] = [
 // rtt: the mean ping in ms (null: none came back yet). bad: see badPercent.
 export const qualityLevel = (rtt: number | null, bad: number | null): Level | null =>
   rtt === null ? null : (LIMITS.find(([, ms, pct]) => rtt < ms && (bad ?? 0) < pct)?.[0] ?? "poor");
+
+// Late audio from "fair" on (see LIMITS): suggest the next playback
+// buffer, if there is one.
+export const biggerBuffer = (late: number | null, buffer: PlaybackBuffer): PlaybackBuffer | null =>
+  late !== null && late >= LIMITS[0]![2] ? (BUFFERS[BUFFERS.indexOf(buffer) + 1] ?? null) : null;
 
 export const connectionLabel = (level: Level | null, rtt: number | null) =>
   level === null || rtt === null ? "Connection: measuring" : `Connection: ${level}, ${Math.round(rtt)} ms`;

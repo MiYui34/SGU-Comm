@@ -9,6 +9,7 @@
   import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
   import { noiseLabel, type NoiseMode } from "../lib/voice/noise";
+  import { BUFFERS, bufferLabel, type PlaybackBuffer } from "../lib/voice/buffer";
 
   let {
     settings,
@@ -292,6 +293,21 @@
       </select>
     </label>
   {/if}
+  <label>
+    Playback buffer
+    <select
+      value={settings.playbackBuffer}
+      onchange={(e) => onChange({ playbackBuffer: e.currentTarget.value as PlaybackBuffer })}
+    >
+      {#each BUFFERS as b (b)}
+        <option value={b}>{bufferLabel(b)}</option>
+      {/each}
+    </select>
+    <span class="hint">
+      How long others' voices wait before they play. More fills gaps on a bad connection, but adds delay. Music
+      always gets at least 500 ms.
+    </span>
+  </label>
 
   <fieldset>
     <legend>Input mode</legend>
