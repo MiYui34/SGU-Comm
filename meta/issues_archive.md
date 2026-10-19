@@ -211,3 +211,6 @@
 - [x] [Join and leave sounds](issues/join-leave-sounds.md)
 - [x] [Who can read a private channel](issues/private-channel-readers.md)
 - [x] [Word replacements](issues/word-replacements.md)
+- [x] [Desktop app hangs (Linux)](issues/desktop-app-hangs.md)
+- [x] [Audio is rough for seconds after opening the app](issues/join-audio-warmup.md)
+- [x] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
