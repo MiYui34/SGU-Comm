@@ -8,9 +8,6 @@
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "notification:allow-is-permission-granted",
-    "notification:allow-request-permission",
-    "notification:allow-notify",
-    "notification:allow-register-listener",
-    "notification:allow-remove-listener"
+    "notification:allow-request-permission"
   ]
 }

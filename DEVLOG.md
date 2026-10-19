@@ -1078,3 +1078,26 @@ From `meta/research/discord-comparison.md`.
   come before ServerSync, so the web client plays voice only once
   synced (local mutes and volumes are set then).
 - Not measured: WebKitGTK (Chromium only), the desktop app's UDP voice.
+
+## Linux notifications: icon and button (2026-10-19)
+
+- Report (AppImage): a broken icon and an empty button in the
+  notification. Reproduced in podman (Ubuntu 22.04 arm64, Xvfb) with the
+  plugin's D-Bus call: app_name and app_icon "kallisti-desktop" (the exe
+  name; no such theme icon in an AppImage), actions ["default", ""].
+  lxqt-notificationd shows an empty button for it, xfce4-notifyd a
+  missing-image icon; dunst and notification-daemon show no icon.
+- tauri-plugin-notification 2.7 adds the "default" action with an empty
+  label itself, so on Linux the app now sends notifications over D-Bus
+  (notify.rs, zbus like the plugin): app_name "Kallisti", app_icon a
+  file:// URI of icons/128x128.png written to the cache dir at start,
+  actions ["default", "Open"]. Same connection for sending and signals
+  (dunst), kept open (GNOME). macOS and Windows still use the plugin.
+- The page calls the app's `notify` command on all desktops; a click
+  comes as the "notification-action" event (the plugin's onAction
+  shape), after Rust brought the window forward.
+- Checked with the release binary and a probe page using nativeNotifier
+  in lxqt-notificationd, xfce4-notifyd, notification-daemon and dunst:
+  icon shown, an "Open" button in LXQt and xfce (notification-daemon
+  and dunst show none), a click restores the minimized window and runs
+  the page's handler. LXQt keeps the notification open after the click.
