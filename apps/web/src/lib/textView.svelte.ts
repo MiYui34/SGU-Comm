@@ -104,6 +104,13 @@ export const createTextView = (
     get loadingOlder() {
       return page !== null && page.channel === currentId();
     },
+    // Read up to the newest message, as opening the chat would.
+    markRead: (id: number) => {
+      const newest = Math.max(text.messages[id]?.at(-1)?.id ?? 0, text.summary[id]?.latest ?? 0);
+      if ((read[id] ?? 0) >= newest) return;
+      seen = { ...seen, [id]: newest };
+      queueMark(id, newest);
+    },
     loadOlder: () => {
       const id = currentId();
       const oldest = id === null ? undefined : text.messages[id]?.[0];

@@ -1,5 +1,6 @@
 import { isBlocked, parseBlocked, toggleBlocked } from "./blocked";
 import { parseChannelPrefs, setChannelPref, type ChannelPref } from "./channelPrefs";
+import { directPrefsOf, parseDirectPrefs, setDirectPrefs, type DirectPrefs } from "./directList";
 import { persisted } from "./persisted.svelte";
 import { parseSettings, type Settings } from "./settings";
 import { parseUserAudio, updateUserAudio, type UserAudio } from "./userAudio";
@@ -31,6 +32,17 @@ export const channelPrefs = {
     return channelStore.value;
   },
   set: (server: string, id: number, patch: ChannelPref) => channelStore.set(setChannelPref(channelStore.value, server, id, patch)),
+};
+
+const directStore = persisted("directChats", parseDirectPrefs);
+
+export const directPrefs = {
+  of: (server: string) => directPrefsOf(directStore.value, server),
+  update: (server: string, fn: (p: DirectPrefs) => DirectPrefs) => {
+    const before = directPrefsOf(directStore.value, server);
+    const next = fn(before);
+    if (next !== before) directStore.set(setDirectPrefs(directStore.value, server, next));
+  },
 };
 
 const blockedStore = persisted("blockedUsers", parseBlocked);

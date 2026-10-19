@@ -38,6 +38,7 @@
     onCreate,
     canCreate = { text: false, voice: false },
     onChannelMenu,
+    onDirectMenu,
   }: {
     server: ServerState;
     currentChannel: number | null;
@@ -67,8 +68,9 @@
     // Thumbnails of the streams (shown on the LIVE button).
     previews?: Readonly<Record<number, string>>;
     onWatch?: (session: number) => void;
-    // Stored direct chats, the newest first (mentions: unread messages).
-    directs?: { channel: number; peer: Peer }[];
+    // Stored direct chats as listed, pinned ones first (see lib/directList;
+    // mentions: unread messages).
+    directs?: { channel: number; peer: Peer; pinned?: boolean }[];
     currentDirect?: number | null;
     onOpenDirect?: (peer: Peer) => void;
     onOpenText: (id: number) => void;
@@ -79,6 +81,8 @@
     canCreate?: Record<ChannelKind, boolean>;
     // Right-click on a channel.
     onChannelMenu?: (kind: ChannelKind, id: number, event: MouseEvent) => void;
+    // Right-click on a direct chat.
+    onDirectMenu?: (channel: number, event: MouseEvent) => void;
   } = $props();
 
   // Text channel mirrors (for Mumble clients) are not voice channels here.
@@ -252,14 +256,22 @@
         {#each directs as d (d.channel)}
           <li>
             <button
+              use:longPress
               class="channel hover-row"
               class:current={d.channel === currentDirect}
               class:unread={!!mentionText[d.channel] && d.channel !== currentDirect}
+              class:muted={mutedText.has(d.channel)}
               aria-current={d.channel === currentDirect ? "page" : undefined}
               onclick={() => onOpenDirect(d.peer)}
+              oncontextmenu={(e) => {
+                if (!onDirectMenu) return;
+                e.preventDefault();
+                onDirectMenu(d.channel, e);
+              }}
             >
               <Avatar name={d.peer.name} size={20} />
               <span class="name ellipsis">{d.peer.name}</span>
+              {#if d.pinned}<span class="pinned" title="Pinned"><Icon name="pin" size={14} /><span class="sr-only">(pinned)</span></span>{/if}
               {#if d.channel !== currentDirect}<Badge count={mentionText[d.channel]} label="unread messages" />{/if}
             </button>
           </li>
@@ -377,7 +389,8 @@
     font-size: 10px;
     font-weight: 700;
   }
-  .lock {
+  .lock,
+  .pinned {
     display: flex;
     flex-shrink: 0;
     color: var(--text-muted);

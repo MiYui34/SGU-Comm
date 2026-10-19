@@ -59,8 +59,9 @@
   } from "../lib/moderation";
   import { chatSeen, notificationBody, notifier, shouldNotify } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
-  import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
-  import { mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { blockedUsers, channelPrefs, directPrefs, settings, userAudio } from "../lib/settings.svelte";
+  import { isMuted, mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { closeDirect, quietDirects, reopenDirect, togglePin, visibleDirects } from "../lib/directList";
   import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
@@ -481,12 +482,17 @@
   };
   // Push notifications (see lib/push), for accounts with a password: on
   // start and when channel settings or blocks change, the server learns
-  // this session, the channels set to "nothing" and the blocked users (as
+  // this session, the channels set to "nothing" and direct chats muted
+  // for good (a timed mute would outlive closed tabs), and the blocked
+  // users (as
   // a string: the same prefs post nothing). A click on one in an open
   // window comes from the service worker.
   const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
   const pushPrefsKey = $derived(
-    JSON.stringify({ quiet: nothingIds(channelPrefs.value, connection.httpBase).sort(), blocked: [...blockedUsers.list].sort() }),
+    JSON.stringify({
+      quiet: [...nothingIds(channelPrefs.value, connection.httpBase), ...Object.keys(text.directs).map(Number).filter((id) => prefOf(channelPrefs.value, connection.httpBase, id).mutedUntil === 0)].sort(),
+      blocked: [...blockedUsers.list].sort(),
+    }),
   );
   const pushPrefs = $derived(JSON.parse(pushPrefsKey) as PushPrefs);
   $effect(() => {
@@ -592,6 +598,8 @@
   };
   const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "", blockedUsers.has);
   const unreadText = $derived(withoutMuted(textView.unread, mutedText));
+  // Unread counts as shown (muted direct chats count none).
+  const mentions = $derived(quietDirects(textView.mentions, text.directs, mutedText));
   // Mentions in voice channel chats, by voice channel.
   const mentionVoice = $derived(
     Object.fromEntries(
@@ -617,6 +625,7 @@
       if (own || blockedUsers.has(m.author)) return;
       const peer = text.directs[m.channel];
       if (peer) {
+        if (isMuted(prefOf(channelPrefs.value, connection.httpBase, m.channel), Date.now())) return;
         notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
@@ -654,7 +663,10 @@
   $effect(() => {
     // The settings as they are now; changing them alone plays nothing.
     const channelSettings = untrack(() => channelPrefs.value);
-    const quiet = (id: number) => id === chatId || !notifies(prefOf(channelSettings, connection.httpBase, id), true, 0);
+    const quiet = (id: number) => {
+      const pref = prefOf(channelSettings, connection.httpBase, id);
+      return id === chatId || (id in text.directs ? isMuted(pref, Date.now()) : !notifies(pref, true, 0));
+    };
     const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (quiet(Number(id)) ? a : a + n), 0);
     // Mentions from before (the summary at login or reconnect): no sound.
     const fresh = text.summary !== knownSummary;
@@ -752,7 +764,10 @@
   const menuUser = $derived(menu && "session" in menu ? server.users[menu.session] : undefined);
   const memberUser: (Peer & { session?: number }) | undefined = $derived.by(() => {
     const m = menu;
-    return m && "userId" in m ? (hidden.find((p) => p.id === m.userId) ?? offline.find((p) => p.id === m.userId)) : undefined;
+    if (!m || !("userId" in m)) return undefined;
+    // A direct chat's partner may be in neither list (not a member here).
+    const find = (list: Peer[]) => list.find((p) => p.id === m.userId);
+    return find(hidden) ?? find(offline) ?? find(Object.values(text.directs));
   });
   // A primitive: the bio is asked for once per menu, not on every event.
   const memberMenuId = $derived(memberUser?.id ?? null);
@@ -812,7 +827,7 @@
   // The tab title: mentions and direct messages not read (see lib/title).
   $effect(() => {
     const sum = (r: Record<string | number, number>) => Object.values(r).reduce((a, n) => a + n, 0);
-    document.title = tabTitle(serverName, sum(textView.mentions) + sum(unread));
+    document.title = tabTitle(serverName, sum(mentions) + sum(unread));
     return () => (document.title = "Kallisti");
   });
   $effect(() => {
@@ -930,16 +945,45 @@
     const user = Object.values(server.users).find((u) => u.userId === peer.id);
     show({ kind: "dm", session: user?.session ?? null, name: peer.name, userId: peer.id });
   };
-  // Direct chats for the sidebar, the newest first.
+  // Direct chats for the sidebar: pinned ones, then the newest first;
+  // closed ones not (see lib/directList).
+  const directState = $derived(directPrefs.of(connection.httpBase));
   const directList = $derived(
-    Object.entries(text.directs)
-      .map(([id, peer]) => ({
+    visibleDirects(
+      Object.entries(text.directs).map(([id, peer]) => ({
         channel: Number(id),
         peer,
         latest: Math.max(text.messages[Number(id)]?.at(-1)?.id ?? 0, text.summary[Number(id)]?.latest ?? 0),
-      }))
-      .sort((a, b) => b.latest - a.latest),
+        pinned: directState.pinned.includes(Number(id)),
+      })),
+      directState,
+    ),
   );
+  // Opening a closed chat (from a user menu, a link) lists it again.
+  $effect(() => {
+    const id = directChatId;
+    if (id !== null) untrack(() => directPrefs.update(connection.httpBase, (p) => reopenDirect(p, id)));
+  });
+  // The right-click menu of a direct chat.
+  let directMenu = $state<(MenuAt & { channel: number }) | null>(null);
+  const openDirectMenu = (channel: number, event: MouseEvent) => {
+    event.preventDefault();
+    directMenu = { channel, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
+  };
+  // The partner's user menu: after this menu closed (it gives focus back).
+  const openPeerMenu = async (peer: Peer, at: MenuAt) => {
+    await tick();
+    const user = Object.values(server.users).find((u) => u.userId === peer.id);
+    menu = user ? { session: user.session, x: at.x, y: at.y } : { userId: peer.id, x: at.x, y: at.y };
+  };
+  // Closed: read, and gone from the list until a newer message. The open
+  // one: show another place first.
+  const closeDirectChat = (channel: number) => {
+    if (channel === directChatId) show(text.channels[0] ? { kind: "text", id: text.channels[0].id } : { kind: "voice" });
+    const latest = directList.find((d) => d.channel === channel)?.latest ?? 0;
+    textView.markRead(channel);
+    directPrefs.update(connection.httpBase, (p) => closeDirect(p, channel, latest));
+  };
   const join = (id: number) => {
     show({ kind: "voice" });
     if (me && id !== channelId) connection.send(joinChannel(me.session, id));
@@ -968,7 +1012,7 @@
     return true;
   };
   const places = $derived.by((): SwitcherPlace[] => {
-    const withChat = new Set(Object.values(text.directs).map((p) => p.id));
+    const withChat = new Set(directList.map((d) => d.peer.id)); // closed chats: as users
     const mirrors = mirrorIds(server, text.channels); // hidden, as in the sidebar
     return [
       ...text.channels.map((c) => ({
@@ -983,7 +1027,7 @@
         key: `d${d.channel}`,
         name: d.peer.name,
         kind: "dm" as const,
-        unread: !!textView.mentions[d.channel],
+        unread: !!mentions[d.channel],
         run: () => openDirect(d.peer),
       })),
       ...users
@@ -1035,6 +1079,27 @@
     onMove={(step) => channels.move(m.kind, m.id, step)}
     onDelete={() => channels.startDelete(m.kind, m.id)}
     onClose={channels.closeMenu}
+  />
+{/if}
+
+{#if directMenu && text.directs[directMenu.channel]}
+  {@const d = directMenu}
+  {@const peer = text.directs[d.channel]!}
+  <ChannelMenu
+    name={peer.name}
+    x={d.x}
+    y={d.y}
+    notify={{ pref: prefOf(channelPrefs.value, connection.httpBase, d.channel), desktop: prefs.notifications }}
+    onNotify={(patch) => channelPrefs.set(connection.httpBase, d.channel, patch)}
+    direct={{
+      pinned: directState.pinned.includes(d.channel),
+      onProfile: () => openPeerMenu(peer, d),
+      // Not the shown counts: a muted chat may be unread too.
+      onRead: textView.mentions[d.channel] ? () => textView.markRead(d.channel) : undefined,
+      onPin: () => directPrefs.update(connection.httpBase, (p) => togglePin(p, d.channel)),
+      onHide: () => closeDirectChat(d.channel),
+    }}
+    onClose={() => (directMenu = null)}
   />
 {/if}
 
@@ -1246,7 +1311,7 @@
       currentText={textId}
       {unreadText}
       {mutedText}
-      mentionText={textView.mentions}
+      mentionText={mentions}
       {mentionVoice}
       listenOnly={text.listenOnly}
       privateChannels={text.private}
@@ -1265,6 +1330,7 @@
       canCreate={channels.canCreate}
       onCreate={channels.startCreate}
       onChannelMenu={channels.open}
+      onDirectMenu={openDirectMenu}
     />
     {#if me}
       {#if lobby && voiceOn}
