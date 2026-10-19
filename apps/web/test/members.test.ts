@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bioRequest, hiddenMembers, offlineMembers, onlineRows, pictureNames } from "../src/lib/members";
+import { bioRequest, hiddenMembers, offlineMembers, onlineRows, pictureNames, readerGroups, type ReaderRow } from "../src/lib/members";
 import { initialTextState, parseServerEvent, reduceText } from "../src/lib/textChannels";
 
 describe("offlineMembers", () => {
@@ -52,6 +52,54 @@ describe("onlineRows", () => {
       { id: 8, name: "carl", session: 14 },
     ];
     expect(onlineRows(users, hidden).map((r) => ("user" in r ? r.user.name : r.member.name))).toEqual(["Amy", "bob", "carl", "dan"]);
+  });
+});
+
+describe("readerGroups", () => {
+  type U = { session: number; name: string; userId: number | null };
+  const label = (r: ReaderRow<U>) => ("user" in r ? `${r.user.name}@${r.user.session}` : "member" in r ? `${r.member.name}~${r.member.session}` : `${r.offline.name}-`);
+  const titles = (gs: { title: string; rows: ReaderRow<U>[] }[] | null) => gs!.map((g) => [g.title, g.rows.map(label)]);
+  const registered = { 0: "SuperUser", 5: "zoe", 6: "Amy", 7: "bob", 8: "carl", 9: "dan", 10: "eve" };
+  const roles = { admins: [9], moderators: [10] };
+
+  it("lists members and staff, each online first, then offline, by name", () => {
+    const users: U[] = [
+      { session: 1, name: "bob", userId: 7 },
+      { session: 2, name: "eve", userId: 10 },
+      { session: 3, name: "guest", userId: null },
+      { session: 4, name: "carl", userId: 8 }, // sees the channel, no member
+    ];
+    const members = [
+      { id: 5, name: "zoe" },
+      { id: 6, name: "Amy" },
+      { id: 7, name: "bob" },
+    ];
+    expect(titles(readerGroups(members, roles, registered, { 5: 12 }, users, 7))).toEqual([
+      ["Members", ["bob@1", "zoe~12", "Amy-"]],
+      ["Staff", ["eve@2", "dan-", "SuperUser-"]],
+    ]);
+  });
+
+  it("lists staff who are members once, as staff", () => {
+    const members = [
+      { id: 9, name: "dan" },
+      { id: 0, name: "SuperUser" },
+    ];
+    expect(titles(readerGroups(members, roles, { 9: "dan" }, {}, [], 0))).toEqual([["Staff", ["dan-", "SuperUser-"]]]);
+  });
+
+  it("is null for who is no member or staff (the server leaves the members out)", () => {
+    const members = [{ id: 7, name: "bob" }];
+    expect(readerGroups(members, roles, registered, {}, [], 8)).toBeNull();
+    expect(readerGroups(members, roles, registered, {}, [], null)).toBeNull();
+    expect(readerGroups([], roles, registered, {}, [], 7)).toBeNull();
+    expect(readerGroups([], roles, registered, {}, [], 10)).not.toBeNull();
+  });
+
+  it("names members who are not in the member list (guest accounts) by the channel's list", () => {
+    expect(titles(readerGroups([{ id: 30, name: "guest-1" }], { admins: [], moderators: [] }, {}, { 30: 40 }, [], 30))).toEqual([
+      ["Members", ["guest-1~40"]],
+    ]);
   });
 });
 
