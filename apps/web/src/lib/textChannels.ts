@@ -103,12 +103,15 @@ export type ServerEvent =
       statuses?: SessionStatus[];
       ownStatus?: PresenceView;
       emoji?: CustomEmoji[];
-      // Registered users but guest accounts (see lib/members).
-      members?: Peer[];
+      // Registered users but guest accounts (see lib/members); picture: a
+      // saved one at /api/avatars/<name>.
+      members?: (Peer & { picture?: boolean })[];
       online?: Online;
     }
   // A registered user was added or renamed (name), or removed (gone).
   | { type: "member"; id: number; name?: string }
+  // A registered user's saved picture was set or removed.
+  | { type: "member"; id: number; picture: boolean }
   // A member came online in any channel (session), or went offline.
   | { type: "online"; id: number; session?: number }
   // A registered user's saved bio (asked for, see lib/members).
@@ -246,6 +249,8 @@ export type TextState = {
   // user id).
   members: Members;
   bios: Readonly<Record<number, string>>;
+  // Members with a saved picture (by user id), see lib/avatar.
+  pictures: ReadonlySet<number>;
   // Members online, whether or not we see them (see lib/members).
   online: Online;
 };
@@ -285,6 +290,7 @@ export const initialTextState: TextState = {
   ownStatus: { status: "online" },
   emoji: [],
   members: {},
+  pictures: new Set(),
   online: {},
   bios: {},
 };
@@ -332,6 +338,12 @@ const isTimeouts = (v: unknown): v is Timeout[] =>
 // Direct chats follow their peer's renames (a removed peer keeps its name).
 const renamePeer = (directs: TextState["directs"], id: number, name: string) =>
   Object.fromEntries(Object.entries(directs).map(([ch, p]) => [ch, p.id === id ? { id, name } : p]));
+const toggled = (ids: ReadonlySet<number>, id: number, on: boolean) => {
+  const out = new Set(ids);
+  if (on) out.add(id);
+  else out.delete(id);
+  return out;
+};
 const isStreamPreview = (v: unknown): v is string => isStr(v) && v.startsWith("data:image/jpeg;base64,");
 const isStreams = (v: unknown): v is LiveStream[] =>
   Array.isArray(v) && v.every((s) => isObj(s) && isNum(s.session) && isNum(s.channel) && (s.preview === undefined || isStreamPreview(s.preview)));
@@ -433,6 +445,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     }
     case "member":
       if (!isNum(v.id)) return null;
+      if (typeof v.picture === "boolean") return { type: "member", id: v.id, picture: v.picture };
       return isStr(v.name) ? { type: "member", id: v.id, name: v.name } : v.gone === true ? { type: "member", id: v.id } : null;
     case "online":
       return isNum(v.id) ? { type: "online", id: v.id, ...(isNum(v.session) ? { session: v.session } : {}) } : null;
@@ -574,6 +587,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
         members: Object.fromEntries((event.members ?? []).map((p) => [p.id, p.name])),
+        pictures: new Set((event.members ?? []).flatMap((p) => (p.picture === true ? [p.id] : []))),
         online: event.online ?? {},
         bios: {},
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
@@ -599,8 +613,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "emoji":
       return { ...state, emoji: event.emoji };
     case "member": {
+      if ("picture" in event) return { ...state, pictures: toggled(state.pictures, event.id, event.picture) };
       const { [event.id]: _, ...rest } = state.members;
-      if (event.name === undefined) return { ...state, members: rest };
+      if (event.name === undefined) return { ...state, members: rest, pictures: toggled(state.pictures, event.id, false) };
       return { ...state, members: { ...rest, [event.id]: event.name }, directs: renamePeer(state.directs, event.id, event.name) };
     }
     case "online": {

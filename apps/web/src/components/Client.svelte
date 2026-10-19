@@ -34,7 +34,7 @@
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
-  import { hiddenMembers, offlineMembers } from "../lib/members";
+  import { hiddenMembers, offlineMembers, pictureNames } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
   import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../lib/guests";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -125,7 +125,9 @@
   const users = $derived(usersSorted(server));
   // Avatars show the pictures of online users, by name.
   const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, pictureUrl(u.texture)])));
-  const lookup = $derived(pictureLookup(pictures, connection.httpBase));
+  // Offline members: the saved picture, only of those who have one.
+  const saved = $derived(pictureNames(connection.text.members, connection.text.pictures));
+  const lookup = $derived(pictureLookup(pictures, saved, connection.httpBase));
   // The context is set once: the closure reads the current lookup.
   setAvatarPictures((name, registered) => lookup(name, registered));
 

@@ -930,3 +930,13 @@ From `meta/research/discord-comparison.md`.
   level instead of a second offer.
 - The desktop app's bridge forwards voice to the same web playback, so
   all of this applies there too.
+
+## Offline avatars without 404s (2026-10-19)
+
+- mumble_users.picture caches "the texture is an image Avatars serves",
+  so ready can flag members without reading textures. Old databases get
+  it filled in the same transaction as the new column (a migration may
+  now have a fill function).
+- A member "picture" event goes out on every texture save by a
+  registered user, also when the flag stays the same: the web only keeps
+  the set of ids, and the URL is revalidated by ETag anyway.

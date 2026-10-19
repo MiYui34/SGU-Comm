@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bioRequest, hiddenMembers, offlineMembers, onlineRows } from "../src/lib/members";
+import { bioRequest, hiddenMembers, offlineMembers, onlineRows, pictureNames } from "../src/lib/members";
 import { initialTextState, parseServerEvent, reduceText } from "../src/lib/textChannels";
 
 describe("offlineMembers", () => {
@@ -106,8 +106,23 @@ describe("member events", () => {
     expect(reduceText(renamed, parseServerEvent('{"type":"member","id":7,"gone":true}')!).directs[3]).toEqual({ id: 7, name: "robert" });
   });
 
+  it("tell who has a saved picture", () => {
+    const ready = parseServerEvent('{"type":"ready","channels":[],"members":[{"id":5,"name":"zoe","picture":true},{"id":6,"name":"amy"}]}')!;
+    const s = reduceText(initialTextState, ready);
+    expect(s.pictures).toEqual(new Set([5]));
+    const set = reduceText(s, parseServerEvent('{"type":"member","id":6,"picture":true}')!);
+    expect(set.pictures).toEqual(new Set([5, 6]));
+    expect(set.members).toEqual(s.members);
+    expect(pictureNames(set.members, set.pictures)).toEqual(new Set(["zoe", "amy"]));
+    expect(reduceText(set, parseServerEvent('{"type":"member","id":5,"picture":false}')!).pictures).toEqual(new Set([6]));
+    expect(reduceText(set, parseServerEvent('{"type":"member","id":6,"gone":true}')!).pictures).toEqual(new Set([5]));
+    // Ids without a member (guest accounts) have no name.
+    expect(pictureNames({ 5: "zoe" }, new Set([5, 9]))).toEqual(new Set(["zoe"]));
+  });
+
   it("drop broken input", () => {
     expect(parseServerEvent('{"type":"member","id":"7","name":"bob"}')).toBeNull();
+    expect(parseServerEvent('{"type":"member","id":7,"picture":1}')).toBeNull();
     expect(parseServerEvent('{"type":"member","id":7}')).toBeNull();
     const broken = parseServerEvent('{"type":"ready","channels":[],"members":[{"id":5}]}')!;
     expect(reduceText(initialTextState, broken).members).toEqual({});
