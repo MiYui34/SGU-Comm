@@ -6,7 +6,6 @@
   - [ ] [Activity status: game and music](issues/activity-status.md)
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
-- [ ] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
 - [ ] [Music mode](issues/music-mode.md)
 - [ ] [Word replacements](issues/word-replacements.md)

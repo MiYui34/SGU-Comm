@@ -206,3 +206,4 @@
 - [x] [One "Go live" button](issues/go-live-menu.md)
 - [x] [Send button on touch screens](issues/mobile-send-button.md)
 - [x] [Direct messages: context menu](issues/dm-context-menu.md)
+- [x] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
