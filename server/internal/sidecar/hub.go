@@ -223,6 +223,8 @@ type Hub struct {
 	// and the live streams.
 	StreamToken func(session uint32) string
 	LiveStreams func() []LiveStream
+	// Channel recordings (built-in server; nil: none).
+	Recorder Recorder
 	// SaveFile stores a picture from a Mumble message as an upload.
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
 	// Push sends a push notification to a user's browsers, by name (nil:
@@ -364,6 +366,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
+			if c.hub.Recorder != nil {
+				ready["recording"] = c.hub.recordingFor(id)
+			}
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
@@ -460,7 +465,7 @@ type request struct {
 	Type      string          `json:"type"`
 	Name      string          `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
 	Channels  []int64         `json:"channels"` // order-channels
-	Voice     uint32          `json:"voice"`    // voice-chat: the Mumble channel
+	Voice     uint32          `json:"voice"`    // voice-chat, start-recording, stop-recording: the Mumble channel
 	Channel   int64           `json:"channel"`
 	Before    int64           `json:"before"`
 	Text      string          `json:"text"`
@@ -592,6 +597,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "set-private":
 		c.setPrivate(*id, req)
+		return
+	case "start-recording", "stop-recording", "recordings", "recording-token":
+		c.recordings(*id, req)
 		return
 	case "create-private-voice":
 		c.createPrivateVoice(*id, req.Name)

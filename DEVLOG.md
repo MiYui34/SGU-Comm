@@ -801,3 +801,39 @@ From `meta/research/discord-comparison.md`.
   chunks): only it imports `lib/pushNotice.ts`.
 - The WebWorker TypeScript lib clashes with DOM: sw.ts declares the few
   worker types it uses.
+
+## Channel recording (2026-10-19)
+
+- No re-encoding: the voice path hands each packet (copied, the buffers are
+  reused) to the recording's goroutine through a channel of 1024; when it
+  is full, packets are dropped and counted (`dropped` in recording.json).
+  Voice never waits for the disk.
+- Alignment: every track starts at the recording's start and ends at its
+  stop. Within a burst, Mumble's sequence numbers (10 ms frames) place the
+  packets, so network jitter does not move them and lost packets become
+  silence. A new burst (after a terminator, a pause over 1 s, or sequence
+  numbers more than 2 s off the clock) starts where the arrival time says.
+  A burst that starts while the last packet still plays goes after it.
+- Silence is explicit packets, not granule gaps: CELT frames `TOC 0xff
+  0xfe`. The CELT silence flag is the first symbol in the range coder, so
+  the same two bytes are silence at 20, 10, 5 and 2.5 ms; gaps are filled
+  with 20 ms frames, then shorter ones (all Opus durations are multiples of
+  2.5 ms). Mixing these CELT frames with SILK speech is valid Opus.
+- Stereo (music mode) is kept: a track starts mono and its OpusHead is
+  rewritten in place (page 0, CRC again, same size) at the first stereo
+  packet. Mono packets in a stereo stream decode fine; the other way round
+  would be downmixed.
+- Pre-skip is 312 (libopus's encoder delay at 48 kHz) on every track, so
+  they stay aligned to each other.
+- Checked with ffmpeg: real libopus packets with gaps gave two 8.000 s
+  tracks (mono and stereo) that decode without errors, with the sound
+  exactly where it was spoken (silencedetect).
+- Only what a user says to its own channel (target 0) is recorded, if it
+  may speak there (not muted, suppressed, or without Speak). Whispers,
+  shouts, linked channels and screen share sound are not.
+- Downloads: the sidecar gives staff a one-time token (1 min, as stream
+  tokens); `/api/recordings/{id}?token=` streams a stored zip (Opus does
+  not shrink) and checks again that the session may record. The token is
+  in the URL because a download is a plain link.
+- A crash leaves a recording without recording.json: it is not listed, and
+  removed after the keep period plus the maximum length.

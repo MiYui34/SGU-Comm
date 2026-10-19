@@ -20,6 +20,7 @@ import (
 	"kallisti.chat/server/internal/cryptstate"
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/recording"
 )
 
 type Config struct {
@@ -74,7 +75,12 @@ type Config struct {
 	// TextOverflows is the number of sidecar messages each session lost
 	// (see ConnectionStats). Nil: none.
 	TextOverflows func() map[uint32]uint64
-	DB            *DB // nil: nothing is saved
+	// Recordings keeps channel recordings (nil: no recording).
+	// OnRecordingChanged runs after one started or stopped (see
+	// Recording), outside the server lock.
+	Recordings         *recording.Library
+	OnRecordingChanged func()
+	DB                 *DB // nil: nothing is saved
 }
 
 const (
@@ -170,6 +176,10 @@ type Server struct {
 	rules    msgrules.Rules
 	lastPost map[timeoutKey]time.Time
 	now      func() time.Time
+	// Running recordings by channel (see recording.go). Under mu.
+	// recordingEnds: those of removed channels, ending.
+	recordings    map[uint32]*recording.Recording
+	recordingEnds sync.WaitGroup
 }
 
 type client struct {
@@ -266,8 +276,11 @@ func New(cfg Config) (*Server, error) {
 	if cfg.OnUserMoved != nil || cfg.OnUserChanged != nil {
 		srv.events = newEventQueue()
 	}
-	if cfg.OnUserMoved != nil {
-		state.OnMove = func(session, from, to uint32) {
+	state.OnMove = func(session, from, to uint32) {
+		if from != NoChannel { // a join is told after ServerSync (see join)
+			srv.tellRecordingLocked(session, to)
+		}
+		if cfg.OnUserMoved != nil {
 			srv.events.add(func() { cfg.OnUserMoved(session, from, to) })
 		}
 	}
@@ -324,6 +337,7 @@ func (s *Server) Close() {
 	for _, c := range clients {
 		c.close()
 	}
+	s.stopAllRecordings()
 	s.stopTimeouts()
 	done := make(chan struct{})
 	go func() {

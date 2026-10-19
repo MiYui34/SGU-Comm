@@ -12,10 +12,20 @@
     channel,
     onLeave,
     music = false,
+    recording = false,
     sharing = false,
     onShare,
     info,
-  }: { channel: string; onLeave: () => void; music?: boolean; sharing?: boolean; onShare?: () => void; info: Info } = $props();
+  }: {
+    channel: string;
+    onLeave: () => void;
+    music?: boolean;
+    // The channel is being recorded.
+    recording?: boolean;
+    sharing?: boolean;
+    onShare?: () => void;
+    info: Info;
+  } = $props();
 </script>
 
 <section class="bar" aria-label="Voice">
@@ -24,6 +34,7 @@
       <ConnectionInfo {info} />
       Voice connected
       {#if music}<span class="note" title="No filters, better sound (see the settings)">Music mode</span>{/if}
+      {#if recording}<span class="note rec" title="Everything said in this channel is recorded">● Recording</span>{/if}
     </div>
     <div class="channel ellipsis" title={channel}>{channel}</div>
   </div>
@@ -75,6 +86,10 @@
     color: var(--text-muted);
     font-size: 11px;
     font-weight: 500;
+  }
+  .rec {
+    background: var(--danger);
+    color: white;
   }
   .channel {
     color: var(--text-muted);

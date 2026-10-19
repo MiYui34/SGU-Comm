@@ -79,6 +79,12 @@ Used unless `MUMBLE_HOST` is set.
   - `PUSH_SUBJECT` (the first `ALLOWED_ORIGINS` address if it is HTTPS,
     else `https://kallisti.chat`): a `mailto:` or `https:` contact that
     push services see.
+- `RECORDING_DIR` (`recordings` next to `DB_PATH`): channel recordings
+  (admins and moderators record a voice channel; one Ogg Opus file per
+  speaker). Back it up or not: finished recordings are removed after
+  `RECORDING_KEEP_DAYS` (7).
+- `RECORDING_MAX_MINUTES` (240) and `RECORDING_MAX_MB` (1024): one
+  recording stops by itself at either limit.
 
 ## In front of an existing Murmur
 

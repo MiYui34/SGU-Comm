@@ -24,6 +24,7 @@
     mentionVoice = {},
     listenOnly = {},
     privateChannels = {},
+    recording = new Set(),
     directs = [],
     live = new Set(),
     previews = {},
@@ -58,6 +59,8 @@
     // Private channels by Mumble channel (a voice channel, or a text
     // channel's mirror): a lock.
     privateChannels?: Readonly<Record<number, unknown>>;
+    // Voice channels being recorded: a red "REC".
+    recording?: ReadonlySet<number>;
     // Sessions sharing their screen, and watching one.
     live?: ReadonlySet<number>;
     // Thumbnails of the streams (shown on the LIVE button).
@@ -110,6 +113,7 @@
       {/if}
       <span class="name ellipsis">{node.channel.name}</span>
       {#if node.channel.id in privateChannels}{@render lock()}{/if}
+      {#if recording.has(node.channel.id)}<span class="rec" title="This channel is being recorded">REC</span>{/if}
       {#if node.channel.id !== currentChannel}<Badge count={mentionVoice[node.channel.id]} label="mentions" />{/if}
     </button>
     {#if users.length}
@@ -357,6 +361,15 @@
   }
   .name {
     flex: 1;
+  }
+  .rec {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
   }
   .lock {
     display: flex;

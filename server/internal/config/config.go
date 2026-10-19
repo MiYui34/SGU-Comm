@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -113,6 +114,12 @@ type Builtin struct {
 	// CertFile and KeyFile: a certificate from elsewhere (for example the
 	// reverse proxy's Let's Encrypt files), reloaded when they change.
 	CertFile, KeyFile string
+	// Channel recordings: where they wait for download (RecordingKeep),
+	// and the limits of one.
+	RecordingDir      string
+	RecordingMax      time.Duration
+	RecordingMaxBytes int64
+	RecordingKeep     time.Duration
 }
 
 func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
@@ -140,6 +147,21 @@ func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
 			return nil, errors.New("MUMBLE_MAX_PER_IP must be a positive integer")
 		}
 	}
+	b.RecordingDir = cmp.Or(getenv("RECORDING_DIR"), filepath.Join(filepath.Dir(dbPath), "recordings"))
+	minutes, ok := positive(getenv("RECORDING_MAX_MINUTES"), 240)
+	if !ok {
+		return nil, errors.New("RECORDING_MAX_MINUTES must be a positive integer")
+	}
+	mb, ok := positive(getenv("RECORDING_MAX_MB"), 1024)
+	if !ok {
+		return nil, errors.New("RECORDING_MAX_MB must be a positive integer")
+	}
+	days, ok := positive(getenv("RECORDING_KEEP_DAYS"), 7)
+	if !ok {
+		return nil, errors.New("RECORDING_KEEP_DAYS must be a positive integer")
+	}
+	b.RecordingMax, b.RecordingKeep = time.Duration(minutes)*time.Minute, time.Duration(days)*24*time.Hour
+	b.RecordingMaxBytes = int64(mb) << 20
 	return b, nil
 }
 

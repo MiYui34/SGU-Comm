@@ -64,6 +64,9 @@ func (c *Conn) sendAccess(id mumble.Identity) {
 	if h.LiveStreams != nil {
 		c.send(map[string]any{"type": "streams", "streams": h.liveStreams(id)})
 	}
+	if h.Recorder != nil {
+		c.send(map[string]any{"type": "recording", "channels": h.recordingFor(id)})
+	}
 }
 
 func (h *Hub) sendAccessAll() {
