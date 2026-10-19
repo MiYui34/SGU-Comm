@@ -128,8 +128,8 @@ type Voice interface {
 	SetMessageRules(session uint32, r msgrules.Rules) (msgrules.Rules, error)
 }
 
-// LiveStream is a screen share in a voice channel, by its streamer's
-// session.
+// LiveStream is a screen share or camera in a voice channel, by its id
+// (the streamer's session; a camera's has stream.CameraBit set too).
 type LiveStream struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`

@@ -1,13 +1,14 @@
-import { createAvClock, decodeFrame, encodeFrame, fitSize, pickCodec } from "./protocol";
+import { shouldFallBack } from "../voice/fallback";
+import { createAvClock, decodeFrame, encodeFrame, pickCodec } from "./protocol";
+import { DEFAULT_LIMITS, DEFAULT_QUALITY, KINDS, cameraConstraints, encoding, nextCamera, parseLimits, sources, type Kind, type Quality } from "./quality";
 import Ticker from "./ticker.worker?worker";
 
-// Screen sharing over the stream connection (/api/stream, see the server's
-// stream package): the screen is encoded with WebCodecs and sent as frames;
-// watched streams are decoded into canvases. One per voice connection.
+// Screen sharing and cameras over the stream connection (/api/stream, see
+// the server's stream package): each is encoded with WebCodecs and sent as
+// frames; watched streams are decoded into canvases. One per voice
+// connection.
 
-const FPS = 15;
-const BITRATE = 2_500_000;
-const KEYFRAME_EVERY = FPS * 8; // frames; viewers also ask for keyframes
+const KEYFRAME_EVERY_MS = 8_000; // viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
 const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
 // Thumbnails for people not watching: small JPEGs, now and then.
@@ -26,6 +27,7 @@ const MAX_QUEUED_PICTURES = 30;
 
 type Viewer = {
   decoder: VideoDecoder | null;
+  codec: string;
   needKey: boolean;
   canvas: HTMLCanvasElement | null;
   // With sound: its decoder, volume, clock and the pictures waiting for it.
@@ -35,46 +37,86 @@ type Viewer = {
   queue: VideoFrame[];
   raf: number;
 };
-type Text = { type: string; session?: number; sessions?: number[]; codec?: string; audio?: string; message?: string };
+// One of our own streams (a screen share or the camera) while it runs.
+type Outgoing = {
+  media: MediaStream | null;
+  encoder: VideoEncoder | null;
+  soundEncoder: AudioEncoder | null;
+  stopFrames: (() => void) | null;
+  stopSound: (() => void) | null;
+  forceKey: boolean;
+  started: ((err: string | null) => void) | null;
+  starting: boolean;
+  // Counts stops: a start that sees it change while it waits (the picker
+  // is open, the connection closed) gives up.
+  stops: number;
+  // Another capture of the same kind takes over (a camera switch).
+  replace: ((media: MediaStream) => void) | null;
+};
+type Text = { type: string; session?: number; sessions?: number[]; codec?: string; audio?: string; message?: string; camera?: boolean; limits?: unknown };
 
-export const streamingSupported = () =>
-  typeof VideoEncoder !== "undefined" &&
-  typeof VideoDecoder !== "undefined" &&
-  typeof VideoFrame !== "undefined" &&
-  !!navigator.mediaDevices?.getDisplayMedia;
+const both = <T>(v: () => T): Record<Kind, T> => ({ screen: v(), camera: v() });
+// The camera's commands and frames say so; the screen's are as before.
+const own = (kind: Kind) => (kind === "camera" ? { camera: true } : {});
+
+// Watching needs decoders; what a browser can share, see shareSources.
+export const streamingSupported = () => typeof VideoDecoder !== "undefined" && typeof VideoFrame !== "undefined";
+
+export const shareSources = (phone: boolean) =>
+  sources({
+    encode: typeof VideoEncoder !== "undefined",
+    display: !!navigator.mediaDevices?.getDisplayMedia,
+    camera: !!navigator.mediaDevices?.getUserMedia,
+    phone,
+  });
+
+// The chosen camera, or the default one when it is gone (as microphones).
+const openCamera = async (deviceId: string | null, q: Quality): Promise<MediaStream> => {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: cameraConstraints(deviceId, q), audio: false });
+  } catch (e) {
+    if (!shouldFallBack(e, deviceId)) throw e;
+    return navigator.mediaDevices.getUserMedia({ video: cameraConstraints(null, q), audio: false });
+  }
+};
 
 // audio: the app's audio context (stream sound plays there; none: no sound).
 export const createStreamClient = (url: string, token: () => Promise<string>, audio: AudioContext | null) => {
   let ws: WebSocket | null = null;
   let opening: Promise<WebSocket> | null = null;
   let closed = false;
-  // Sharing.
-  let sharing = $state(false);
-  let starting = false;
-  let preview = $state<MediaStream | null>(null);
+  // Sharing, per kind.
+  const out = both<Outgoing>(() => ({
+    media: null,
+    encoder: null,
+    soundEncoder: null,
+    stopFrames: null,
+    stopSound: null,
+    forceKey: true,
+    started: null,
+    starting: false,
+    stops: 0,
+    replace: null,
+  }));
+  let sharing = $state(both(() => false));
+  let preview = $state(both<MediaStream | null>(() => null));
+  let quality = $state<Record<Kind, Quality>>(DEFAULT_QUALITY);
+  let limits = DEFAULT_LIMITS;
+  let cameraDevice: string | null = null;
   let error = $state<string | null>(null);
-  let screen: MediaStream | null = null;
-  let encoder: VideoEncoder | null = null;
-  let soundEncoder: AudioEncoder | null = null;
-  let stopFrames: (() => void) | null = null;
-  let stopSound: (() => void) | null = null;
-  let forceKey = true;
-  let started: ((err: string | null) => void) | null = null;
-  // Counts stops: a start that sees it change while it waits (the picker is
-  // open, the connection closed) gives up.
-  let stops = 0;
-  // Who watches our stream (sessions), and whether others see thumbnails.
-  let viewers = $state<number[]>([]);
+  // Who watches our streams (sessions), and whether others see thumbnails.
+  let viewers = $state(both<number[]>(() => []));
   let previews = true;
   // Deafened: stream sound is silent too.
   let deaf = false;
-  // Watching: by streamer session.
+  // Watching: by stream id (see protocol.streamId).
   const watched = new Map<number, Viewer>();
   let watching = $state<number[]>([]);
   // Watched streams with sound, and their volume (0 to 1).
   let sounds = $state<Record<number, number>>({});
 
-  // The connection: open once the server took the token ("ready").
+  // The connection: open once the server took the token ("ready", with
+  // its limits).
   const open = (): Promise<WebSocket> => {
     if (ws?.readyState === WebSocket.OPEN) return Promise.resolve(ws);
     opening ??= (async () => {
@@ -83,8 +125,13 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       sock.binaryType = "arraybuffer";
       await new Promise<void>((resolve, reject) => {
         sock.onopen = () => sock.send(JSON.stringify({ type: "auth", token: t }));
-        sock.onmessage = (e) => typeof e.data === "string" && JSON.parse(e.data).type === "ready" && resolve();
-        sock.onclose = () => reject(new Error("cannot connect for screen sharing"));
+        sock.onmessage = (e) => {
+          const m = typeof e.data === "string" ? (JSON.parse(e.data) as Text) : null;
+          if (m?.type !== "ready") return;
+          limits = parseLimits(m.limits);
+          resolve();
+        };
+        sock.onclose = () => reject(new Error("cannot connect for streaming"));
       });
       if (closed) {
         sock.close();
@@ -93,8 +140,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       sock.onmessage = (e) => (typeof e.data === "string" ? onText(JSON.parse(e.data)) : onFrame(e.data as ArrayBuffer));
       sock.onclose = () => {
         if (ws === sock) ws = null;
-        started?.("the screen sharing connection closed");
-        stopSharing(false);
+        for (const kind of KINDS) {
+          out[kind].started?.("the streaming connection closed");
+          stopSharing(kind, false);
+        }
         for (const s of [...watched.keys()]) unwatch(s, false);
       };
       ws = sock;
@@ -106,24 +155,26 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const send = (v: object) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(v));
 
   const onText = (m: Text) => {
+    const kind: Kind = m.camera ? "camera" : "screen"; // of our own stream
+    const o = out[kind];
     switch (m.type) {
       case "started":
-        started?.(null);
+        o.started?.(null);
         break;
       case "keyframe":
-        forceKey = true;
+        o.forceKey = true;
         break;
       case "stopped": // not a late answer to our stop while a new start waits
-        if (sharing) stopSharing(false);
+        if (sharing[kind]) stopSharing(kind, false);
         break;
       case "viewers":
-        viewers = m.sessions ?? [];
+        viewers = { ...viewers, [kind]: m.sessions ?? [] };
         break;
       case "error":
         // About a stream we wanted to watch, or about our own.
         if (m.session !== undefined) unwatch(m.session, false);
-        else if (started) started(m.message ?? "error");
-        if (!started || m.session !== undefined) error = m.message ?? "error";
+        else if (o.started) o.started(m.message ?? "error");
+        if (!o.started || m.session !== undefined) error = m.message ?? "error";
         break;
       case "stream":
         if (m.session !== undefined && m.codec) void configureIfSupported(m.session, m.codec, m.audio === "opus");
@@ -136,121 +187,188 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
 
   // Sharing ------------------------------------------------------------
 
-  const startSharing = async () => {
-    if (sharing || starting || closed) return; // a second click while the picker is open
-    starting = true;
+  const startSharing = async (kind: Kind = "screen") => {
+    const o = out[kind];
+    if (sharing[kind] || o.starting || closed) return; // a second click while the picker is open
+    o.starting = true;
     error = null;
-    const stopsAtStart = stops;
+    const stopsAtStart = o.stops;
     const stale = new Error("stopped");
     const live = <T>(v: T): T => {
-      if (stops !== stopsAtStart) throw stale;
+      if (o.stops !== stopsAtStart) throw stale;
       return v;
     };
     let asked = false; // the server was asked to start
     try {
       const sock = live(await open());
-      // Sound where the browser offers it (Chromium: a tab, or the system on
-      // Windows). A stale capture is stopped in the catch.
-      screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FPS }, audio: true });
+      // Screens: sound where the browser offers it (Chromium: a tab, or the
+      // system on Windows). Cameras: none (the microphone is voice). A
+      // stale capture is stopped in the catch.
+      o.media =
+        kind === "camera"
+          ? await openCamera(cameraDevice, quality.camera)
+          : await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: quality.screen.fps }, audio: true });
       live(null);
-      const track = screen.getVideoTracks()[0]!;
-      const soundTrack = screen.getAudioTracks()[0];
+      const track = o.media.getVideoTracks()[0]!;
+      track.onended = () => stopSharing(kind, true); // the browser's own "Stop sharing", an unplugged camera
+      const soundTrack = o.media.getAudioTracks()[0];
       const withSound = !!soundTrack && live(await soundSupported());
       if (soundTrack && !withSound) soundTrack.stop();
-      track.onended = () => stopSharing(true); // the browser's own "Stop sharing"
-      const codec = live(await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, 1280, 720))).supported === true));
-      if (!codec) throw new Error("this browser cannot encode video for screen sharing");
       const settings = track.getSettings();
-      let size = fitSize(settings.width || 1280, settings.height || 720);
+      const together = () => sharing[kind === "screen" ? "camera" : "screen"];
+      let enc = encoding({ width: settings.width || 1280, height: settings.height || 720 }, quality[kind], kind, limits, together());
+      const codec = live(await pickCodec(async (c) => (await VideoEncoder.isConfigSupported(encoderConfig(c, enc))).supported === true));
+      if (!codec) throw new Error("this browser cannot encode video for streaming");
       const configure = () => {
-        if (encoder?.state !== "closed") encoder?.close();
-        encoder = new VideoEncoder({
+        if (o.encoder?.state !== "closed") o.encoder?.close();
+        o.encoder = new VideoEncoder({
           output: (chunk) => {
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
-            if (sock.readyState === WebSocket.OPEN) sock.send(encodeFrame(chunk.type === "key", chunk.timestamp, data));
+            if (sock.readyState === WebSocket.OPEN) sock.send(encodeFrame(chunk.type === "key", chunk.timestamp, data, false, kind === "camera"));
           },
           error: (e) => (error = `Video encoder failed: ${e.message}`),
         });
-        encoder.configure(encoderConfig(codec, size.width, size.height));
-        forceKey = true;
+        o.encoder.configure(encoderConfig(codec, enc));
+        o.forceKey = true;
       };
       configure();
-      const audioField = withSound ? { audio: "opus" } : {};
+      const startText = () => ({ type: "start", codec, width: enc.width, height: enc.height, ...(withSound ? { audio: "opus" } : {}), ...own(kind) });
       asked = true;
       const err = await new Promise<string | null>((resolve) => {
-        started = resolve;
-        send({ type: "start", codec, ...size, ...audioField });
+        o.started = resolve;
+        send(startText());
       });
-      started = null;
+      o.started = null;
       if (err) throw new Error(err);
       live(null);
-      sharing = true;
-      preview = screen;
+      sharing = { ...sharing, [kind]: true };
       if (withSound) {
-        soundEncoder = new AudioEncoder({
+        o.soundEncoder = new AudioEncoder({
           output: (chunk) => {
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
             if (sock.readyState === WebSocket.OPEN) sock.send(encodeFrame(false, chunk.timestamp, data, true));
           },
-          error: () => stopSound?.(), // the picture goes on
+          error: () => o.stopSound?.(), // the picture goes on
         });
-        soundEncoder.configure(SOUND);
-        stopSound = soundFrames(soundTrack!, (data) => soundEncoder?.state === "configured" && soundEncoder.encode(data));
+        o.soundEncoder.configure(SOUND);
+        o.stopSound = soundFrames(soundTrack!, (data) => o.soundEncoder?.state === "configured" && o.soundEncoder.encode(data));
       }
-      let n = 0;
+      let keyAt = 0;
       let previewAt = performance.now() + PREVIEW_FIRST_MS;
-      stopFrames = frames(track, (frame) => {
-        if (previews && performance.now() >= previewAt) {
-          previewAt = performance.now() + PREVIEW_EVERY_MS;
+      const onFrame = (frame: VideoFrame) => {
+        const now = performance.now();
+        if (previews && now >= previewAt) {
+          previewAt = now + PREVIEW_EVERY_MS;
           const image = thumbnail(frame);
-          if (image.length <= MAX_PREVIEW) send({ type: "preview", image });
+          if (image.length <= MAX_PREVIEW) send({ type: "preview", image, ...own(kind) });
         }
+        const encoder = o.encoder;
         if (!encoder || encoder.state !== "configured" || encoder.encodeQueueSize > 2 || sock.bufferedAmount > MAX_BUFFERED) {
-          if (sock.bufferedAmount > MAX_BUFFERED) forceKey = true; // viewers miss frames: start whole again
+          if (sock.bufferedAmount > MAX_BUFFERED) o.forceKey = true; // viewers miss frames: start whole again
           frame.close();
           return;
         }
-        const next = fitSize(frame.displayWidth, frame.displayHeight);
-        if (next.width !== size.width || next.height !== size.height) {
-          size = next; // the shared window was resized
+        // A resized window, another quality or camera: a new encoder (it
+        // starts with a keyframe), and viewers get the new size. Another
+        // bitrate or frame rate (also when the other kind of stream starts
+        // or stops: they share the upload): the encoder is set again.
+        const next = encoding({ width: frame.displayWidth, height: frame.displayHeight }, quality[kind], kind, limits, together());
+        if (next.width !== enc.width || next.height !== enc.height) {
+          enc = next;
           configure();
-          send({ type: "start", codec, ...size, ...audioField });
+          send(startText());
+        } else if (next.bitrate !== enc.bitrate || next.framerate !== enc.framerate) {
+          enc = next;
+          encoder.configure(encoderConfig(codec, enc));
         }
-        encoder.encode(frame, { keyFrame: forceKey || n % KEYFRAME_EVERY === 0 });
+        const key = o.forceKey || now >= keyAt;
+        if (key) keyAt = now + KEYFRAME_EVERY_MS;
+        o.encoder!.encode(frame, { keyFrame: key });
         frame.close();
-        forceKey = false;
-        n++;
-      });
+        o.forceKey = false;
+      };
+      o.replace = (media) => {
+        o.stopFrames?.();
+        if (o.media !== media) o.media?.getTracks().forEach((t) => t.stop());
+        o.media = media;
+        preview = { ...preview, [kind]: media };
+        const t = media.getVideoTracks()[0]!;
+        t.onended = () => stopSharing(kind, true);
+        o.stopFrames = frames(t, () => quality[kind].fps, onFrame);
+      };
+      o.replace(o.media);
     } catch (e) {
-      started = null;
-      if (asked && !sharing) send({ type: "stop" }); // it may have started meanwhile
-      stopSharing(true);
+      o.started = null;
+      if (asked && !sharing[kind]) send({ type: "stop", ...own(kind) }); // it may have started meanwhile
+      stopSharing(kind, true);
       // Closing the browser's picker is not an error, nor a stop or close meanwhile.
       if (e !== stale && !closed && !(e instanceof DOMException && e.name === "NotAllowedError")) error = e instanceof Error ? e.message : String(e);
     } finally {
-      starting = false;
+      o.starting = false;
     }
   };
 
-  const stopSharing = (tell: boolean) => {
-    if (tell && sharing) send({ type: "stop" });
-    stops++;
-    started?.(null); // a start waiting for the server goes on, sees the stop and gives up
-    stopFrames?.();
-    stopFrames = null;
-    stopSound?.();
-    stopSound = null;
-    if (soundEncoder && soundEncoder.state !== "closed") soundEncoder.close();
-    soundEncoder = null;
-    if (encoder && encoder.state !== "closed") encoder.close();
-    encoder = null;
-    screen?.getTracks().forEach((t) => t.stop());
-    screen = null;
-    sharing = false;
-    preview = null;
-    viewers = [];
+  const stopSharing = (kind: Kind, tell: boolean) => {
+    const o = out[kind];
+    if (tell && sharing[kind]) send({ type: "stop", ...own(kind) });
+    o.stops++;
+    o.started?.(null); // a start waiting for the server goes on, sees the stop and gives up
+    o.stopFrames?.();
+    o.stopFrames = null;
+    o.replace = null;
+    o.stopSound?.();
+    o.stopSound = null;
+    if (o.soundEncoder && o.soundEncoder.state !== "closed") o.soundEncoder.close();
+    o.soundEncoder = null;
+    if (o.encoder && o.encoder.state !== "closed") o.encoder.close();
+    o.encoder = null;
+    o.media?.getTracks().forEach((t) => t.stop());
+    o.media = null;
+    sharing = { ...sharing, [kind]: false };
+    preview = { ...preview, [kind]: null };
+    viewers = { ...viewers, [kind]: [] };
+  };
+
+  // A new quality, also while live: the capture is asked for it, and the
+  // encoder follows with the next frame (see onFrame).
+  const setQuality = (kind: Kind, q: Quality) => {
+    if (quality[kind].height === q.height && quality[kind].fps === q.fps) return;
+    quality = { ...quality, [kind]: q };
+    const track = out[kind].media?.getVideoTracks()[0];
+    if (!track) return;
+    const { width, height, frameRate } = cameraConstraints(null, q);
+    void track.applyConstraints(kind === "camera" ? { width, height, frameRate } : { frameRate: q.fps }).catch(() => {}); // the encoder still scales down
+  };
+
+  // The next camera (a phone's front and back) while the camera is live.
+  // The current one closes first (phones open one camera at a time); if
+  // the next does not open, the current one again.
+  let switching = false; // a second click meanwhile does nothing
+  const switchCamera = async () => {
+    const o = out.camera;
+    if (!sharing.camera || !o.replace || switching) return;
+    switching = true;
+    const stops = o.stops;
+    const reopen = (id: string | null) => navigator.mediaDevices.getUserMedia({ video: cameraConstraints(id, quality.camera), audio: false });
+    try {
+      const cameras = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+      const current = o.media?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+      const next = nextCamera(cameras, current);
+      if (!next || o.stops !== stops) return;
+      o.stopFrames?.();
+      o.stopFrames = null;
+      o.media?.getTracks().forEach((t) => t.stop());
+      const media = await reopen(next).catch(() => reopen(current));
+      if (o.stops !== stops || !o.replace) media.getTracks().forEach((t) => t.stop());
+      else o.replace(media);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      if (o.stops === stops) stopSharing("camera", true);
+    } finally {
+      switching = false;
+    }
   };
 
   // Watching -----------------------------------------------------------
@@ -258,7 +376,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const watch = async (session: number) => {
     error = null;
     if (watched.has(session)) return;
-    watched.set(session, { decoder: null, needKey: true, canvas: null, sound: null, gain: null, clock: createAvClock(SOUND_LEAD), queue: [], raf: 0 });
+    watched.set(session, { decoder: null, codec: "", needKey: true, canvas: null, sound: null, gain: null, clock: createAvClock(SOUND_LEAD), queue: [], raf: 0 });
     watching = [...watched.keys()];
     try {
       await open();
@@ -269,13 +387,17 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     }
   };
 
+  // A new size of the same stream (another quality, a resized window): the
+  // decoder takes it at the next keyframe, which the server waits for. A
+  // new decoder would miss that keyframe while it is set up.
   const configureIfSupported = async (session: number, codec: string, withSound: boolean) => {
-    if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
+    const known = watched.get(session);
+    if (known?.decoder?.state === "configured" && known.codec === codec) known.needKey = true;
+    else if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
       unwatch(session);
-      error = "This browser cannot play this screen share.";
+      error = "This browser cannot play this stream.";
       return;
-    }
-    configure(session, codec);
+    } else configure(session, codec);
     const v = watched.get(session);
     if (v && withSound && !v.sound) listen(session, v);
   };
@@ -324,6 +446,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (!v) return;
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
     v.needKey = true;
+    v.codec = codec;
     v.decoder = new VideoDecoder({
       output: (frame) => {
         // With sound, pictures wait for it (see listen); before the first
@@ -377,20 +500,28 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   };
 
   return {
+    // Our own streams, by kind: live, the capture (a self-preview), who
+    // watches, the quality.
     get sharing() {
       return sharing;
     },
     get preview() {
       return preview;
     },
+    get viewers() {
+      return viewers;
+    },
+    get quality() {
+      return quality;
+    },
+    get limits() {
+      return limits;
+    },
     get error() {
       return error;
     },
     get watching() {
       return watching;
-    },
-    get viewers() {
-      return viewers;
     },
     // A watched stream's volume (undefined: it has no sound).
     volumeOf: (session: number): number | undefined => sounds[session],
@@ -400,10 +531,10 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       if (!deaf) v.gain.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
       sounds = { ...sounds, [session]: volume };
     },
-    // Whether others see thumbnails of our stream (a setting); turned off,
-    // the last one goes too.
+    // Whether others see thumbnails of our streams (a setting); turned
+    // off, the last ones go too.
     setPreviews: (on: boolean) => {
-      if (previews && !on && sharing) send({ type: "preview", image: "" });
+      if (previews && !on) for (const kind of KINDS) if (sharing[kind]) send({ type: "preview", image: "", ...own(kind) });
       previews = on;
     },
     setDeaf: (on: boolean) => {
@@ -411,8 +542,12 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       if (!audio) return;
       for (const [session, v] of watched) v.gain?.gain.setTargetAtTime(on ? 0 : (sounds[session] ?? 1), audio.currentTime, 0.02);
     },
+    // The camera to open next (null: the default).
+    setCameraDevice: (deviceId: string | null) => (cameraDevice = deviceId),
+    setQuality,
+    switchCamera,
     startSharing,
-    stopSharing: () => stopSharing(true),
+    stopSharing: (kind: Kind = "screen") => stopSharing(kind, true),
     clearError: () => (error = null),
     watch,
     unwatch: (session: number) => unwatch(session),
@@ -423,7 +558,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     },
     close: () => {
       closed = true;
-      stopSharing(true);
+      for (const kind of KINDS) stopSharing(kind, true);
       ws?.close();
     },
   };
@@ -431,17 +566,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
 
 export type StreamClient = ReturnType<typeof createStreamClient>;
 
-const encoderConfig = (codec: string, width: number, height: number): VideoEncoderConfig => ({
+const encoderConfig = (codec: string, e: ReturnType<typeof encoding>): VideoEncoderConfig => ({
   codec,
-  width,
-  height,
-  bitrate: BITRATE,
-  framerate: FPS,
+  ...e,
   latencyMode: "realtime",
   ...(codec.startsWith("avc1") ? { avc: { format: "annexb" as const } } : {}),
 });
 
-// The track's frames, at most FPS a second, until the returned stop. Where
+// The track's frames, at most fps() a second, until the returned stop. Where
 // the browser has MediaStreamTrackProcessor (Chrome, Edge) frames come
 // straight from the track, also in a hidden tab (the usual case: sharing
 // another window). Elsewhere a hidden video element is drawn on a worker's
@@ -531,7 +663,7 @@ const thumbnail = (frame: VideoFrame): string => {
   return canvas.toDataURL("image/jpeg", 0.6);
 };
 
-const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): (() => void) => {
+const frames = (track: MediaStreamTrack, fps: () => number, onFrame: (frame: VideoFrame) => void): (() => void) => {
   const Processor = (globalThis as { MediaStreamTrackProcessor?: ProcessorCtor }).MediaStreamTrackProcessor;
   if (Processor) {
     const reader = new Processor({ track }).readable.getReader();
@@ -542,7 +674,7 @@ const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): 
       while (!stopped) {
         const { value: frame, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
         if (done || !frame) return;
-        if (stopped || frame.timestamp - last < 1e6 / FPS - 2000) frame.close();
+        if (stopped || frame.timestamp - last < 1e6 / fps() - 2000) frame.close();
         else {
           last = frame.timestamp;
           const stamped = new VideoFrame(frame, { timestamp: clock(frame.timestamp) });
@@ -561,8 +693,10 @@ const frames = (track: MediaStreamTrack, onFrame: (frame: VideoFrame) => void): 
   video.srcObject = new MediaStream([track]);
   void video.play().catch(() => {});
   const worker = new Ticker();
-  worker.postMessage(1000 / FPS);
+  let rate = fps();
+  worker.postMessage(1000 / rate);
   worker.onmessage = () => {
+    if (fps() !== rate) worker.postMessage(1000 / (rate = fps())); // another quality
     if (video.readyState >= 2) onFrame(new VideoFrame(video, { timestamp: performance.now() * 1000 }));
   };
   return () => {

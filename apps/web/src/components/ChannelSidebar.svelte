@@ -5,6 +5,7 @@
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
   import type { Peer, TextChannel } from "../lib/textChannels";
+  import { isCamera, streamId } from "../lib/stream/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
   import Icon from "./Icon.svelte";
@@ -61,7 +62,7 @@
     privateChannels?: Readonly<Record<number, unknown>>;
     // Voice channels being recorded: a red "REC".
     recording?: ReadonlySet<number>;
-    // Sessions sharing their screen, and watching one.
+    // Live streams by id (see stream/protocol.streamId), and watching one.
     live?: ReadonlySet<number>;
     // Thumbnails of the streams (shown on the LIVE button).
     previews?: Readonly<Record<number, string>>;
@@ -147,18 +148,19 @@
                 <Badge count={unread[user.name]} />
               </span>
             </button>
-            {#if live.has(user.session) && user.session === server.session}
-              <span class="live" title="You are sharing your screen">LIVE</span>
-            {:else if live.has(user.session)}
-              <span class="live-wrap">
-                <button class="live" title="Watch {user.name}'s screen" aria-label="Watch {user.name}'s screen" onclick={() => onWatch?.(user.session)}
-                  >LIVE</button
-                >
-                {#if previews[user.session]}
-                  <img class="live-preview" src={previews[user.session]} alt="" />
-                {/if}
-              </span>
-            {/if}
+            {#each [streamId(user.session, false), streamId(user.session, true)].filter((id) => live.has(id)) as id (id)}
+              {@const what = isCamera(id) ? "camera" : "screen"}
+              {#if user.session === server.session}
+                <span class="live" title="You are sharing your {what}">{@render badge(id)}</span>
+              {:else}
+                <span class="live-wrap">
+                  <button class="live" title="Watch {user.name}'s {what}" aria-label="Watch {user.name}'s {what}" onclick={() => onWatch?.(id)}>{@render badge(id)}</button>
+                  {#if previews[id]}
+                    <img class="live-preview" src={previews[id]} alt="" />
+                  {/if}
+                </span>
+              {/if}
+            {/each}
           </li>
         {/each}
       </ul>
@@ -171,6 +173,10 @@
       </ul>
     {/if}
   </li>
+{/snippet}
+
+{#snippet badge(id: number)}
+  {#if isCamera(id)}<Icon name="camera" size={14} />{:else}LIVE{/if}
 {/snippet}
 
 {#snippet lock()}
@@ -418,6 +424,8 @@
     margin-right: 8px;
   }
   .live {
+    display: inline-flex;
+    align-items: center;
     flex: none;
     padding: 0 5px;
     border-radius: 3px;

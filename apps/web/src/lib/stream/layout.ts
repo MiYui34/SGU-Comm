@@ -25,3 +25,8 @@ export const nextFocus = (focused: number | null, before: number[], after: numbe
 
 // The streams in the strip: all but the focused one, in order.
 export const stripOf = (sessions: number[], focused: number | null): number[] => sessions.filter((s) => s !== focused);
+
+// A full screen button: leaves full screen when its element is the one in
+// full screen, else puts it there (a tile of the full screen stage too: its
+// own button then goes back to the stage).
+export const fullScreenStep = <T>(current: T | null, target: T): "enter" | "exit" => (current === target ? "exit" : "enter");

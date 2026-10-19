@@ -69,6 +69,9 @@
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
   import StreamStage from "./StreamStage.svelte";
+  import { shareSources } from "../lib/stream/client.svelte";
+  import { ownerOf } from "../lib/stream/protocol";
+  import { KINDS, qualityOptions, type Kind, type Quality } from "../lib/stream/quality";
   import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
@@ -826,14 +829,15 @@
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
-  // Screen shares: who is live, and watching (a stream in another channel:
-  // join it first).
+  // Screen shares and cameras (by stream id): who is live, and watching (a
+  // stream in another channel: join it first).
   const streamClient = $derived(connection.streams);
+  const shareable = $derived(shareSources(phone));
   const liveSessions = $derived(new Set(text.streams.map((s) => s.session)));
   let pendingWatch = $state<number | null>(null);
   const watchStream = (session: number) => {
     const s = text.streams.find((x) => x.session === session);
-    if (!s || !streamClient || session === me?.session) return;
+    if (!s || !streamClient || ownerOf(session) === me?.session) return;
     if (voiceOn && channelId === s.channel) void streamClient.watch(session);
     else {
       pendingWatch = session;
@@ -865,9 +869,27 @@
       for (const s of streamClient.watching) if (!here.has(s)) streamClient.unwatch(s);
     });
   });
-  const nameOfSession = (session: number) => server.users[session]?.name ?? "someone";
+  // A user's name, also from a stream id.
+  const nameOfSession = (session: number) => server.users[ownerOf(session)]?.name ?? "someone";
   $effect(() => {
     streamClient?.setPreviews(prefs.streamPreviews);
+  });
+  $effect(() => {
+    streamClient?.setCameraDevice(prefs.cameraDeviceId);
+  });
+  $effect(() => {
+    for (const kind of KINDS) streamClient?.setQuality(kind, prefs.streamQuality[kind]);
+  });
+  const setStreamQuality = (kind: Kind, q: Quality) => settings.update({ streamQuality: { ...prefs.streamQuality, [kind]: q } });
+  const toggleStream = (kind: Kind) => (streamClient?.sharing[kind] ? streamClient.stopSharing(kind) : void streamClient?.startSharing(kind));
+  // The camera switch shows with more than one camera.
+  let cameraCount = $state(0);
+  $effect(() => {
+    if (!streamClient?.sharing.camera) return;
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((list) => (cameraCount = list.filter((d) => d.kind === "videoinput").length))
+      .catch(() => {});
   });
   $effect(() => {
     streamClient?.setDeaf(me?.selfDeaf ?? false);
@@ -1211,8 +1233,22 @@
     />
     {#if me}
       {#if lobby && voiceOn}
-        {#if streamClient?.preview}
-          <StreamPreview stream={streamClient.preview} viewers={streamClient.viewers.map(nameOfSession)} onStop={() => streamClient?.stopSharing()} />
+        {#if streamClient}
+          {#each KINDS as kind (kind)}
+            {@const stream = streamClient.preview[kind]}
+            {#if stream}
+              <StreamPreview
+                {stream}
+                {kind}
+                viewers={streamClient.viewers[kind].map(nameOfSession)}
+                quality={prefs.streamQuality[kind]}
+                options={qualityOptions(streamClient.limits)}
+                onQuality={(q) => setStreamQuality(kind, q)}
+                onSwitch={kind === "camera" && cameraCount > 1 ? streamClient.switchCamera : undefined}
+                onStop={() => streamClient?.stopSharing(kind)}
+              />
+            {/if}
+          {/each}
         {/if}
         <VoiceBar
           channel={channelName}
@@ -1220,8 +1256,10 @@
           onLeave={leaveVoice}
           music={musicMode}
           info={connection.info}
-          sharing={streamClient?.sharing ?? false}
-          onShare={streamClient && text.voiceChats && !phone ? () => (streamClient.sharing ? streamClient.stopSharing() : void streamClient.startSharing()) : undefined}
+          sharing={streamClient?.sharing.screen ?? false}
+          onShare={streamClient && text.voiceChats && shareable.screen ? () => toggleStream("screen") : undefined}
+          camera={streamClient?.sharing.camera ?? false}
+          onCamera={streamClient && text.voiceChats && shareable.camera ? () => toggleStream("camera") : undefined}
         />
       {/if}
       <UserPanel
