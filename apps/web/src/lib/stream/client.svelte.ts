@@ -1,5 +1,5 @@
 import { shouldFallBack } from "../voice/fallback";
-import { createAvClock, decodeFrame, encodeFrame, pickCodec } from "./protocol";
+import { cannotPlay, createAvClock, decodeFrame, decodeWatch, encodeFrame, pickCodec } from "./protocol";
 import { DEFAULT_LIMITS, DEFAULT_QUALITY, KINDS, cameraConstraints, encoding, nextCamera, parseLimits, sources, type Kind, type Quality } from "./quality";
 import Ticker from "./ticker.worker?worker";
 
@@ -11,6 +11,7 @@ import Ticker from "./ticker.worker?worker";
 const KEYFRAME_EVERY_MS = 8_000; // viewers also ask for keyframes
 const MAX_BUFFERED = 1_500_000; // bytes waiting in the socket: skip frames
 const MAX_DECODE_QUEUE = 10; // frames waiting in a decoder: skip to a keyframe
+const MAX_DECODE_ERRORS = 5; // decoder errors in a row without a picture: give up
 // Thumbnails for people not watching: small JPEGs, now and then.
 const PREVIEW_EVERY_MS = 15_000;
 const PREVIEW_FIRST_MS = 2_000;
@@ -36,6 +37,7 @@ type Viewer = {
   clock: ReturnType<typeof createAvClock>;
   queue: VideoFrame[];
   raf: number;
+  failures: ReturnType<typeof decodeWatch>;
 };
 // One of our own streams (a screen share or the camera) while it runs.
 type Outgoing = {
@@ -376,7 +378,18 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const watch = async (session: number) => {
     error = null;
     if (watched.has(session)) return;
-    watched.set(session, { decoder: null, codec: "", needKey: true, canvas: null, sound: null, gain: null, clock: createAvClock(SOUND_LEAD), queue: [], raf: 0 });
+    watched.set(session, {
+      decoder: null,
+      codec: "",
+      needKey: true,
+      canvas: null,
+      sound: null,
+      gain: null,
+      clock: createAvClock(SOUND_LEAD),
+      queue: [],
+      raf: 0,
+      failures: decodeWatch(MAX_DECODE_ERRORS),
+    });
     watching = [...watched.keys()];
     try {
       await open();
@@ -395,7 +408,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (known?.decoder?.state === "configured" && known.codec === codec) known.needKey = true;
     else if (!(await VideoDecoder.isConfigSupported({ codec })).supported) {
       unwatch(session);
-      error = "This browser cannot play this stream.";
+      error = cannotPlay(codec);
       return;
     } else configure(session, codec);
     const v = watched.get(session);
@@ -449,6 +462,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     v.codec = codec;
     v.decoder = new VideoDecoder({
       output: (frame) => {
+        v.failures.decoded();
         // With sound, pictures wait for it (see listen); before the first
         // sound, and without, they show at once. So too in a hidden tab
         // (no animation frames there): picture-in-picture goes on.
@@ -461,7 +475,12 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
         draw(v, frame);
         frame.close();
       },
-      error: () => watched.get(session) === v && configure(session, codec), // start over
+      error: () => {
+        if (watched.get(session) !== v) return;
+        if (!v.failures.failed()) return configure(session, codec); // start over
+        unwatch(session);
+        error = cannotPlay(codec);
+      },
     });
     v.decoder.configure({ codec, optimizeForLatency: true });
     send({ type: "keyframe", session });

@@ -94,6 +94,7 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x"}, "ALLOWED_ORIGINS is required (use * to allow every origin)"},
 		{map[string]string{"ALLOWED_ORIGINS": "*", "MUMBLE_LISTEN": "nope"}, "MUMBLE_LISTEN must be host:port"},
 		{map[string]string{"ALLOWED_ORIGINS": "*", "MUMBLE_MAX_USERS": "0"}, "MUMBLE_MAX_USERS must be a positive integer"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "WHIP_UDP_PORT": "udp"}, "WHIP_UDP_PORT must be a port number"},
 		{map[string]string{"ALLOWED_ORIGINS": "*", "MUMBLE_CERT_FILE": "/c.crt"}, "set both MUMBLE_CERT_FILE and MUMBLE_KEY_FILE, or neither"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MUMBLE_PORT": "abc"}, "MUMBLE_PORT must be a port number"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "LISTEN_PORT": "70000"}, "LISTEN_PORT must be a port number"},
@@ -155,10 +156,12 @@ func TestTheBuiltInServerIsTheDefault(t *testing.T) {
 		"MUMBLE_WELCOME": "Hi!", "MUMBLE_PASSWORD": "pw", "MUMBLE_MAX_USERS": "20",
 		"MUMBLE_MAX_PER_IP": "5", "CERT_DIR": "/certs",
 		"MUMBLE_CERT_FILE": "/le/c.crt", "MUMBLE_KEY_FILE": "/le/c.key",
+		"WHIP_UDP_PORT": "8189", "WHIP_PUBLIC_IP": "chat.example.org",
 		"RECORDING_DIR": "/rec", "RECORDING_MAX_MINUTES": "90", "RECORDING_MAX_MB": "200", "RECORDING_KEEP_DAYS": "2",
 	}))
 	want = &Builtin{Listen: "0.0.0.0:7000", ServerName: "Our place", Welcome: "Hi!", Password: "pw",
 		MaxUsers: 20, MaxPerIP: 5, CertDir: "/certs", CertFile: "/le/c.crt", KeyFile: "/le/c.key",
+		WHIPPort: 8189, WHIPPublicIP: "chat.example.org",
 		RecordingDir: "/rec", RecordingMax: 90 * time.Minute, RecordingMaxBytes: 200 << 20, RecordingKeep: 2 * 24 * time.Hour}
 	if !reflect.DeepEqual(got.Builtin, want) {
 		t.Errorf("got %+v, want %+v", got.Builtin, want)

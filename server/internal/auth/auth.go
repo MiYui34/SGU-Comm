@@ -70,6 +70,11 @@ type Service struct {
 	// Captcha: the admins' level for new accounts and guest accounts (see
 	// challenge.go). Nil: none.
 	Captcha func() string
+	// StreamKeys: streaming from OBS is on (see streamkey.go).
+	StreamKeys bool
+	// StreamKeyChanged hears that an account's stream key was replaced or
+	// removed (streams with the old one end). Nil: none.
+	StreamKeyChanged func(name string)
 
 	logins, guests limiter
 	challenges     challenges
@@ -150,6 +155,8 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.logoutAll(w, r)
 	case r.URL.Path == "/api/password" && r.Method == http.MethodPost:
 		a.changePassword(w, r)
+	case r.URL.Path == "/api/stream-key":
+		a.streamKey(w, r)
 	case r.URL.Path == "/api/me" && r.Method == http.MethodGet:
 		if acc, ok := a.AccountFor(r); ok {
 			writeJSON(w, http.StatusOK, map[string]any{"name": acc.Name, "temporary": acc.Temporary})
@@ -402,6 +409,7 @@ func (a *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.revoke(func(id int64, _ string) bool { return id == acc.ID })
+	a.endStreamKey(acc)
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -453,6 +461,7 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.revoke(func(id int64, session string) bool { return id == acc.ID && session != keep })
+	a.endStreamKey(acc)
 	if acc.Temporary && a.OnPermanent != nil {
 		a.OnPermanent(acc.Name)
 	}
@@ -502,7 +511,7 @@ func (a *Service) cors(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Access-Control-Allow-Origin", origin)
-	h.Set("Access-Control-Allow-Methods", "GET, POST")
+	h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
 	h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kallisti-Session")
 	// The desktop app sends its token, never cookies.
 	if !config.IsAppOrigin(origin) {

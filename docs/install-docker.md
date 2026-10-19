@@ -17,6 +17,10 @@ docker compose -f deploy/compose.yml up -d --remove-orphans
 - Open `https://chat.example.org`. Mumble clients and the desktop app
   connect to the same host on port 64738 (TCP and UDP): open it in your
   firewall.
+- Streams from OBS (WHIP) use UDP port 8189: open it in the firewall too.
+  OBS reaches it at the address of `DOMAIN`; behind Cloudflare's proxy set
+  `WHIP_PUBLIC_IP` to the server's IPv4 address in `deploy/.env` (see
+  [configuration](configuration.md#streams-from-obs-whip)).
 - `SuperUser` is the admin: log in with the "Log in" tab (or a Mumble
   client) and `SUPERUSER_PASSWORD`. Admins make moderators in a user's menu.
 - Your own password in `deploy/.env`: put it in single quotes

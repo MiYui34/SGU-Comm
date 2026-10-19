@@ -33,10 +33,15 @@ import (
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
 	"kallisti.chat/server/internal/stream"
+	"kallisti.chat/server/internal/whip"
 )
 
-// A streamer's upload, at most: 8 Mbit/s (frames above it are dropped).
-const streamBytesPerSecond = 1 << 20
+// A streamer's upload, at most: 8 Mbit/s (frames above it are dropped);
+// streams from OBS at the same time, at most.
+const (
+	streamBytesPerSecond = 1 << 20
+	whipMaxSessions      = 20
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -192,7 +197,7 @@ func run() error {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
-	for _, path := range []string{"/api/challenge", "/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me"} {
+	for _, path := range []string{"/api/challenge", "/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me", "/api/stream-key"} {
 		mux.Handle(path, accounts)
 	}
 	mux.Handle("/files/", fileHandler)
@@ -207,6 +212,16 @@ func run() error {
 			Hub: builtinServer.streams, Redeem: builtinServer.streamTokens.Redeem,
 			AllowedOrigins: cfg.AllowedOrigins, BytesPerSecond: streamBytesPerSecond,
 		})
+		if cfg.Builtin.WHIPPort != 0 {
+			// Chat and voice go on without it (a name that did not resolve).
+			if wh, err := startWHIP(cfg.Builtin, builtinServer, accounts); err != nil {
+				slog.Error("streams from OBS are off", "err", err)
+			} else {
+				defer wh.Close()
+				mux.Handle(whip.Path, wh)
+				mux.Handle(whip.Path+"/", wh)
+			}
+		}
 		mux.Handle("/api/recordings/", &recording.Handler{
 			Library: builtinServer.recordings, Redeem: builtinServer.recordingTokens.Redeem, MayDownload: builtinServer.srv.MayRecord,
 		})
@@ -303,4 +318,25 @@ func publicBase(origins []string) string {
 		}
 	}
 	return ""
+}
+
+// startWHIP takes streams from OBS on the UDP port (WHIP_UDP_PORT), with
+// the accounts' stream keys.
+func startWHIP(cfg *config.Builtin, b *builtin, accounts *auth.Service) (*whip.Handler, error) {
+	settings, udp, err := whip.Listen(cfg.WHIPPort, cfg.WHIPPublicIP)
+	if err != nil {
+		return nil, err
+	}
+	h := &whip.Handler{
+		Settings: settings, Hub: b.streams, BytesPerSecond: streamBytesPerSecond, MaxSessions: whipMaxSessions,
+		Account: func(key string) (string, bool) {
+			acc, ok := accounts.StreamKeyAccount(key)
+			return acc.Name, ok
+		},
+		Session: b.sessionOf,
+		Closer:  udp,
+	}
+	accounts.StreamKeys, accounts.StreamKeyChanged = true, h.EndAccount
+	slog.Info("streams from OBS (WHIP)", "udp_port", cfg.WHIPPort, "public_ip", cfg.WHIPPublicIP)
+	return h, nil
 }
