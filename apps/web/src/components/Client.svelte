@@ -40,6 +40,7 @@
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
   import { playPing } from "../lib/ping";
+  import { allowSound, playSound, snapshotOf, voiceSound, type VoiceSnapshot } from "../lib/sounds";
   import { watchAway } from "../lib/away";
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
@@ -381,14 +382,29 @@
   $effect(() =>
     onPlace?.({ view, voice: voiceOn ? channelId : null, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
+  // Voice sounds (see sounds.ts), not for about 3 s after a reconnect:
+  // everyone comes back at once, and we go back into voice.
+  let soundState: VoiceSnapshot | null = null;
+  let lastSound = -Infinity;
   let restored = false;
   $effect(() => {
     if (restored || !back || !me) return;
     restored = true;
+    lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
     if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
     if (back.voice !== null && server.channels[back.voice] && me.channelId !== back.voice)
       connection.send(joinChannel(me.session, back.voice));
+  });
+  $effect(() => {
+    const next = snapshotOf(server);
+    untrack(() => {
+      const sound = next && voiceSound(soundState, next);
+      soundState = next;
+      if (!sound || !prefs.sounds || !allowSound(lastSound, performance.now())) return;
+      lastSound = performance.now();
+      playSound(sound, prefs.outputDeviceId, prefs.soundVolume);
+    });
   });
   const show = (next: View) => {
     jumpTarget = null; // a search result sets it again after this

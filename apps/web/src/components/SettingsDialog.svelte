@@ -275,6 +275,25 @@
       always gets at least 500 ms.
     </span>
   </label>
+  <label class="check">
+    <input type="checkbox" checked={settings.sounds} onchange={(e) => onChange({ sounds: e.currentTarget.checked })} />
+    <span>Sounds</span>
+    <span class="hint">When someone joins or leaves your voice channel, when you join or leave, mute or deafen. None while deafened.</span>
+  </label>
+  {#if settings.sounds}
+    <label>
+      Sound volume
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.05"
+        value={settings.soundVolume}
+        oninput={(e) => onChange({ soundVolume: Number(e.currentTarget.value) })}
+        aria-valuetext="{Math.round(settings.soundVolume * 100)}%"
+      />
+    </label>
+  {/if}
 
   <fieldset>
     <legend>Input mode</legend>
