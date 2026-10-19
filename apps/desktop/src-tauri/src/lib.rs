@@ -51,7 +51,10 @@ pub fn run() {
             app.manage(pins);
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
-                media::allow_own_media(&window, origins())?;
+                // Without it only voice is off: start anyway.
+                if let Err(err) = media::allow_own_media(&window, origins()) {
+                    eprintln!("microphone access not set up: {err}");
+                }
             }
             Ok(())
         })

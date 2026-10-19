@@ -6,7 +6,7 @@
 pub fn own_page(uri: &str, origins: &[String]) -> bool {
     origins
         .iter()
-        .any(|o| uri.strip_prefix(o.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('/')))
+        .any(|o| uri.strip_prefix(o.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?', '#'])))
 }
 
 /// Also turns on the web inspector (right click, Inspect Element) when
@@ -48,6 +48,8 @@ mod tests {
         assert!(own_page("tauri://localhost", &origins));
         assert!(own_page("tauri://localhost/", &origins));
         assert!(own_page("http://localhost:5173/index.html", &origins));
+        assert!(own_page("tauri://localhost?a#b", &origins));
+        assert!(own_page("tauri://localhost#b", &origins));
         assert!(!own_page("tauri://localhost.evil.example/", &origins));
         assert!(!own_page("http://localhost:51730/", &origins));
         assert!(!own_page("https://example.com/", &origins));

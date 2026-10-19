@@ -32,7 +32,7 @@ webpki-roots = "1"
 # Linux: the WebView's media settings and permission requests (see
 # media.rs). The version wry uses.
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = "=2.0.2"
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 
 [dev-dependencies]
 rcgen = "0.14"
