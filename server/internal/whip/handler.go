@@ -41,6 +41,7 @@ type Handler struct {
 	// Until the peer connects, and then until its first keyframe (0: the
 	// defaults).
 	ConnectTimeout, KeyTimeout time.Duration
+	Closer                     io.Closer // the UDP port (see Listen), closed by Close; nil: none
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -183,6 +184,9 @@ func (h *Handler) Close() {
 	h.mu.Unlock()
 	for _, s := range all {
 		s.close()
+	}
+	if h.Closer != nil {
+		h.Closer.Close()
 	}
 }
 

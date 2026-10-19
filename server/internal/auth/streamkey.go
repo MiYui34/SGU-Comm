@@ -18,6 +18,14 @@ func (a *Service) streamKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
 		return
 	}
+	if !a.StreamKeys {
+		if r.Method == http.MethodGet {
+			writeJSON(w, http.StatusOK, map[string]bool{"enabled": false})
+		} else {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "streaming from OBS is off on this server"})
+		}
+		return
+	}
 	if acc.Temporary {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "set a password first: guest accounts cannot stream from OBS"})
 		return
@@ -29,7 +37,7 @@ func (a *Service) streamKey(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot read the stream key"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]bool{"exists": has})
+		writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "exists": has})
 	case http.MethodPost:
 		if !a.allow(r) {
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts, try again later"})

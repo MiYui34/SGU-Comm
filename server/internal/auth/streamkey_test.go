@@ -29,6 +29,7 @@ func streamKeyRequest(t *testing.T, srvURL, method string, c *http.Cookie) (*htt
 
 func TestStreamKeys(t *testing.T) {
 	a, srv := setup(t)
+	a.StreamKeys = true
 	var changed []string
 	a.StreamKeyChanged = func(name string) { changed = append(changed, name) }
 	if resp, _ := streamKeyRequest(t, srv.URL, "POST", nil); resp.StatusCode != http.StatusUnauthorized {
@@ -36,7 +37,7 @@ func TestStreamKeys(t *testing.T) {
 	}
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "Alice", "password": "correct horse"}, nil)
 	c := sessionCookie(resp)
-	if _, v := streamKeyRequest(t, srv.URL, "GET", c); v["exists"] != false {
+	if _, v := streamKeyRequest(t, srv.URL, "GET", c); v["exists"] != false || v["enabled"] != true {
 		t.Fatalf("before: %v", v)
 	}
 	resp, v := streamKeyRequest(t, srv.URL, "POST", c)
@@ -80,8 +81,21 @@ func TestStreamKeys(t *testing.T) {
 	}
 }
 
+func TestStreamKeysOff(t *testing.T) {
+	_, srv := setup(t)
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "Alice", "password": "correct horse"}, nil)
+	c := sessionCookie(resp)
+	if _, v := streamKeyRequest(t, srv.URL, "GET", c); v["enabled"] != false {
+		t.Fatalf("off: %v", v)
+	}
+	if resp, _ := streamKeyRequest(t, srv.URL, "POST", c); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("a key while off: %d", resp.StatusCode)
+	}
+}
+
 func TestGuestsHaveNoStreamKey(t *testing.T) {
 	a, srv := setup(t)
+	a.StreamKeys = true
 	acc, _ := a.Store.CreateAccount(store.Account{Name: "guest", Temporary: true, CertPEM: []byte("c"), KeyPEM: []byte("k")}, time.Now())
 	a.Store.CreateSession(tokenHash("tok"), acc.ID, time.Now().Add(time.Hour))
 	if resp, _ := streamKeyRequest(t, srv.URL, "POST", &http.Cookie{Name: CookieName, Value: "tok"}); resp.StatusCode != http.StatusForbidden {

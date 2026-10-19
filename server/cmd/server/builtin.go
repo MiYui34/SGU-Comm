@@ -15,6 +15,7 @@ import (
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumbled"
+	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/password"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
@@ -303,6 +304,17 @@ func (b *builtin) dial(_ context.Context, up bridge.Upstream) (net.Conn, error) 
 	}
 	go b.srv.ServeConn(server, o)
 	return client, nil
+}
+
+// sessionOf is the voice session of a registered user, by name.
+func (b *builtin) sessionOf(name string) (uint32, bool) {
+	key := names.Key(name)
+	for _, u := range b.srv.Online() {
+		if names.Key(u.Name) == key {
+			return u.Session, true
+		}
+	}
+	return 0, false
 }
 
 // nameTaken: new web accounts may not take names of Mumble registrations.

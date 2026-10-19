@@ -70,6 +70,8 @@ type Service struct {
 	// Captcha: the admins' level for new accounts and guest accounts (see
 	// challenge.go). Nil: none.
 	Captcha func() string
+	// StreamKeys: streaming from OBS is on (see streamkey.go).
+	StreamKeys bool
 	// StreamKeyChanged hears that an account's stream key was replaced or
 	// removed (streams with the old one end). Nil: none.
 	StreamKeyChanged func(name string)
