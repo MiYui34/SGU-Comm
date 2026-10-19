@@ -2,16 +2,16 @@
   import ContextMenu from "./ContextMenu.svelte";
   import { isMuted, levelOf, LEVELS, type ChannelPref } from "../lib/channelPrefs";
 
-  // Right-click menu of a channel. Items show only when the user may use
-  // them (the server checks again).
+  // Right-click menu of a channel, or of a direct chat (direct). Items show
+  // only when the user may use them (the server checks again).
   let {
     name,
     x,
     y,
-    canEdit,
-    canDelete,
-    canMoveUp,
-    canMoveDown,
+    canEdit = false,
+    canDelete = false,
+    canMoveUp = false,
+    canMoveDown = false,
     canMembers = false,
     recording,
     onRecord,
@@ -21,29 +21,33 @@
     onMove,
     onDelete,
     onMembers,
+    direct,
     onClose,
   }: {
     name: string;
     x: number;
     y: number;
-    canEdit: boolean;
-    canDelete: boolean;
-    canMoveUp: boolean;
-    canMoveDown: boolean;
+    canEdit?: boolean;
+    canDelete?: boolean;
+    canMoveUp?: boolean;
+    canMoveDown?: boolean;
     // A private channel's members (admins and moderators).
     canMembers?: boolean;
     // Voice channels (staff): being recorded or not; undefined: may not
     // record.
     recording?: boolean;
     onRecord?: (on: boolean) => void;
-    // Text channels: notification settings (see lib/channelPrefs);
-    // undefined: none. desktop: desktop notifications are on.
+    // Text channels and direct chats: notification settings (see
+    // lib/channelPrefs; direct chats only mute); undefined: none. desktop:
+    // desktop notifications are on.
     notify?: { pref: ChannelPref; desktop: boolean };
     onNotify?: (patch: ChannelPref) => void;
-    onEdit: () => void;
-    onMove: (step: -1 | 1) => void;
-    onDelete: () => void;
+    onEdit?: () => void;
+    onMove?: (step: -1 | 1) => void;
+    onDelete?: () => void;
     onMembers?: () => void;
+    // A direct chat (see lib/directList).
+    direct?: { pinned: boolean; onProfile: () => void; onRead?: () => void; onPin: () => void; onHide: () => void };
     onClose: () => void;
   } = $props();
 
@@ -60,22 +64,34 @@
   ];
   const id = $props.id();
   const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
+  const noun = $derived(direct ? "conversation" : "channel");
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
+  {#if direct}
+    <button onclick={act(direct.onProfile)}>Profile</button>
+    {#if direct.onRead}<button onclick={act(direct.onRead)}>Mark as read</button>{/if}
+    <div class="sep"></div>
+  {/if}
   {#if notify && onNotify}
     {#if isMuted(notify.pref, Date.now())}
       {@const end = until(notify.pref.mutedUntil)}
-      <button onclick={act(() => onNotify({ mutedUntil: undefined }))}>Unmute channel</button>
+      <button onclick={act(() => onNotify({ mutedUntil: undefined }))}>Unmute {noun}</button>
       {#if end}<p class="none">Muted until {end}</p>{/if}
     {:else}
       <div role="group" aria-labelledby="{id}-mute">
-        <p class="heading" id="{id}-mute">Mute channel</p>
+        <p class="heading" id="{id}-mute">Mute {noun}</p>
         {#each MUTE_FOR as [label, minutes] (minutes)}
           <button onclick={act(() => onNotify({ mutedUntil: minutes && Date.now() + minutes * 60_000 }))}>{label}</button>
         {/each}
       </div>
     {/if}
+  {/if}
+  {#if direct}
+    <div class="sep"></div>
+    <button onclick={act(direct.onPin)}>{direct.pinned ? "Unpin" : "Pin to top"}</button>
+    <button onclick={act(direct.onHide)}>Close conversation</button>
+  {:else if notify && onNotify}
     <div class="sep"></div>
     <div role="group" aria-labelledby="{id}-level">
       <p class="heading" id="{id}-level">Notifications</p>
@@ -95,15 +111,15 @@
     {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
   {/if}
   {#if canEdit || canMoveUp || canMoveDown}
-    {#if canEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
+    {#if canEdit && onEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
     {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
-    {#if canMoveUp}<button onclick={act(() => onMove(-1))}>Move up</button>{/if}
-    {#if canMoveDown}<button onclick={act(() => onMove(1))}>Move down</button>{/if}
-    {#if canDelete}
+    {#if canMoveUp}<button onclick={act(() => onMove?.(-1))}>Move up</button>{/if}
+    {#if canMoveDown}<button onclick={act(() => onMove?.(1))}>Move down</button>{/if}
+    {#if canDelete && onDelete}
       <div class="sep"></div>
       <button class="danger" onclick={act(onDelete)}>Delete channel</button>
     {/if}
-  {:else if !notify && recording === undefined}
+  {:else if !notify && recording === undefined && !direct}
     <p class="none">You may not change this channel.</p>
   {/if}
 </ContextMenu>
