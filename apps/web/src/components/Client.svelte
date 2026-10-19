@@ -759,7 +759,7 @@
   const hidden = $derived(text.voiceChats ? hiddenMembers(text.members, text.online, users) : []);
   // In a private text or voice channel: who reads it (null: not private).
   const privateMembers = $derived.by(() => {
-    const access = textId !== null ? textChannel?.mumble : view.kind === "voice" && dm === null ? channelId : undefined;
+    const access = textId !== null ? textChannel?.mumble : view.kind === "voice" ? channelId : undefined;
     return access === undefined ? undefined : text.private[access];
   });
   const readers = $derived(

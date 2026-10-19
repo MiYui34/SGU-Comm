@@ -63,7 +63,8 @@
   </li>
 {/snippet}
 
-<!-- Members in channels we cannot see: online, without a channel. -->
+<!-- A group: users we see, members online in channels we cannot see
+     (without a channel), offline members. -->
 {#snippet rows(title: string, list: ReaderRow<User>[])}
   {#if list.length}
     <h2>{title} — {list.length}</h2>
