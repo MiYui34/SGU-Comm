@@ -2,6 +2,8 @@
 
 - [ ] [Desktop app (Tauri)](issues/desktop-app-tauri.md)
   - [ ] [Desktop: global push-to-talk](issues/desktop-global-push-to-talk.md)
+  - [ ] [Desktop: overlay of who is talking](issues/desktop-overlay.md)
+  - [ ] [Activity status: game and music](issues/activity-status.md)
 - [ ] [Join other servers with your account](issues/join-other-servers.md) (design, not started)
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
@@ -13,3 +15,4 @@
 - [ ] [Who can read a private channel](issues/private-channel-readers.md)
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Playback buffer setting and a music buffer](issues/playback-buffer.md)
+- [ ] [Join and leave sounds](issues/join-leave-sounds.md)
