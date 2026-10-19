@@ -22,6 +22,7 @@
   import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
   import { untrack } from "svelte";
   import { checkForUpdate } from "./lib/update";
+  import { browserPushSupport, turnOffPush } from "./lib/push";
   import { voiceSupported } from "./lib/voice/support";
   import { settings } from "./lib/settings.svelte";
   import { themeOf } from "./lib/settings";
@@ -102,19 +103,24 @@
     if (connection?.closed && loggedOut(connection.closeReason))
       untrack(() => {
         account = null;
+        void stopPush();
         leave("You were logged out.");
       });
   });
+  // This browser's push notifications end with the login (see lib/push).
+  const stopPush = () => (browserPushSupport() === "ok" ? turnOffPush(httpBase(PROXY_URL)) : Promise.resolve());
   const accountActions: AccountActions = {
     get temporary() {
       return account?.temporary ?? false;
     },
     logout: async () => {
+      void stopPush(); // not waited for: the logout ends it on the server too
       const ok = await api.logout();
       if (ok) account = null;
       leave(ok ? null : "Logging out did not finish: you may still be logged in.");
     },
     logoutAll: async () => {
+      void stopPush();
       await api.logoutAll();
       account = null;
       leave("Logged out on all devices.");

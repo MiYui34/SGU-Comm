@@ -14,7 +14,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 var officialRuns int
@@ -138,8 +137,7 @@ func TestOfficialClientJoinsAndTalks(t *testing.T) {
 func TestOfficialClientLogsInAsSuperUser(t *testing.T) {
 	needOfficialClient(t)
 	db := testDB(t)
-	hash, _ := password.Hash("adminpw")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "adminpw")
 	addr := startWith(t, "0.0.0.0", Config{DB: db})
 	watcher := dial(t, addr, "watcher")
 	official := officialClient(t, addr, "SuperUser", "adminpw", 30)
@@ -153,8 +151,7 @@ func TestOfficialClientLogsInAsSuperUser(t *testing.T) {
 func TestOfficialClientIsKeptOutOfARestrictedChannel(t *testing.T) {
 	needOfficialClient(t)
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	addr := startWith(t, "0.0.0.0", Config{DB: db})
 	su := superUser(t, addr)
 	vip := su.createChannel(0, "VIP", false)
@@ -180,8 +177,7 @@ func TestOfficialClientIsKeptOutOfARestrictedChannel(t *testing.T) {
 func TestOfficialClientEditsACL(t *testing.T) {
 	needOfficialClient(t)
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	addr := startWith(t, "0.0.0.0", Config{DB: db})
 	su := superUser(t, addr)
 	vip := su.createChannel(0, "VIP", false)
@@ -226,8 +222,7 @@ func TestOfficialClientIsMutedAndBanned(t *testing.T) {
 	needOfficialClient(t)
 	os.Remove("../../../packages/devtools/mumble-client/out/certs/banned.p12")
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	addr := startWith(t, "0.0.0.0", Config{DB: db})
 	su := superUser(t, addr)
 	official := officialClient(t, addr, "official", "", 60, "MUMBLE_CERT=banned")

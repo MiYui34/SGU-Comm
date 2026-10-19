@@ -36,6 +36,9 @@ export const channelPrefs = {
 const blockedStore = persisted("blockedUsers", parseBlocked);
 
 export const blockedUsers = {
+  get list() {
+    return blockedStore.value;
+  },
   has: (name: string | null) => isBlocked(blockedStore.value, name),
   toggle: (name: string) => blockedStore.set(toggleBlocked(blockedStore.value, name)),
 };

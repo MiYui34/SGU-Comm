@@ -59,6 +59,32 @@ Used unless `MUMBLE_HOST` is set.
   to trust a self-signed one. Reloaded when they change; until they exist the
   self-signed certificate is used. They must be readable by the server's
   user.
+- Push notifications (on by default): users with a password can turn them
+  on in Settings. A mention, a reply, `@everyone` (in a channel they may
+  read) or a direct message then reaches their browsers and installed apps,
+  but only while they have no open connection (the open app notifies
+  them) and are not in "do not disturb". `@here` sends none. The push says
+  who and where, never the message. At most one per user and chat per
+  minute (later pings in that minute are dropped). A channel set to
+  "Nothing" on a device, and users blocked there, send none to that
+  device; mutes do not stop mentions, as in the app. A subscription ends
+  with the login session that made it (log out, password change, expiry).
+  The server sends only to the browsers' push services (Google, Mozilla,
+  Apple, Microsoft), so it needs outgoing HTTPS, and browsers allow push
+  only over HTTPS (or on `localhost`).
+  - `PUSH=0`: no push notifications.
+  - `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (made on the first start and
+    kept in the database): the server's push keys, base64url. With changed
+    keys, browsers subscribe again when the app next opens there.
+  - `PUSH_SUBJECT` (the first `ALLOWED_ORIGINS` address if it is HTTPS,
+    else `https://kallisti.chat`): a `mailto:` or `https:` contact that
+    push services see.
+- `RECORDING_DIR` (`recordings` next to `DB_PATH`): channel recordings
+  (admins and moderators record a voice channel; one Ogg Opus file per
+  speaker). Back it up or not: finished recordings are removed after
+  `RECORDING_KEEP_DAYS` (7).
+- `RECORDING_MAX_MINUTES` (240) and `RECORDING_MAX_MB` (1024): one
+  recording stops by itself at either limit.
 
 ### Streams from OBS (WHIP)
 

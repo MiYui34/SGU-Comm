@@ -23,6 +23,7 @@ import (
 
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/push"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -73,6 +74,10 @@ type Voice interface {
 	// (registered user ids), or public; CreatePrivateChannel makes a
 	// private voice channel. Only admins and moderators change them.
 	Sees(session, channel uint32) bool
+	// UserSees and UserMayRead are Sees and MayRead for a registered user
+	// by id, also when it is not connected (push notifications).
+	UserSees(user, channel uint32) bool
+	UserMayRead(user, channel uint32) bool
 	Private() []PrivateChannel
 	SetPrivate(session, channel uint32, on bool, members []uint32) error
 	CreatePrivateChannel(session uint32, name string) (uint32, error)
@@ -123,8 +128,8 @@ type Voice interface {
 	SetMessageRules(session uint32, r msgrules.Rules) (msgrules.Rules, error)
 }
 
-// LiveStream is a screen share in a voice channel, by its streamer's
-// session.
+// LiveStream is a screen share or camera in a voice channel, by its id
+// (the streamer's session; a camera's has stream.CameraBit set too).
 type LiveStream struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`
@@ -218,8 +223,13 @@ type Hub struct {
 	// and the live streams.
 	StreamToken func(session uint32) string
 	LiveStreams func() []LiveStream
+	// Channel recordings (built-in server; nil: none).
+	Recorder Recorder
 	// SaveFile stores a picture from a Mumble message as an upload.
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
+	// Push sends a push notification to a user's browsers, by name (nil:
+	// none; see push.go). It must not block.
+	Push func(name string, n push.Note)
 	// Per voice server session: the last message seen in each mirror.
 	visitsMu sync.Mutex
 	visits   map[uint32]*visit
@@ -356,6 +366,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 			if c.hub.LiveStreams != nil {
 				ready["streams"] = c.hub.liveStreams(id)
 			}
+			if c.hub.Recorder != nil {
+				ready["recording"] = c.hub.recordingFor(id)
+			}
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
@@ -452,7 +465,7 @@ type request struct {
 	Type      string          `json:"type"`
 	Name      string          `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
 	Channels  []int64         `json:"channels"` // order-channels
-	Voice     uint32          `json:"voice"`    // voice-chat: the Mumble channel
+	Voice     uint32          `json:"voice"`    // voice-chat, start-recording, stop-recording: the Mumble channel
 	Channel   int64           `json:"channel"`
 	Before    int64           `json:"before"`
 	Text      string          `json:"text"`
@@ -585,6 +598,9 @@ func (c *Conn) Handle(raw []byte) {
 	case "set-private":
 		c.setPrivate(*id, req)
 		return
+	case "start-recording", "stop-recording", "recordings", "recording-token":
+		c.recordings(*id, req)
+		return
 	case "create-private-voice":
 		c.createPrivateVoice(*id, req.Name)
 		return
@@ -714,6 +730,7 @@ func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images 
 		}
 		n, last = n+1, m.ID
 		h.sendTo(where, map[string]any{"type": "message", "message": toWire(m)})
+		h.pushFor(where, m)
 	}
 	// Only registered users' images are kept (with their upload quota):
 	// guests can use any name. Mumble clients see them live anyway.
@@ -830,6 +847,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	if ch.direct {
 		c.hub.relayDirect(id, ch, m)
 	}
+	c.hub.pushFor(ch, m)
 	if ch.isVoice {
 		c.hub.voice.SendChannelText(id.Session, ch.voice, c.hub.mumbleText(m))
 	} else if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {

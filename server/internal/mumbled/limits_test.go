@@ -14,7 +14,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 // plainUDP sends one unencrypted packet and returns the reply.
@@ -158,8 +157,7 @@ func TestParsePingRefusesOtherBytes(t *testing.T) {
 
 func TestSuperUserJoinsAFullServer(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	addr := startWith(t, "127.0.0.1", Config{MaxUsers: 1, DB: db})
 	dial(t, addr, "alice")
 	superUser(t, addr)

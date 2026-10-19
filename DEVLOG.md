@@ -742,6 +742,148 @@ From `meta/research/discord-comparison.md`.
 - Headless Chromium enters PiP (the promise resolves) but
   did not enter full screen; full screen was not checked there.
 
+## Emoji resize (2026-10-19)
+
+- Still images are scaled in the browser to fit 96×96 (no server
+  change: Go's content sniffing already knows WebP). The image is scaled
+  once to a working canvas with a short side of at most 96 × 8 (the most
+  zoom), so dragging the crop redraws a small canvas, not the photo.
+- The output is PNG or WebP, the smaller one. `toBlob("image/webp", 1)`
+  is lossless WebP in Chromium, and it gives a PNG where the browser has
+  no WebP encoder, so the type of the blob is checked.
+- Animation detection walks the GIF blocks (a 0x2C byte can be in the
+  image data) and also finds APNG (`acTL` before `IDAT`): a canvas would
+  drop those frames too.
+- Small images (≤ 96 px, no crop) are uploaded as they are; re-encoding
+  them gains nothing.
+- agent-browser's `mouse wheel` sends no DOM wheel events (checked with
+  a test page), so wheel zoom was not checked there. Drag, keys and the
+  slider were.
+
+## Web Push (2026-10-19)
+
+- New dependency: `github.com/SherClockHolmes/webpush-go` (RFC 8291
+  encryption and RFC 8292 VAPID; by hand it is easy to get wrong). It
+  pulls in `golang-jwt/jwt/v5`. Its `Subscriber` adds `mailto:` to
+  anything that is not `https:`: `PUSH_SUBJECT=mailto:x` must lose the
+  prefix first.
+- Who gets a push is decided in the sidecar (`push.go`): `pings` (name
+  mention, reply without no_ping, @everyone, direct message; not the
+  author) and `wantsPush` (may read the chat, not connected, not in do
+  not disturb). @here never pushes: it is for who is there, and pushes
+  only go to who is not.
+- "Not connected" is `Voice.Online()` (web and Mumble clients): an open
+  tab notifies by itself, so there are no double notifications. A phone
+  whose PWA is in the background but still connected gets neither.
+- Offline users have no session, so access needs new questions to the
+  voice server: `UserSees` and `UserMayRead` build a registered user by
+  id (in no channel). Groups and roles by id count; a certificate hash
+  or tokens in ACLs do not.
+- A subscription belongs to the login session (foreign key, cascade):
+  logout, "log out everywhere", password change and expiry end it
+  without extra code. The client subscribes again for the new session
+  on the next start (`syncPush`).
+- The server posts only to the browsers' push services (allowlist of
+  hosts); otherwise any account could make it post to internal
+  addresses.
+- Channel settings and blocks stay in the browser. Only the channels set
+  to "Nothing" and the blocked names go to the server, per subscription
+  (per device): mutes let mentions through anyway, and pushes are only
+  for pings. Without the blocks a blocked user could still ping a closed
+  phone.
+- Most messages ping nobody: without "@", a reply, @everyone or a direct
+  chat, the decision makes no queries.
+- Rate: one push per user and chat per minute (in memory), plus the
+  `Topic` header, so a push service keeps only the newest per chat.
+- The service worker is a second Vite entry (`src/sw.ts` to `/sw.js`),
+  registered only while push is on, with no fetch handler: no caching,
+  the update check works as before. It must stay one file (no shared
+  chunks): only it imports `lib/pushNotice.ts`.
+- The WebWorker TypeScript lib clashes with DOM: sw.ts declares the few
+  worker types it uses.
+
+## Channel recording (2026-10-19)
+
+- No re-encoding: the voice path hands each packet (copied, the buffers are
+  reused) to the recording's goroutine through a channel of 1024; when it
+  is full, packets are dropped and counted (`dropped` in recording.json).
+  Voice never waits for the disk.
+- Alignment: every track starts at the recording's start and ends at its
+  stop. Within a burst, Mumble's sequence numbers (10 ms frames) place the
+  packets, so network jitter does not move them and lost packets become
+  silence. A new burst (after a terminator, a pause over 1 s, or sequence
+  numbers more than 2 s off the clock) starts where the arrival time says.
+  A burst that starts while the last packet still plays goes after it.
+- Silence is explicit packets, not granule gaps: CELT frames `TOC 0xff
+  0xfe`. The CELT silence flag is the first symbol in the range coder, so
+  the same two bytes are silence at 20, 10, 5 and 2.5 ms; gaps are filled
+  with 20 ms frames, then shorter ones (all Opus durations are multiples of
+  2.5 ms). Mixing these CELT frames with SILK speech is valid Opus.
+- Stereo (music mode) is kept: a track starts mono and its OpusHead is
+  rewritten in place (page 0, CRC again, same size) at the first stereo
+  packet. Mono packets in a stereo stream decode fine; the other way round
+  would be downmixed.
+- Pre-skip is 312 (libopus's encoder delay at 48 kHz) on every track, so
+  they stay aligned to each other.
+- Checked with ffmpeg: real libopus packets with gaps gave two 8.000 s
+  tracks (mono and stereo) that decode without errors, with the sound
+  exactly where it was spoken (silencedetect).
+- Only what a user says to its own channel (target 0) is recorded, if it
+  may speak there (not muted, suppressed, or without Speak). Whispers,
+  shouts, linked channels and screen share sound are not.
+- Downloads: the sidecar gives staff a one-time token (1 min, as stream
+  tokens); `/api/recordings/{id}?token=` streams a stored zip (Opus does
+  not shrink) and checks again that the session may record. The token is
+  in the URL because a download is a plain link.
+- A crash leaves a recording without recording.json: it is not listed, and
+  removed after the keep period plus the maximum length.
+
+## Flaky mumbled tests (2026-10-19)
+
+- The timeouts were all `superUser` dials ("no frame of type 5", the
+  ServerSync), not the registration: helpers call `t.Helper()`, so the
+  failure points at the test line. The ServerSync wait (3 s) covers the
+  argon2id check of SuperUser's password: 0.3 s under -race, seconds on
+  a busy machine. Reproduced with 24 parallel test binaries
+  (GOMAXPROCS=2): 46 failures in 960 runs.
+- TestWebPasswordChecksShareTheLockout had the same cause: its ten
+  failed checks took more than 12 s, so the lockout limiter refilled.
+- Fix: tests store a cheap argon2id hash (`setAdminPassword`); Check
+  takes the parameters from the hash. 0 failures in the same stress.
+
+## Camera streams (2026-10-19)
+
+- A user has one screen share and one camera at most. The hub keys
+  streams by an id: the session for a screen share, the session with
+  bit 31 set for a camera (`stream.ID`). Frames up carry a camera flag
+  (bit 2); frames down carry the id, so viewers and the channel list
+  need no other change. Cameras have no sound. There is no server-wide
+  limit on the number of streams; one upload limit (1 MiB/s) covers
+  both streams of a user. The server sends it in "ready".
+- Watching a camera is opt-in like a screen share (a camera button next
+  to LIVE). Simple; Discord shows cameras at once in its voice grid.
+- Quality while live: 480p/720p/1080p and 15/30/60 fps, default 720p at
+  30 fps (about 4 Mbit/s; screen shares were 1080p at 15 fps, so small
+  text is less sharp by default now). The frame loop compares the wanted
+  encoder settings with the current ones on each frame. A new size: a
+  new encoder (it starts with a keyframe) and a new "stream" config to
+  the viewers, who keep their decoder (it takes the new size at the
+  keyframe; a new decoder missed that keyframe while it was set up, and
+  the server asks for keyframes at most once a second). A new bitrate or
+  frame rate only: the same encoder is configured again. Checked in
+  headless Chromium: 720p to 1080p60 (screen) and 720p to 480p and back
+  (camera) while watched, without an end.
+- Alone, a stream may use 80% of the upload limit; screen and camera
+  together share it 65/35.
+- Camera switch (a phone's front and back): the current camera closes
+  before the next opens, because phones open one camera at a time.
+- Headless Chromium crashed its renderer on `enumerateDevices`, also
+  with the fake media flags. The browser check used an init script that
+  replaces getUserMedia, getDisplayMedia and enumerateDevices with
+  canvas streams.
+- Watching no longer needs getDisplayMedia (it needs decoders only), so
+  phones without screen capture can watch too.
+
 ## Streaming from OBS (2026-10-19)
 
 - WHIP with pion (new dependency). The stream is an "ingest" in the

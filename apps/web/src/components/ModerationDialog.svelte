@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import type { CaptchaLevel } from "../lib/captcha";
   import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
+  import EmojiImage from "./EmojiImage.svelte";
   import {
     connectionLevel,
     formatOnline,
@@ -13,11 +14,12 @@
     type Connection,
   } from "../lib/connections";
   import { formatList, MAX_NEW_MINUTES, minutesError, rulesFrom, type MessageRules } from "../lib/messageRules";
+  import { describeRecording, type FinishedRecording } from "../lib/recording";
 
   // Server settings for moderators and admins: the ban list, the
-  // registered users, the custom emoji, and for admins the guests settings,
-  // the message rules and the connections (the server checks every change
-  // again).
+  // registered users, the custom emoji, the finished channel recordings,
+  // and for admins the guests settings, the message rules and the
+  // connections (the server checks every change again).
   let {
     bans,
     registered,
@@ -38,6 +40,10 @@
     messageRules = null,
     onLoadMessageRules,
     onSaveMessageRules,
+    recordings = null,
+    recording = [],
+    onLoadRecordings,
+    onDownloadRecording,
     onClose,
   }: {
     bans: readonly Ban[] | null;
@@ -65,11 +71,18 @@
     messageRules?: MessageRules | null;
     onLoadMessageRules?: () => void;
     onSaveMessageRules?: (rules: MessageRules) => void;
+    // Staff: the finished recordings (null: not loaded yet), asked for
+    // again when a recording starts or stops (recording: the recorded
+    // channels); without onLoadRecordings, no tab.
+    recordings?: readonly FinishedRecording[] | null;
+    recording?: readonly number[] | null;
+    onLoadRecordings?: () => void;
+    onDownloadRecording?: (id: string) => Promise<void>;
     onClose: () => void;
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users" | "emoji" | "guests" | "rules" | "connections">(
+  let tab = $state<"bans" | "users" | "emoji" | "guests" | "rules" | "connections" | "recordings">(
     untrack(() => (rights.bans ? "bans" : rights.users ? "users" : rights.emoji ? "emoji" : "guests")),
   );
   let renaming = $state<{ id: number; name: string } | null>(null);
@@ -89,6 +102,18 @@
     return () => clearInterval(timer);
   });
   const sorted = $derived(connections && worstFirst(connections));
+
+  const mayRecordings = $derived(!!onLoadRecordings);
+  $effect(() => {
+    void recording; // a recording started or stopped: the list changed
+    if (tab === "recordings" && mayRecordings) untrack(() => onLoadRecordings)?.();
+  });
+  let downloadError = $state<string | null>(null);
+  const download = (id: string) => {
+    downloadError = null;
+    onDownloadRecording?.(id).catch((err) => (downloadError = err instanceof Error ? err.message : String(err)));
+  };
+  const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
   // The message rules: loaded when the tab opens, the form filled with
   // what the server has (again after a save: it tidies the lists).
@@ -119,14 +144,17 @@
   let adding = $state(false);
   let confirmingEmoji = $state<string | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
+  let emojiImage: EmojiImage | undefined = $state();
   const addEmoji = async (e: SubmitEvent) => {
     e.preventDefault();
     const name = emojiName.trim();
-    emojiError = emojiFormError(name, emojiFile, emoji);
-    if (emojiError || !emojiFile) return;
     adding = true;
     try {
-      await onAddEmoji(name, emojiFile);
+      // Checked as uploaded: still images are scaled down first.
+      const file = (await emojiImage?.output()) ?? null;
+      emojiError = emojiFormError(name, file, emoji);
+      if (emojiError || !file) return;
+      await onAddEmoji(name, file);
       emojiName = "";
       emojiFile = null;
       if (fileInput) fileInput.value = "";
@@ -164,6 +192,9 @@
     {/if}
     {#if onPollConnections}
       <button role="tab" aria-selected={tab === "connections"} onclick={() => (tab = "connections")}>Connections</button>
+    {/if}
+    {#if onLoadRecordings}
+      <button role="tab" aria-selected={tab === "recordings"} onclick={() => (tab = "recordings")}>Recordings</button>
     {/if}
   </div>
 
@@ -284,11 +315,35 @@
       </div>
       <p class="note">Worst first; updates every few seconds. No addresses: admins see them in Mumble's user information.</p>
     {/if}
+  {:else if tab === "recordings"}
+    {#if recordings === null}
+      <p class="note">Loading…</p>
+    {:else if recordings.length === 0}
+      <p class="note">No recordings. Record a voice channel from its menu (right-click).</p>
+    {:else}
+      <ul>
+        {#each recordings as r (r.id)}
+          {@const d = describeRecording(r)}
+          <li>
+            <div class="what">
+              <strong>{r.channelName} · {when(r.started)}</strong>
+              <span class="detail">
+                {d.length} · {d.size} · {d.speakers} · by {r.by}{r.reason === "stopped" ? "" : ` · ended: ${r.reason}`} · until {when(r.expires)}
+              </span>
+            </div>
+            <button type="button" onclick={() => download(r.id)}>Download</button>
+          </li>
+        {/each}
+      </ul>
+      {#if downloadError}<p class="note error" role="alert">{downloadError}</p>{/if}
+      <p class="note">A zip with one Ogg Opus file per speaker. All files start when the recording started, so they line up in an audio editor.</p>
+    {/if}
   {:else if tab === "emoji"}
     <form class="add-emoji" onsubmit={addEmoji}>
       <input
         bind:this={fileInput}
         type="file"
+        disabled={adding}
         accept={EMOJI_TYPES.join(",")}
         aria-label="Emoji image"
         onchange={(e) => {
@@ -300,7 +355,8 @@
       <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" oninput={() => (emojiError = null)} />
       <button type="submit" disabled={adding}>{adding ? "Adding…" : "Add"}</button>
     </form>
-    <p class="note">PNG, GIF, WebP or JPEG, at most 256 KB. Names: 2 to 32 lower case letters, digits or _.</p>
+    <p class="note">PNG, GIF, WebP or JPEG; still images are scaled to fit 96×96 px. Names: 2 to 32 lower case letters, digits or _.</p>
+    <EmojiImage bind:this={emojiImage} file={emojiFile} name={emojiName.trim()} />
     {#if emojiError}<p class="error" role="alert">{emojiError}</p>{/if}
     {#if emoji.length === 0}
       <p class="note">This server has no custom emoji yet.</p>

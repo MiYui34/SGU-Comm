@@ -12,6 +12,7 @@
     pin: "M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z",
     lock: "M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11",
     screen: "M3 4h18v12H3zM8 20h8M12 16v4",
+    camera: "M3 7h12v10H3zM15 10.5 21 7v10l-6-3.5",
     // Stream stage: all in a grid, one large over a strip, picture-in-picture.
     grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
     focus: "M3 3h18v12H3zM3 19h5M10 19h4M16 19h5",

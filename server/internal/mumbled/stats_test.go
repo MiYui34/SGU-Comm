@@ -9,7 +9,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 func TestVoiceSequenceCountsGapsAndLateFrames(t *testing.T) {
@@ -181,8 +180,7 @@ func TestUserStatsOfOtherChannels(t *testing.T) {
 
 func TestUserStatsOfHiddenUsersStayHidden(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	var secret uint32
 	addr := startServer(t, "127.0.0.1", Config{DB: db}, func(s *Server) {
 		ch, _ := s.state.AddChannel(0, "Secret", false)

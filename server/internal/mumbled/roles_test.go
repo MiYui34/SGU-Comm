@@ -9,7 +9,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 // registered joins with a certificate and registers itself.
@@ -23,8 +22,7 @@ func registered(t *testing.T, addr, name string) (*testClient, uint32) {
 func rolesServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	return startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
 }
 

@@ -7,15 +7,13 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 // adminServer has a database and a SuperUser with the password "admin".
 func adminServer(t *testing.T) (string, *DB) {
 	t.Helper()
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	return startWith(t, "127.0.0.1", Config{DB: db}), db
 }
 

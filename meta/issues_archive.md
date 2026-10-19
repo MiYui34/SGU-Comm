@@ -196,3 +196,8 @@
 - [x] [Dialog headers stay in view](issues/sticky-dialog-header.md)
 - [x] [Jumbo emoji](issues/jumbo-emoji.md)
 - [x] [Streaming: several streams, grid and focus views](issues/streaming-views.md)
+- [x] [Resize custom emoji when adding them](issues/emoji-resize.md)
+- [x] [Web Push notifications](issues/web-push.md)
+- [x] [Recording a voice channel](issues/channel-recording.md)
+- [x] [Streaming: camera and quality while live](issues/streaming-camera.md)
+- [x] [Flaky mumbled tests under the full race run](issues/flaky-mumbled-tests.md)

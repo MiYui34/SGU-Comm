@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -37,6 +38,8 @@ type Config struct {
 	TrustForwardedFor bool
 	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
 	NoLinkPreviews bool
+	// Web Push notifications (built-in server).
+	Push Push
 	// Uploaded files, and the size limit per file.
 	UploadDir string
 	// BackupDir: daily database backups go here (empty: none); the newest
@@ -79,6 +82,26 @@ func parsePort(value string, fallback int) (int, bool) {
 	return n, err == nil && n > 0 && n < 65536
 }
 
+// Push configures Web Push. PUSH=0: off. Without keys the server makes
+// them on the first start and keeps them in the database. Subject: a
+// contact for push services (empty: the server's public address).
+type Push struct {
+	Off                   bool
+	PublicKey, PrivateKey string
+	Subject               string
+}
+
+func parsePush(getenv func(string) string) (Push, error) {
+	p := Push{Off: getenv("PUSH") == "0", PublicKey: getenv("VAPID_PUBLIC_KEY"), PrivateKey: getenv("VAPID_PRIVATE_KEY"), Subject: getenv("PUSH_SUBJECT")}
+	if (p.PublicKey == "") != (p.PrivateKey == "") {
+		return Push{}, errors.New("set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY, or neither")
+	}
+	if p.Subject != "" && !strings.HasPrefix(p.Subject, "mailto:") && !strings.HasPrefix(p.Subject, "https:") {
+		return Push{}, errors.New("PUSH_SUBJECT must be a mailto: or https: URL")
+	}
+	return p, nil
+}
+
 // Builtin configures the built-in Mumble server.
 type Builtin struct {
 	Listen     string // TCP and UDP for Mumble clients
@@ -96,6 +119,12 @@ type Builtin struct {
 	// at start), needed where the server does not see its public IP (Docker).
 	WHIPPort     int
 	WHIPPublicIP string
+	// Channel recordings: where they wait for download (RecordingKeep),
+	// and the limits of one.
+	RecordingDir      string
+	RecordingMax      time.Duration
+	RecordingMaxBytes int64
+	RecordingKeep     time.Duration
 }
 
 func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
@@ -127,6 +156,21 @@ func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
 			return nil, errors.New("MUMBLE_MAX_PER_IP must be a positive integer")
 		}
 	}
+	b.RecordingDir = cmp.Or(getenv("RECORDING_DIR"), filepath.Join(filepath.Dir(dbPath), "recordings"))
+	minutes, ok := positive(getenv("RECORDING_MAX_MINUTES"), 240)
+	if !ok {
+		return nil, errors.New("RECORDING_MAX_MINUTES must be a positive integer")
+	}
+	mb, ok := positive(getenv("RECORDING_MAX_MB"), 1024)
+	if !ok {
+		return nil, errors.New("RECORDING_MAX_MB must be a positive integer")
+	}
+	days, ok := positive(getenv("RECORDING_KEEP_DAYS"), 7)
+	if !ok {
+		return nil, errors.New("RECORDING_KEEP_DAYS must be a positive integer")
+	}
+	b.RecordingMax, b.RecordingKeep = time.Duration(minutes)*time.Minute, time.Duration(days)*24*time.Hour
+	b.RecordingMaxBytes = int64(mb) << 20
 	return b, nil
 }
 
@@ -152,6 +196,10 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
 	c.NoLinkPreviews = getenv("LINK_PREVIEWS") == "0"
+	var err error
+	if c.Push, err = parsePush(getenv); err != nil {
+		return Config{}, err
+	}
 	c.UploadDir = cmp.Or(getenv("UPLOAD_DIR"), "uploads")
 	mb, ok := positive(getenv("UPLOAD_MAX_MB"), 10)
 	if !ok {
@@ -173,7 +221,6 @@ func Parse(getenv func(string) string) (Config, error) {
 		c.TextChannels = []string{"general"}
 	}
 	if c.MumbleHost == "" {
-		var err error
 		if c.Builtin, err = parseBuiltin(getenv, c.DBPath); err != nil {
 			return Config{}, err
 		}

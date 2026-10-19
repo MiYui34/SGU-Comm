@@ -9,7 +9,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 func TestStaffMakeAChannelPrivate(t *testing.T) {
@@ -178,8 +177,7 @@ func TestStaffCreatePrivateChannels(t *testing.T) {
 func TestPrivateChannelsAreSavedAndReported(t *testing.T) {
 	var calls atomic.Int32
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnPrivateChanged: func() { calls.Add(1) }}, nil)
 	su := superUser(t, addr)
 	club := su.createChannel(0, "Club", false)

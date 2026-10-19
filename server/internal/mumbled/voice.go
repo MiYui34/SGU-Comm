@@ -10,6 +10,7 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
+	"kallisti.chat/server/internal/recording"
 )
 
 // voice relays an audio packet from c (over TCP or UDP) to its receivers.
@@ -26,7 +27,12 @@ func (s *Server) voice(c *client, packet []byte, tcp bool) {
 	}
 	s.mu.Lock()
 	var receivers []receiver
+	var rec *recording.Recording
+	var speaker string
 	sender := s.state.Users[c.session]
+	if sender != nil && s.recordings != nil {
+		rec, speaker = s.recorderForLocked(sender, p.target), sender.Name
+	}
 	for session, ctx := range s.state.Receivers(c.session, p.target) {
 		o := s.clients[session]
 		if o == nil || sender == nil {
@@ -42,6 +48,9 @@ func (s *Server) voice(c *client, packet []byte, tcp bool) {
 	udp := s.udp
 	s.mu.Unlock()
 	deliver(p, c.session, receivers, udp)
+	if rec != nil {
+		rec.Feed(recording.Packet{Speaker: speaker, Seq: p.frame, Opus: p.opus, Terminator: p.terminator, At: now})
+	}
 }
 
 // receiver is one client a voice packet goes to.

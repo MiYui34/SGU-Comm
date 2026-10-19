@@ -41,7 +41,7 @@ describe("decoder failures", () => {
 
   it("say why for H.264 (streams from OBS)", () => {
     expect(cannotPlay("avc1.640028")).toMatch(/H\.264/);
-    expect(cannotPlay("vp8")).toBe("This browser cannot play this screen share.");
+    expect(cannotPlay("vp8")).toBe("This browser cannot play this stream.");
   });
 });
 

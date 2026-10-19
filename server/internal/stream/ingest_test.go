@@ -116,10 +116,15 @@ func TestIngestIsNotTheConnections(t *testing.T) {
 	if err := h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360}); err == nil {
 		t.Fatal("a screen share replaced the ingest")
 	}
+	// A camera from the browser goes with it; the connection's end ends
+	// the camera only.
+	if err := h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Camera: true}); err != nil {
+		t.Fatal(err)
+	}
 	h.Stop(1)
 	h.Disconnect(1, sinks[1])
-	if len(h.Streams()) != 1 || k.ended != 0 {
-		t.Fatal("the connection ended the ingest")
+	if s := h.Streams(); len(s) != 1 || s[0].Session != 1 || k.ended != 0 {
+		t.Fatalf("streams %v, ended %d: the connection ended the ingest, or not its camera", s, k.ended)
 	}
 	// And a screen share is not replaced by an ingest.
 	h.Start(3, Config{Codec: "vp8", Width: 640, Height: 360})

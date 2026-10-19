@@ -2,13 +2,14 @@ package mumbled
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"fmt"
 	"net/netip"
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/argon2"
 	_ "modernc.org/sqlite"
-
-	"kallisti.chat/server/internal/password"
 )
 
 func testDB(t *testing.T) *DB {
@@ -24,6 +25,16 @@ func testDB(t *testing.T) *DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+// setAdminPassword gives SuperUser a password with a cheap argon2id hash
+// (Check takes the parameters from it): the real one takes 0.3 s under
+// -race and seconds on a busy machine, longer than expect waits.
+func setAdminPassword(db *DB, pw string) {
+	salt := []byte("0123456789abcdef")
+	key := argon2.IDKey([]byte(pw), salt, 1, 64, 1, 32)
+	b64 := base64.RawStdEncoding
+	db.SetPassword(0, fmt.Sprintf("$argon2id$v=%d$m=64,t=1,p=1$%s$%s", argon2.Version, b64.EncodeToString(salt), b64.EncodeToString(key)))
 }
 
 func TestChannelsAreSavedWithLinks(t *testing.T) {
@@ -294,8 +305,7 @@ func TestAnOldServerKeepsItsChannels(t *testing.T) {
 
 func TestCheckPassword(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("adminpw")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "adminpw")
 	if name, ok := db.CheckPassword("superuser", "adminpw"); !ok || name != "SuperUser" {
 		t.Fatalf("superuser: %q %v", name, ok)
 	}
@@ -313,8 +323,7 @@ func TestCheckPassword(t *testing.T) {
 
 func TestWebPasswordChecksShareTheLockout(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("adminpw")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "adminpw")
 	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
 	ip, other := netip.MustParseAddr("203.0.113.5"), netip.MustParseAddr("203.0.113.6")
 	for range maxLoginFailures {

@@ -1,6 +1,7 @@
-// Package stream forwards screen shares from a streamer in a voice channel
-// to the people there who watch: encoded frames (WebCodecs), never decoded
-// or re-encoded here.
+// Package stream forwards screen shares and cameras from a streamer in a
+// voice channel to the people there who watch: encoded frames (WebCodecs),
+// never decoded or re-encoded here. A user has at most one screen share
+// and one camera.
 package stream
 
 import (
@@ -34,11 +35,26 @@ type Config struct {
 	Codec  string `json:"codec"`
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
-	Audio  string `json:"audio,omitempty"` // "opus" (48 kHz mono, 20 ms frames) or none
+	Audio  string `json:"audio,omitempty"`  // "opus" (48 kHz mono, 20 ms frames) or none
+	Camera bool   `json:"camera,omitempty"` // a camera (no sound), else a screen share
 }
 
-// Info is a live stream, for everyone's channel list. Preview: its latest
-// thumbnail (a JPEG data URL), if any.
+// CameraBit marks a camera's stream id; a screen share's id is its
+// streamer's session.
+const CameraBit = 1 << 31
+
+// ID is the id of a session's screen share or camera.
+func ID(session uint32, camera bool) uint32 {
+	if camera {
+		return session | CameraBit
+	}
+	return session
+}
+
+func owner(id uint32) uint32 { return id &^ CameraBit }
+
+// Info is a live stream, for everyone's channel list. Session: its id (see
+// ID). Preview: its latest thumbnail (a JPEG data URL), if any.
 type Info struct {
 	Session uint32 `json:"session"`
 	Channel uint32 `json:"channel"`
@@ -51,14 +67,15 @@ const (
 	maxPreview    = 64 << 10
 )
 
-// A frame from a streamer: flags (bit 0: keyframe, bit 1: sound), an
-// 8-byte timestamp (microseconds; picture and sound on one clock), the
-// data. Viewers get it with the streamer's session (4
-// bytes) in front.
+// A frame from a streamer: flags (bit 0: keyframe, bit 1: sound, bit 2:
+// the camera's), an 8-byte timestamp (microseconds; picture and sound on
+// one clock), the data. Viewers get it with the stream's id (4 bytes) in
+// front.
 const (
 	headerSize    = 9
 	keyFlag       = 1
 	audioFlag     = 2
+	cameraFlag    = 4
 	maxFrame      = 1 << 20
 	keyframeEvery = time.Second // keyframe requests to a streamer, at most
 	maxSound      = 1500        // bytes of one Opus packet (20 ms), at most
@@ -70,7 +87,7 @@ const (
 var codecName = regexp.MustCompile(`^[A-Za-z0-9.]{1,64}$`)
 
 func (c Config) valid() bool {
-	return codecName.MatchString(c.Codec) && (c.Audio == "" || c.Audio == "opus") && c.Width > 0 && c.Width <= maxSide && c.Height > 0 && c.Height <= maxSide
+	return codecName.MatchString(c.Codec) && (c.Audio == "" || c.Audio == "opus" && !c.Camera) && c.Width > 0 && c.Width <= maxSide && c.Height > 0 && c.Height <= maxSide
 }
 
 type stream struct {
@@ -82,7 +99,7 @@ type stream struct {
 	config             Config
 	viewers            map[uint32]*viewer
 	askedKey           time.Time
-	ingest             *Ingest // fed by the server (WHIP), not by the connection
+	ingest             *Ingest // a screen share fed by the server (WHIP), not by the connection
 }
 
 // viewer: waiting for a keyframe (new, or frames were dropped).
@@ -103,7 +120,7 @@ type Hub struct {
 	changes sync.Mutex
 	mu      sync.Mutex
 	sinks   map[uint32]Sink
-	streams map[uint32]*stream // by streamer session
+	streams map[uint32]*stream // by id (see ID)
 }
 
 func New(v Voice) *Hub {
@@ -121,8 +138,8 @@ func (h *Hub) Connect(session uint32, s Sink) {
 	}
 }
 
-// Disconnect ends the session's stream and what it watched, if s is still
-// its connection (a newer one replaced it otherwise).
+// Disconnect ends the session's streams and what it watched, if s is still
+// its connection (a newer one replaced it otherwise). An ingest goes on.
 func (h *Hub) Disconnect(session uint32, s Sink) {
 	h.mu.Lock()
 	if h.sinks[session] != s {
@@ -134,13 +151,15 @@ func (h *Hub) Disconnect(session uint32, s Sink) {
 		h.dropViewerLocked(s, st, session)
 	}
 	ended := h.endConnectionLocked(session)
+	ended = h.endConnectionLocked(ID(session, true)) || ended
 	h.mu.Unlock()
 	if ended {
 		h.changed()
 	}
 }
 
-// Start begins a stream in the streamer's voice channel (needs Speak).
+// Start begins a stream in the streamer's voice channel (needs Speak), or
+// changes a running one's config (viewers get the new one).
 func (h *Hub) Start(session uint32, c Config) error {
 	if !c.valid() {
 		return errors.New("bad stream settings")
@@ -151,7 +170,8 @@ func (h *Hub) Start(session uint32, c Config) error {
 		h.mu.Unlock()
 		return err
 	}
-	if st := h.streams[session]; st != nil && st.ingest != nil {
+	id := ID(session, c.Camera)
+	if st := h.streams[id]; st != nil && st.ingest != nil {
 		h.mu.Unlock()
 		return errors.New("you are streaming from OBS: stop that first")
 	} else if st != nil { // a new config: viewers start over
@@ -159,7 +179,7 @@ func (h *Hub) Start(session uint32, c Config) error {
 		st.config = c
 		for v, vw := range st.viewers {
 			vw.needKey = true
-			h.text(v, streamText(session, c))
+			h.text(v, streamText(id, c))
 		}
 		h.mu.Unlock()
 		if soundChanged {
@@ -167,7 +187,7 @@ func (h *Hub) Start(session uint32, c Config) error {
 		}
 		return nil
 	}
-	h.streams[session] = &stream{channel: channel, config: c, viewers: map[uint32]*viewer{}, speakAt: h.now()}
+	h.streams[id] = &stream{channel: channel, config: c, viewers: map[uint32]*viewer{}, speakAt: h.now()}
 	h.mu.Unlock()
 	h.changed()
 	return nil
@@ -185,9 +205,10 @@ func (h *Hub) mayStreamLocked(session uint32) (uint32, error) {
 	return channel, nil
 }
 
-func (h *Hub) Stop(session uint32) {
+// Stop ends a stream of the streamer's connection (by id; not an ingest).
+func (h *Hub) Stop(id uint32) {
 	h.mu.Lock()
-	ended := h.endConnectionLocked(session)
+	ended := h.endConnectionLocked(id)
 	h.mu.Unlock()
 	if ended {
 		h.changed()
@@ -205,7 +226,7 @@ func (h *Hub) Watch(viewerSession, streamer uint32) error {
 		return errors.New("no such stream")
 	case !ok || channel != st.channel:
 		return errors.New("join the stream's voice channel to watch")
-	case viewerSession == streamer:
+	case viewerSession == owner(streamer):
 		return errors.New("that is your own stream")
 	}
 	st.viewers[viewerSession] = &viewer{needKey: true}
@@ -231,13 +252,13 @@ func (h *Hub) dropViewerLocked(streamer uint32, st *stream, viewer uint32) {
 }
 
 // viewersLocked tells the streamer who watches.
-func (h *Hub) viewersLocked(streamer uint32, st *stream) {
-	h.text(streamer, map[string]any{"type": "viewers", "sessions": append([]uint32{}, slices.Sorted(maps.Keys(st.viewers))...)})
+func (h *Hub) viewersLocked(id uint32, st *stream) {
+	h.toStreamer(id, map[string]any{"type": "viewers", "sessions": append([]uint32{}, slices.Sorted(maps.Keys(st.viewers))...)})
 }
 
 // SetPreview keeps a stream's thumbnail (a small JPEG data URL, at most
 // one every few seconds) and passes it on; "" clears it (previews turned
-// off).
+// off). session: the stream's id.
 func (h *Hub) SetPreview(session uint32, image string) error {
 	if image != "" && (!strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview) {
 		return errors.New("bad preview")
@@ -262,17 +283,19 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 	return nil
 }
 
-// Frame forwards a streamer's frame to its viewers. A viewer that is full
-// drops frames until the next keyframe (then the picture is whole again).
-func (h *Hub) Frame(streamer uint32, f []byte) { h.forward(streamer, f, nil) }
+// Frame forwards a streamer's frame to the viewers of its screen share or
+// camera. A viewer that is full drops frames until the next keyframe (then
+// the picture is whole again).
+func (h *Hub) Frame(session uint32, f []byte) { h.forward(session, f, nil) }
 
 // forward sends a frame from the stream's source: its streamer's connection
 // (from nil) or its ingest.
-func (h *Hub) forward(streamer uint32, f []byte, from *Ingest) {
+func (h *Hub) forward(session uint32, f []byte, from *Ingest) {
 	if len(f) < headerSize || len(f) > maxFrame {
 		return
 	}
 	key, sound := f[0]&keyFlag != 0, f[0]&audioFlag != 0
+	streamer := FrameID(session, f)
 	h.mu.Lock()
 	st := h.streams[streamer]
 	if st == nil || st.ingest != from || sound && (st.config.Audio == "" || len(f)-headerSize > maxSound) {
@@ -282,7 +305,7 @@ func (h *Hub) forward(streamer uint32, f []byte, from *Ingest) {
 	// Speak can go (an admin's mute, an ACL change): then so does the stream.
 	if now := h.now(); now.Sub(st.speakAt) >= speakEvery {
 		st.speakAt = now
-		if !h.voice.MaySpeak(streamer, st.channel) {
+		if !h.voice.MaySpeak(session, st.channel) {
 			h.endLocked(streamer)
 			h.mu.Unlock()
 			h.changed()
@@ -292,7 +315,7 @@ func (h *Hub) forward(streamer uint32, f []byte, from *Ingest) {
 	defer func() {
 		h.mu.Unlock()
 		if sound && h.OnSound != nil {
-			h.OnSound(streamer, f[headerSize:], binary.BigEndian.Uint64(f[1:headerSize]))
+			h.OnSound(session, f[headerSize:], binary.BigEndian.Uint64(f[1:headerSize]))
 		}
 	}()
 	out := binary.BigEndian.AppendUint32(make([]byte, 0, 4+len(f)), streamer)
@@ -318,8 +341,13 @@ func (h *Hub) forward(streamer uint32, f []byte, from *Ingest) {
 	}
 }
 
-// Dropped: the server dropped a streamer's frame (its rate limit), so
-// viewers wait for a keyframe.
+// FrameID is the id of the stream a session's frame belongs to.
+func FrameID(session uint32, f []byte) uint32 {
+	return ID(session, len(f) > 0 && f[0]&cameraFlag != 0)
+}
+
+// Dropped: the server dropped a frame of a stream (by id; its rate limit),
+// so viewers wait for a keyframe.
 func (h *Hub) Dropped(streamer uint32) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -328,11 +356,11 @@ func (h *Hub) Dropped(streamer uint32) {
 	}
 }
 
-func (h *Hub) droppedLocked(streamer uint32, st *stream) {
+func (h *Hub) droppedLocked(id uint32, st *stream) {
 	for _, vw := range st.viewers {
 		vw.needKey = true
 	}
-	h.askKeyLocked(streamer, st)
+	h.askKeyLocked(id, st)
 }
 
 // RequestKey asks the streamer for a keyframe for a viewer (its decoder is
@@ -346,12 +374,14 @@ func (h *Hub) RequestKey(viewerSession, streamer uint32) {
 }
 
 // Moved follows a session to another channel (mumbled.Config.OnUserMoved):
-// a streamer's stream ends; a viewer stops watching streams elsewhere.
+// a streamer's streams end; a viewer stops watching streams elsewhere.
 func (h *Hub) Moved(session, to uint32) {
 	h.mu.Lock()
 	ended := false
-	if st := h.streams[session]; st != nil && st.channel != to {
-		ended = h.endLocked(session)
+	for _, id := range []uint32{ID(session, false), ID(session, true)} {
+		if st := h.streams[id]; st != nil && st.channel != to {
+			ended = h.endLocked(id) || ended
+		}
 	}
 	for s, st := range h.streams {
 		if st.channel != to {
@@ -364,7 +394,7 @@ func (h *Hub) Moved(session, to uint32) {
 	}
 }
 
-// Streams are the live streams, by streamer session.
+// Streams are the live streams, by id.
 func (h *Hub) Streams() []Info {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -376,30 +406,30 @@ func (h *Hub) Streams() []Info {
 	return out
 }
 
-func (h *Hub) endLocked(session uint32) bool {
-	st := h.streams[session]
+func (h *Hub) endLocked(id uint32) bool {
+	st := h.streams[id]
 	if st == nil {
 		return false
 	}
-	delete(h.streams, session)
+	delete(h.streams, id)
 	for v := range st.viewers {
-		h.text(v, map[string]any{"type": "ended", "session": session})
+		h.text(v, map[string]any{"type": "ended", "session": id})
 	}
 	if st.ingest == nil {
-		h.text(session, map[string]any{"type": "stopped"})
+		h.toStreamer(id, map[string]any{"type": "stopped"})
 	} else if !st.ingest.stopped {
 		st.ingest.hooks.Ended()
 	}
 	return true
 }
 
-// endConnectionLocked ends a stream that the streamer's connection feeds (not
-// an ingest).
-func (h *Hub) endConnectionLocked(session uint32) bool {
-	if st := h.streams[session]; st != nil && st.ingest != nil {
+// endConnectionLocked ends a stream that the streamer's connection feeds
+// (not an ingest).
+func (h *Hub) endConnectionLocked(id uint32) bool {
+	if st := h.streams[id]; st != nil && st.ingest != nil {
 		return false
 	}
-	return h.endLocked(session)
+	return h.endLocked(id)
 }
 
 // streamText tells a viewer how to decode a stream.
@@ -407,15 +437,24 @@ func streamText(session uint32, c Config) map[string]any {
 	return map[string]any{"type": "stream", "session": session, "codec": c.Codec, "width": c.Width, "height": c.Height, "audio": c.Audio}
 }
 
-func (h *Hub) askKeyLocked(streamer uint32, st *stream) {
+func (h *Hub) askKeyLocked(id uint32, st *stream) {
 	if now := h.now(); now.Sub(st.askedKey) >= keyframeEvery {
 		st.askedKey = now
 		if st.ingest != nil {
 			st.ingest.hooks.Keyframe()
 		} else {
-			h.text(streamer, map[string]any{"type": "keyframe"})
+			h.toStreamer(id, map[string]any{"type": "keyframe"})
 		}
 	}
+}
+
+// toStreamer sends a text about a stream to its streamer, marked when it
+// is about the camera.
+func (h *Hub) toStreamer(id uint32, m map[string]any) {
+	if id&CameraBit != 0 {
+		m["camera"] = true
+	}
+	h.text(owner(id), m)
 }
 
 func (h *Hub) text(session uint32, v any) {

@@ -60,7 +60,8 @@
   import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
-  import { mutedIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
@@ -68,6 +69,9 @@
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
   import StreamStage from "./StreamStage.svelte";
+  import { shareSources } from "../lib/stream/client.svelte";
+  import { ownerOf } from "../lib/stream/protocol";
+  import { KINDS, qualityOptions, type Kind, type Quality } from "../lib/stream/quality";
   import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
@@ -90,6 +94,7 @@
   import { inviteLink, invitePlace, parseInviteLink } from "../lib/invites";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
+  import { mayRecord } from "../lib/recording";
 
   let {
     connection,
@@ -388,6 +393,9 @@
   // Text channels (Kallisti server only). Like Discord, open the first one
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
+  // Recorded voice channels; staff record and download (see lib/recording).
+  const recorded = $derived(new Set(text.recording ?? []));
+  const staffRecords = $derived(mayRecord(server, text));
   // Statuses (Kallisti server): away after a while without input (sent,
   // not kept), and do not disturb (no notifications or sounds).
   let away = $state(false);
@@ -462,6 +470,27 @@
     jumpTarget = link.message;
     return true;
   };
+  // Push notifications (see lib/push), for accounts with a password: on
+  // start and when channel settings or blocks change, the server learns
+  // this session, the channels set to "nothing" and the blocked users (as
+  // a string: the same prefs post nothing). A click on one in an open
+  // window comes from the service worker.
+  const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
+  const pushPrefsKey = $derived(
+    JSON.stringify({ quiet: nothingIds(channelPrefs.value, connection.httpBase).sort(), blocked: [...blockedUsers.list].sort() }),
+  );
+  const pushPrefs = $derived(JSON.parse(pushPrefsKey) as PushPrefs);
+  $effect(() => {
+    if (pushName && browserPushSupport() === "ok") void syncPush(connection.httpBase, pushName, pushPrefs);
+  });
+  $effect(() => {
+    const sw = navigator.serviceWorker;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === "open" && typeof e.data.url === "string") openMessage(parseMessageLink(e.data.url, site));
+    };
+    sw?.addEventListener("message", onMessage);
+    return () => sw?.removeEventListener("message", onMessage);
+  });
   // Opened with a message link: there once the channels are known.
   let linked = untrack(() => parseMessageLink(location.href, site));
   $effect(() => {
@@ -800,14 +829,15 @@
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
-  // Screen shares: who is live, and watching (a stream in another channel:
-  // join it first).
+  // Screen shares and cameras (by stream id): who is live, and watching (a
+  // stream in another channel: join it first).
   const streamClient = $derived(connection.streams);
+  const shareable = $derived(shareSources(phone));
   const liveSessions = $derived(new Set(text.streams.map((s) => s.session)));
   let pendingWatch = $state<number | null>(null);
   const watchStream = (session: number) => {
     const s = text.streams.find((x) => x.session === session);
-    if (!s || !streamClient || session === me?.session) return;
+    if (!s || !streamClient || ownerOf(session) === me?.session) return;
     if (voiceOn && channelId === s.channel) void streamClient.watch(session);
     else {
       pendingWatch = session;
@@ -839,9 +869,27 @@
       for (const s of streamClient.watching) if (!here.has(s)) streamClient.unwatch(s);
     });
   });
-  const nameOfSession = (session: number) => server.users[session]?.name ?? "someone";
+  // A user's name, also from a stream id.
+  const nameOfSession = (session: number) => server.users[ownerOf(session)]?.name ?? "someone";
   $effect(() => {
     streamClient?.setPreviews(prefs.streamPreviews);
+  });
+  $effect(() => {
+    streamClient?.setCameraDevice(prefs.cameraDeviceId);
+  });
+  $effect(() => {
+    for (const kind of KINDS) streamClient?.setQuality(kind, prefs.streamQuality[kind]);
+  });
+  const setStreamQuality = (kind: Kind, q: Quality) => settings.update({ streamQuality: { ...prefs.streamQuality, [kind]: q } });
+  const toggleStream = (kind: Kind) => (streamClient?.sharing[kind] ? streamClient.stopSharing(kind) : void streamClient?.startSharing(kind));
+  // The camera switch shows with more than one camera.
+  let cameraCount = $state(0);
+  $effect(() => {
+    if (!streamClient?.sharing.camera) return;
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((list) => (cameraCount = list.filter((d) => d.kind === "videoinput").length))
+      .catch(() => {});
   });
   $effect(() => {
     streamClient?.setDeaf(me?.selfDeaf ?? false);
@@ -947,6 +995,8 @@
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
     canMembers={m.canMembers}
+    recording={m.kind === "voice" && staffRecords ? recorded.has(m.id) : undefined}
+    onRecord={(on) => connection.manage({ record: m.id, on })}
     onMembers={() => channels.startMembers(m.kind, m.id)}
     notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
     onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
@@ -1099,6 +1149,10 @@
     messageRules={text.messageRules}
     onLoadMessageRules={mayChangeGuests(server, text) ? () => connection.manage({ messageRules: true }) : undefined}
     onSaveMessageRules={(rules) => connection.manage({ setMessageRules: rules })}
+    recordings={text.recordings}
+    recording={text.recording}
+    onLoadRecordings={staffRecords ? () => connection.manage({ recordings: true }) : undefined}
+    onDownloadRecording={connection.downloadRecording}
     onClose={() => (showModeration = false)}
   />
 {/if}
@@ -1115,6 +1169,7 @@
     onChange={settings.update}
     onEcho={capture ? (on) => capture?.setEcho(on) : undefined}
     {account}
+    push={pushName ? { base: connection.httpBase, name: pushName, prefs: pushPrefs } : undefined}
     profile={me && {
       name: me.name,
       hasPicture: me.texture !== null || me.textureHash !== null,
@@ -1160,6 +1215,7 @@
       {mentionVoice}
       listenOnly={text.listenOnly}
       privateChannels={text.private}
+      recording={recorded}
       live={liveSessions}
       previews={text.streamPreviews}
       onWatch={streamClient ? watchStream : undefined}
@@ -1177,16 +1233,33 @@
     />
     {#if me}
       {#if lobby && voiceOn}
-        {#if streamClient?.preview}
-          <StreamPreview stream={streamClient.preview} viewers={streamClient.viewers.map(nameOfSession)} onStop={() => streamClient?.stopSharing()} />
+        {#if streamClient}
+          {#each KINDS as kind (kind)}
+            {@const stream = streamClient.preview[kind]}
+            {#if stream}
+              <StreamPreview
+                {stream}
+                {kind}
+                viewers={streamClient.viewers[kind].map(nameOfSession)}
+                quality={prefs.streamQuality[kind]}
+                options={qualityOptions(streamClient.limits)}
+                onQuality={(q) => setStreamQuality(kind, q)}
+                onSwitch={kind === "camera" && cameraCount > 1 ? streamClient.switchCamera : undefined}
+                onStop={() => streamClient?.stopSharing(kind)}
+              />
+            {/if}
+          {/each}
         {/if}
         <VoiceBar
           channel={channelName}
+          recording={recorded.has(channelId)}
           onLeave={leaveVoice}
           music={musicMode}
           info={connection.info}
-          sharing={streamClient?.sharing ?? false}
-          onShare={streamClient && text.voiceChats && !phone ? () => (streamClient.sharing ? streamClient.stopSharing() : void streamClient.startSharing()) : undefined}
+          sharing={streamClient?.sharing.screen ?? false}
+          onShare={streamClient && text.voiceChats && shareable.screen ? () => toggleStream("screen") : undefined}
+          camera={streamClient?.sharing.camera ?? false}
+          onCamera={streamClient && text.voiceChats && shareable.camera ? () => toggleStream("camera") : undefined}
         />
       {/if}
       <UserPanel

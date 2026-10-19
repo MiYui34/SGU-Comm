@@ -37,35 +37,64 @@ class FakeSocket {
 
 class FakeEncoder {
   static made = 0;
+  static configs: VideoEncoderConfig[] = [];
   static isConfigSupported = async () => ({ supported: true });
   state = "configured";
+  encodeQueueSize = 0;
   constructor() {
     FakeEncoder.made++;
   }
-  configure() {}
+  configure(c: VideoEncoderConfig) {
+    FakeEncoder.configs.push(c);
+  }
+  encode() {}
   close() {
     this.state = "closed";
   }
 }
 
-const capture = () => {
-  const track = { stop: vi.fn(), getSettings: () => ({}), onended: null as (() => void) | null };
+const capture = (width = 1920, height = 1080) => {
+  const track = { stop: vi.fn(), getSettings: () => ({ width, height }), applyConstraints: vi.fn(async () => {}), onended: null as (() => void) | null };
   return { track, stream: { getVideoTracks: () => [track], getAudioTracks: () => [], getTracks: () => [track] } };
 };
 
 let pickers: ((s: unknown) => void)[] = [];
+let cameras: { constraints: MediaStreamConstraints; answer: (s: unknown) => void }[] = [];
+// Frames of the shared screen or camera: those the test sends.
+let frameReads: ((v: { value: unknown; done: boolean }) => void)[] = [];
+let frameTime = 0;
+const sendFrame = (width: number, height: number) =>
+  frameReads.shift()!({ value: { displayWidth: width, displayHeight: height, timestamp: (frameTime += 100_000), close() {} }, done: false });
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   FakeSocket.all = [];
   FakeEncoder.made = 0;
+  FakeEncoder.configs = [];
   pickers = [];
+  cameras = [];
+  frameReads = [];
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.stubGlobal("VideoEncoder", FakeEncoder);
-  // Frames of the shared screen: none come.
-  const reader = { read: () => new Promise(() => {}), cancel: async () => {} };
+  vi.stubGlobal(
+    "VideoFrame",
+    class {
+      displayWidth: number;
+      displayHeight: number;
+      constructor(f: { displayWidth: number; displayHeight: number }) {
+        [this.displayWidth, this.displayHeight] = [f.displayWidth, f.displayHeight];
+      }
+      close() {}
+    },
+  );
+  const reader = { read: () => new Promise((r) => frameReads.push(r)), cancel: async () => {} };
   vi.stubGlobal("MediaStreamTrackProcessor", class { readable = { getReader: () => reader }; });
-  vi.stubGlobal("navigator", { mediaDevices: { getDisplayMedia: () => new Promise((r) => pickers.push(r)) } });
+  vi.stubGlobal("navigator", {
+    mediaDevices: {
+      getDisplayMedia: () => new Promise((r) => pickers.push(r)),
+      getUserMedia: (constraints: MediaStreamConstraints) => new Promise((answer) => cameras.push({ constraints, answer })),
+    },
+  });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,7 +111,7 @@ describe("starting a screen share", () => {
     await start;
     expect(track.stop).toHaveBeenCalled();
     expect(FakeEncoder.made).toBe(0);
-    expect(client.sharing).toBe(false);
+    expect(client.sharing.screen).toBe(false);
   });
 
   it("can start again after the connection dropped while the picker was open", async () => {
@@ -110,7 +139,7 @@ describe("starting a screen share", () => {
     expect(FakeSocket.all[0]!.types()).toContain("start");
     FakeSocket.all[0]!.onmessage?.({ data: '{"type":"started"}' });
     await start;
-    expect(client.sharing).toBe(true);
+    expect(client.sharing.screen).toBe(true);
   });
 
   it("tells the server when stopped after asking to start", async () => {
@@ -124,5 +153,76 @@ describe("starting a screen share", () => {
     await start;
     expect(FakeSocket.all[0]!.types()).toEqual(["auth", "start", "stop"]);
     expect(client.error).toBeNull();
+  });
+});
+
+describe("cameras", () => {
+  const sent = (sock: FakeSocket) => sock.sent.map((d) => JSON.parse(d) as Record<string, unknown>);
+  const startCamera = async (client: ReturnType<typeof createStreamClient>) => {
+    const start = client.startSharing("camera");
+    await flush();
+    const cam = capture(1280, 720);
+    cameras.at(-1)!.answer(cam.stream);
+    await flush();
+    FakeSocket.all[0]!.onmessage?.({ data: '{"type":"started","camera":true}' });
+    await start;
+    return cam;
+  };
+
+  it("opens the chosen camera without sound and starts a camera stream", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    client.setCameraDevice("cam-2");
+    const cam = await startCamera(client);
+    expect(cam.track.stop).not.toHaveBeenCalled();
+    expect(cameras[0]!.constraints).toMatchObject({ audio: false, video: { deviceId: { exact: "cam-2" }, height: { ideal: 720 } } });
+    expect(sent(FakeSocket.all[0]!).find((m) => m.type === "start")).toMatchObject({ camera: true, width: 1280, height: 720 });
+    expect(client.sharing).toEqual({ screen: false, camera: true });
+    expect(client.preview.camera).not.toBeNull();
+  });
+
+  it("runs next to a screen share, and stops on its own", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    const screen = client.startSharing();
+    await flush();
+    pickers[0]!(capture().stream);
+    await flush();
+    FakeSocket.all[0]!.onmessage?.({ data: '{"type":"started"}' });
+    await screen;
+    await startCamera(client);
+    expect(client.sharing).toEqual({ screen: true, camera: true });
+    client.stopSharing("camera");
+    expect(sent(FakeSocket.all[0]!).at(-1)).toEqual({ type: "stop", camera: true });
+    expect(client.sharing).toEqual({ screen: true, camera: false });
+    FakeSocket.all[0]!.onmessage?.({ data: '{"type":"stopped","camera":true}' }); // the server's answer
+    expect(client.sharing.screen).toBe(true);
+  });
+
+  it("changes the quality while live: a new encoder, and viewers get the new size", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    const cam = await startCamera(client);
+    sendFrame(1280, 720);
+    await flush();
+    const before = FakeEncoder.made;
+    client.setQuality("camera", { height: 480, fps: 15 });
+    expect(cam.track.applyConstraints).toHaveBeenCalledWith({ width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 15 } });
+    sendFrame(1280, 720);
+    await flush();
+    expect(FakeEncoder.made).toBe(before + 1);
+    expect(FakeEncoder.configs.at(-1)).toMatchObject({ width: 852, height: 480, framerate: 15 });
+    expect(sent(FakeSocket.all[0]!).at(-1)).toMatchObject({ type: "start", camera: true, width: 852, height: 480 });
+  });
+
+  it("sets the same encoder again for another frame rate (the size stays)", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    await startCamera(client);
+    sendFrame(1280, 720);
+    await flush();
+    const [made, starts] = [FakeEncoder.made, FakeSocket.all[0]!.types().filter((t) => t === "start").length];
+    client.setQuality("camera", { height: 720, fps: 15 });
+    sendFrame(1280, 720);
+    await flush();
+    expect(FakeEncoder.made).toBe(made);
+    expect(FakeEncoder.configs.at(-1)).toMatchObject({ width: 1280, height: 720, framerate: 15 });
+    expect(FakeSocket.all[0]!.types().filter((t) => t === "start")).toHaveLength(starts);
   });
 });

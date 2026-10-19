@@ -1,3 +1,4 @@
+import { DEFAULT_QUALITY, parseQuality, type Kind, type Quality } from "./stream/quality";
 import type { NoiseMode } from "./voice/noise";
 import type { TransmitMode } from "./voice/vad";
 
@@ -12,7 +13,7 @@ export type Settings = {
   // Close the microphone while muted (the browser stops showing it as
   // recording, but opening it again interrupts the sound for a moment).
   closeMicWhenMuted: boolean;
-  // Others see a thumbnail of our screen share before they watch.
+  // Others see a thumbnail of our screen share or camera before they watch.
   streamPreviews: boolean;
   // See voice/noise.ts.
   noiseSuppression: NoiseMode;
@@ -25,6 +26,10 @@ export type Settings = {
   // For music: none of the filters above, no automatic gain, more bits
   // and stereo (see voice/opus.ts).
   musicMode: boolean;
+  // The camera to stream (null: the default), and the quality of each kind
+  // of stream (also changed while live).
+  cameraDeviceId: string | null;
+  streamQuality: Record<Kind, Quality>;
 };
 
 // What to ask the browser for: exactly the chosen microphone (null: the
@@ -60,6 +65,8 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   echoCancellation: true,
   musicMode: false,
+  cameraDeviceId: null,
+  streamQuality: DEFAULT_QUALITY,
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -76,6 +83,7 @@ export const parseSettings = (raw: string | null): Settings => {
   if (!data || typeof data !== "object" || Array.isArray(data)) return DEFAULT_SETTINGS;
   const d = data as Record<string, unknown>;
   const db = d.vadThresholdDb;
+  const quality = (d.streamQuality ?? {}) as Record<string, unknown>;
   return {
     mode: d.mode === "vad" || d.mode === "ptt" ? d.mode : DEFAULT_SETTINGS.mode,
     pttKey: str(d.pttKey) ?? DEFAULT_SETTINGS.pttKey,
@@ -92,6 +100,8 @@ export const parseSettings = (raw: string | null): Settings => {
     theme: d.theme === "light" || d.theme === "system" ? d.theme : "dark",
     echoCancellation: d.echoCancellation !== false,
     musicMode: d.musicMode === true,
+    cameraDeviceId: str(d.cameraDeviceId),
+    streamQuality: { screen: parseQuality(quality.screen, "screen"), camera: parseQuality(quality.camera, "camera") },
   };
 };
 

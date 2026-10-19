@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"time"
 
 	"kallisti.chat/server/internal/bridge"
 	"kallisti.chat/server/internal/certs"
@@ -17,6 +18,7 @@ import (
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/password"
+	"kallisti.chat/server/internal/recording"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 	"kallisti.chat/server/internal/stream"
@@ -33,8 +35,22 @@ type builtin struct {
 	// Screen shares in its voice channels (see /api/stream).
 	streams      *stream.Hub
 	streamTokens *stream.Tokens
-	stopWatch    chan struct{}
+	// Channel recordings, and tokens for their downloads (see
+	// /api/recordings/).
+	recordings      *recording.Library
+	recordingTokens *stream.Tokens
+	stopWatch       chan struct{}
 }
+
+// recorder is the built-in server's recordings as the sidecar's Recorder.
+type recorder struct {
+	*mumbled.Server
+	lib    *recording.Library
+	tokens *stream.Tokens
+}
+
+func (r recorder) Finished() []recording.Info          { return r.lib.List() }
+func (r recorder) DownloadToken(session uint32) string { return r.tokens.Issue(session) }
 
 // streamVoice is the built-in server as the stream hub's Voice (set once
 // the server exists: the hub follows moves from the start).
@@ -101,15 +117,19 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	var onText func(mumbled.ChannelText)
 	var checkText func(session, channel uint32) error
 	var onPrivate func(mumbled.PrivateText)
-	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly func()
+	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly, onRecording func()
 	var onUser func(id uint32, name string)
 	var textOverflows func() map[uint32]uint64
 	sv := &streamVoice{}
+	recordings := &recording.Library{
+		Dir: cfg.RecordingDir, Keep: cfg.RecordingKeep, Now: time.Now,
+		Limits: recording.Limits{MaxDuration: cfg.RecordingMax, MaxBytes: cfg.RecordingMaxBytes},
+	}
 	streams, streamTokens := stream.New(sv), stream.NewTokens()
 	onMoved := func(session, _, to uint32) { streams.Moved(session, to) }
 	if hub != nil {
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
-		onGuestsReadOnly = hub.GuestsReadOnlyChanged
+		onGuestsReadOnly, onRecording = hub.GuestsReadOnlyChanged, hub.RecordingChanged
 		checkText = hub.MumbleTextAllowed
 		onUser = hub.UserChanged
 		textOverflows = hub.Overflows
@@ -172,13 +192,17 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnGuestsReadOnlyChanged: onGuestsReadOnly,
 		OnUserMoved:             onMoved,
 		TextOverflows:           textOverflows,
+		Recordings:              recordings,
+		OnRecordingChanged:      onRecording,
 	})
 	if err != nil {
 		return nil, err
 	}
 	sv.srv = srv
+	recordingTokens := stream.NewTokens()
 	if hub != nil {
 		hub.SetVoice(voiceServer{srv}, publicBase) // before anyone connects
+		hub.Recorder = recorder{srv, recordings, recordingTokens}
 	}
 	ln, err := tls.Listen("tcp", cfg.Listen, tlsConfig)
 	if err != nil {
@@ -198,7 +222,8 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	go srv.ServeUDP(udp)
 	stopWatch := make(chan struct{})
 	go srv.Watch(stopWatch)
-	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens, stopWatch: stopWatch}, nil
+	return &builtin{srv: srv, db: mdb, ln: ln, udp: udp, streams: streams, streamTokens: streamTokens,
+		recordings: recordings, recordingTokens: recordingTokens, stopWatch: stopWatch}, nil
 }
 
 // mumbleTLS: the configured certificate files (reloaded when renewed), or

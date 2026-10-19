@@ -1,12 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import Icon from "./Icon.svelte";
-  import { gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
+  import { fullScreenStep, gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
+  import { createPip } from "../lib/stream/pip";
+  import { isCamera } from "../lib/stream/protocol";
+  import { streamLabel } from "../lib/stream/quality";
 
-  // The screen shares being watched, above the chat (as Discord's call
-  // area): a grid of all, or one in focus over a strip of the others (the
-  // strip can be hidden; its streams still decode). Each with its name,
-  // picture-in-picture, full screen and close.
+  // The screen shares and cameras being watched (by stream id), above the
+  // chat (as Discord's call area): a grid of all, or one in focus over a
+  // strip of the others (the strip can be hidden; its streams still
+  // decode). Each with its name, picture-in-picture, full screen and close.
   let {
     sessions,
     nameOf,
@@ -51,8 +54,9 @@
   };
 
   const fullScreen = (el: Element | null | undefined) => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el?.requestFullscreen();
+    if (!el) return;
+    if (fullScreenStep(document.fullscreenElement, el) === "exit") void document.exitFullscreen();
+    else void el.requestFullscreen();
   };
 
   // Picture-in-picture: the canvas's picture in a video element of its own
@@ -61,35 +65,37 @@
   const pipSupported = document.pictureInPictureEnabled === true && "captureStream" in HTMLCanvasElement.prototype;
   const canvases = new Map<number, HTMLCanvasElement>();
   let pip = $state<number | null>(null);
-  let pipVideo: HTMLVideoElement | null = null;
-  const togglePip = async (session: number) => {
-    const was = pip;
-    if (document.pictureInPictureElement) await document.exitPictureInPicture().catch(() => {});
-    const canvas = canvases.get(session);
-    if (was === session || !canvas) return;
-    const capture = canvas.captureStream();
-    // A still screen draws seldom: a first frame now, so play() does not
-    // wait (and the click's permission does not run out).
-    (capture.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined)?.requestFrame();
-    const video = document.createElement("video");
-    video.muted = true;
-    video.srcObject = capture;
-    const done = () => {
-      capture.getTracks().forEach((t) => t.stop());
-      video.srcObject = null;
-    };
-    video.onleavepictureinpicture = () => {
-      done();
-      if (pipVideo === video) [pip, pipVideo] = [null, null];
-    };
-    try {
-      await video.play();
-      await video.requestPictureInPicture();
-      [pip, pipVideo] = [session, video];
-    } catch {
-      done();
-    }
-  };
+  const pips = createPip(
+    document,
+    async (session) => {
+      const canvas = canvases.get(session);
+      if (!canvas) return null;
+      const capture = canvas.captureStream();
+      // A still screen draws seldom: a first frame now, so play() does not
+      // wait (and the click's permission does not run out).
+      (capture.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined)?.requestFrame();
+      const video = document.createElement("video");
+      video.muted = true;
+      video.srcObject = capture;
+      const done = () => {
+        capture.getTracks().forEach((t) => t.stop());
+        video.srcObject = null;
+      };
+      video.onleavepictureinpicture = () => {
+        done();
+        pips.left(video);
+      };
+      try {
+        await video.play();
+        await video.requestPictureInPicture();
+        return video;
+      } catch {
+        done();
+        return null;
+      }
+    },
+    (session) => (pip = session),
+  );
 
   const canvasOf = (canvas: HTMLCanvasElement, session: number) => {
     canvases.set(session, canvas);
@@ -98,13 +104,13 @@
       destroy: () => {
         canvases.delete(session);
         attach(session, null);
-        if (pip === session) void document.exitPictureInPicture().catch(() => {});
+        if (pips.current() === session) void document.exitPictureInPicture().catch(() => {});
       },
     };
   };
 </script>
 
-<section class="stage" class:focusing class:bare={focusing && stripHidden} bind:this={stage} aria-label="Screen shares">
+<section class="stage" class:focusing class:bare={focusing && stripHidden} bind:this={stage} aria-label="Streams">
   {#if sessions.length > 1}
     <div class="bar">
       <button
@@ -127,12 +133,13 @@
   <div class="tiles" class:many={sessions.length > 1} bind:clientWidth={width} bind:clientHeight={height} style:--cols={cols} style:--strip={strip.length}>
     {#each sessions as session (session)}
       {@const at = strip.indexOf(session)}
+      {@const label = streamLabel(nameOf(session), isCamera(session))}
       <div class="tile" class:focused={focusing && session === focused} style:grid-column={at >= 0 ? at + 2 : null}>
-        <button class="screen" onclick={() => pick(session)} tabindex={sessions.length > 1 ? 0 : -1} aria-label={focusing && session === focused ? "Grid view" : `Focus ${nameOf(session)}'s screen`}>
-          <canvas use:canvasOf={session} aria-label="{nameOf(session)}'s screen"></canvas>
+        <button class="screen" onclick={() => pick(session)} tabindex={sessions.length > 1 ? 0 : -1} aria-label={focusing && session === focused ? "Grid view" : `Focus ${label}`}>
+          <canvas use:canvasOf={session} aria-label={label}></canvas>
         </button>
         <div class="overlay">
-          <span class="who"><span class="live">LIVE</span> {nameOf(session)}</span>
+          <span class="who"><span class="live">{#if isCamera(session)}<Icon name="camera" size={12} /><span class="sr-only">Camera</span>{:else}LIVE{/if}</span> {nameOf(session)}</span>
           <span class="tools">
             {#if volumeOf(session) !== undefined}
               <input
@@ -146,12 +153,12 @@
               />
             {/if}
             {#if pipSupported}
-              <button onclick={() => togglePip(session)} aria-pressed={pip === session} title="Picture in picture" aria-label="Picture in picture">
+              <button onclick={() => pips.toggle(session)} aria-pressed={pip === session} title="Picture in picture" aria-label="Picture in picture">
                 <Icon name="pip" size={16} />
               </button>
             {/if}
             <button onclick={(e) => fullScreen(e.currentTarget.closest(".tile"))} title="Full screen" aria-label="Full screen">⛶</button>
-            <button onclick={() => onClose(session)} title="Stop watching" aria-label="Stop watching {nameOf(session)}">×</button>
+            <button onclick={() => onClose(session)} title="Stop watching" aria-label="Stop watching {label}">×</button>
           </span>
         </div>
       </div>
@@ -195,7 +202,8 @@
   .bare .tiles {
     grid-template-rows: minmax(0, 1fr);
   }
-  .bare .tile:not(.focused),
+  /* A hidden tile in full screen stays there. */
+  .bare .tile:not(.focused):not(:fullscreen),
   .focusing .tile:not(.focused) .tools input {
     display: none;
   }
@@ -250,6 +258,8 @@
     opacity: 1;
   }
   .live {
+    display: inline-flex;
+    vertical-align: middle;
     padding: 0 5px;
     border-radius: 3px;
     background: var(--danger);

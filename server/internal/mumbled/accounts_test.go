@@ -8,7 +8,6 @@ import (
 
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
-	"kallisti.chat/server/internal/password"
 )
 
 func checkPlain(encoded, password string) bool { return encoded == "hash:"+password }
@@ -146,8 +145,7 @@ func TestARegisteredUserReplacesItsOtherDevice(t *testing.T) {
 
 func TestSuperUserLogsInWithItsPassword(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("admin pw")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin pw")
 	addr := startWith(t, "127.0.0.1", Config{DB: db})
 	su := dialAs(t, addr, dialOpts{name: "SuperUser", password: "admin pw"})
 	if su.session == 0 {
@@ -206,8 +204,7 @@ func TestAKickedSessionCannotActAnyMore(t *testing.T) {
 
 func TestFailedLoginsAreLimitedPerIP(t *testing.T) {
 	db := testDB(t)
-	hash, _ := password.Hash("right")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "right")
 	addr := startWith(t, "127.0.0.1", Config{DB: db})
 	for range maxLoginFailures {
 		c, _ := tryDialWith(t, addr, dialOpts{name: "SuperUser", password: "wrong"})
