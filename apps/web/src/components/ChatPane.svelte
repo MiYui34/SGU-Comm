@@ -28,7 +28,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
-  import { afterUpload, canAttach, refusedDraft, switchDraft, tooLarge } from "../lib/composer";
+  import { afterUpload, canAttach, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
@@ -854,7 +854,7 @@
           type="button"
           class="attach"
           class:busy={uploading}
-          title={uploading ? "Uploading…" : onUpload ? "Upload a file" : "Uploads work in text channels and stored voice channel chats"}
+          title={uploading ? "Uploading…" : onUpload ? uploadTitle(uploadMax) : "Uploads work in text channels and stored voice channel chats"}
           aria-label="Upload a file"
           disabled={!canAttach(!!onUpload, uploading)}
           onclick={() => filePicker?.click()}

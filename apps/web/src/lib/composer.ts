@@ -11,8 +11,11 @@ export const refusedDraft = (draft: string, text: string) => (draft.trim() ? dra
 
 // A file over the server's limit (none known: the server decides) is
 // refused before it is sent.
+const mb = (bytes: number) => `${+(bytes / 1024 / 1024).toFixed(1)} MB`;
 export const tooLarge = (size: number, max: number | undefined) =>
-  max && size > max ? `The file is too large (at most ${+(max / 1024 / 1024).toFixed(1)} MB).` : null;
+  max && size > max ? `The file is too large (at most ${mb(max)}).` : null;
+// The upload button's tooltip, with the limit if known.
+export const uploadTitle = (max: number | undefined) => (max ? `Upload a file (up to ${mb(max)})` : "Upload a file");
 
 // The open chat, for its draft: channels by id (voice channel names
 // repeat in the tree, a rename keeps the draft), private chats by name.

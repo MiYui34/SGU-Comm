@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterUpload, canAttach, chatKeyOf, refusedDraft, switchDraft, tooLarge } from "../src/lib/composer";
+import { afterUpload, canAttach, chatKeyOf, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../src/lib/composer";
 
 describe("canAttach", () => {
   it("takes a file only where uploads work and none is running", () => {
@@ -85,5 +85,12 @@ describe("refusedDraft", () => {
     expect(refusedDraft("", "buy spam")).toBe("buy spam");
     expect(refusedDraft("  ", "buy spam")).toBe("buy spam");
     expect(refusedDraft("new text", "buy spam")).toBe("new text");
+  });
+});
+
+describe("uploadTitle", () => {
+  it("names the server's limit when known", () => {
+    expect(uploadTitle(10 * 1024 * 1024)).toBe("Upload a file (up to 10 MB)");
+    expect(uploadTitle(undefined)).toBe("Upload a file");
   });
 });
