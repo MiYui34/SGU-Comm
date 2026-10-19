@@ -4,8 +4,6 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
-
-	"kallisti.chat/server/internal/password"
 )
 
 func TestModeratorsMakeAChannelListenOnly(t *testing.T) {
@@ -74,8 +72,7 @@ func TestListenOnlyNeedsWriteAndAVoiceChannel(t *testing.T) {
 func TestListenOnlyChangesAreReported(t *testing.T) {
 	var calls atomic.Int32
 	db := testDB(t)
-	hash, _ := password.Hash("admin")
-	db.SetPassword(0, hash)
+	setAdminPassword(db, "admin")
 	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db, OnListenOnlyChanged: func() { calls.Add(1) }}, nil)
 	su := superUser(t, addr)
 	music := su.createChannel(0, "Music", false)

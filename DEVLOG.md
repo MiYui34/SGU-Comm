@@ -837,3 +837,16 @@ From `meta/research/discord-comparison.md`.
   in the URL because a download is a plain link.
 - A crash leaves a recording without recording.json: it is not listed, and
   removed after the keep period plus the maximum length.
+
+## Flaky mumbled tests (2026-10-19)
+
+- The timeouts were all `superUser` dials ("no frame of type 5", the
+  ServerSync), not the registration: helpers call `t.Helper()`, so the
+  failure points at the test line. The ServerSync wait (3 s) covers the
+  argon2id check of SuperUser's password: 0.3 s under -race, seconds on
+  a busy machine. Reproduced with 24 parallel test binaries
+  (GOMAXPROCS=2): 46 failures in 960 runs.
+- TestWebPasswordChecksShareTheLockout had the same cause: its ten
+  failed checks took more than 12 s, so the lockout limiter refilled.
+- Fix: tests store a cheap argon2id hash (`setAdminPassword`); Check
+  takes the parameters from the hash. 0 failures in the same stress.
