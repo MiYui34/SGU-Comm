@@ -42,11 +42,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Linux libraries (webview, tray)
+      # GStreamer plugins: WebKitGTK plays and records audio with them, and
+      # its WebCodecs Opus is GStreamer's. The AppImage carries the ones
+      # installed here (bundleMediaFramework in tauri.conf.json); pulseaudio
+      # (in plugins-good) also serves PipeWire systems.
+      - name: Linux libraries (webview, tray, media)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+          dpkg-query -W libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       - uses: pnpm/action-setup@v4
         with:
           version: 11
@@ -107,8 +113,8 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
           fi
 
-      # One download per package (the AppImage alone is ~90 MB: it carries
-      # WebKitGTK). macOS: the disk image only (the bare app is the same).
+      # One download per package (the AppImage alone is ~110 MB: it carries
+      # WebKitGTK and GStreamer). macOS: the disk image only (the bare app is the same).
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
         with:
