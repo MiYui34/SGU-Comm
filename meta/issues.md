@@ -11,4 +11,3 @@
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
-- [ ] [Smoother stream playback](issues/stream-buffer.md)
