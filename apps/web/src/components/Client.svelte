@@ -66,6 +66,7 @@
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { micWanted, type SelfState } from "../lib/voice";
+  import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
   import StreamStage from "./StreamStage.svelte";
@@ -394,6 +395,8 @@
   // Text channels (Kallisti server only). Like Discord, open the first one
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
+  const listenOnlyUsers = $derived(listenOnlySessions(server, text.listenOnly));
+  $effect(() => connection.playback?.setListenOnly(listenOnlyUsers));
   // Recorded voice channels; staff record and download (see lib/recording).
   const recorded = $derived(new Set(text.recording ?? []));
   const staffRecords = $derived(mayRecord(server, text));

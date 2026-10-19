@@ -23,3 +23,8 @@ export const listenOnlyAction = (channel: number, before: ListenOnly, after: Lis
   const same = before.on === after.on && speakerIds(before).join() === ids.join();
   return same ? null : { listenOnly: channel, on: after.on, users: ids };
 };
+
+// Who is in a listen-only channel: whoever speaks there is a speaker, and
+// gets the music buffer (see voice/buffer.ts).
+export const listenOnlySessions = (server: ServerState, listenOnly: Readonly<Record<number, unknown>>): ReadonlySet<number> =>
+  new Set(Object.values(server.users).flatMap((u) => (u.channelId in listenOnly ? [u.session] : [])));
