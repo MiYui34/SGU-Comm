@@ -13,5 +13,4 @@
 - [ ] [Collapse very long messages](issues/long-message-collapse.md)
 - [ ] [Who can read a private channel](issues/private-channel-readers.md)
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
-- [ ] [Playback buffer setting and a music buffer](issues/playback-buffer.md)
 - [ ] [Join and leave sounds](issues/join-leave-sounds.md)
