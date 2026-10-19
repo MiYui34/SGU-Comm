@@ -97,18 +97,22 @@ export const nativeNotifier = (
   load: () => Promise<NativeApi> = () => import("@tauri-apps/plugin-notification"),
 ): Notifier => {
   let permission: Permission = "default";
-  let nextId = 1;
+  // Random: notifications from before a reload may still report clicks.
+  let nextId = Math.floor(Math.random() * 2 ** 30);
   const clicks = new Map<number, () => void>();
   const api = load().then(async (n) => {
     permission = (await n.isPermissionGranted()) ? "granted" : "default";
-    await n.onAction((e) => {
-      const id = tappedId(e);
-      const onClick = id === null ? undefined : clicks.get(id);
-      if (id !== null && onClick) {
-        clicks.delete(id);
-        onClick();
-      }
-    });
+    // Without clicks, notifications still work.
+    await n
+      .onAction((e) => {
+        const id = tappedId(e);
+        const onClick = id === null ? undefined : clicks.get(id);
+        if (id !== null && onClick) {
+          clicks.delete(id);
+          onClick();
+        }
+      })
+      .catch(() => {});
     return n;
   });
   api.catch(() => {});

@@ -136,6 +136,16 @@ describe("nativeNotifier", () => {
     expect(clicked).toEqual(["b"]);
   });
 
+  it("still sends when clicks cannot be reported", async () => {
+    const { api, sent } = fakeApi(true);
+    const n = nativeNotifier(async () => ({ ...api, onAction: () => Promise.reject(new Error("not allowed")) }));
+    await settle();
+    expect(n.permission()).toBe("granted");
+    n.show("a", "1", () => {});
+    await settle();
+    expect(sent).toHaveLength(1);
+  });
+
   it("stays usable when the plugin is missing", async () => {
     const n = nativeNotifier(() => Promise.reject(new Error("no plugin")));
     await settle();
