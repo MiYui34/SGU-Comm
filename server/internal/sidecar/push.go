@@ -1,0 +1,104 @@
+package sidecar
+
+import (
+	"fmt"
+	"log/slog"
+
+	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/names"
+	"kallisti.chat/server/internal/push"
+	"kallisti.chat/server/internal/store"
+)
+
+// Web Push (built-in server): a message that pings a registered user who
+// is not connected goes to its browsers (see package push): a mention by
+// name, a reply to it (unless no_ping), @everyone in a chat it may read,
+// or a direct message. Not @here: that is for who is there. Not in do not
+// disturb. Connected users get none: the open app notifies them.
+
+// pings: the message pings the user (by name and id).
+func pings(m store.Message, direct bool, name string, user uint32) bool {
+	key := names.Key(name)
+	if byUser(mumble.Identity{Name: name, Registered: true, UserID: user}, m) || names.Key(m.Author) == key {
+		return false
+	}
+	repliesTo := m.Reply != nil && !m.NoPing && m.Reply.Author != "" && names.Key(m.Reply.Author) == key
+	return direct || m.MentionAll == "everyone" || repliesTo || mentionsName(m.Text, name)
+}
+
+// pushTarget is a pinged user: connected, in do not disturb, and whether
+// it may read the chat.
+type pushTarget struct{ online, dnd, mayRead bool }
+
+func wantsPush(t pushTarget) bool { return t.mayRead && !t.online && !t.dnd }
+
+// pushBody is the push text: who, and where; never the message.
+func pushBody(m store.Message, direct bool, where string) string {
+	if direct {
+		return "Message from " + m.Author
+	}
+	return fmt.Sprintf("Mention in %s from %s", where, m.Author)
+}
+
+// userMay: a registered user may read the chat, connected or not.
+func (h *Hub) userMay(user uint32, c chat) bool {
+	switch {
+	case c.direct:
+		return user == c.peers[0] || user == c.peers[1]
+	case c.isVoice:
+		return h.voice.UserMayRead(user, c.voice)
+	}
+	mirror := h.mirrorOf(c.id)
+	return mirror == 0 || h.voice.UserSees(user, mirror)
+}
+
+// where a chat is, for the push text.
+func (h *Hub) where(c chat) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.channels {
+		if ch.ID == c.id {
+			return "#" + ch.Name
+		}
+	}
+	return "a voice channel chat"
+}
+
+// pushFor sends the pushes for a new message (Push sends them on its own
+// time).
+func (h *Hub) pushFor(c chat, m store.Message) {
+	if h.Push == nil || h.voice == nil {
+		return
+	}
+	subscribed, err := h.store.PushNames(h.now())
+	if err != nil {
+		slog.Error("push subscriptions", "err", err)
+	}
+	if len(subscribed) == 0 {
+		return
+	}
+	ids := map[string]uint32{}
+	for id, name := range h.voice.Users() {
+		ids[names.Key(name)] = id
+	}
+	online := h.voice.Online()
+	note := push.Note{Channel: c.id, Body: pushBody(m, c.direct, h.where(c)), URL: fmt.Sprintf("/channels/%d/%d", c.id, m.ID)}
+	for _, name := range subscribed {
+		user, ok := ids[names.Key(name)]
+		if !ok || !pings(m, c.direct, name, user) {
+			continue
+		}
+		_, on := online[user]
+		t := pushTarget{online: on, mayRead: !on && h.userMay(user, c)}
+		if t.mayRead {
+			st, err := h.store.UserStatus(user)
+			if err != nil {
+				slog.Error("load a status", "err", err)
+			}
+			t.dnd = view(st, h.now()).Status == "dnd"
+		}
+		if wantsPush(t) {
+			h.Push(name, note)
+		}
+	}
+}

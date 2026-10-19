@@ -23,6 +23,7 @@ import (
 
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
+	"kallisti.chat/server/internal/push"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -73,6 +74,10 @@ type Voice interface {
 	// (registered user ids), or public; CreatePrivateChannel makes a
 	// private voice channel. Only admins and moderators change them.
 	Sees(session, channel uint32) bool
+	// UserSees and UserMayRead are Sees and MayRead for a registered user
+	// by id, also when it is not connected (push notifications).
+	UserSees(user, channel uint32) bool
+	UserMayRead(user, channel uint32) bool
 	Private() []PrivateChannel
 	SetPrivate(session, channel uint32, on bool, members []uint32) error
 	CreatePrivateChannel(session uint32, name string) (uint32, error)
@@ -220,6 +225,9 @@ type Hub struct {
 	LiveStreams func() []LiveStream
 	// SaveFile stores a picture from a Mumble message as an upload.
 	SaveFile func(author, name, ctype string, data []byte) (store.Upload, error)
+	// Push sends a push notification to a user's browsers, by name (nil:
+	// none; see push.go). It must not block.
+	Push func(name string, n push.Note)
 	// Per voice server session: the last message seen in each mirror.
 	visitsMu sync.Mutex
 	visits   map[uint32]*visit
@@ -714,6 +722,7 @@ func (h *Hub) storeMumble(from mumble.Identity, where chat, text string, images 
 		}
 		n, last = n+1, m.ID
 		h.sendTo(where, map[string]any{"type": "message", "message": toWire(m)})
+		h.pushFor(where, m)
 	}
 	// Only registered users' images are kept (with their upload quota):
 	// guests can use any name. Mumble clients see them live anyway.
@@ -830,6 +839,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	if ch.direct {
 		c.hub.relayDirect(id, ch, m)
 	}
+	c.hub.pushFor(ch, m)
 	if ch.isVoice {
 		c.hub.voice.SendChannelText(id.Session, ch.voice, c.hub.mumbleText(m))
 	} else if mirror := c.hub.mirrorOf(req.Channel); mirror != 0 && c.hub.voice != nil {
