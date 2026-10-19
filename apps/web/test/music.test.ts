@@ -21,6 +21,12 @@ const feed = (d: MusicDetector, toc: number, bytes: number, seconds: number) => 
   return d.music;
 };
 
+describe("Mumble's high quality speech", () => {
+  it("stays speech at 72 kbps mono", () => {
+    expect(feed(createMusicDetector(), MONO, 180, 5)).toBe(false);
+  });
+});
+
 describe("isStereo", () => {
   it("reads the stereo flag of the TOC byte", () => {
     expect(isStereo(packet(STEREO))).toBe(true);

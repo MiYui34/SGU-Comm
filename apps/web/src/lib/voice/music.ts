@@ -25,7 +25,7 @@ export const opusDurationUs = (opus: Uint8Array) => {
 // not flap (a quiet passage, a spoken announcement). Silence counts for
 // neither: the jukebox stays music between tracks.
 const WINDOW_US = 1_000_000;
-const MUSIC_BPS = 64_000;
+const MUSIC_BPS = 96_000; // above Mumble's high quality speech (72 kbps)
 const TO_MUSIC = 3;
 const TO_SPEECH = 10;
 

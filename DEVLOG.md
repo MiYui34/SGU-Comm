@@ -917,7 +917,7 @@ From `meta/research/discord-comparison.md`.
 - Music gets 500 ms (or the setting, if larger): who is in a listen-only
   channel (only speakers can speak there; `listenOnlySessions`), and who
   sends music. Music: per 1 s of audio (durations from the Opus TOC), a
-  stereo packet or more than 64 kbps (our speech is 40 kbps mono, music
+  stereo packet or more than 96 kbps (our speech is 40 kbps mono, Mumble's high preset 72, music
   mode 128 kbps). 3 music seconds in a row switch to music, 10 speech
   seconds back; silence counts for neither, so a jukebox stays music
   between tracks. Counters only, in place: it runs for each packet.
