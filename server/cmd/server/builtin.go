@@ -119,6 +119,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 	var onPrivate func(mumbled.PrivateText)
 	var onRoles, onListenOnly, onPrivateChannels, onTimeouts, onGuestsReadOnly, onRecording func()
 	var onUser func(id uint32, name string)
+	var onPicture func(id uint32, picture bool)
 	var textOverflows func() map[uint32]uint64
 	sv := &streamVoice{}
 	recordings := &recording.Library{
@@ -131,7 +132,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		onRoles, onListenOnly, onPrivateChannels, onTimeouts = hub.RolesChanged, hub.ListenOnlyChanged, hub.PrivateChanged, hub.TimeoutsChanged
 		onGuestsReadOnly, onRecording = hub.GuestsReadOnlyChanged, hub.RecordingChanged
 		checkText = hub.MumbleTextAllowed
-		onUser = hub.UserChanged
+		onUser, onPicture = hub.UserChanged, hub.PictureChanged
 		textOverflows = hub.Overflows
 		onMoved = func(session, from, to uint32) {
 			hub.UserMoved(session, from, to)
@@ -186,6 +187,7 @@ func startBuiltin(cfg *config.Builtin, db *store.Store, hub *sidecar.Hub, public
 		OnPrivateText:           onPrivate,
 		OnRolesChanged:          onRoles,
 		OnUserChanged:           onUser,
+		OnPictureChanged:        onPicture,
 		OnListenOnlyChanged:     onListenOnly,
 		OnPrivateChanged:        onPrivateChannels,
 		OnTimeoutsChanged:       onTimeouts,

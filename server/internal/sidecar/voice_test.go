@@ -38,11 +38,12 @@ type fakeVoice struct {
 	listenOnly []ListenOnlyChannel
 	// Registered users' names, and those on a Mumble client (private
 	// texts reach them; sent: "from>to:text").
-	names  map[uint32]string
-	native map[uint32]bool
-	sentTo []string
-	bios   map[uint32]string
-	online map[uint32]OnlineUser
+	names    map[uint32]string
+	native   map[uint32]bool
+	sentTo   []string
+	bios     map[uint32]string
+	pictures map[uint32]bool
+	online   map[uint32]OnlineUser
 	// Bans by Ban; time-outs by session.
 	bans     []string
 	timeouts map[uint32]time.Time

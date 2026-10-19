@@ -21,16 +21,24 @@ func (h *Hub) isGuest() func(name string) bool {
 	return func(name string) bool { return guests[names.Key(name)] }
 }
 
+// wireMember is a registered user; picture: it has a saved picture
+// (clients ask for others' pictures only).
+type wireMember struct {
+	ID      uint32 `json:"id"`
+	Name    string `json:"name"`
+	Picture bool   `json:"picture,omitempty"`
+}
+
 // members are the registered users but guest accounts, by id.
-func (h *Hub) members() []wirePeer {
-	isGuest := h.isGuest()
-	out := []wirePeer{}
+func (h *Hub) members() []wireMember {
+	isGuest, pictures := h.isGuest(), h.voice.Pictures()
+	out := []wireMember{}
 	for id, name := range h.voice.Users() {
 		if !isGuest(name) {
-			out = append(out, wirePeer{id, name})
+			out = append(out, wireMember{id, name, pictures[id]})
 		}
 	}
-	slices.SortFunc(out, func(a, b wirePeer) int { return cmp.Compare(a.ID, b.ID) })
+	slices.SortFunc(out, func(a, b wireMember) int { return cmp.Compare(a.ID, b.ID) })
 	return out
 }
 
@@ -93,6 +101,12 @@ func (h *Hub) UserChanged(id uint32, name string) {
 		return
 	}
 	h.broadcast(map[string]any{"type": "member", "id": id, "name": name})
+}
+
+// PictureChanged tells everyone that a registered user's saved picture
+// was set or removed (see mumbled.Config.OnPictureChanged).
+func (h *Hub) PictureChanged(id uint32, picture bool) {
+	h.broadcast(map[string]any{"type": "member", "id": id, "picture": picture})
 }
 
 // AccountPermanent lists a guest account that became a normal account (see
