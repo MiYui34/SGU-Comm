@@ -60,6 +60,7 @@ func TestOneAlignedTrackPerSpeaker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	r.Feed(Packet{Speaker: "nobody", Opus: []byte{31<<3 | 3}, At: t0}) // not Opus: no track
 	talk(r, "alice", 0, 10, speech20)
 	talk(r, "a/b", time.Second, 5, stereo20)
 	talk(r, "a_b", 2*time.Second, 5, speech20)
@@ -219,8 +220,10 @@ func TestDownloadsNeedATokenOfStaff(t *testing.T) {
 	talk(r, "alice", 0, 3, speech20)
 	info := r.Stop("stopped")
 	h := &Handler{
-		Library:     lib,
-		Redeem:      func(token string) (uint32, bool) { return map[string]uint32{"staff": 1, "user": 2}[token], token == "staff" || token == "user" },
+		Library: lib,
+		Redeem: func(token string) (uint32, bool) {
+			return map[string]uint32{"staff": 1, "user": 2}[token], token == "staff" || token == "user"
+		},
 		MayDownload: func(session uint32) bool { return session == 1 },
 	}
 	for _, c := range []struct {

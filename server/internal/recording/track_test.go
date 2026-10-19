@@ -113,7 +113,7 @@ func TestATrackStartsWithSilenceUntilTheFirstWords(t *testing.T) {
 func TestPacketsLineUpBySequenceAndClock(t *testing.T) {
 	tr, path := newTestTrack(t)
 	tr.add(speech20, 0, false, 0)
-	tr.add(speech60, 2, false, 90*ms)  // 70 ms late
+	tr.add(speech60, 2, false, 90*ms)   // 70 ms late
 	tr.add(speech20, 10, false, 120*ms) // 8 and 9 lost: 20 ms gap
 	tr.add(speech20, 10, false, 125*ms) // a repeat: dropped
 	tr.add(stereo20, 12, true, 150*ms)
@@ -164,5 +164,17 @@ func TestBadPacketsAreDropped(t *testing.T) {
 	tr.finish(0)
 	if p := parseTrack(t, path); len(p.packets) != 2 || !isSilence(p.packets[0]) {
 		t.Fatalf("packets %x", p.packets)
+	}
+}
+
+// A client that starts counting anew (a new audio context) after a lost
+// terminator: not repeats, but a new burst.
+func TestLowerSequenceNumbersLaterAreANewBurst(t *testing.T) {
+	tr, path := newTestTrack(t)
+	tr.add(speech20, 100, false, 0)
+	tr.add(speech60, 60, false, 2000*ms)
+	tr.finish(0)
+	if p := parseTrack(t, path); p.startOf(speech60, 0) != 2000*ms {
+		t.Fatalf("starts %v", p.starts)
 	}
 }

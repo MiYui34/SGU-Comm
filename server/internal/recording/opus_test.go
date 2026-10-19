@@ -32,7 +32,7 @@ func TestPacketSamples(t *testing.T) {
 func TestSilenceCoversTheGap(t *testing.T) {
 	for _, n := range []int{0, 120, 960, 1080, 5000 * 120} {
 		total := 0
-		for _, p := range silence(n, true) {
+		for p := range silence(n, true) {
 			s, stereo, ok := packetSamples(p)
 			if !ok || !stereo {
 				t.Fatalf("silence packet %x", p)
@@ -43,7 +43,9 @@ func TestSilenceCoversTheGap(t *testing.T) {
 			t.Errorf("silence for %d covers %d", n, total)
 		}
 	}
-	if p := silence(960, false)[0]; p[0]&4 != 0 {
-		t.Errorf("mono silence %x is stereo", p)
+	for p := range silence(960, false) {
+		if p[0]&4 != 0 {
+			t.Errorf("mono silence %x is stereo", p)
+		}
 	}
 }

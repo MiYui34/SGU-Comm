@@ -1,5 +1,7 @@
 package recording
 
+import "iter"
+
 // Opus packets (RFC 6716, section 3.1): the TOC byte tells the mode and
 // frame size (config, top five bits), stereo (bit 2) and the frame count
 // (code, low two bits).
@@ -47,19 +49,23 @@ func packetSamples(p []byte) (samples int, stereo bool, ok bool) {
 	return samples, p[0]&4 != 0, true
 }
 
-// silence: CELT packets that decode to silence (the silence flag is the
-// first symbol, whatever the frame size), n samples (a multiple of grid)
-// in 20 ms frames and shorter ones for the rest.
-func silence(n int, stereo bool) [][]byte {
+// silence yields CELT packets that decode to silence (the silence flag is
+// the first symbol, whatever the frame size), n samples (a multiple of
+// grid) in 20 ms frames and shorter ones for the rest.
+func silence(n int, stereo bool) iter.Seq[[]byte] {
 	var s byte
 	if stereo {
 		s = 4
 	}
-	var out [][]byte
-	for config := byte(31); config >= 28; config-- {
-		for size := frameSize(config); n >= size; n -= size {
-			out = append(out, []byte{config<<3 | s, 0xff, 0xfe})
+	return func(yield func([]byte) bool) {
+		left := n
+		for config := byte(31); config >= 28; config-- {
+			p := []byte{config<<3 | s, 0xff, 0xfe}
+			for size := frameSize(config); left >= size; left -= size {
+				if !yield(p) {
+					return
+				}
+			}
 		}
 	}
-	return out
 }

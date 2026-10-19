@@ -77,7 +77,7 @@ func (t *track) add(opus []byte, seq uint64, terminator bool, at int64) {
 	}
 	pos := t.base + int64(seq-t.baseSeq)*frameSamples
 	switch {
-	case t.talking && seq <= t.lastSeq && t.lastSeq-seq < 50:
+	case t.talking && seq <= t.lastSeq && t.lastSeq-seq < 50 && at-t.lastAt <= burstGap:
 		return // a repeat or a late packet
 	case !t.talking || seq <= t.lastSeq || at-t.lastAt > burstGap || pos > at+burstDrift || pos < at-burstDrift:
 		t.base, t.baseSeq = at/grid*grid, seq
@@ -105,7 +105,7 @@ func (t *track) write(p []byte, samples int) {
 // fill writes silence up to pos.
 func (t *track) fill(pos int64) {
 	if pos > t.pos {
-		for _, p := range silence(int(pos-t.pos), t.stereo) {
+		for p := range silence(int(pos-t.pos), t.stereo) {
 			t.write(p, frameSize(p[0]>>3))
 		}
 	}

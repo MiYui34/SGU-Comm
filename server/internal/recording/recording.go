@@ -124,13 +124,27 @@ func (r *Recording) ID() string  { return r.info.ID }
 func (r *Recording) dir() string { return filepath.Join(r.lib.Dir, r.info.ID) }
 
 // Feed hands a packet to the recorder, or drops it if the queue is full.
-// It never blocks; after the end it does nothing.
+// It never blocks; after the end packets are lost.
 func (r *Recording) Feed(p Packet) {
+	if len(r.in) == cap(r.in) {
+		r.dropped.Add(1)
+		return
+	}
 	p.Opus = append([]byte(nil), p.Opus...) // the caller's buffer is reused
 	select {
 	case r.in <- p:
 	default:
 		r.dropped.Add(1)
+	}
+}
+
+// Ended: the recording stopped and its files are closed.
+func (r *Recording) Ended() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -174,6 +188,9 @@ func (r *Recording) run(onLimit func(Info)) {
 // add records a packet; it returns a reason to stop ("": none).
 func (r *Recording) add(p Packet) string {
 	t := r.tracks[p.Speaker]
+	if _, _, ok := packetSamples(p.Opus); !ok {
+		return ""
+	}
 	if t == nil {
 		var err error
 		if t, err = createTrack(filepath.Join(r.dir(), r.fileFor(p.Speaker)), p.Speaker, uint32(len(r.order)+1)); err != nil {
