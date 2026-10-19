@@ -198,7 +198,8 @@
   .bare .tiles {
     grid-template-rows: minmax(0, 1fr);
   }
-  .bare .tile:not(.focused),
+  /* A hidden tile in full screen stays there. */
+  .bare .tile:not(.focused):not(:fullscreen),
   .focusing .tile:not(.focused) .tools input {
     display: none;
   }
