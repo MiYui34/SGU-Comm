@@ -3,11 +3,13 @@
   import Icon from "./Icon.svelte";
   import { fullScreenStep, gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
   import { createPip } from "../lib/stream/pip";
+  import { isCamera } from "../lib/stream/protocol";
+  import { streamLabel } from "../lib/stream/quality";
 
-  // The screen shares being watched, above the chat (as Discord's call
-  // area): a grid of all, or one in focus over a strip of the others (the
-  // strip can be hidden; its streams still decode). Each with its name,
-  // picture-in-picture, full screen and close.
+  // The screen shares and cameras being watched (by stream id), above the
+  // chat (as Discord's call area): a grid of all, or one in focus over a
+  // strip of the others (the strip can be hidden; its streams still
+  // decode). Each with its name, picture-in-picture, full screen and close.
   let {
     sessions,
     nameOf,
@@ -108,7 +110,7 @@
   };
 </script>
 
-<section class="stage" class:focusing class:bare={focusing && stripHidden} bind:this={stage} aria-label="Screen shares">
+<section class="stage" class:focusing class:bare={focusing && stripHidden} bind:this={stage} aria-label="Streams">
   {#if sessions.length > 1}
     <div class="bar">
       <button
@@ -131,12 +133,13 @@
   <div class="tiles" class:many={sessions.length > 1} bind:clientWidth={width} bind:clientHeight={height} style:--cols={cols} style:--strip={strip.length}>
     {#each sessions as session (session)}
       {@const at = strip.indexOf(session)}
+      {@const label = streamLabel(nameOf(session), isCamera(session))}
       <div class="tile" class:focused={focusing && session === focused} style:grid-column={at >= 0 ? at + 2 : null}>
-        <button class="screen" onclick={() => pick(session)} tabindex={sessions.length > 1 ? 0 : -1} aria-label={focusing && session === focused ? "Grid view" : `Focus ${nameOf(session)}'s screen`}>
-          <canvas use:canvasOf={session} aria-label="{nameOf(session)}'s screen"></canvas>
+        <button class="screen" onclick={() => pick(session)} tabindex={sessions.length > 1 ? 0 : -1} aria-label={focusing && session === focused ? "Grid view" : `Focus ${label}`}>
+          <canvas use:canvasOf={session} aria-label={label}></canvas>
         </button>
         <div class="overlay">
-          <span class="who"><span class="live">LIVE</span> {nameOf(session)}</span>
+          <span class="who"><span class="live">{#if isCamera(session)}<Icon name="camera" size={12} /><span class="sr-only">Camera</span>{:else}LIVE{/if}</span> {nameOf(session)}</span>
           <span class="tools">
             {#if volumeOf(session) !== undefined}
               <input
@@ -155,7 +158,7 @@
               </button>
             {/if}
             <button onclick={(e) => fullScreen(e.currentTarget.closest(".tile"))} title="Full screen" aria-label="Full screen">⛶</button>
-            <button onclick={() => onClose(session)} title="Stop watching" aria-label="Stop watching {nameOf(session)}">×</button>
+            <button onclick={() => onClose(session)} title="Stop watching" aria-label="Stop watching {label}">×</button>
           </span>
         </div>
       </div>
@@ -255,6 +258,8 @@
     opacity: 1;
   }
   .live {
+    display: inline-flex;
+    vertical-align: middle;
     padding: 0 5px;
     border-radius: 3px;
     background: var(--danger);

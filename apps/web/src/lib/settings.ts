@@ -13,7 +13,7 @@ export type Settings = {
   // Close the microphone while muted (the browser stops showing it as
   // recording, but opening it again interrupts the sound for a moment).
   closeMicWhenMuted: boolean;
-  // Others see a thumbnail of our screen share before they watch.
+  // Others see a thumbnail of our screen share or camera before they watch.
   streamPreviews: boolean;
   // See voice/noise.ts.
   noiseSuppression: NoiseMode;

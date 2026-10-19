@@ -5,17 +5,28 @@
 
   // Above the user panel while in a voice channel, as in Discord: where you
   // are, and the button to leave.
-  // onShare: share the screen, or stop (undefined: not possible here).
-  // music: music mode is on (see Settings.musicMode). info: the
-  // connection's quality (see ConnectionInfo).
+  // onShare, onCamera: share the screen or the camera, or stop (undefined:
+  // not possible here). music: music mode is on (see Settings.musicMode).
+  // info: the connection's quality (see ConnectionInfo).
   let {
     channel,
     onLeave,
     music = false,
     sharing = false,
     onShare,
+    camera = false,
+    onCamera,
     info,
-  }: { channel: string; onLeave: () => void; music?: boolean; sharing?: boolean; onShare?: () => void; info: Info } = $props();
+  }: {
+    channel: string;
+    onLeave: () => void;
+    music?: boolean;
+    sharing?: boolean;
+    onShare?: () => void;
+    camera?: boolean;
+    onCamera?: () => void;
+    info: Info;
+  } = $props();
 </script>
 
 <section class="bar" aria-label="Voice">
@@ -27,6 +38,18 @@
     </div>
     <div class="channel ellipsis" title={channel}>{channel}</div>
   </div>
+  {#if onCamera}
+    <button
+      class="share"
+      class:on={camera}
+      title={camera ? "Turn off your camera" : "Turn on your camera"}
+      aria-label={camera ? "Turn off your camera" : "Turn on your camera"}
+      aria-pressed={camera}
+      onclick={onCamera}
+    >
+      <Icon name="camera" size={20} />
+    </button>
+  {/if}
   {#if onShare}
     <button
       class="share"

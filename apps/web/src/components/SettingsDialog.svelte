@@ -69,6 +69,9 @@
   const outputSupported = outputDeviceSupported();
   const inputs = $derived(devices.filter((d) => d.kind === "audioinput"));
   const outputs = $derived(devices.filter((d) => d.kind === "audiooutput"));
+  // Cameras have no ids before the browser may use one.
+  const hasCamera = $derived(devices.some((d) => d.kind === "videoinput"));
+  const cameras = $derived(devices.filter((d) => d.kind === "videoinput" && d.deviceId));
 
   // Device labels are only visible after microphone permission was granted.
   const loadDevices = () =>
@@ -172,6 +175,19 @@
       <span class="hint">In use: {deviceLabel}</span>
     {/if}
   </label>
+
+  {#if hasCamera}
+    <label>
+      Camera
+      <select value={settings.cameraDeviceId ?? ""} onchange={(e) => onChange({ cameraDeviceId: e.currentTarget.value || null })}>
+        <option value="">Default</option>
+        {#each cameras as d, i (d.deviceId)}
+          <option value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>
+        {/each}
+      </select>
+      {#if !cameras.length}<span class="hint">The list fills once you have turned the camera on in voice.</span>{/if}
+    </label>
+  {/if}
 
   <label>
     Noise suppression
@@ -318,8 +334,8 @@
   </label>
   <label class="check">
     <input type="checkbox" checked={settings.streamPreviews} onchange={(e) => onChange({ streamPreviews: e.currentTarget.checked })} />
-    <span>Show a preview of my screen share</span>
-    <span class="hint">People who are not watching see a small picture of it, updated every few seconds.</span>
+    <span>Show a preview of my screen share and camera</span>
+    <span class="hint">People who are not watching see a small picture, updated every few seconds.</span>
   </label>
   <label class="check">
     <input
