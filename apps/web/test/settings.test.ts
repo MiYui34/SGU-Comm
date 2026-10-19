@@ -25,6 +25,8 @@ describe("parseSettings", () => {
       playbackBuffer: "high",
       cameraDeviceId: "cam-1",
       streamQuality: { screen: { height: 720, fps: 60 }, camera: { height: 480, fps: 15 } },
+      sounds: false,
+      soundVolume: 0.3,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -104,6 +106,17 @@ describe("echo cancellation", () => {
     expect(DEFAULT_SETTINGS.echoCancellation).toBe(true);
     expect(parseSettings('{"echoCancellation":false}').echoCancellation).toBe(false);
     expect(parseSettings('{"echoCancellation":"no"}').echoCancellation).toBe(true);
+  });
+});
+
+describe("sounds", () => {
+  it("are on by default, with a volume from 0 to 1", () => {
+    expect(DEFAULT_SETTINGS.sounds).toBe(true);
+    expect(parseSettings('{"sounds":false}').sounds).toBe(false);
+    expect(parseSettings('{"sounds":"no"}').sounds).toBe(true);
+    expect(parseSettings('{"soundVolume":0}').soundVolume).toBe(0);
+    expect(parseSettings('{"soundVolume":3}').soundVolume).toBe(1);
+    expect(parseSettings('{"soundVolume":"loud"}').soundVolume).toBe(DEFAULT_SETTINGS.soundVolume);
   });
 });
 
