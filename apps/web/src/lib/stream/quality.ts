@@ -42,6 +42,12 @@ export const encoding = (source: { width: number; height: number }, q: Quality, 
   return { ...size, framerate: q.fps, bitrate };
 };
 
+// A stored quality: one of the choices, else the default.
+export const parseQuality = (v: unknown, kind: Kind): Quality => {
+  const q = (v ?? {}) as Record<string, unknown>;
+  return HEIGHTS.includes(q.height as number) && FPS.includes(q.fps as number) ? { height: q.height as number, fps: q.fps as number } : DEFAULT_QUALITY[kind];
+};
+
 export const qualityOptions = (limits: Limits) => ({ heights: HEIGHTS.filter((h) => h <= limits.maxSide), fps: FPS });
 
 export const qualityLabel = (q: Quality) => `${q.height}p ${q.fps} fps`;
