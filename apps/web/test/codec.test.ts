@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   chooseCodec,
+  decoderKind,
   deinterleave,
   interleave,
   libopusOptions,
@@ -33,6 +34,17 @@ describe("chooseCodec", () => {
     expect(await chooseCodec(webCodecs(false))).toBe("wasm");
     expect(await chooseCodec(webCodecs(true, false))).toBe("wasm");
     expect(await chooseCodec(webCodecs(new Error("no")))).toBe("wasm");
+  });
+});
+
+describe("decoderKind", () => {
+  it("decodes with WebAssembly in the Linux app: WebKitGTK's AudioData.copyTo leaks", () => {
+    expect(decoderKind("webcodecs", true)).toBe("wasm");
+    expect(decoderKind("wasm", true)).toBe("wasm");
+  });
+  it("keeps the codec elsewhere", () => {
+    expect(decoderKind("webcodecs", false)).toBe("webcodecs");
+    expect(decoderKind("wasm", false)).toBe("wasm");
   });
 });
 
