@@ -13,6 +13,8 @@
     canMoveUp,
     canMoveDown,
     canMembers = false,
+    recording,
+    onRecord,
     notify,
     onNotify,
     onEdit,
@@ -30,6 +32,10 @@
     canMoveDown: boolean;
     // A private channel's members (admins and moderators).
     canMembers?: boolean;
+    // Voice channels (staff): being recorded or not; undefined: may not
+    // record.
+    recording?: boolean;
+    onRecord?: (on: boolean) => void;
     // Text channels: notification settings (see lib/channelPrefs);
     // undefined: none. desktop: desktop notifications are on.
     notify?: { pref: ChannelPref; desktop: boolean };
@@ -80,6 +86,14 @@
     </div>
     {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
   {/if}
+  {#if recording !== undefined && onRecord}
+    {#if recording}
+      <button class="danger" onclick={act(() => onRecord(false))}>Stop recording</button>
+    {:else}
+      <button onclick={act(() => onRecord(true))}>Record channel</button>
+    {/if}
+    {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
+  {/if}
   {#if canEdit || canMoveUp || canMoveDown}
     {#if canEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
     {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
@@ -89,7 +103,7 @@
       <div class="sep"></div>
       <button class="danger" onclick={act(onDelete)}>Delete channel</button>
     {/if}
-  {:else if !notify}
+  {:else if !notify && recording === undefined}
     <p class="none">You may not change this channel.</p>
   {/if}
 </ContextMenu>

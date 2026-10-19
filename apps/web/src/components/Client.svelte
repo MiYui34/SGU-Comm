@@ -90,6 +90,7 @@
   import { inviteLink, invitePlace, parseInviteLink } from "../lib/invites";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
+  import { mayRecord } from "../lib/recording";
 
   let {
     connection,
@@ -388,6 +389,9 @@
   // Text channels (Kallisti server only). Like Discord, open the first one
   // when they arrive, unless the user already picked something.
   const text = $derived(connection.text);
+  // Recorded voice channels; staff record and download (see lib/recording).
+  const recorded = $derived(new Set(text.recording ?? []));
+  const staffRecords = $derived(mayRecord(server, text));
   // Statuses (Kallisti server): away after a while without input (sent,
   // not kept), and do not disturb (no notifications or sounds).
   let away = $state(false);
@@ -947,6 +951,8 @@
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
     canMembers={m.canMembers}
+    recording={m.kind === "voice" && staffRecords ? recorded.has(m.id) : undefined}
+    onRecord={(on) => connection.manage({ record: m.id, on })}
     onMembers={() => channels.startMembers(m.kind, m.id)}
     notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
     onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
@@ -1099,6 +1105,10 @@
     messageRules={text.messageRules}
     onLoadMessageRules={mayChangeGuests(server, text) ? () => connection.manage({ messageRules: true }) : undefined}
     onSaveMessageRules={(rules) => connection.manage({ setMessageRules: rules })}
+    recordings={text.recordings}
+    recording={text.recording}
+    onLoadRecordings={staffRecords ? () => connection.manage({ recordings: true }) : undefined}
+    onDownloadRecording={connection.downloadRecording}
     onClose={() => (showModeration = false)}
   />
 {/if}
@@ -1160,6 +1170,7 @@
       {mentionVoice}
       listenOnly={text.listenOnly}
       privateChannels={text.private}
+      recording={recorded}
       live={liveSessions}
       previews={text.streamPreviews}
       onWatch={streamClient ? watchStream : undefined}
@@ -1182,6 +1193,7 @@
         {/if}
         <VoiceBar
           channel={channelName}
+          recording={recorded.has(channelId)}
           onLeave={leaveVoice}
           music={musicMode}
           info={connection.info}
