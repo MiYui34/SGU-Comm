@@ -70,6 +70,13 @@ export const mutedIds = (prefs: ChannelPrefs, server: string, now: number): Set<
       .map(([id]) => Number(id)),
   );
 
+// Channels set to "nothing": the server sends no push notifications for
+// them to this browser (mutes still let mentions through).
+export const nothingIds = (prefs: ChannelPrefs, server: string): number[] =>
+  Object.entries(prefs[server] ?? {})
+    .filter(([, p]) => p.level === "nothing")
+    .map(([id]) => Number(id));
+
 export const withoutMuted = (unread: ReadonlySet<number>, muted: ReadonlySet<number>): Set<number> =>
   new Set([...unread].filter((id) => !muted.has(id)));
 

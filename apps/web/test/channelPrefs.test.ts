@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mutedIds, notifies, parseChannelPrefs, prefOf, setChannelPref, withoutMuted } from "../src/lib/channelPrefs";
+import { mutedIds, nothingIds, notifies, parseChannelPrefs, prefOf, setChannelPref, withoutMuted } from "../src/lib/channelPrefs";
 
 const A = "https://a";
 
@@ -27,6 +27,12 @@ describe("channel settings", () => {
     const prefs = { [A]: { 1: { mutedUntil: 0 }, 2: { mutedUntil: 1000 }, 3: { mutedUntil: 500 }, 4: { level: "all" as const } } };
     expect(mutedIds(prefs, A, 800)).toEqual(new Set([1, 2]));
     expect(withoutMuted(new Set([1, 2, 3, 4]), new Set([1, 2]))).toEqual(new Set([3, 4]));
+  });
+
+  it("lists the channels set to nothing (no push notifications)", () => {
+    const prefs = { [A]: { 1: { level: "nothing" as const }, 2: { mutedUntil: 0 }, 5: { level: "nothing" as const, mutedUntil: 0 } }, b: { 3: { level: "nothing" as const } } };
+    expect(nothingIds(prefs, A)).toEqual([1, 5]);
+    expect(nothingIds(prefs, "c")).toEqual([]);
   });
 
   it("notifies by the level; muted: only mentions; nothing: never", () => {

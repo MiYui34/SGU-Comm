@@ -27,6 +27,7 @@ import (
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/preview"
+	"kallisti.chat/server/internal/push"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
@@ -111,6 +112,15 @@ func run() error {
 	hub.OnUploadDeleted = fileHandler.Remove
 	hub.UploadMax = cfg.UploadMaxBytes
 	hub.SaveFile = fileHandler.Save
+	// Before the built-in server listens, too.
+	var pushes http.Handler = http.NotFoundHandler() // not app routes
+	if cfg.Builtin != nil && !cfg.Push.Off {
+		svc, err := startPush(cfg, db, accounts, hub)
+		if err != nil {
+			return err
+		}
+		pushes = svc
+	}
 	dial, upstream := murmurDialer(cfg)
 	var builtinServer *builtin
 	cleanup := func(time.Time) {}                // guest accounts (built-in server)
@@ -186,6 +196,8 @@ func run() error {
 	mux.Handle("/api/emoji/", fileHandler)
 	mux.Handle("/api/avatars/", avatars)
 	mux.Handle("/api/link-image/", linkImages)
+	mux.Handle("/api/push", pushes)
+	mux.Handle("/api/push/", pushes)
 	if builtinServer != nil {
 		mux.Handle("/api/stream", &stream.Handler{
 			Hub: builtinServer.streams, Redeem: builtinServer.streamTokens.Redeem,
@@ -225,6 +237,35 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// Pushes on their way at once, at most (more wait).
+const pushSenders = 16
+
+// startPush turns on Web Push notifications: the hub decides who gets one,
+// the service sends them.
+func startPush(cfg config.Config, db *store.Store, accounts *auth.Service, hub *sidecar.Hub) (*push.Service, error) {
+	public, private, err := push.Keys(db, cfg.Push.PublicKey, cfg.Push.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("push keys: %w", err)
+	}
+	svc := &push.Service{
+		Store: db, PublicKey: public, Now: time.Now,
+		Sender: push.NewWebPush(public, private, cfg.Push.Subject, publicBase(cfg.AllowedOrigins)),
+		Account: func(r *http.Request) (store.Account, string, bool) {
+			acc, ok := accounts.AccountFor(r)
+			return acc, auth.SessionKey(r), ok
+		},
+	}
+	senders := make(chan struct{}, pushSenders)
+	hub.Push = func(name string, n push.Note) {
+		go func() {
+			senders <- struct{}{}
+			defer func() { <-senders }()
+			svc.Notify(name, n)
+		}()
+	}
+	return svc, nil
 }
 
 // murmurDialer connects web clients to Murmur. Accounts connect with their
