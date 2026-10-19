@@ -1274,3 +1274,110 @@ From `meta/research/discord-comparison.md`.
   make a word of initials ("A. S. S."); Hangul as separate jamo and
   half-width kana with separate marks do not match; the rules' entries
   are folded again for each message (fast enough for 500).
+
+## Stream playout buffer (2026-10-20)
+
+- Report: a shared YouTube tab (with sound) is "mostly fine, sometimes
+  choppy" for a viewer in America (server in Helsinki, 120-180 ms RTT: a
+  lost TCP segment stalls the stream for 200-400 ms).
+- Setup: `tests/perf/stream.sh` (see tests/perf/README.md): a streamer
+  in headless Chromium shares a canvas with high motion (720p30, the
+  default quality: 3.8 Mbit/s VP8), one viewer direct and one behind
+  linkproxy, which now has jitter (`-jitter`, `-jitter-chance` for
+  spikes). 20 s per run, one run each, a Mac. Scenarios (viewer link):
+  far = 10 Mbit/s, 150 ms RTT, spikes of 200-400 ms; jitter = 8 Mbit/s,
+  0-200 ms always; tight = 5 Mbit/s, 150 ms RTT, spikes of 150-300 ms;
+  spiky = 10 Mbit/s, 150 ms RTT, spikes of 400-800 ms; slow = 3 Mbit/s
+  (below the bitrate). local: two viewers without a proxy.
+- Before, the viewer behind the proxy (freezes: gaps over 200 ms between
+  drawn pictures, count and total; latency: send to draw, median):
+
+  | Run | Freezes | Other | Latency ms |
+  | --- | --- | --- | --- |
+  | local, sound / silent | 0 / 0 | first picture after 7.8 / 7.5 s | 207 / 4 |
+  | far, sound / silent | 0 / 4 (1261 ms) | | 580 / 94 |
+  | jitter, sound / silent | 0 / 1 (240 ms) | | 446 / 166 |
+  | tight, sound / silent | 0 / 6 (1539 ms) | 2 sound packets late | 396 / 108 |
+  | spiky, sound / silent | 5 (1968 ms) / 1 (441 ms) | sound: 41 pictures not drawn, 5 keyframe asks | 961 / 93 |
+  | slow, sound / silent | 5 (7058 ms) / 2 (496 ms) | 227 / 30 lost, keyframe wait 8 s / 1 s | 1417 / 1754 |
+
+- Causes, from these numbers: (1) a stream without sound had no buffer
+  at all (pictures drawn on decode), so every spike froze it. With sound,
+  the 0.15 s lead plus the sound's own delay (pictures were 0.2-0.4 s
+  behind their capture) covered spikes up to 400 ms, not 800. (2) After
+  an 800 ms stall the backlog came as a burst; more than 10 frames in
+  the decoder made the viewer drop to the next keyframe and ask for one
+  (5 asks, 41 pictures not drawn). The sound clock's new start after 5
+  late packets did not show here (0 jumps), only on the slow link (37).
+  (3) Keyframe waits: a new viewer's keyframe often came before its
+  decoder was set up, and the decoder's own request fell in the server's
+  one-a-second limit and was lost: the viewer waited for the periodic
+  keyframe (every 8 s). A viewer whose queue was full asked at once,
+  and that keyframe found the queue still full: again up to 8 s. (4) The
+  streamer was not the cause: the encoder queue stayed at 0, no frame
+  was skipped, keyframes were 83-95 KB (the upload limit is 1 MiB/s with
+  2 MiB burst), and the direct viewer lost nothing. Not measured on a
+  slow streamer machine.
+- (a) Playout (`lib/stream/playout.ts`): picture and sound on one clock,
+  the audio context's with sound, else the page's (silent streams get the
+  buffer too). The first item, picture or sound, sets it: it plays a lead
+  of 0.5 s after it came. A late item raises the lead in steps of 0.25 s
+  (up to 1.5 s) and plays at once: a pause where the stall was, not a
+  skip; sound and pictures already scheduled keep their times, so both
+  pause at the same place. After 60 s without late items the lead goes
+  down by 5 ms a second (sound buffers play 0.5 % faster meanwhile, or
+  they would overlap), while the slowest item of that time still had
+  over 0.5 s to spare. Still late at 1.5 s: dropped;
+  late for 1 s: the clock starts over (a delay that stays); an item over
+  1 s beyond the lead: starts over (the clock jumped, or a backlog
+  drained).
+- Pictures wait encoded and go to the decoder 0.1 s before their time:
+  decoded VideoFrames are large (1.4 MB at 720p) and hardware decoders
+  stall when many are held. Late pictures are still decoded (the next
+  ones need them) but not drawn. At most 240 encoded pictures wait; the
+  decoder may hold 30 (was 10, which bursts after a stall passed).
+- One loop draws all watched streams: animation frames, and in a hidden
+  tab the worker timer (no animation frames there), so picture-in-
+  picture stays in sync with the sound; before, a hidden tab drew
+  pictures at once.
+- (b) Server: a keyframe request within the limit is kept and sent with
+  the first frame after it (the limit is now 0.5 s, was 1 s). A viewer
+  that was full asks for its keyframe when its queue has room again
+  (at most a quarter full), not at once, and at most every 2 s: without
+  that limit one slow viewer brought keyframes for all twice a second
+  (11 requests in 17 s on the slow link; 4 with it). The periodic
+  keyframe stays at 8 s: with these two, recovery did not need it (0
+  requests from the server in all runs but slow).
+- After (same runs; a/v: a picture is drawn 0-12 ms after its sound is
+  scheduled, p5 to p95; the first picture now comes at least the lead
+  later):
+
+  | Run | Freezes | Other | Latency ms |
+  | --- | --- | --- | --- |
+  | local, sound / silent | 0 / 0 | first picture after 0.6 / 0.6 s | 526 / 509 |
+  | far, sound / silent | 0 / 0 | | 585 / 660 |
+  | jitter, sound / silent | 0 / 0 | | 660 / 668 |
+  | tight, sound / silent | 0 / 0 | | 584 / 952 |
+  | spiky, sound / silent | 2 (567 ms) / 1 (275 ms) | 0 not drawn, 0 asks | 1078 / 910 |
+  | slow, sound / silent | 6 (5282 ms) / 5 (3801 ms) | 98 / 41 lost, longest wait 2.7 / 1.5 s | 3371 / 3521 |
+
+  An 800 ms spike still pauses (by what the lead does not cover yet);
+  then the lead is higher and later ones pass.
+- (c) Adaptive bitrate: not done. Only a link below the stream's bitrate
+  (slow) still stutters, and a buffer cannot help there: the server's
+  queue fills, drops until a keyframe, and the cycle repeats. With sound
+  a little better, silent worse (probably because the keyframe comes
+  sooner, so the overload starts again sooner); latency 3.5 s. The fix
+  is a lower bitrate: the server would tell the streamer from viewer
+  drops, but one encoder serves all viewers, so one slow viewer lowers
+  the quality for all (simulcast would avoid that). A follow-up.
+- Gaps: Chromium only (no Firefox, Safari, desktop app); hidden tabs and
+  picture-in-picture not checked headless; the slow lowering of the lead
+  is only unit-tested (runs are 20 s); one run per scenario; latency is
+  now 0.5-1.1 s (was near 0 without sound, 0.2-1 s with), as wanted for
+  one-way watching; an audio context that stays suspended would hold
+  the pictures of a stream with sound (as before). Pictures follow the sound's schedule, not what
+  is heard: the output latency (large on Bluetooth) puts them early, as
+  before. A new start of the clock that moves it earlier (rare: a
+  backlog drained by over 1 s) lets sound already scheduled overlap the
+  new for up to a second.
