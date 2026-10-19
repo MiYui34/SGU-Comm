@@ -103,7 +103,8 @@ Settings → "Stream from OBS", which also shows the server address
   server's interfaces.
 - Only IPv4, only UDP (OBS has no ICE over TCP).
 - A stream needs a registered account (no guest accounts), connected to
-  voice in a channel where it may speak. It ends when OBS stops, the
+  voice in a channel where it may speak. A new password or "log out
+  everywhere" removes the key. A stream ends when OBS stops, the
   connection fails, or the user leaves the channel or disconnects.
 - OBS must send H.264 (packetization-mode 1) and Opus. The server forwards
   the video as it comes: viewers need a browser that decodes H.264, and the

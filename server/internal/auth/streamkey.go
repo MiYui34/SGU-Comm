@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 
 	"kallisti.chat/server/internal/store"
@@ -62,6 +63,15 @@ func (a *Service) streamKey(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// endStreamKey removes an account's stream key with its sessions (a new
+// password, "log out everywhere"): it is a credential like them.
+func (a *Service) endStreamKey(acc store.Account) {
+	if err := a.Store.DeleteStreamKey(acc.ID); err != nil {
+		slog.Error("removing a stream key", "account", acc.Name, "err", err)
+	}
+	a.streamKeyChanged(acc.Name)
 }
 
 func (a *Service) streamKeyChanged(name string) {

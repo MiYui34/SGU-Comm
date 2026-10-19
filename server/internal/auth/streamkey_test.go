@@ -81,6 +81,34 @@ func TestStreamKeys(t *testing.T) {
 	}
 }
 
+// A stream key is a credential like a session: a new password and "log out
+// everywhere" end it (and its stream).
+func TestStreamKeysEndWithTheSessions(t *testing.T) {
+	a, srv := setup(t)
+	a.StreamKeys = true
+	var changed []string
+	a.StreamKeyChanged = func(name string) { changed = append(changed, name) }
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "Alice", "password": "correct horse"}, nil)
+	c := sessionCookie(resp)
+	_, v := streamKeyRequest(t, srv.URL, "POST", c)
+	if resp, _ := post(t, srv, "/api/password", map[string]string{"old": "correct horse", "new": "battery staple"}, c); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("password: %d", resp.StatusCode)
+	}
+	if _, ok := a.StreamKeyAccount(v["key"].(string)); ok {
+		t.Fatal("the key works after a new password")
+	}
+	_, v = streamKeyRequest(t, srv.URL, "POST", c)
+	if resp, _ := post(t, srv, "/api/logout-all", map[string]string{}, c); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout everywhere: %d", resp.StatusCode)
+	}
+	if _, ok := a.StreamKeyAccount(v["key"].(string)); ok {
+		t.Fatal("the key works after logging out everywhere")
+	}
+	if strings.Join(changed, ",") != "Alice,Alice,Alice,Alice" {
+		t.Fatalf("changes %v", changed)
+	}
+}
+
 func TestStreamKeysOff(t *testing.T) {
 	_, srv := setup(t)
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "Alice", "password": "correct horse"}, nil)

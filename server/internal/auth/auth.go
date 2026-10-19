@@ -409,6 +409,7 @@ func (a *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.revoke(func(id int64, _ string) bool { return id == acc.ID })
+	a.endStreamKey(acc)
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -460,6 +461,7 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.revoke(func(id int64, session string) bool { return id == acc.ID && session != keep })
+	a.endStreamKey(acc)
 	if acc.Temporary && a.OnPermanent != nil {
 		a.OnPermanent(acc.Name)
 	}

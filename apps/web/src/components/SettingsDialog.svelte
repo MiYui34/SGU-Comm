@@ -460,7 +460,7 @@
           <button type="button" class="secondary" onclick={makeKey}>{obs.exists ? "Make a new key" : "Make a stream key"}</button>
           {#if obs.exists}<button type="button" class="logout" onclick={removeKey}>Remove the key</button>{/if}
         </div>
-        {#if obs.exists}<p class="hint">A new key or removing it stops the old one (and a stream that uses it).</p>{/if}
+        {#if obs.exists}<p class="hint">A new key, removing it, a new password or "log out everywhere" stop the old key (and a stream that uses it).</p>{/if}
       </div>
     {/if}
     <div class="account">
