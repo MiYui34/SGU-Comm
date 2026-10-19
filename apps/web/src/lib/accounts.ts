@@ -21,8 +21,8 @@ class ApiError extends Error {
 export type SessionStore = { get: () => string | null; set: (token: string | null) => void };
 
 export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, session?: SessionStore) => {
-  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string } & Partial<Challenge>;
-  const call = async (path: string, body?: unknown): Promise<Answer> => {
+  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string } & Partial<Challenge> & Partial<StreamKey> & { key?: string };
+  const call = async (path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<Answer> => {
     const token = session?.get();
     const headers: Record<string, string> = {
       ...(body !== undefined && { "Content-Type": "application/json" }),
@@ -32,7 +32,7 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
     // A web GET without Content-Type: no CORS preflight needed.
     const res = await fetchFn(`${base}${path}`, {
       credentials: session ? "omit" : "include",
-      method: body === undefined ? "GET" : "POST",
+      method,
       ...(Object.keys(headers).length && { headers }),
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
@@ -82,6 +82,18 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
     changePassword: async (old: string, next: string) => {
       await call("/api/password", { old, new: next });
     },
+    whipUrl: whipUrl(base),
+    // Streaming from OBS: off on the server (or for guest accounts), or on
+    // with or without a key.
+    streamKey: async (): Promise<StreamKey> => {
+      const data = await call("/api/stream-key").catch(() => ({}) as Answer);
+      return { enabled: data.enabled === true, exists: data.exists === true };
+    },
+    // A new key (the old one stops working): shown this once.
+    newStreamKey: async () => (await call("/api/stream-key", {})).key ?? "",
+    removeStreamKey: async () => {
+      await call("/api/stream-key", undefined, "DELETE");
+    },
     // The logged-in account, or null (also for servers without accounts).
     me: async (): Promise<Account | null> => {
       try {
@@ -96,6 +108,11 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
 
 export type AccountsApi = ReturnType<typeof createAccountsApi>;
 
+export type StreamKey = { enabled: boolean; exists: boolean };
+
+// Where OBS sends a stream (WHIP), on the Kallisti server.
+export const whipUrl = (base: string) => `${base}/api/whip`;
+
 // The login screen opens on "Log in" when a guest tried an account's name.
 export const modeForError = (error: string | null): "guest" | "login" =>
   error?.includes("belongs to an account") ? "login" : "guest";
@@ -107,4 +124,9 @@ export type AccountActions = {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   changePassword: (old: string, next: string) => Promise<void>;
+  // Streaming from OBS (see the server's whip package).
+  whipUrl: string;
+  streamKey: () => Promise<StreamKey>;
+  newStreamKey: () => Promise<string>;
+  removeStreamKey: () => Promise<void>;
 };

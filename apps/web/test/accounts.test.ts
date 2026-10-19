@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAccountsApi, modeForError } from "../src/lib/accounts";
+import { createAccountsApi, modeForError, whipUrl } from "../src/lib/accounts";
 
 type Call = { url: string; init: RequestInit };
 const fakeFetch = (status: number, body: unknown, calls: Call[]) =>
@@ -136,5 +136,29 @@ describe("the desktop app's session token", () => {
       .changePassword("bad", "new password")
       .catch(() => {});
     expect(session.get()).toBe("abc");
+  });
+});
+
+describe("stream keys (OBS)", () => {
+  it("reads whether there is one, makes one and removes it", async () => {
+    const calls: Call[] = [];
+    const api = createAccountsApi("https://chat.example", fakeFetch(200, { enabled: true, exists: false }, calls));
+    expect(await api.streamKey()).toEqual({ enabled: true, exists: false });
+    expect(calls[0]?.url).toBe("https://chat.example/api/stream-key");
+    const make = createAccountsApi("https://chat.example", fakeFetch(200, { key: "k".repeat(64) }, calls));
+    expect(await make.newStreamKey()).toBe("k".repeat(64));
+    expect(calls[1]?.init.method).toBe("POST");
+    await createAccountsApi("https://chat.example", fakeFetch(204, null, calls)).removeStreamKey();
+    expect(calls[2]?.init.method).toBe("DELETE");
+  });
+
+  it("counts a server without them, or a guest account, as off", async () => {
+    const off = { enabled: false, exists: false };
+    expect(await createAccountsApi("http://srv", fakeFetch(404, {}, [])).streamKey()).toEqual(off);
+    expect(await createAccountsApi("http://srv", fakeFetch(403, { error: "set a password first" }, [])).streamKey()).toEqual(off);
+  });
+
+  it("gives OBS the server's WHIP address", () => {
+    expect(whipUrl("https://chat.example")).toBe("https://chat.example/api/whip");
   });
 });

@@ -123,6 +123,12 @@
       await api.changePassword(old, next);
       if (account?.temporary) account = { ...account, temporary: false }; // kept now
     },
+    get whipUrl() {
+      return api.whipUrl;
+    },
+    streamKey: () => api.streamKey(),
+    newStreamKey: () => api.newStreamKey(),
+    removeStreamKey: () => api.removeStreamKey(),
   };
 
   // The desktop app: a Kallisti server works as in the web app (with a
