@@ -741,3 +741,21 @@ From `meta/research/discord-comparison.md`.
   0.15 s sound lead out of sync).
 - Headless Chromium enters PiP (the promise resolves) but
   did not enter full screen; full screen was not checked there.
+
+## Emoji resize (2026-10-19)
+
+- Still images are scaled in the browser to fit 96×96 (no server
+  change: Go's content sniffing already knows WebP). The image is scaled
+  once to a working canvas with a short side of at most 96 × 8 (the most
+  zoom), so dragging the crop redraws a small canvas, not the photo.
+- The output is PNG or WebP, the smaller one. `toBlob("image/webp", 1)`
+  is lossless WebP in Chromium, and it gives a PNG where the browser has
+  no WebP encoder, so the type of the blob is checked.
+- Animation detection walks the GIF blocks (a 0x2C byte can be in the
+  image data) and also finds APNG (`acTL` before `IDAT`): a canvas would
+  drop those frames too.
+- Small images (≤ 96 px, no crop) are uploaded as they are; re-encoding
+  them gains nothing.
+- agent-browser's `mouse wheel` sends no DOM wheel events (checked with
+  a test page), so wheel zoom was not checked there. Drag, keys and the
+  slider were.
