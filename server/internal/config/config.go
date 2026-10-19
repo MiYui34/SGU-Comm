@@ -91,17 +91,23 @@ type Builtin struct {
 	// CertFile and KeyFile: a certificate from elsewhere (for example the
 	// reverse proxy's Let's Encrypt files), reloaded when they change.
 	CertFile, KeyFile string
+	// WHIPPort: the UDP port for streams from OBS (WHIP); 0: off.
+	// WHIPPublicIP: the address in ICE candidates (an IP, or a name resolved
+	// at start), needed where the server does not see its public IP (Docker).
+	WHIPPort     int
+	WHIPPublicIP string
 }
 
 func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
 	b := &Builtin{
-		Listen:     cmp.Or(getenv("MUMBLE_LISTEN"), ":64738"),
-		ServerName: cmp.Or(getenv("SERVER_NAME"), "Kallisti"),
-		Welcome:    getenv("MUMBLE_WELCOME"),
-		Password:   getenv("MUMBLE_PASSWORD"),
-		CertDir:    cmp.Or(getenv("CERT_DIR"), filepath.Dir(dbPath)),
-		CertFile:   getenv("MUMBLE_CERT_FILE"),
-		KeyFile:    getenv("MUMBLE_KEY_FILE"),
+		Listen:       cmp.Or(getenv("MUMBLE_LISTEN"), ":64738"),
+		ServerName:   cmp.Or(getenv("SERVER_NAME"), "Kallisti"),
+		Welcome:      getenv("MUMBLE_WELCOME"),
+		Password:     getenv("MUMBLE_PASSWORD"),
+		CertDir:      cmp.Or(getenv("CERT_DIR"), filepath.Dir(dbPath)),
+		CertFile:     getenv("MUMBLE_CERT_FILE"),
+		KeyFile:      getenv("MUMBLE_KEY_FILE"),
+		WHIPPublicIP: getenv("WHIP_PUBLIC_IP"),
 	}
 	if (b.CertFile == "") != (b.KeyFile == "") {
 		return nil, errors.New("set both MUMBLE_CERT_FILE and MUMBLE_KEY_FILE, or neither")
@@ -110,6 +116,9 @@ func parseBuiltin(getenv func(string) string, dbPath string) (*Builtin, error) {
 		return nil, errors.New("MUMBLE_LISTEN must be host:port")
 	}
 	var ok bool
+	if b.WHIPPort, ok = parsePort(getenv("WHIP_UDP_PORT"), 0); !ok {
+		return nil, errors.New("WHIP_UDP_PORT must be a port number")
+	}
 	if b.MaxUsers, ok = positive(getenv("MUMBLE_MAX_USERS"), 100); !ok {
 		return nil, errors.New("MUMBLE_MAX_USERS must be a positive integer")
 	}
