@@ -172,8 +172,8 @@ one without per scenario, 20 s each (`DURATION`), takes about 40 s.
 Output, per run: one streamer row (encodes and pictures sent per second,
 Mbit/s, keyframes and the largest, the mean delta frame, the encoder's
 queue, frames captured but not encoded, sends while the socket held over
-1.5 MB), then per viewer (by port; 18112 is the proxy), from 3 s after
-the watch click on:
+1.5 MB, keyframe requests from the server), then per viewer (by port;
+18112 is the proxy), from 3 s after the watch click on:
 
 - start s: first drawn picture after the click;
 - got fps, arr p95/max: pictures that arrived, and gaps between them;

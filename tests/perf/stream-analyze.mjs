@@ -37,6 +37,7 @@ export const summarize = (r) => {
     maxQueue: Math.max(0, ...s.encodes.filter(inWindow).map((e) => e[1])),
     backedUp: pictures.filter((f) => f[4] > 1_500_000).length,
     skipped: s.captured - s.encodes.length, // captured, not encoded (whole run)
+    asked: s.texts.filter((x) => x[1] === "keyframe" && inWindow(x)).length, // by the server
   };
   const viewers = r.viewers.map((v) => {
     const got = v.got.filter((f) => !(f[1] & SOUND));
@@ -108,7 +109,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const { streamer: s, viewers } = summarize(r);
     const label = basename(file, ".json");
     console.log(
-      `${label} | streamer | encodes ${f1(s.encodes)}/s, sent ${f1(s.sentFps)} fps, ${s.mbits.toFixed(2)} Mbit/s, ${s.keys} keys (max ${f0(s.keyKB)} KB), delta ${f1(s.deltaKB)} KB, encode queue max ${s.maxQueue}, not encoded ${s.skipped}, sends with a full socket ${s.backedUp}`,
+      `${label} | streamer | encodes ${f1(s.encodes)}/s, sent ${f1(s.sentFps)} fps, ${s.mbits.toFixed(2)} Mbit/s, ${s.keys} keys (max ${f0(s.keyKB)} KB), delta ${f1(s.deltaKB)} KB, encode queue max ${s.maxQueue}, not encoded ${s.skipped}, sends with a full socket ${s.backedUp}, keyframe requests ${s.asked}`,
     );
     for (const v of viewers) {
       const via = new URL(v.url).port;
