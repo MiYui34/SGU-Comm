@@ -13,7 +13,15 @@
     worstFirst,
     type Connection,
   } from "../lib/connections";
-  import { formatList, MAX_NEW_MINUTES, minutesError, rulesFrom, type MessageRules } from "../lib/messageRules";
+  import {
+    formatList,
+    formatReplacements,
+    MAX_NEW_MINUTES,
+    minutesError,
+    parseReplacements,
+    rulesFrom,
+    type MessageRules,
+  } from "../lib/messageRules";
   import { describeRecording, type FinishedRecording } from "../lib/recording";
 
   // Server settings for moderators and admins: the ban list, the
@@ -124,17 +132,21 @@
   let rulesMinutes = $state("");
   let rulesWords = $state("");
   let rulesDomains = $state("");
+  let rulesReplacements = $state("");
   let rulesError = $state<string | null>(null);
+  const replacements = $derived(parseReplacements(rulesReplacements)); // errors shown as you type
   $effect(() => {
     if (!messageRules) return;
     rulesMinutes = String(messageRules.newMinutes);
     rulesWords = formatList(messageRules.words);
     rulesDomains = formatList(messageRules.domains);
+    rulesReplacements = formatReplacements(messageRules.replacements);
   });
   const saveRules = (e: SubmitEvent) => {
     e.preventDefault();
     rulesError = minutesError(rulesMinutes);
-    if (!rulesError) onSaveMessageRules?.(rulesFrom(rulesMinutes, rulesWords, rulesDomains));
+    if (!rulesError && replacements.errors.length === 0)
+      onSaveMessageRules?.(rulesFrom(rulesMinutes, rulesWords, rulesDomains, replacements.replacements));
   };
 
   // A new emoji: name and image; a message says what is wrong.
@@ -260,15 +272,27 @@
         </p>
         <label for="blocked-words">Blocked words and phrases, one per line</label>
         <textarea id="blocked-words" rows="5" bind:value={rulesWords}></textarea>
-        <p class="note">Whole words in any case; accents on Latin letters do not count. No patterns.</p>
+        <p class="note">
+          Whole words in any case. Accents, lookalike letters (Cyrillic а), spaced letters (s p a m) and a letter three times or
+          more (spaaam) do not get past it. No patterns.
+        </p>
         <label for="blocked-domains">Blocked link domains, one per line</label>
         <textarea id="blocked-domains" rows="4" bind:value={rulesDomains}></textarea>
         <p class="note">With their subdomains: example.com also blocks www.example.com.</p>
+        <label for="replacements">Word replacements, one phrase per line</label>
+        <textarea id="replacements" rows="4" bind:value={rulesReplacements} placeholder="nice ass => beautiful behind | lovely posterior"
+        ></textarea>
+        {#each replacements.errors as error (error)}<p class="error" role="alert">{error}</p>{/each}
+        <p class="note">
+          A message with the phrase is posted with one of its replacements, picked at random, for everyone (staff too). Matched as
+          blocked words, but not in code, links or mentions. Replacements are plain text: letters, digits, emoji, spaces and ' .
+          , ! ? -.
+        </p>
         {#if rulesError}<p class="error" role="alert">{rulesError}</p>{/if}
         <button type="submit">Save</button>
       </form>
       <p class="note">
-        Staff are exempt. The author of a refused message sees why (Mumble clients as "permission denied"); the server log notes
+        Staff are exempt from the limits and blocks. The author of a refused message sees why (Mumble clients as "permission denied"); the server log notes
         blocked words and domains.
       </p>
     {/if}

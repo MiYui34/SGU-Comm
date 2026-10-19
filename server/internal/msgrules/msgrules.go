@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
-	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -26,12 +25,22 @@ type Rules struct {
 	NewMinutes int      `json:"newMinutes"`
 	Words      []string `json:"words"`   // words and phrases
 	Domains    []string `json:"domains"` // with their subdomains
+	// Phrases posted as one of their replacements.
+	Replacements []Replacement `json:"replacements"`
+}
+
+// Replacement: a phrase (matched as blocked words) and what may replace it:
+// plain text, without what messages format, link or mention.
+type Replacement struct {
+	Phrase string   `json:"phrase"`
+	With   []string `json:"with"`
 }
 
 const (
 	MaxNewMinutes = 7 * 24 * 60
 	maxEntries    = 500
 	maxEntry      = 100 // characters
+	maxWith       = 20  // replacements of a phrase
 	// Limited authors send one message per Interval.
 	Interval = 5 * time.Second
 )
@@ -108,24 +117,60 @@ func Normalize(r Rules) (Rules, error) {
 	if r.NewMinutes < 0 || r.NewMinutes > MaxNewMinutes {
 		return Rules{}, fmt.Errorf("new accounts: 0 to %d minutes", MaxNewMinutes)
 	}
-	if len(r.Words) > maxEntries || len(r.Domains) > maxEntries {
-		return Rules{}, fmt.Errorf("at most %d words and %d domains", maxEntries, maxEntries)
+	if len(r.Words) > maxEntries || len(r.Domains) > maxEntries || len(r.Replacements) > maxEntries {
+		return Rules{}, fmt.Errorf("at most %d words, domains and replaced phrases", maxEntries)
 	}
-	out := Rules{NewMinutes: r.NewMinutes, Words: []string{}, Domains: []string{}}
+	out := Rules{NewMinutes: r.NewMinutes, Words: []string{}, Domains: []string{}, Replacements: []Replacement{}}
 	seen := map[string]bool{}
-	for _, w := range r.Words {
+	// phrase: an entry tidied, "" for none or a duplicate.
+	phrase := func(w, what string) (string, error) {
 		w = strings.Join(strings.Fields(w), " ")
-		key := fold(w)
+		k := what + "\x00" + key(w)
 		switch {
-		case w == "" || seen[key]:
-			continue
+		case w == "" || seen[k]:
+			return "", nil
 		case utf8.RuneCountInString(w) > maxEntry:
-			return Rules{}, fmt.Errorf("a blocked word has at most %d characters", maxEntry)
+			return "", fmt.Errorf("a %s has at most %d characters", what, maxEntry)
 		case !wordEntry.MatchString(w):
-			return Rules{}, fmt.Errorf("%q: use words of letters and digits (with ' - . _ between them)", w)
+			return "", fmt.Errorf("%q: use words of letters and digits (with ' - . _ between them)", w)
 		}
-		seen[key] = true
-		out.Words = append(out.Words, w)
+		seen[k] = true
+		return w, nil
+	}
+	for _, w := range r.Words {
+		w, err := phrase(w, "blocked word")
+		if err != nil {
+			return Rules{}, err
+		}
+		if w != "" {
+			out.Words = append(out.Words, w)
+		}
+	}
+	for _, p := range r.Replacements {
+		if strings.TrimSpace(p.Phrase) == "" {
+			return Rules{}, errors.New("a replacement needs a phrase")
+		}
+		w, err := phrase(p.Phrase, "replaced phrase")
+		if err != nil {
+			return Rules{}, err
+		} else if w == "" {
+			continue // twice
+		}
+		with := []string{}
+		for _, s := range p.With {
+			s = strings.Join(strings.Fields(s), " ")
+			switch {
+			case s == "" || slices.Contains(with, s):
+				continue
+			case utf8.RuneCountInString(s) > maxEntry || !plainText.MatchString(s):
+				return Rules{}, fmt.Errorf("%q: replacements are up to %d letters, digits, emoji, spaces and ' . , ! ? -", s, maxEntry)
+			}
+			with = append(with, s)
+		}
+		if len(with) == 0 || len(with) > maxWith {
+			return Rules{}, fmt.Errorf("%q: 1 to %d replacements", w, maxWith)
+		}
+		out.Replacements = append(out.Replacements, Replacement{w, with})
 	}
 	for _, d := range r.Domains {
 		if strings.TrimSpace(d) == "" {
@@ -141,7 +186,8 @@ func Normalize(r Rules) (Rules, error) {
 			out.Domains = append(out.Domains, show)
 		}
 	}
-	slices.SortFunc(out.Words, func(a, b string) int { return strings.Compare(fold(a), fold(b)) })
+	slices.SortFunc(out.Words, func(a, b string) int { return strings.Compare(key(a), key(b)) })
+	slices.SortFunc(out.Replacements, func(a, b Replacement) int { return strings.Compare(key(a.Phrase), key(b.Phrase)) })
 	slices.Sort(out.Domains)
 	return out, nil
 }
@@ -160,60 +206,61 @@ func clean(s string) string {
 	return strings.ReplaceAll(norm.NFKC.String(s), "。", ".")
 }
 
-// fold is text as words are compared: clean, case-folded, without the
-// accents of Latin, Greek and Cyrillic letters (other scripts' marks, as
-// Japanese dakuten, make other letters).
-func fold(s string) string {
-	var b strings.Builder
-	accented := false
-	for _, r := range norm.NFD.String(clean(s)) {
-		if unicode.Is(unicode.Mn, r) && accented {
-			continue
-		}
-		accented = unicode.In(r, unicode.Latin, unicode.Greek, unicode.Cyrillic)
-		b.WriteRune(r)
-	}
-	return norm.NFC.String(cases.Fold().String(b.String()))
-}
-
-// words splits folded text at everything but letters, digits and marks.
-func words(s string) []string {
-	return strings.FieldsFunc(s, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.Is(unicode.M, r)
-	})
-}
-
-// unspaced: scripts written without spaces between words, where a blocked
-// word matches anywhere.
-func unspaced(s string) bool {
-	return strings.ContainsFunc(s, func(r rune) bool {
-		return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai, unicode.Lao, unicode.Khmer, unicode.Myanmar)
-	})
-}
-
-// blockedWord: the text has a blocked word or phrase as whole words.
+// blockedWord: the text has a blocked word or phrase.
 func blockedWord(blocked []string, text string) bool {
-	if len(blocked) == 0 {
-		return false
+	return len(blocked) > 0 && len(find(entries(blocked, func(s string) string { return s }), text, false)) > 0
+}
+
+func entries[T any](list []T, phrase func(T) string) []entry {
+	out := make([]entry, len(list))
+	for i, x := range list {
+		out[i] = entryOf(phrase(x))
 	}
-	folded := fold(text)
-	have := words(folded)
-	for _, b := range blocked {
-		key := fold(b)
-		if unspaced(key) {
-			if strings.Contains(folded, strings.Join(words(key), "")) {
-				return true
-			}
+	return out
+}
+
+// Replace gives the text with the replaced phrases, each match with one of
+// its replacements (pick(n): a random number below n), in the case of the
+// match where simple: "Nice ass" → "Beautiful behind", "ASS" → "BEHIND".
+// Not in code, links, mentions, channel names and emoji names, and only
+// with separators (spaces . - _) between the words of a phrase: the
+// message's markup stays. For everyone, staff too.
+func Replace(r Rules, text string, pick func(int) int) string {
+	if len(r.Replacements) == 0 {
+		return text
+	}
+	keep := kept.FindAllStringIndex(text, -1)
+	var b strings.Builder
+	last := 0
+	for _, m := range find(entries(r.Replacements, func(p Replacement) string { return p.Phrase }), text, true) {
+		if slices.ContainsFunc(keep, func(k []int) bool { return m.start < k[1] && k[0] < m.end }) {
 			continue
 		}
-		want := words(key)
-		for i := 0; len(want) > 0 && i+len(want) <= len(have); i++ {
-			if slices.Equal(have[i:i+len(want)], want) {
-				return true
-			}
+		with := r.Replacements[m.entry].With
+		b.WriteString(text[last:m.start])
+		b.WriteString(sameCase(text[m.start:m.end], with[pick(len(with))]))
+		last = m.end
+	}
+	return b.String() + text[last:]
+}
+
+// sameCase: s in capitals if orig is (two letters or more), or with a
+// capital first letter if orig has one.
+func sameCase(orig, s string) string {
+	var letters []rune
+	for _, r := range orig {
+		if unicode.IsLetter(r) {
+			letters = append(letters, r)
 		}
 	}
-	return false
+	switch {
+	case len(letters) == 0 || !unicode.IsUpper(letters[0]):
+		return s
+	case len(letters) > 1 && !slices.ContainsFunc(letters, func(r rune) bool { return !unicode.IsUpper(r) }):
+		return strings.ToUpper(s)
+	}
+	first, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(first)) + s[n:]
 }
 
 const fillers = "\u0640\u115f\u1160\u3164\uffa0"
@@ -223,6 +270,12 @@ var (
 	// one of ' - . _ between them (other symbols would split a word, so
 	// "c++" would block every "c").
 	wordEntry = regexp.MustCompile(`^[\p{L}\p{N}\p{M}]+(?:(?: |['’._-])[\p{L}\p{N}\p{M}]+)*$`)
+	// Where nothing is replaced: code, links, mentions, channels, emoji.
+	kept = regexp.MustCompile("```[\\s\\S]*?```|`[^`\\n]+`|[a-zA-Z][a-zA-Z0-9+.-]*://\\S+|www\\.\\S+|[@#][\\p{L}\\p{N}_-]+|:[\\p{L}\\p{N}_-]+:")
+	// Replacements (as PLAIN in apps/web src/lib/messageRules.ts): words of letters, digits, marks and emoji with spaces
+	// and ' . , ! ? - between them. Nothing that formats (* _ ~ ` | >),
+	// links (:/), mentions (@ #) or is HTML.
+	plainText = regexp.MustCompile(`^[\p{L}\p{N}\p{M}\p{So}\x{1F3FB}-\x{1F3FF}\x{200D}\x{FE0F}]+(?:[ '’.,!?-]+[\p{L}\p{N}\p{M}\p{So}\x{1F3FB}-\x{1F3FF}\x{200D}\x{FE0F}]+)*[.,!?]*$`)
 	// Percent-encoded bytes (browsers decode them in hosts).
 	percent = regexp.MustCompile(`%[0-9a-fA-F]{2}`)
 	// Hosts in text: labels with dots between them.

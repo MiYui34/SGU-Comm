@@ -5,10 +5,12 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
@@ -52,7 +54,8 @@ func TestMessageRulesAreForAdmins(t *testing.T) {
 	if _, err := s.SetMessageRules(su.session, msgrules.Rules{Domains: []string{"no domain"}}); err == nil {
 		t.Fatal("saved a bad domain")
 	}
-	got, err := s.SetMessageRules(su.session, msgrules.Rules{NewMinutes: 10, Words: []string{" Spam "}, Domains: []string{"https://Junk.example/"}})
+	got, err := s.SetMessageRules(su.session, msgrules.Rules{NewMinutes: 10, Words: []string{" Spam "}, Domains: []string{"https://Junk.example/"},
+		Replacements: []msgrules.Replacement{{Phrase: "nice ass", With: []string{"nice behind"}}}})
 	if err != nil || got.NewMinutes != 10 || !slices.Equal(got.Words, []string{"Spam"}) || !slices.Equal(got.Domains, []string{"junk.example"}) {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -61,7 +64,7 @@ func TestMessageRulesAreForAdmins(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	if r := restarted.rules; r.NewMinutes != 10 || !slices.Equal(r.Words, []string{"Spam"}) {
+	if r := restarted.rules; r.NewMinutes != 10 || !slices.Equal(r.Words, []string{"Spam"}) || len(r.Replacements) != 1 || r.Replacements[0].With[0] != "nice behind" {
 		t.Fatalf("not saved: %+v", r)
 	}
 }
@@ -110,10 +113,10 @@ func TestMessageRules(t *testing.T) {
 	refused(gina, "hello again", "one message every 5 seconds")
 	passes(alice, "spam https://junk.example") // a moderator
 	passes(alice, "and again")
-	if err := s.CheckMessage(bob.session, msgrules.Message{Upload: true}); err == nil {
+	if _, err := s.CheckMessage(bob.session, msgrules.Message{Upload: true}); err == nil {
 		t.Fatal("a new account may upload")
 	}
-	if err := s.CheckMessage(alice.session, msgrules.Message{Upload: true, Text: "spam"}); err != nil {
+	if _, err := s.CheckMessage(alice.session, msgrules.Message{Upload: true, Text: "spam"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,4 +126,45 @@ func TestMessageRules(t *testing.T) {
 	passes(bob, "and again")
 	refused(carol, `<b>junk</b>.example`, "blocked site") // the plain text counts
 	refused(guest, "https://ok.example", "Guests cannot post links")
+}
+
+func TestWordReplacements(t *testing.T) {
+	db := testDB(t)
+	setAdminPassword(db, "admin")
+	var mu sync.Mutex
+	var heard []string
+	cfg := Config{DB: db, OnChannelText: func(t ChannelText) { mu.Lock(); heard = append(heard, t.Text); mu.Unlock() }}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, func(s *Server) { s.pick = func(n int) int { return n - 1 } })
+	su := superUser(t, addr)
+	alice, _ := registered(t, addr, "alice")
+	if _, err := s.SetMessageRules(su.session, msgrules.Rules{Replacements: []msgrules.Replacement{{Phrase: "nice ass", With: []string{"beautiful behind", "lovely posterior"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	// Mumble clients get the replaced text as HTML, the web as plain text;
+	// staff too.
+	for _, c := range []struct {
+		from, to   *testClient
+		text, want string
+	}{
+		{alice, su, "<b>Nice</b> a.s.s &amp; more", "Lovely posterior &amp; more"},
+		{su, alice, "nice ass", "lovely posterior"},
+	} {
+		c.from.say(0, c.text)
+		var m pb.TextMessage
+		proto.Unmarshal(c.to.expect(mumble.TypeTextMessage), &m)
+		if m.GetMessage() != c.want {
+			t.Fatalf("%q: %q, want %q", c.text, m.GetMessage(), c.want)
+		}
+	}
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(heard) == 2 })
+	if heard[0] != "Lovely posterior & more" {
+		t.Fatalf("hook got %q", heard)
+	}
+	// Web messages: CheckMessage gives the text to post.
+	if text, err := s.CheckMessage(alice.session, msgrules.Message{Text: "**nice ass**"}); err != nil || text != "**lovely posterior**" {
+		t.Fatalf("%q %v", text, err)
+	}
+	// Too long after the replacement: refused.
+	alice.say(0, strings.Repeat("x", maxTextLength-9)+" nice ass")
+	alice.expectDenied(pb.PermissionDenied_TextTooLong)
 }

@@ -11,7 +11,8 @@ import (
 // Message rules (Kallisti, not Mumble): blocked words and link domains,
 // and limits for new accounts and guests (see msgrules), saved and changed
 // by admins. They apply to Mumble clients' texts here and to web clients'
-// messages through CheckMessage. Staff are exempt.
+// messages through CheckMessage. Staff are exempt, but not from word
+// replacements (for fun, not moderation).
 
 // MessageRules are the rules (admins only: the lists are for them).
 func (s *Server) MessageRules(actor uint32) (msgrules.Rules, error) {
@@ -49,19 +50,21 @@ func (s *Server) SetMessageRules(actor uint32, r msgrules.Rules) (msgrules.Rules
 	return r, nil
 }
 
-// CheckMessage: why the rules refuse a message of a session (nil: they do
-// not). An accepted new message of a limited user starts its wait.
-func (s *Server) CheckMessage(session uint32, m msgrules.Message) error {
+// CheckMessage gives the text to post, with the word replacements, or why
+// the rules refuse a message of a session. An accepted new message of a
+// limited user starts its wait.
+func (s *Server) CheckMessage(session uint32, m msgrules.Message) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u := s.state.Users[session]
 	if u == nil {
-		return errors.New("not connected")
+		return "", errors.New("not connected")
 	}
 	return s.checkMessageLocked(u, m)
 }
 
-func (s *Server) checkMessageLocked(u *User, m msgrules.Message) error {
+func (s *Server) checkMessageLocked(u *User, m msgrules.Message) (string, error) {
+	m.Text = msgrules.Replace(s.rules, m.Text, s.pick)
 	now, key := s.now(), timeoutKeyOf(u)
 	a := msgrules.Author{Staff: s.state.isStaff(u), Guest: !u.Registered || u.GuestAccount, Since: u.Since}
 	err := msgrules.Check(s.rules, a, m, now, s.lastPost[key])
@@ -77,7 +80,7 @@ func (s *Server) checkMessageLocked(u *User, m msgrules.Message) error {
 		}
 		s.lastPost[key] = now
 	}
-	return err
+	return m.Text, err
 }
 
 // mumbleMessage is a Mumble client's text for the rules: the plain text

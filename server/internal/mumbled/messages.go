@@ -597,13 +597,6 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 	if (text == "" && len(images) == 0) || len(text) > maxTextLength {
 		return
 	}
-	out := lineBreaks(text)
-	if len(images) > 0 {
-		if out != "" {
-			out += "<br>"
-		}
-		out += imagesHTML(images)
-	}
 	if err := s.checkText(c.session, m.ChannelId); err != nil {
 		c.deny(err)
 		return
@@ -625,9 +618,23 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		c.deny(timedOutText("you are", until))
 		return
 	}
-	if err := s.checkMessageLocked(actor, mumbleMessage(text, len(images) > 0)); err != nil {
+	plain, err := s.checkMessageLocked(actor, mumbleMessage(text, len(images) > 0))
+	if err != nil {
 		c.deny(deny(pb.PermissionDenied_Text, "%s", err))
 		return
+	}
+	if plain != html.UnescapeString(text) { // word replacements
+		if text = html.EscapeString(plain); len(text) > maxTextLength {
+			c.deny(deny(pb.PermissionDenied_TextTooLong, "too long with the word replacements"))
+			return
+		}
+	}
+	out := lineBreaks(text)
+	if len(images) > 0 {
+		if out != "" {
+			out += "<br>"
+		}
+		out += imagesHTML(images)
 	}
 	// TextMessage in every target channel, tree and user's channel, or
 	// nothing is sent (as Murmur). Inside a tree, channels without it are

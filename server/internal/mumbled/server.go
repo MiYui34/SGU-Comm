@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"sync"
@@ -180,6 +181,7 @@ type Server struct {
 	rules    msgrules.Rules
 	lastPost map[timeoutKey]time.Time
 	now      func() time.Time
+	pick     func(n int) int // a random number below n: word replacements
 	// Running recordings by channel (see recording.go). Under mu.
 	// recordingEnds: those of removed channels, ending.
 	recordings    map[uint32]*recording.Recording
@@ -272,6 +274,7 @@ func New(cfg Config) (*Server, error) {
 		rules:    rules,
 		lastPost: map[timeoutKey]time.Time{},
 		now:      time.Now,
+		pick:     rand.IntN,
 	}
 	srv.bans.Store(&bans)
 	if err := srv.loadTimeouts(); err != nil {
