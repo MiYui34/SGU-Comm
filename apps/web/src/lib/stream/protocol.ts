@@ -68,35 +68,3 @@ export const cannotPlay = (codec: string) =>
   codec.startsWith("avc1")
     ? "This browser cannot play H.264 video (streams from OBS are H.264). Try another browser, for example Chrome, Edge or Firefox."
     : "This browser cannot play this stream.";
-
-// Picture and sound in sync: stream timestamps (microseconds) on the audio
-// context's clock (seconds). The first sound sets the offset, played lead
-// seconds ahead (a small buffer); pictures show when the clock reaches
-// theirs. Sound that is too late is dropped; after a few late ones in a row
-// (a delay that stays) or far ahead (clocks drifted), it starts over.
-const LATE_IN_A_ROW = 5;
-const FAR_AHEAD = 1; // seconds beyond the lead
-
-export const createAvClock = (lead: number) => {
-  let offset: number | null = null;
-  let late = 0;
-  return {
-    // When to play sound with this timestamp (null: drop it).
-    at: (timestamp: number, now: number): number | null => {
-      const t = timestamp / 1e6;
-      if (offset === null || late >= LATE_IN_A_ROW || t + offset < now - 1 || t + offset > now + lead + FAR_AHEAD) {
-        offset = now + lead - t;
-        late = 0;
-      }
-      const when = t + offset;
-      if (when < now) {
-        late++;
-        return null;
-      }
-      late = 0;
-      return when;
-    },
-    // When a picture with this timestamp is due (null: no sound yet).
-    time: (timestamp: number): number | null => (offset === null ? null : timestamp / 1e6 + offset),
-  };
-};

@@ -73,45 +73,11 @@ describe("stream previews in the text state", () => {
   });
 });
 
-import { createAvClock } from "../src/lib/stream/protocol";
-
 describe("sound frames", () => {
   it("carry flag bit 1", () => {
     const up = encodeFrame(false, 20_000, new Uint8Array([9]), true);
     expect(up[0]).toBe(2);
     expect(decodeFrame(new Uint8Array([0, 0, 0, 1, ...up]).buffer)?.sound).toBe(true);
-  });
-});
-
-describe("createAvClock", () => {
-  it("plays sound a little ahead and places pictures on the same clock", () => {
-    const clock = createAvClock(0.15);
-    expect(clock.at(1_000_000, 10)).toBeCloseTo(10.15); // the first sound sets the clock
-    expect(clock.at(1_020_000, 10.01)).toBeCloseTo(10.17);
-    expect(clock.at(1_000_000, 10.2)).toBeNull(); // too late: dropped
-  });
-  it("starts over when it fell far behind", () => {
-    const clock = createAvClock(0.15);
-    clock.at(0, 0);
-    expect(clock.at(1_000_000, 5)).toBeCloseTo(5.15);
-  });
-  it("knows nothing before the first sound", () => {
-    expect(createAvClock(0.15).time(1_000_000)).toBeNull();
-  });
-});
-
-describe("createAvClock recovery", () => {
-  it("starts over after a few late sounds in a row (a delay that stays)", () => {
-    const clock = createAvClock(0.15);
-    clock.at(0, 0);
-    let last: number | null = null;
-    for (let i = 1; i <= 6; i++) last = clock.at(i * 20_000, 0.5 + i * 0.02); // each 0.3 s late
-    expect(last).not.toBeNull();
-  });
-  it("starts over when sound would play far ahead", () => {
-    const clock = createAvClock(0.15);
-    clock.at(5_000_000, 10);
-    expect(clock.at(5_020_000, 7)).toBeCloseTo(7.15); // the viewer's clock jumped back
   });
 });
 
