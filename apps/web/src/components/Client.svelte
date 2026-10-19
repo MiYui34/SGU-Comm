@@ -1012,7 +1012,13 @@
     return true;
   };
   const places = $derived.by((): SwitcherPlace[] => {
-    const withChat = new Set(directList.map((d) => d.peer.id)); // closed chats: as users
+    // Closed chats too (after the listed ones): opening one shows it again.
+    const listed = new Set(directList.map((d) => d.channel));
+    const closed = Object.entries(text.directs)
+      .filter(([id]) => !listed.has(Number(id)))
+      .map(([id, peer]) => ({ channel: Number(id), peer }));
+    const directs = [...directList, ...closed];
+    const withChat = new Set(directs.map((d) => d.peer.id));
     const mirrors = mirrorIds(server, text.channels); // hidden, as in the sidebar
     return [
       ...text.channels.map((c) => ({
@@ -1023,7 +1029,7 @@
         locked: c.mumble !== undefined && c.mumble in text.private,
         run: () => show({ kind: "text", id: c.id }),
       })),
-      ...directList.map((d) => ({
+      ...directs.map((d) => ({
         key: `d${d.channel}`,
         name: d.peer.name,
         kind: "dm" as const,
