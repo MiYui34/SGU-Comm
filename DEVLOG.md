@@ -1176,3 +1176,50 @@ From `meta/research/discord-comparison.md`.
   same calls, so the cause is not in our code. Tests in agent-browser
   must stub all three (getUserMedia, enumerateDevices and
   mediaDevices.addEventListener); then Settings open.
+
+## Word replacements (2026-10-19)
+
+- Part of the message rules (`Rules.Replacements`, the same JSON
+  setting and admin tab). `msgrules.Replace` runs before `Check` in
+  `checkMessageLocked`, so `CheckMessage` now gives the text to post. The
+  sidecar puts it into the request (send, edit, upload caption); the
+  server stores it, so the author sees what everyone sees. Mumble texts:
+  unescape, replace, escape again; the web hooks get the replaced text.
+- For everyone, staff too: it is for fun, not moderation. Blocks and
+  limits stay staff-exempt. A replacement can contain a blocked word;
+  then the message is refused (the admin's choice).
+- One match: one replacement at random (`math/rand/v2`; tests inject
+  `pick`). Case: all capitals (two letters or more) give capitals, a
+  capital first letter gives one; else the replacement as written.
+- Too long after the replacement: refused, not cut (the web composer
+  gets its text back; Mumble: TextTooLong). Cutting would lose the end
+  without a word.
+- No injection: replacements may only have letters, digits, marks,
+  emoji (So, skin tones, ZWJ, VS16), spaces and ' . , ! ? - (checked on
+  the server and in the tab). Nothing that formats (* _ ~ ` | >), links
+  (: /), mentions (@ #) or is HTML. The message format has no escapes,
+  so a check is simpler than escaping. Nothing is replaced in code,
+  links, @mentions, #channels and :emoji: names, and a phrase matches
+  only with separators (spaces . - _) between its words, so "**nice**
+  ass" keeps its markup ("**nice** behind" with an entry for "ass").
+- Matching (also for blocked words, which gain all of this): each
+  character with its combining marks is folded on its own (NFKC, marks
+  off Latin, Greek and Cyrillic letters and off what is no letter or
+  digit, case folding, lookalikes), with a byte map back to the
+  original, so matches replace the original text. Lookalikes: a small
+  table of lower-case letters, applied after case folding so both cases
+  match (Cyrillic а е о р с у х and в н к м т as small capitals, Greek
+  α ο ν ρ and others, Latin small capitals, dotless i); full-width and
+  mathematical letters come from NFKC. Greek Μ and Ζ stay (their small
+  letters look like nothing Latin).
+  Single letters with only spaces, dots, dashes or underscores between
+  them are one word ("a s s", "a.s.s"); a single letter next to a longer
+  word stays a word ("a spam"). A letter three times or more also
+  matches fewer of it ("asss", "spaaam"); twice does not ("too" is not
+  "to", "good" is not "god"). Whole words only: "class", "assistant",
+  "passage", "bass" stay.
+- Left: Russian or Greek words that fold to a Latin entry match ("сор"
+  is "cop"); ß folds to ss ("aß" is "ass", as before); joined letters can
+  make a word of initials ("A. S. S."); Hangul as separate jamo and
+  half-width kana with separate marks do not match; the rules' entries
+  are folded again for each message (fast enough for 500).
