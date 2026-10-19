@@ -29,5 +29,10 @@ serde_json = "1"
 aes = "0.8"
 webpki-roots = "1"
 
+# Linux: the WebView's media settings and permission requests (see
+# media.rs). The version wry uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "=2.0.2"
+
 [dev-dependencies]
 rcgen = "0.14"

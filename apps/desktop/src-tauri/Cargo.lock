@@ -1803,6 +1803,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "url",
+ "webkit2gtk",
  "webpki-roots",
 ]
 
