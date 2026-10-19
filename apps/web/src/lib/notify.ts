@@ -77,15 +77,31 @@ const noNotifier: Notifier = { permission: () => "unsupported", request: async (
 
 type Action = { actionId: string; notification?: { id?: unknown } | null };
 
-// The plugin reports a click on a notification as "tap", with its id.
+// A click on a notification is reported as "tap", with its id.
 export const tappedId = (e: Action) =>
   e.actionId === "tap" && typeof e.notification?.id === "number" ? e.notification.id : null;
 
 type NativeApi = {
   isPermissionGranted: () => Promise<boolean>;
   requestPermission: () => Promise<string>;
-  sendNotification: (options: { id: number; title: string; body: string }) => void;
+  sendNotification: (options: { id: number; title: string; body: string }) => unknown;
   onAction: (cb: (e: Action) => void) => Promise<unknown>;
+};
+
+// The app sends notifications itself (on Linux over D-Bus, with its icon
+// file and a labelled click action) and reports clicks like the plugin.
+const desktopApi = async (): Promise<NativeApi> => {
+  const [plugin, { invoke }, { listen }] = await Promise.all([
+    import("@tauri-apps/plugin-notification"),
+    import("@tauri-apps/api/core"),
+    import("@tauri-apps/api/event"),
+  ]);
+  return {
+    isPermissionGranted: plugin.isPermissionGranted,
+    requestPermission: plugin.requestPermission,
+    sendNotification: (options) => invoke("notify", options),
+    onAction: (cb) => listen<Action>("notification-action", (e) => cb(e.payload)),
+  };
 };
 
 const KEEP_CLICKS = 50;
@@ -93,9 +109,7 @@ const KEEP_CLICKS = 50;
 // The app (Rust) brings its window forward on a click; this runs the
 // notification's onClick. Clicks are only reported for notifications sent
 // after the listener is in place.
-export const nativeNotifier = (
-  load: () => Promise<NativeApi> = () => import("@tauri-apps/plugin-notification"),
-): Notifier => {
+export const nativeNotifier = (load: () => Promise<NativeApi> = desktopApi): Notifier => {
   let permission: Permission = "default";
   // Random: notifications from before a reload may still report clicks.
   let nextId = Math.floor(Math.random() * 2 ** 30);
