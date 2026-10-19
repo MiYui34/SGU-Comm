@@ -86,8 +86,12 @@ func (in *Ingest) Configure(c Config) error {
 }
 
 // Frame forwards an encoded picture (timestamp in microseconds, on the
-// sound's clock).
+// sound's clock). One too large to forward counts as lost.
 func (in *Ingest) Frame(key bool, timestamp uint64, data []byte) {
+	if headerSize+len(data) > maxFrame {
+		in.Dropped()
+		return
+	}
 	flags := byte(0)
 	if key {
 		flags = keyFlag

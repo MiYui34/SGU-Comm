@@ -72,6 +72,12 @@ func TestIngestFramesAndKeyframes(t *testing.T) {
 	if len(sinks[2].frames) != 2 {
 		t.Fatal("a frame after a loss reached the viewer")
 	}
+	in.Frame(true, 50, []byte{1})
+	in.Frame(true, 60, make([]byte, maxFrame)) // too large: dropped, as a loss
+	in.Frame(false, 70, []byte{9})
+	if len(sinks[2].frames) != 3 {
+		t.Fatalf("%d frames: a too large one or a frame after it reached the viewer", len(sinks[2].frames))
+	}
 }
 
 func TestIngestSound(t *testing.T) {
