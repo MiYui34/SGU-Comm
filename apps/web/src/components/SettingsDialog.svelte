@@ -4,7 +4,7 @@
   import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notificationPermission } from "../lib/notify";
   import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush, type PushPrefs } from "../lib/push";
-  import type { AccountActions, StreamKey } from "../lib/accounts";
+  import type { AccountActions } from "../lib/accounts";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
@@ -122,35 +122,6 @@
       passwordNote = err instanceof Error ? err.message : String(err);
     }
   };
-
-  // Streaming from OBS: shown where the server has it, for accounts with a
-  // password. A new key is shown once (the server keeps only its hash).
-  let obs = $state<StreamKey | null>(null);
-  let newKey = $state<string | null>(null);
-  let obsNote = $state<string | null>(null);
-  let copied = $state<string | null>(null);
-  $effect(() => {
-    if (account && !account.temporary) void account.streamKey().then((k) => (obs = k));
-  });
-  const makeKey = async () => {
-    try {
-      newKey = (await account?.newStreamKey()) ?? null;
-      obs = { enabled: true, exists: true };
-      obsNote = null;
-    } catch (err) {
-      obsNote = err instanceof Error ? err.message : String(err);
-    }
-  };
-  const removeKey = async () => {
-    try {
-      await account?.removeStreamKey();
-      obs = { enabled: true, exists: false };
-      newKey = null;
-    } catch (err) {
-      obsNote = err instanceof Error ? err.message : String(err);
-    }
-  };
-  const copy = (text: string) => void navigator.clipboard?.writeText(text).then(() => (copied = text));
 
   const recordKey = (event: KeyboardEvent) => {
     if (!recordingKey) return;
@@ -451,34 +422,6 @@
         <button type="submit" class="secondary">{account.temporary ? "Set password" : "Change password"}</button>
       </div>
     </form>
-    {#if obs?.enabled}
-      <div class="account">
-        <span class="label">Stream from OBS</span>
-        <p class="hint">
-          OBS 30 or newer can stream into your voice channel: it shows like a screen share. Be connected here and in a
-          voice channel where you may speak. In OBS, Settings → Stream: Service "WHIP", Server
-          <code>{account.whipUrl}</code>
-          <button type="button" class="link" onclick={() => copy(account.whipUrl)}>{copied === account.whipUrl ? "Copied" : "Copy"}</button>,
-          Bearer Token: your stream key.
-        </p>
-        <p class="hint">
-          Settings → Output: H.264 video, keyframe interval 1 or 2 s, profile baseline or main, no B-frames (B-frames make
-          the picture jump: we forward the video as it is), 1080p and 8 Mbit/s at most.
-        </p>
-        {#if newKey}
-          <p class="hint key">
-            Your stream key (shown only now): <code>{newKey}</code>
-            <button type="button" class="link" onclick={() => copy(newKey!)}>{copied === newKey ? "Copied" : "Copy"}</button>
-          </p>
-        {/if}
-        {#if obsNote}<p class="hint warn" role="status">{obsNote}</p>{/if}
-        <div class="buttons">
-          <button type="button" class="secondary" onclick={makeKey}>{obs.exists ? "Make a new key" : "Make a stream key"}</button>
-          {#if obs.exists}<button type="button" class="logout" onclick={removeKey}>Remove the key</button>{/if}
-        </div>
-        {#if obs.exists}<p class="hint">A new key, removing it, a new password or "log out everywhere" stop the old key (and a stream that uses it).</p>{/if}
-      </div>
-    {/if}
     <div class="account">
       <span class="label">Log out</span>
       {#if account.temporary}
@@ -655,16 +598,6 @@
   }
   .logout:hover {
     background: var(--bg-hover);
-  }
-  .account code {
-    word-break: break-all;
-    user-select: all;
-  }
-  .link {
-    padding: 0;
-    background: none;
-    color: var(--link);
-    font-size: inherit;
   }
   .bio {
     padding-bottom: 16px;
