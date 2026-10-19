@@ -1176,3 +1176,15 @@ From `meta/research/discord-comparison.md`.
   same calls, so the cause is not in our code. Tests in agent-browser
   must stub all three (getUserMedia, enumerateDevices and
   mediaDevices.addEventListener); then Settings open.
+
+## Who reads a private channel (2026-10-19)
+
+- No new event: the "private" list (sent again on every access, member
+  and role change) now has the members also for the channel's members.
+  Others who see the channel (by an ACL from a Mumble client) still get
+  it without members; the client then shows the normal list, as it
+  cannot tell "no members" from "not told".
+- Staff come from the roles list, which everyone already gets. Each user
+  shows once: a staff member who is also a member is under Staff.
+- Groups keep online users first, offline ones faded below, instead of
+  four headings (Members online/offline, Staff online/offline).
