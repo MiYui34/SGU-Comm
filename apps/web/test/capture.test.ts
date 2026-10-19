@@ -21,7 +21,7 @@ const setup = () => {
   vi.stubGlobal("AudioEncoder", vi.fn(function () {
     return { configure: vi.fn(), close: vi.fn(), state: "configured" };
   }));
-  const addModule = vi.fn();
+  const addModule = vi.fn(async (_url: URL) => {});
   const ctx = {
     audioWorklet: { addModule },
     destination: {},
