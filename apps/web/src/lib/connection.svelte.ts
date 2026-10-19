@@ -60,6 +60,7 @@ import { createCapture } from "./voice/capture.svelte";
 import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 import { createConnectionInfo } from "./connectionInfo.svelte";
+import { exposePlayback } from "./perfHook";
 import { transportOf } from "./connectionQuality";
 import { recordingUrl } from "./recording";
 
@@ -163,7 +164,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   const playback = audio && createPlayback(audio);
   // The UI starts capture, with the device from the settings.
   const capture = audio && createCapture(audio, sendAudio);
-  const info = createConnectionInfo(transportOf(url), () => playback?.stats() ?? { good: 0, late: 0, lost: 0 });
+  const playbackStats = () => playback?.stats() ?? { good: 0, late: 0, lost: 0 };
+  const info = createConnectionInfo(transportOf(url), playbackStats);
+  exposePlayback(playbackStats);
   // Not in yet: only to stay connected. During the handshake the answer
   // waits for the login, and the ping would look slow.
   const sendPing = () => {
