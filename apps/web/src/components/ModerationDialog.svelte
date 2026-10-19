@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import type { CaptchaLevel } from "../lib/captcha";
   import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
+  import EmojiImage from "./EmojiImage.svelte";
   import {
     connectionLevel,
     formatOnline,
@@ -119,14 +120,17 @@
   let adding = $state(false);
   let confirmingEmoji = $state<string | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
+  let emojiImage: EmojiImage | undefined = $state();
   const addEmoji = async (e: SubmitEvent) => {
     e.preventDefault();
     const name = emojiName.trim();
-    emojiError = emojiFormError(name, emojiFile, emoji);
-    if (emojiError || !emojiFile) return;
     adding = true;
     try {
-      await onAddEmoji(name, emojiFile);
+      // Checked as uploaded: still images are scaled down first.
+      const file = (await emojiImage?.output()) ?? emojiFile;
+      emojiError = emojiFormError(name, file, emoji);
+      if (emojiError || !file) return;
+      await onAddEmoji(name, file);
       emojiName = "";
       emojiFile = null;
       if (fileInput) fileInput.value = "";
@@ -300,7 +304,8 @@
       <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" oninput={() => (emojiError = null)} />
       <button type="submit" disabled={adding}>{adding ? "Adding…" : "Add"}</button>
     </form>
-    <p class="note">PNG, GIF, WebP or JPEG, at most 256 KB. Names: 2 to 32 lower case letters, digits or _.</p>
+    <p class="note">PNG, GIF, WebP or JPEG; still images are scaled to fit 96×96 px. Names: 2 to 32 lower case letters, digits or _.</p>
+    <EmojiImage bind:this={emojiImage} file={emojiFile} name={emojiName.trim()} />
     {#if emojiError}<p class="error" role="alert">{emojiError}</p>{/if}
     {#if emoji.length === 0}
       <p class="note">This server has no custom emoji yet.</p>
