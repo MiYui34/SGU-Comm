@@ -152,7 +152,7 @@ func run() error {
 			mumble.recordings.Clean()
 		}
 		if cfg.Builtin.Password == "" { // a private server keeps them private
-			avatars = mumble.db.Avatars()
+			avatars, hub.Avatars = mumble.srv.Avatars(), true
 		}
 	}
 	b := bridge.New(bridge.Options{

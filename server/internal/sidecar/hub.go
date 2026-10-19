@@ -219,6 +219,9 @@ type Hub struct {
 	UploadMax int64
 	// OnUploadDeleted removes the file of a deleted message's attachment.
 	OnUploadDeleted func(key string)
+	// Avatars: online users' pictures are at /api/avatars/<name> too, so
+	// clients need not fetch them on the voice connection.
+	Avatars bool
 	// Previews makes link previews (nil: none).
 	Previews Previewer
 	// Screen shares (built-in server): a token for the stream connection,
@@ -362,6 +365,9 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	}
 	if becomesReady {
 		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
+		if c.hub.Avatars {
+			ready["avatars"] = true
+		}
 		if c.hub.voice != nil {
 			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
 			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
