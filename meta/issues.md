@@ -17,3 +17,4 @@
 - [ ] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
+- [ ] [Audio is rough for seconds after opening the app](issues/join-audio-warmup.md)
