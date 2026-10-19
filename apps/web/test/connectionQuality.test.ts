@@ -4,6 +4,7 @@ import {
   biggerBuffer,
   connectionLabel,
   latePercent,
+  speechLatePercent,
   meanVariance,
   qualityLevel,
   recent,
@@ -96,5 +97,12 @@ describe("transportOf", () => {
 
   it("is a WebSocket otherwise", () => {
     expect(transportOf("wss://kallisti.example/ws")).toBe("WebSocket");
+  });
+});
+
+describe("speechLatePercent", () => {
+  it("leaves out late audio of music speakers (the music buffer covers them)", () => {
+    expect(speechLatePercent({ good: 100, late: 0, lost: 0, musicLate: 0 }, { good: 190, late: 6, lost: 4, musicLate: 5 })).toBe(1);
+    expect(speechLatePercent({ good: 0, late: 0, lost: 0 }, { good: 98, late: 2, lost: 0 })).toBe(2);
   });
 });

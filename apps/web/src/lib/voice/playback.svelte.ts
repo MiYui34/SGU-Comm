@@ -20,6 +20,7 @@ type Speaker = {
   // The playout timing of the current stream (see playoutFor).
   cfg: PlayoutConfig;
   music: MusicDetector;
+  musicStream: boolean; // the current stream has the music buffer
   // Where the stream goes on (µs, null: a new talk spurt), and for each
   // chunk in the decoder (outputs come in order) its frame time and whether
   // it ends a spurt (see chunkOutcome). Not the output's timestamp: a
@@ -53,14 +54,17 @@ export const createPlayback = (ctx: AudioContext) => {
     const now = ctx.currentTime * SAMPLE_RATE;
     // A changed buffer (setting, music) applies from the next start: never
     // cut a stream.
-    if (startsAnew(speaker.end, now))
-      speaker.cfg = playoutFor(delaySetting, speaker.music.music || listenOnly.has(speaker.session));
+    if (startsAnew(speaker.end, now)) {
+      speaker.musicStream = speaker.music.music || listenOnly.has(speaker.session);
+      speaker.cfg = playoutFor(delaySetting, speaker.musicStream);
+    }
     const start = nextStart(speaker.end, now, speaker.cfg);
     const frames = planes[0]?.length ?? 0;
     const duration = (frames / SAMPLE_RATE) * 1e6;
     const chunk = speaker.queued.shift() ?? { at: timestamp, end: false };
     const { late, lost } = chunkOutcome({ expected: speaker.next, timestamp: chunk.at, duration, start, prevEnd: speaker.end, now });
     counters[late ? "late" : "good"]++;
+    if (late && speaker.musicStream) counters.musicLate = (counters.musicLate ?? 0) + 1;
     counters.lost += lost;
     speaker.next = chunk.end ? null : chunk.at + duration;
     if (start === null || !frames) return;
@@ -97,6 +101,7 @@ export const createPlayback = (ctx: AudioContext) => {
       end: null,
       cfg: playoutFor(delaySetting, false),
       music: createMusicDetector(),
+      musicStream: false,
       next: null,
       queued: [],
       // Two channels: stereo packets keep their image, mono ones come out

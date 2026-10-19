@@ -19,7 +19,7 @@
   // Much late audio: offer the next playback buffer. After a change the
   // old late audio stays in the window: no second offer until it is out
   // (checked with each ping, when `info` changes).
-  const next = $derived(biggerBuffer(info.late, settings.value.playbackBuffer));
+  const next = $derived(biggerBuffer(info.speechLate, settings.value.playbackBuffer));
   let changed = $state<{ buffer: PlaybackBuffer; at: number } | null>(null);
   const justChanged = $derived.by(() => {
     void info;

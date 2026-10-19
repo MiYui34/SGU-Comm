@@ -57,10 +57,10 @@ describe("trackMusic", () => {
     expect(feed(createMusicDetector(), MONO, VOICE_BYTES, 20)).toBe(false);
   });
 
-  it("takes stereo for music after 3 s", () => {
+  it("takes stereo for music at once (speech is mono)", () => {
     const d = createMusicDetector();
-    expect(feed(d, STEREO, VOICE_BYTES, 2)).toBe(false);
-    expect(feed(d, STEREO, VOICE_BYTES, 1)).toBe(true);
+    trackMusic(d, packet(STEREO, VOICE_BYTES));
+    expect(d.music).toBe(true);
   });
 
   it("takes a high bitrate for music", () => {
@@ -76,8 +76,8 @@ describe("trackMusic", () => {
 
   it("needs the seconds in a row, so it does not flap", () => {
     const d = createMusicDetector();
-    feed(d, STEREO, VOICE_BYTES, 2);
+    feed(d, MONO, MUSIC_BYTES, 2);
     feed(d, MONO, VOICE_BYTES, 1);
-    expect(feed(d, STEREO, VOICE_BYTES, 2)).toBe(false);
+    expect(feed(d, MONO, MUSIC_BYTES, 2)).toBe(false);
   });
 });

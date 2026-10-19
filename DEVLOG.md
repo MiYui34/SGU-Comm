@@ -1019,3 +1019,13 @@ From `meta/research/discord-comparison.md`.
   only for a paste with neither files nor text (an empty clipboard, for
   example). WebView2 may then ask for clipboard access, WKWebView may show its
   "Paste" callout (not tested).
+
+## Music buffer from the first packet (2026-10-19)
+
+- A user heard ~5 s of rough audio in the jukebox channel after joining:
+  music detection needed 3 s, and a new buffer applies only at the next
+  stall. Stereo (the jukebox sends 128 kbps stereo; speech is mono) now
+  counts as music from the first packet, so the stream starts with the
+  music buffer. The bitrate rule keeps its 3 s.
+- The "larger playback buffer" hint counts only late audio of speech: the
+  music buffer covers music speakers, the setting does not change them.

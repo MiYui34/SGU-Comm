@@ -1,5 +1,5 @@
 import type { PingStats } from "@kallisti/protocol";
-import { badPercent, latePercent, meanVariance, qualityLevel, recent, type Counters, type Level } from "./connectionQuality";
+import { badPercent, latePercent, speechLatePercent, meanVariance, qualityLevel, recent, type Counters, type Level } from "./connectionQuality";
 
 export type ConnectionInfo = {
   level: Level | null;
@@ -8,8 +8,10 @@ export type ConnectionInfo = {
   spread: number | null;
   // Late or lost audio in percent (null: no audio came).
   bad: number | null;
-  // Late only, in percent (see latePercent).
+  // Late only, in percent (see latePercent); of speech only (speechLate:
+  // what the playback buffer setting changes).
   late: number | null;
+  speechLate: number | null;
   transport: string;
 };
 
@@ -17,7 +19,7 @@ export type ConnectionInfo = {
 // for the server (the stats go in the next ping). Times in ms on one clock
 // (performance.now()).
 export const createConnectionInfo = (transport: string, counters: () => Counters) => {
-  let info = $state.raw<ConnectionInfo>({ level: null, rtt: null, spread: null, bad: null, late: null, transport });
+  let info = $state.raw<ConnectionInfo>({ level: null, rtt: null, spread: null, bad: null, late: null, speechLate: null, transport });
   let rtts: { at: number; value: number }[] = [];
   let snapshots: (Counters & { at: number })[] = [];
   // Our pings on their way, by timestamp (µs): the server's bridge sends
@@ -29,8 +31,9 @@ export const createConnectionInfo = (transport: string, counters: () => Counters
     const span = snapshots.length > 1 ? ([snapshots[0]!, snapshots.at(-1)!] as const) : null;
     const bad = span && badPercent(...span);
     const late = span && latePercent(...span);
+    const speechLate = span && speechLatePercent(...span);
     const rtt = stats?.mean ?? null;
-    info = { level: qualityLevel(rtt, bad), rtt, spread: stats && Math.sqrt(stats.variance), bad, late, transport };
+    info = { level: qualityLevel(rtt, bad), rtt, spread: stats && Math.sqrt(stats.variance), bad, late, speechLate, transport };
     return stats;
   };
 
@@ -52,7 +55,7 @@ export const createConnectionInfo = (transport: string, counters: () => Counters
       pending.add(timestamp);
       return {
         timestamp,
-        stats: { ...current, tcpPackets: rtts.length, ...(stats && { tcpPingAvg: stats.mean, tcpPingVar: stats.variance }) },
+        stats: { good: current.good, late: current.late, lost: current.lost, tcpPackets: rtts.length, ...(stats && { tcpPingAvg: stats.mean, tcpPingVar: stats.variance }) },
       };
     },
     pong: (timestamp: number, now: number) => {

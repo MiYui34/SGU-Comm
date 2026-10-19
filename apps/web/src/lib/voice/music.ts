@@ -21,7 +21,7 @@ export const opusDurationUs = (opus: Uint8Array) => {
 };
 
 // Each second of audio counts as music or speech. It takes a few seconds of
-// music in a row to switch to music, and longer back, so the buffer does
+// a high bitrate in a row to switch to music (stereo: at once), and longer back, so the buffer does
 // not flap (a quiet passage, a spoken announcement). Silence counts for
 // neither: the jukebox stays music between tracks.
 const WINDOW_US = 1_000_000;
@@ -40,6 +40,12 @@ export const trackMusic = (d: MusicDetector, opus: Uint8Array) => {
   d.bytes += opus.length;
   d.us += opusDurationUs(opus);
   d.stereo ||= isStereo(opus);
+  // Stereo is music at once (speech is mono): the buffer is right from the
+  // first packet of a stream.
+  if (d.stereo && !d.music) {
+    d.music = true;
+    d.streak = 0;
+  }
   if (d.us < WINDOW_US) return;
   const music = d.stereo || (d.bytes * 8e6) / d.us > MUSIC_BPS;
   d.streak = music === d.music ? 0 : d.streak + 1;

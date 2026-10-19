@@ -8,7 +8,8 @@ export const WINDOW_MS = 30_000;
 export type Level = "good" | "fair" | "poor";
 // Audio chunks from all speakers since the connection started (see
 // voice/schedule chunkOutcome).
-export type Counters = { good: number; late: number; lost: number };
+// musicLate: the late ones of music speakers (part of late).
+export type Counters = { good: number; late: number; lost: number; musicLate?: number };
 
 export const recent = <T extends { at: number }>(items: readonly T[], now: number): T[] =>
   items.filter((i) => now - i.at <= WINDOW_MS);
@@ -30,6 +31,9 @@ const percentOf = (from: Counters, to: Counters, bad: number): number | null => 
 export const badPercent = (from: Counters, to: Counters) => percentOf(from, to, to.late - from.late + (to.lost - from.lost));
 // Late only: what a larger playback buffer helps against.
 export const latePercent = (from: Counters, to: Counters) => percentOf(from, to, to.late - from.late);
+// Late audio of speech only: what the playback buffer setting changes.
+export const speechLatePercent = (from: Counters, to: Counters) =>
+  percentOf(from, to, to.late - from.late - ((to.musicLate ?? 0) - (from.musicLate ?? 0)));
 
 // Discord-like: at 100 ms people start to talk over each other, beyond
 // 250 ms talking is hard. Late audio is a gap in the speech: a few in 100
