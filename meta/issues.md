@@ -14,3 +14,4 @@
 - [ ] [Who can read a private channel](issues/private-channel-readers.md)
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Join and leave sounds](issues/join-leave-sounds.md)
+- [ ] [One "Go live" button](issues/go-live-menu.md)
