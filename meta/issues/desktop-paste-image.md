@@ -3,14 +3,13 @@
 ## Summary
 
 Report: pasting an image to attach it works in browsers, not in the Linux
-AppImage. The paste handler reads only clipboardData.files; some engines
-(WebKitGTK) give a pasted image only as clipboardData.items. Read both.
-If WebKitGTK gives the page no image at all, the desktop app reads the
-clipboard image natively (tauri clipboard plugin) on a paste without files
-or text.
+AppImage. WebKitGTK 2.50 gives the paste event no files, items or types
+for an image (checked in podman, see DEVLOG "Paste in the desktop app").
+The clipboard API reads the image in the paste handler, so the desktop
+app reads it there on a paste without files or text.
 
 ## Acceptance Criteria
 
 - Pure function for the pasted files (files, else file items), tests.
-- Desktop fallback through the clipboard plugin, if needed.
+- Desktop fallback: the clipboard API (no native plugin needed).
 - Check by a Linux user.

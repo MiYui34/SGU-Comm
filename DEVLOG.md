@@ -998,3 +998,24 @@ From `meta/research/discord-comparison.md`.
   the notification sent through the plugin without error. Seeing the
   banner and clicking it was not checked here; Linux (cargo check in
   podman) and Windows by users.
+
+## Paste in the desktop app (2026-10-19)
+
+- Report: pasting an image to attach it works in browsers, not in the
+  Linux AppImage. Reproduced in podman (Ubuntu 22.04 arm64, WebKitGTK
+  2.50.4, Xvfb; `xclip -t image/png`, `xdotool key ctrl+v`), in a plain
+  WebKitGTK view and in the real app binary (tauri://localhost) with a
+  probe page.
+- WebKitGTK gives the paste event nothing for an image: types [], files
+  0, items []. A text paste gives text/plain as usual. In the same paste
+  handler `navigator.clipboard.read()` gives the image (image/png, no
+  prompt, no permission request, also with wry's default settings).
+  With only image/jpeg on the clipboard it gives no types.
+- Fix in the web client, no Rust: in the desktop app, a paste without
+  files and without text/plain reads the clipboard API and attaches the
+  first image as "pasted.png". Checked in the app binary: a 7x5 PNG
+  arrives as a File that decodes; a text paste does not read.
+- macOS and Windows give pasted images as files, so the read runs there
+  only for a paste with neither files nor text (an empty clipboard, for
+  example). WebView2 may then ask for clipboard access, WKWebView may show its
+  "Paste" callout (not tested).

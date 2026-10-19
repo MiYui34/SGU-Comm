@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { afterUpload, canAttach, chatKeyOf, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../src/lib/composer";
+import {
+  afterUpload,
+  canAttach,
+  chatKeyOf,
+  clipboardImage,
+  emptyPaste,
+  pastedFiles,
+  refusedDraft,
+  switchDraft,
+  tooLarge,
+  uploadTitle,
+} from "../src/lib/composer";
 
 describe("canAttach", () => {
   it("takes a file only where uploads work and none is running", () => {
@@ -103,5 +114,31 @@ describe("pastedFiles", () => {
     expect(pastedFiles({ files: [], items: [item("string", null), item("file", file)] })).toEqual([file]);
     expect(pastedFiles({ files: [], items: [item("file", null)] })).toEqual([]);
     expect(pastedFiles(null)).toEqual([]);
+  });
+});
+
+describe("emptyPaste", () => {
+  it("is a paste without files or text (WebKitGTK with an image)", () => {
+    expect(emptyPaste({ types: [] })).toBe(true);
+    expect(emptyPaste({ types: ["text/html"] })).toBe(true);
+    expect(emptyPaste({ types: ["text/plain"] })).toBe(false);
+    expect(emptyPaste({ types: ["Files"] })).toBe(false);
+    expect(emptyPaste(null)).toBe(true);
+  });
+});
+
+describe("clipboardImage", () => {
+  const blob = new Blob(["png"], { type: "image/png" });
+  const item = (types: string[]) => ({ types, getType: async (t: string) => (t === "image/png" ? blob : new Blob([t])) });
+  it("takes the first image as a file", async () => {
+    const file = await clipboardImage(async () => [item(["text/plain"]), item(["text/html", "image/png"])]);
+    expect([file?.name, file?.type, await file?.text()]).toEqual(["pasted.png", "image/png", "png"]);
+    expect((await clipboardImage(async () => [item(["image/svg+xml"])]))?.name).toBe("pasted.svg");
+    expect((await clipboardImage(async () => [item(["image/gif"]), item(["image/png"])]))?.name).toBe("pasted.gif");
+  });
+  it("is null without an image or a clipboard", async () => {
+    expect(await clipboardImage(async () => [item(["text/plain"])])).toBeNull();
+    expect(await clipboardImage(async () => Promise.reject(new Error("denied")))).toBeNull();
+    expect(await clipboardImage(() => Promise.resolve([{ types: ["image/png"], getType: () => Promise.reject(new Error()) }]))).toBeNull();
   });
 });
