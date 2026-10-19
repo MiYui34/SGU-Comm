@@ -30,6 +30,11 @@ const msg = (id: number, channel = 1, author = "alice"): TextMessage => ({
 });
 
 describe("parseServerEvent", () => {
+  it("keeps a rate limit error of a background request out of the error line", () => {
+    const ev = parseServerEvent('{"type":"error","message":"too many requests, slow down","about":"rate"}');
+    expect(ev).toEqual({ type: "error", message: "too many requests, slow down", about: "rate" });
+    expect(reduceText(initialTextState, ev!)).toMatchObject({ lastError: "too many requests, slow down", quietError: true });
+  });
   it("keeps the text of a refused send for the composer", () => {
     const ev = parseServerEvent('{"type":"error","message":"no","about":"refused","channel":3,"text":"buy spam"}');
     expect(ev).toMatchObject({ returned: { channel: 3, text: "buy spam" } });

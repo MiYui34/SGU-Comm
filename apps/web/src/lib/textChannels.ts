@@ -170,7 +170,9 @@ export type ServerEvent =
   // about "manage": the answer to a channel or role change; slow: a post
   // refused by slow mode, and when the wait ends.
   // returned: a refused send's text, for the composer of its chat.
-  | { type: "error"; message: string; about?: "manage"; slow?: { channel: number; until: number }; returned?: { channel: number; text: string } }
+  // about "rate": a background request over the server's rate limit (not
+  // shown as an error; a send comes back as "refused").
+  | { type: "error"; message: string; about?: "manage" | "rate"; slow?: { channel: number; until: number }; returned?: { channel: number; text: string } }
   | { type: "upload-token"; token: string }
   // A message's reactions changed (all of them).
   | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
@@ -192,6 +194,9 @@ export type TextState = {
   loaded: Readonly<Record<number, boolean>>;
   more: Readonly<Record<number, boolean>>;
   lastError: string | null;
+  // The last error answered a background request over the rate limit:
+  // it still lets failed requests be asked again, but is not shown.
+  quietError?: boolean;
   roles: Roles;
   // Listen-only voice channels: their speakers.
   listenOnly: Readonly<Record<number, Speaker[]>>;
@@ -525,7 +530,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until))
         return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until }, ...returned };
       if (v.about === "refused") return { type: "error", message: v.message, ...returned };
-      return v.about === "manage" ? { type: "error", message: v.message, about: "manage" } : { type: "error", message: v.message };
+      return v.about === "manage" || v.about === "rate" ? { type: "error", message: v.message, about: v.about } : { type: "error", message: v.message };
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
     case "resync":
@@ -717,6 +722,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         : {
             ...state,
             lastError: event.message,
+            quietError: event.about === "rate",
             ...(event.slow && { slowUntil: { ...state.slowUntil, [event.slow.channel]: event.slow.until } }),
             ...(event.returned && { returned: { ...event.returned, n: (state.returned?.n ?? 0) + 1 } }),
           };
