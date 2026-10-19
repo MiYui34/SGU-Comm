@@ -327,12 +327,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     v.decoder = new VideoDecoder({
       output: (frame) => {
         // With sound, pictures wait for it (see listen); before the first
-        // sound, and without, they show at once.
-        if (v.sound && v.clock.time(frame.timestamp) !== null) {
+        // sound, and without, they show at once. So too in a hidden tab
+        // (no animation frames there): picture-in-picture goes on.
+        if (v.sound && !document.hidden && v.clock.time(frame.timestamp) !== null) {
           v.queue.push(frame);
           while (v.queue.length > MAX_QUEUED_PICTURES) v.queue.shift()!.close();
           return;
         }
+        v.queue.splice(0).forEach((f) => f.close()); // older than this one
         draw(v, frame);
         frame.close();
       },

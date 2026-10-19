@@ -1218,6 +1218,7 @@
         onClose={streamClient.unwatch}
         volumeOf={streamClient.volumeOf}
         onVolume={streamClient.setVolume}
+        {phone}
       />
     {/if}
   {/snippet}
