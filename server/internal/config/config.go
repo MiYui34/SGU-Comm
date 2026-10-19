@@ -37,6 +37,8 @@ type Config struct {
 	TrustForwardedFor bool
 	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
 	NoLinkPreviews bool
+	// Web Push notifications (built-in server).
+	Push Push
 	// Uploaded files, and the size limit per file.
 	UploadDir string
 	// BackupDir: daily database backups go here (empty: none); the newest
@@ -77,6 +79,26 @@ func parsePort(value string, fallback int) (int, bool) {
 	}
 	n, err := strconv.Atoi(value)
 	return n, err == nil && n > 0 && n < 65536
+}
+
+// Push configures Web Push. PUSH=0: off. Without keys the server makes
+// them on the first start and keeps them in the database. Subject: a
+// contact for push services (empty: the server's public address).
+type Push struct {
+	Off                   bool
+	PublicKey, PrivateKey string
+	Subject               string
+}
+
+func parsePush(getenv func(string) string) (Push, error) {
+	p := Push{Off: getenv("PUSH") == "0", PublicKey: getenv("VAPID_PUBLIC_KEY"), PrivateKey: getenv("VAPID_PRIVATE_KEY"), Subject: getenv("PUSH_SUBJECT")}
+	if (p.PublicKey == "") != (p.PrivateKey == "") {
+		return Push{}, errors.New("set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY, or neither")
+	}
+	if p.Subject != "" && !strings.HasPrefix(p.Subject, "mailto:") && !strings.HasPrefix(p.Subject, "https:") {
+		return Push{}, errors.New("PUSH_SUBJECT must be a mailto: or https: URL")
+	}
+	return p, nil
 }
 
 // Builtin configures the built-in Mumble server.
@@ -143,6 +165,10 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
 	c.NoLinkPreviews = getenv("LINK_PREVIEWS") == "0"
+	var err error
+	if c.Push, err = parsePush(getenv); err != nil {
+		return Config{}, err
+	}
 	c.UploadDir = cmp.Or(getenv("UPLOAD_DIR"), "uploads")
 	mb, ok := positive(getenv("UPLOAD_MAX_MB"), 10)
 	if !ok {
@@ -164,7 +190,6 @@ func Parse(getenv func(string) string) (Config, error) {
 		c.TextChannels = []string{"general"}
 	}
 	if c.MumbleHost == "" {
-		var err error
 		if c.Builtin, err = parseBuiltin(getenv, c.DBPath); err != nil {
 			return Config{}, err
 		}

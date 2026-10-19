@@ -52,6 +52,10 @@ func TestAllOptions(t *testing.T) {
 		"BACKUP_DIR":             "/data/backups",
 		"BACKUP_KEEP":            "3",
 		"LINK_PREVIEWS":          "0",
+		"PUSH":                   "0",
+		"VAPID_PUBLIC_KEY":       "pub",
+		"VAPID_PRIVATE_KEY":      "priv",
+		"PUSH_SUBJECT":           "mailto:admin@a.example",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +78,7 @@ func TestAllOptions(t *testing.T) {
 		BackupDir:          "/data/backups",
 		BackupKeep:         3,
 		NoLinkPreviews:     true,
+		Push:               Push{Off: true, PublicKey: "pub", PrivateKey: "priv", Subject: "mailto:admin@a.example"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -95,6 +100,8 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS_PER_IP": "-1"}, "MAX_CONNECTIONS_PER_IP must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "UPLOAD_MAX_MB": "big"}, "UPLOAD_MAX_MB must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "BACKUP_KEEP": "0"}, "BACKUP_KEEP must be a positive integer"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "VAPID_PUBLIC_KEY": "pub"}, "set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY, or neither"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "PUSH_SUBJECT": "admin@a.example"}, "PUSH_SUBJECT must be a mailto: or https: URL"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))
