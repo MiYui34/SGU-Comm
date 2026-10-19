@@ -11,7 +11,7 @@
     isKallisti,
     kallistiOrigin,
     kallistiSocket,
-    linuxAgent,
+    linuxApp,
     parseAddress,
     trustServer,
     type CertificateProblem,
@@ -252,7 +252,7 @@
     // Created here: browsers allow audio only after a user gesture.
     audio = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
     // Linux app: the capture module first, then the output (see startAfter).
-    if (audio && desktop && linuxAgent(navigator.userAgent)) startAfter(audio, loadCaptureWorklet(audio));
+    if (audio && linuxApp()) startAfter(audio, loadCaptureWorklet(audio));
     try {
       const { url, protocols } = await urlFor(credentials);
       if (mine !== starts) return;
