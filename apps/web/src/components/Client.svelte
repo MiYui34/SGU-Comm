@@ -57,7 +57,7 @@
     type ConfirmKind,
     type ModerationAction,
   } from "../lib/moderation";
-  import { notificationBody, notificationPermission, shouldNotify, showNotification } from "../lib/notify";
+  import { chatSeen, notificationBody, notifier, shouldNotify } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
@@ -600,12 +600,13 @@
     ),
   );
   // Desktop notifications (see shouldNotify): mentions in stored chats, and
-  // private messages.
+  // private messages. Made now: the desktop app reads its permission once.
+  const notifications = notifier();
   const notify = (title: string, body: string, open: boolean, onOpen: () => void) => {
-    const visible = document.visibilityState === "visible";
+    const visible = chatSeen({ visible: document.visibilityState === "visible", focused: document.hasFocus(), desktop: isDesktop() });
     const enabled = prefs.notifications;
-    if (shouldNotify({ enabled, permission: notificationPermission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
-      showNotification(title, body, onOpen);
+    if (shouldNotify({ enabled, permission: notifications.permission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
+      notifications.show(title, body, onOpen);
   };
   $effect(() =>
     connection.onTextEvent((ev) => {
