@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import Icon from "./Icon.svelte";
   import { gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
+  import { createPip } from "../lib/stream/pip";
 
   // The screen shares being watched, above the chat (as Discord's call
   // area): a grid of all, or one in focus over a strip of the others (the
@@ -61,35 +62,37 @@
   const pipSupported = document.pictureInPictureEnabled === true && "captureStream" in HTMLCanvasElement.prototype;
   const canvases = new Map<number, HTMLCanvasElement>();
   let pip = $state<number | null>(null);
-  let pipVideo: HTMLVideoElement | null = null;
-  const togglePip = async (session: number) => {
-    const was = pip;
-    if (document.pictureInPictureElement) await document.exitPictureInPicture().catch(() => {});
-    const canvas = canvases.get(session);
-    if (was === session || !canvas) return;
-    const capture = canvas.captureStream();
-    // A still screen draws seldom: a first frame now, so play() does not
-    // wait (and the click's permission does not run out).
-    (capture.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined)?.requestFrame();
-    const video = document.createElement("video");
-    video.muted = true;
-    video.srcObject = capture;
-    const done = () => {
-      capture.getTracks().forEach((t) => t.stop());
-      video.srcObject = null;
-    };
-    video.onleavepictureinpicture = () => {
-      done();
-      if (pipVideo === video) [pip, pipVideo] = [null, null];
-    };
-    try {
-      await video.play();
-      await video.requestPictureInPicture();
-      [pip, pipVideo] = [session, video];
-    } catch {
-      done();
-    }
-  };
+  const pips = createPip(
+    document,
+    async (session) => {
+      const canvas = canvases.get(session);
+      if (!canvas) return null;
+      const capture = canvas.captureStream();
+      // A still screen draws seldom: a first frame now, so play() does not
+      // wait (and the click's permission does not run out).
+      (capture.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined)?.requestFrame();
+      const video = document.createElement("video");
+      video.muted = true;
+      video.srcObject = capture;
+      const done = () => {
+        capture.getTracks().forEach((t) => t.stop());
+        video.srcObject = null;
+      };
+      video.onleavepictureinpicture = () => {
+        done();
+        pips.left(video);
+      };
+      try {
+        await video.play();
+        await video.requestPictureInPicture();
+        return video;
+      } catch {
+        done();
+        return null;
+      }
+    },
+    (session) => (pip = session),
+  );
 
   const canvasOf = (canvas: HTMLCanvasElement, session: number) => {
     canvases.set(session, canvas);
@@ -98,7 +101,7 @@
       destroy: () => {
         canvases.delete(session);
         attach(session, null);
-        if (pip === session) void document.exitPictureInPicture().catch(() => {});
+        if (pips.current() === session) void document.exitPictureInPicture().catch(() => {});
       },
     };
   };
@@ -146,7 +149,7 @@
               />
             {/if}
             {#if pipSupported}
-              <button onclick={() => togglePip(session)} aria-pressed={pip === session} title="Picture in picture" aria-label="Picture in picture">
+              <button onclick={() => pips.toggle(session)} aria-pressed={pip === session} title="Picture in picture" aria-label="Picture in picture">
                 <Icon name="pip" size={16} />
               </button>
             {/if}
