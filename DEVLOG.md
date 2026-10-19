@@ -741,3 +741,28 @@ From `meta/research/discord-comparison.md`.
   0.15 s sound lead out of sync).
 - Headless Chromium enters PiP (the promise resolves) but
   did not enter full screen; full screen was not checked there.
+
+## Streaming from OBS (2026-10-19)
+
+- WHIP with pion (new dependency). The stream is an "ingest" in the
+  stream hub: viewers see a screen share of the user's voice session; the
+  user's own stream connection neither feeds nor ends it. It starts with
+  the first keyframe, whose SPS gives the size and the codec name.
+- Viewers get the same Annex B chunks the browser encoder sends (no
+  decoder description); the server puts the last SPS and PPS in front of
+  keyframes that come without them. B-frames are not reordered: OBS should
+  send none.
+- Each offer gets its own pion API with exactly the offered H.264 and Opus
+  parameters, so any H.264 profile matches (pion compares profile ids).
+- One UDP port for all sessions (pion's UDP mux), IPv4 only: FFmpeg's WHIP
+  client takes only the first candidate, and it was an IPv6 one. FFmpeg
+  also read the end of a chunked answer as an error (now Content-Length).
+- Picture and sound timestamps come from RTP, each started at its first
+  packet's arrival (no RTCP sender reports): in step up to the difference
+  in network delay.
+- Checked with FFmpeg 9's WHIP muxer (as a stand-in for OBS): the
+  forwarded H.264 decodes with FFmpeg without errors. The headless
+  Chromium here claims H.264 support and fails on every frame, so the
+  picture in a browser was not checked; it now shows the H.264 message.
+- Opening Settings in headless Chromium leaves the page (about:blank),
+  also before this change: the Settings section was not checked there.
