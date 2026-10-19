@@ -44,11 +44,10 @@ describe("recording events", () => {
     expect(parseServerEvent(JSON.stringify({ type: "recording-token", token: "t" }))).toEqual({ type: "recording-token", token: "t" });
   });
 
-  it("asks the server to start and stop, for the list and a token", () => {
+  it("asks the server to start and stop, and for the list", () => {
     expect(JSON.parse(manageRequest({ record: 5, on: true }))).toEqual({ type: "start-recording", voice: 5 });
     expect(JSON.parse(manageRequest({ record: 5, on: false }))).toEqual({ type: "stop-recording", voice: 5 });
     expect(JSON.parse(manageRequest({ recordings: true }))).toEqual({ type: "recordings" });
-    expect(JSON.parse(manageRequest({ recordingToken: true }))).toEqual({ type: "recording-token" });
   });
 });
 

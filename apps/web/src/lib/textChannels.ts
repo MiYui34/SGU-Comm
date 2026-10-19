@@ -791,11 +791,9 @@ export type ManageAction =
   // The message rules (admins): ask for them, or save new ones.
   | { messageRules: true }
   | { setMessageRules: MessageRules }
-  // Recording a voice channel (staff): start or stop; the finished ones; a
-  // download token.
+  // Recording a voice channel (staff): start or stop; the finished ones.
   | { record: number; on: boolean }
-  | { recordings: true }
-  | { recordingToken: true };
+  | { recordings: true };
 
 // A user for the Kallisti server: by voice server session if online, else
 // a registered user by id.
@@ -826,7 +824,6 @@ const manageBody = (a: ManageAction) => {
   if ("setMessageRules" in a) return { type: "set-message-rules", rules: a.setMessageRules };
   if ("record" in a) return { type: a.on ? "start-recording" : "stop-recording", voice: a.record };
   if ("recordings" in a) return { type: "recordings" };
-  if ("recordingToken" in a) return { type: "recording-token" };
   return { type: "order-channels", channels: a.order };
 };
 

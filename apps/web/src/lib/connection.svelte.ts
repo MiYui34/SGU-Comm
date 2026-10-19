@@ -296,10 +296,14 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
     },
     // Downloads a finished recording (staff): a link with a one-time token.
+    // On another origin "download" does not count: a new tab, so an error
+    // page does not replace the app.
     downloadRecording: async (id: string) => {
       const a = document.createElement("a");
       a.href = recordingUrl(base, id, await askToken("recording-token"));
       a.download = "";
+      a.target = "_blank";
+      a.rel = "noopener";
       a.click();
     },
     requestHistory: (channel: number, before?: number) => {
