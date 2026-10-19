@@ -12,6 +12,11 @@
     pin: "M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z",
     lock: "M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11",
     screen: "M3 4h18v12H3zM8 20h8M12 16v4",
+    // Stream stage: all in a grid, one large over a strip, picture-in-picture.
+    grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+    focus: "M3 3h18v12H3zM3 19h5M10 19h4M16 19h5",
+    pip: "M3 5h18v14H3zM12 12h6v4h-6z",
+    fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
     reply: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 6 6v5",
     copy: "M9 9h11v11H9zM5 15H4V4h11v1",
     edit: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
