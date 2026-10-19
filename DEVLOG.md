@@ -1078,3 +1078,53 @@ From `meta/research/discord-comparison.md`.
   come before ServerSync, so the web client plays voice only once
   synced (local mutes and volumes are set then).
 - Not measured: WebKitGTK (Chromium only), the desktop app's UDP voice.
+
+## Desktop app hangs (2026-10-19)
+
+- Report: the Linux AppImage hung, for good or until "WebProcess didn't
+  exit as expected after the UI process connection was closed", when the
+  user joined the Music channel and when the user Settings opened.
+- Cause: WebKitGTK starts and stops its GStreamer audio output
+  (AudioDestinationGStreamer) with webkitGstSetElementStateSynchronously,
+  which waits on the pipeline's bus on the page's main thread without a
+  time limit. When a context gets its first AudioWorklet module, WebKit
+  restarts a running output (BaseAudioContext::workletIsReady ->
+  restartRendering: a stop, then a start). Our context starts at login,
+  and the capture worklet came when the microphone opened first: at a
+  voice join, or when the Settings open (level meter). Both reports came
+  at that moment.
+- Repro: podman, Ubuntu 24.04 with PipeWire 1.0.5 and WirePlumber, Xvfb,
+  the real arm64 AppImage (its WebKitGTK 2.50.4 and GStreamer 1.20), the
+  built-in server and a stereo 128 kbps sender in the container. A
+  script acts as a Bluetooth headset that changes profile when a
+  microphone opens: the output sink goes away and a new one comes 20 ms
+  later. Settings: 4 hangs in 10 runs; voice join with the music
+  stream: 2 in 8. Stacks: the main thread in gst_bus_timed_pop_filtered
+  (from the restart), the AudioWorklet thread (the new render thread) in
+  appsrc's push, the sink waiting on its clock. Closing the window then
+  prints the reported message. A PipeWire without a session manager
+  hangs the same wait already at the first start.
+- Fix: in the Linux app the context is suspended at once, gets the
+  capture module, then resumes. suspend() marks it "suspended by script"
+  before WebKit's lazy start, so the output starts once, after the
+  module, and the restart has nothing to do. Same repro: 0 hangs in 10
+  and 8 runs (and 6 with the decoder change below); the GStreamer log has one start at login and none at the
+  voice join or in the Settings. Browsers keep the old order: Safari on
+  iOS keeps a resume() outside a tap suspended.
+- Left: the start at login and the stop at logout still wait without a
+  limit; a sound server that does not answer then still hangs the app
+  (a WebKitGTK bug).
+- Memory: WebCodecs decoding in WebKitGTK (2.50.4 and 2.52.6) keeps
+  about 16 KB per stereo 20 ms frame in AudioData.copyTo to f32-planar;
+  a copy in the data's own format (f32) crashes the web process ("free():
+  invalid pointer"). Decoding without copyTo and the encoder stay flat.
+  With the music stream: +0.8 MB/s, 3 GB an hour. The Linux app now
+  decodes with libopus (wasm): flat at about 230 MB over 90 s of music,
+  with sound on the output. Encoding stays on WebCodecs.
+- Headless Chromium dying on Settings: agent-browser starts Chrome with
+  --single-process. There, enumerateDevices or a devicechange listener
+  kill the whole browser on any page (SIGTRAP; getUserMedia: SIGSEGV),
+  and Settings use both when they open. A normal headless Chrome runs the
+  same calls, so the cause is not in our code. Tests in agent-browser
+  must stub all three (getUserMedia, enumerateDevices and
+  mediaDevices.addEventListener); then Settings open.
