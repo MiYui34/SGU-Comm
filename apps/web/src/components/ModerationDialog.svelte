@@ -417,7 +417,7 @@
 
 <style>
   dialog {
-    width: min(560px, 94vw);
+    width: min(820px, 94vw);
     max-height: 80vh;
     padding: 24px;
     border: none;
@@ -443,12 +443,17 @@
     line-height: 1;
     color: var(--text-muted);
   }
+  /* Too many tabs for a narrow window: only the row scrolls. */
   .tabs {
     display: flex;
     gap: 4px;
     margin-bottom: 12px;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
   .tabs button {
+    flex: none;
+    white-space: nowrap;
     padding: 6px 12px;
     border-radius: 4px;
     color: var(--text-muted);
