@@ -1,14 +1,23 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { fitMenu } from "../lib/menu";
+  import { fitMenu, menuStep } from "../lib/menu";
 
   let {
     x,
     y,
+    up = false,
     label,
     onClose,
     children,
-  }: { x: number; y: number; label: string; onClose: () => void; children: Snippet } = $props();
+  }: {
+    x: number;
+    y: number;
+    // Open above the point (see fitMenu).
+    up?: boolean;
+    label: string;
+    onClose: () => void;
+    children: Snippet;
+  } = $props();
 
   let menu: HTMLElement | undefined = $state();
   let pos = $state({ x: 0, y: 0 });
@@ -17,7 +26,7 @@
   $effect(() => {
     if (!menu) return;
     const { width, height } = menu.getBoundingClientRect();
-    pos = fitMenu({ x, y }, { width, height }, { width: innerWidth, height: innerHeight });
+    pos = fitMenu({ x, y }, { width, height }, { width: innerWidth, height: innerHeight }, up);
   });
   // Focus goes back to where it came from when the menu closes. Only once:
   // a re-run (new props while open) would move focus out and close it.
@@ -33,6 +42,18 @@
   const closeOnFocusOut = (event: FocusEvent) => {
     const next = event.relatedTarget as Node | null;
     if (next && !menu?.contains(next)) onClose();
+  };
+
+  // Arrow keys move between the items that can be used (sliders and
+  // selects keep theirs).
+  const move = (event: KeyboardEvent) => {
+    const from = event.target as HTMLElement;
+    if (from !== menu && from.tagName !== "BUTTON") return;
+    const items = [...(menu?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+    const next = menuStep(event.key, items.indexOf(document.activeElement as HTMLElement), items.length);
+    if (next === null) return;
+    event.preventDefault();
+    items[next]!.focus();
   };
 
   const closeOutside = (event: PointerEvent) => {
@@ -55,6 +76,7 @@
   role="dialog"
   tabindex="-1"
   onfocusout={closeOnFocusOut}
+  onkeydown={move}
   aria-label={label}
   bind:this={menu}
   style:left="{pos.x}px"
