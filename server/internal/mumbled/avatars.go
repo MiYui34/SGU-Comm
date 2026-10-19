@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 )
@@ -29,8 +28,8 @@ func (d *DB) Avatars() http.Handler {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		typ := http.DetectContentType(texture)
-		if len(texture) == 0 || !slices.Contains(imageTypes, typ) {
+		typ := imageType(texture)
+		if typ == "" {
 			NoAvatars.ServeHTTP(w, r)
 			return
 		}

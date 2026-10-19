@@ -359,7 +359,7 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 	if content {
 		applyContent(u, m, out)
 		changed = true
-		saved := contentOf(u)
+		saved := contentOf(u, m.Texture != nil)
 		after = func() { s.saveContent(saved) }
 	}
 	if routing {
@@ -792,7 +792,7 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(target), Actor: proto.Uint32(c.session), UserId: proto.Uint32(id)})
 		s.permissionsChangedLocked(nil) // @auth and user entries apply now
 		if u.Comment != "" || len(u.Texture) > 0 {
-			saved := contentOf(u) // what was set before registering stays
+			saved := contentOf(u, len(u.Texture) > 0) // what was set before registering stays
 			s.mu.Unlock()
 			s.saveContent(saved)
 			s.mu.Lock()

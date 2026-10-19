@@ -96,9 +96,12 @@ type content struct {
 	userID     uint32
 	comment    string
 	texture    []byte
+	newTexture bool // the avatar changed (see OnPictureChanged)
 }
 
-func contentOf(u *User) content { return content{u.Registered, u.UserID, u.Comment, u.Texture} }
+func contentOf(u *User, newTexture bool) content {
+	return content{u.Registered, u.UserID, u.Comment, u.Texture, newTexture}
+}
 
 // saveContent stores a registered user's comment and avatar. Callers hold
 // saveMu, so saves keep the order of the changes.
@@ -108,6 +111,11 @@ func (s *Server) saveContent(c content) {
 	}
 	if err := s.cfg.DB.SetUserContent(c.userID, c.comment, c.texture); err != nil {
 		slog.Error("saving a comment", "user", c.userID, "err", err)
+		return
+	}
+	if f := s.cfg.OnPictureChanged; f != nil && c.newTexture {
+		picture := imageType(c.texture) != ""
+		s.events.add(func() { f(c.userID, picture) })
 	}
 }
 

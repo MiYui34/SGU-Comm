@@ -61,6 +61,10 @@ type Config struct {
 	// OnUserChanged hears registrations made or renamed (name), or removed
 	// (name ""), in order, outside the server lock (see Users).
 	OnUserChanged func(id uint32, name string)
+	// OnPictureChanged hears a registered user's saved avatar set or
+	// removed (picture: there is one Avatars serves), in order, outside
+	// the server lock (see Pictures).
+	OnPictureChanged func(id uint32, picture bool)
 	// OnListenOnlyChanged runs after a channel's ACL changed (see
 	// ListenOnly).
 	OnListenOnlyChanged func()
@@ -273,7 +277,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	srv.pings = rate.NewLimiter(pingsPerSecond, pingsPerSecond)
-	if cfg.OnUserMoved != nil || cfg.OnUserChanged != nil {
+	if cfg.OnUserMoved != nil || cfg.OnUserChanged != nil || cfg.OnPictureChanged != nil {
 		srv.events = newEventQueue()
 	}
 	state.OnMove = func(session, from, to uint32) {

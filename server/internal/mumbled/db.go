@@ -88,13 +88,19 @@ CREATE TABLE IF NOT EXISTS mumble_channel_links (
 );
 `
 
-// Columns added after the first version, for databases made before.
-var migrations = []struct{ table, column, def string }{
-	{"mumble_channels", "no_inherit_acl", "INTEGER NOT NULL DEFAULT 0"},
-	{"mumble_users", "comment", "TEXT NOT NULL DEFAULT ''"},
-	{"mumble_users", "texture", "BLOB"},
+// Columns added after the first version, for databases made before; fill
+// sets a new column for the rows there are.
+var migrations = []struct {
+	table, column, def string
+	fill               func(*sql.Tx) error
+}{
+	{"mumble_channels", "no_inherit_acl", "INTEGER NOT NULL DEFAULT 0", nil},
+	{"mumble_users", "comment", "TEXT NOT NULL DEFAULT ''", nil},
+	{"mumble_users", "texture", "BLOB", nil},
 	// Unix milliseconds; 0: registered before it was kept (an old account).
-	{"mumble_users", "registered_at", "INTEGER NOT NULL DEFAULT 0"},
+	{"mumble_users", "registered_at", "INTEGER NOT NULL DEFAULT 0", nil},
+	// 1: the texture is an image the server serves (see Pictures).
+	{"mumble_users", "picture", "INTEGER NOT NULL DEFAULT 0", flagPictures},
 }
 
 func OpenDB(db *sql.DB) (*DB, error) {
@@ -102,7 +108,7 @@ func OpenDB(db *sql.DB) (*DB, error) {
 		return nil, err
 	}
 	for _, m := range migrations {
-		if err := addColumn(db, m.table, m.column, m.def); err != nil {
+		if err := addColumn(db, m.table, m.column, m.def, m.fill); err != nil {
 			return nil, err
 		}
 	}
@@ -110,16 +116,27 @@ func OpenDB(db *sql.DB) (*DB, error) {
 	return d, d.initACL()
 }
 
-func addColumn(db *sql.DB, table, column, def string) error {
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil {
+// addColumn adds a column if it is missing and fills it, in one
+// transaction (a failed fill runs again at the next start).
+func addColumn(db *sql.DB, table, column, def string, fill func(*sql.Tx) error) error {
+	tx, err := db.Begin()
+	if err != nil {
 		return err
 	}
-	if n > 0 {
-		return nil
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n); err != nil || n > 0 {
+		return err
 	}
-	_, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
-	return err
+	if _, err := tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def); err != nil {
+		return err
+	}
+	if fill != nil {
+		if err := fill(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // initACL gives a new database Murmur's default root ACL, once.
@@ -663,9 +680,61 @@ func (d *DB) textureByName(name string) ([]byte, error) {
 	return texture, err
 }
 
+// SetUserContent saves a registered user's comment and avatar, and
+// whether the avatar is a picture (see Pictures).
 func (d *DB) SetUserContent(id uint32, comment string, texture []byte) error {
-	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ? WHERE id = ?`, comment, texture, id)
+	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ?, picture = ? WHERE id = ?`,
+		comment, texture, imageType(texture) != "", id)
 	return err
+}
+
+// Pictures: the registered users whose avatar Avatars serves, by id
+// (without reading the avatars).
+func (d *DB) Pictures() (map[uint32]bool, error) {
+	rows, err := d.db.Query(`SELECT id FROM mumble_users WHERE picture != 0 AND id != 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uint32]bool{}
+	for rows.Next() {
+		var id uint32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// flagPictures sets the picture column of saved avatars (see migrations).
+func flagPictures(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT id, texture FROM mumble_users WHERE length(texture) > 0`)
+	if err != nil {
+		return err
+	}
+	var ids []uint32
+	for rows.Next() {
+		var id uint32
+		var texture []byte
+		if err := rows.Scan(&id, &texture); err != nil {
+			rows.Close()
+			return err
+		}
+		if imageType(texture) != "" {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE mumble_users SET picture = 1 WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InitLobby makes root a lobby without voice, as Kallisti servers have it:
