@@ -43,10 +43,22 @@ describe("encoding", () => {
     const low = encoding({ width: 1920, height: 1080 }, { height: 480, fps: 15 }, "screen", limits).bitrate;
     const high = encoding({ width: 1920, height: 1080 }, { height: 1080, fps: 60 }, "screen", limits).bitrate;
     expect(low).toBeLessThan(high);
-    const camera = encoding({ width: 1920, height: 1080 }, { height: 1080, fps: 60 }, "camera", limits).bitrate;
-    // Screen and camera together leave room for sound and keyframes.
-    expect(high + camera).toBeLessThanOrEqual(limits.bytesPerSecond * 8 * 0.8);
+    // Room is left for sound and keyframes.
+    expect(high).toBeLessThanOrEqual(limits.bytesPerSecond * 8 * 0.8);
     expect(encoding({ width: 1920, height: 1080 }, { height: 1080, fps: 60 }, "screen", { ...limits, bytesPerSecond: 1000 }).bitrate).toBeGreaterThanOrEqual(100_000);
+  });
+  it("is about 4 Mbit/s at 720p and 30 fps", () => {
+    const { bitrate } = encoding({ width: 1920, height: 1080 }, { height: 720, fps: 30 }, "screen", limits);
+    expect(bitrate).toBeGreaterThan(3_800_000);
+    expect(bitrate).toBeLessThan(4_200_000);
+  });
+  it("shares the upload when screen and camera run together, the screen getting more", () => {
+    const q = { height: 1080, fps: 60 };
+    const screen = encoding({ width: 1920, height: 1080 }, q, "screen", limits, true).bitrate;
+    const camera = encoding({ width: 1920, height: 1080 }, q, "camera", limits, true).bitrate;
+    expect(screen + camera).toBeLessThanOrEqual(limits.bytesPerSecond * 8 * 0.8);
+    expect(screen).toBeGreaterThan(camera);
+    expect(screen).toBeLessThan(encoding({ width: 1920, height: 1080 }, q, "screen", limits).bitrate);
   });
 });
 
@@ -71,8 +83,8 @@ describe("labels", () => {
     expect(streamLabel("Ann", false)).toBe("Ann's screen");
     expect(streamLabel("Ann", true)).toBe("Ann's camera");
   });
-  it("defaults: the screen sharp, the camera smooth", () => {
-    expect(DEFAULT_QUALITY.screen).toEqual({ height: 1080, fps: 15 });
+  it("defaults to 720p at 30 fps", () => {
+    expect(DEFAULT_QUALITY.screen).toEqual({ height: 720, fps: 30 });
     expect(DEFAULT_QUALITY.camera).toEqual({ height: 720, fps: 30 });
   });
 });
