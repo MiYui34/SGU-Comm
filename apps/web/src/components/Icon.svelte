@@ -19,6 +19,7 @@
     pip: "M3 5h18v14H3zM12 12h6v4h-6z",
     fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
     reply: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 6 6v5",
+    send: "M4 12 20 4l-6 16-3-7zM11 13l9-9",
     copy: "M9 9h11v11H9zM5 15H4V4h11v1",
     edit: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
     trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",

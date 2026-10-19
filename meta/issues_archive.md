@@ -204,3 +204,4 @@
 - [x] [Streaming from OBS (WHIP)](issues/obs-whip-ingest.md)
 - [x] [Playback buffer setting and a music buffer](issues/playback-buffer.md)
 - [x] [One "Go live" button](issues/go-live-menu.md)
+- [x] [Send button on touch screens](issues/mobile-send-button.md)

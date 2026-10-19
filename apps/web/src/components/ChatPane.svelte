@@ -923,6 +923,13 @@
             title="Emoji"
             onclick={(e) => (draftEmoji = e.currentTarget.getBoundingClientRect())}><Emoji text="🙂" /></button
           >
+          <!-- Touch screens: a send button (Enter is the only other way).
+               The press keeps the keyboard open. -->
+          {#if draft.trim() || pending}
+            <button type="submit" class="send-button" aria-label="Send" title="Send" onpointerdown={(e) => e.preventDefault()}>
+              <Icon name="send" size={20} />
+            </button>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -1917,6 +1924,22 @@
   @media (prefers-reduced-motion: reduce) {
     .spinner {
       animation-duration: 3s;
+    }
+  }
+  .send-button {
+    display: none;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    margin: 4px -8px 4px 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+  }
+  @media (pointer: coarse) {
+    .send-button {
+      display: grid;
     }
   }
   .emoji-button {
