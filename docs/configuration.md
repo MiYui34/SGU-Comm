@@ -60,6 +60,31 @@ Used unless `MUMBLE_HOST` is set.
   self-signed certificate is used. They must be readable by the server's
   user.
 
+### Streams from OBS (WHIP)
+
+Users stream from OBS 30 or newer (or another WHIP encoder) into their voice
+channel; it shows like a screen share. Each user makes a stream key in
+Settings → "Stream from OBS", which also shows the server address
+(`https://<your domain>/api/whip`) and the OBS settings. Off unless
+`WHIP_UDP_PORT` is set (`deploy/compose.yml` sets it).
+
+- `WHIP_UDP_PORT` (off): one UDP port for all streams (8189 in the compose
+  file). Open it in the firewall. No TURN or STUN server is needed.
+- `WHIP_PUBLIC_IP`: the server's public IPv4 address (or a name, resolved at
+  the start), sent to OBS as the address to reach. Needed where the server
+  does not see it, as in Docker (the compose file uses `DOMAIN`). Behind
+  Cloudflare's proxy, set the IP address itself. Unset: the addresses of the
+  server's interfaces.
+- Only IPv4, only UDP (OBS has no ICE over TCP).
+- A stream needs a registered account (no guest accounts), connected to
+  voice in a channel where it may speak. It ends when OBS stops, the
+  connection fails, or the user leaves the channel or disconnects.
+- OBS must send H.264 (packetization-mode 1) and Opus. The server forwards
+  the video as it comes: viewers need a browser that decodes H.264, and the
+  stream should have no B-frames, a keyframe every 1 or 2 seconds, and
+  at most 4096 pixels per side (larger streams are refused). Pictures above
+  8 Mbit/s are dropped; at most 20 streams from OBS at once.
+
 ## In front of an existing Murmur
 
 - `MUMBLE_HOST`: the Murmur server (this turns the built-in server off).

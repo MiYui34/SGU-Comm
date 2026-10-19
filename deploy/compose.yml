@@ -9,6 +9,7 @@ services:
     ports:
       - "64738:64738/tcp" # Mumble clients and the Kallisti desktop app
       - "64738:64738/udp"
+      - "8189:8189/udp" # streams from OBS (WHIP)
     environment:
       ALLOWED_ORIGINS: "https://${DOMAIN}"
       TRUST_FORWARDED_FOR: "1" # Caddy sets X-Forwarded-For
@@ -23,6 +24,11 @@ services:
       # from the proxy into the data volume. Unset: self-signed.
       MUMBLE_CERT_FILE: "${MUMBLE_CERT_FILE:-}"
       MUMBLE_KEY_FILE: "${MUMBLE_KEY_FILE:-}"
+      # Streams from OBS: the UDP port above, and the address OBS reaches it
+      # at (the container does not know it). Behind Cloudflare's proxy, set
+      # WHIP_PUBLIC_IP to the server's IPv4 address.
+      WHIP_UDP_PORT: "8189"
+      WHIP_PUBLIC_IP: "${WHIP_PUBLIC_IP:-${DOMAIN}}"
     volumes:
       - kallisti-data:/data # database, uploads, server certificate
 

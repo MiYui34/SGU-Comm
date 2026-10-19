@@ -114,6 +114,8 @@ every 10 seconds. Use one proxy only (see `TRUST_FORWARDED_FOR` in the
 - 64738 (TCP and UDP): Mumble clients and the desktop app, with the
   built-in server. Behind Cloudflare, the name for this port must be "DNS
   only": Cloudflare does not pass it.
+- 8189 (UDP), if `WHIP_UDP_PORT=8189` is set: streams from OBS (see
+  [configuration](configuration.md#streams-from-obs-whip)).
 - 8080: only for the proxy.
 
 ## The Mumble port
