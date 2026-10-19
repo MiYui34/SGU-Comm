@@ -39,6 +39,19 @@ func TestBlockedWords(t *testing.T) {
 		{"CAFÉ", true},
 		{"cafe\u0301", true}, // combining accent
 		{"これは広告です", true},    // scripts without spaces: any place
+		{"s p a m", true},    // spaced letters
+		{"s.p.a.m!", true},
+		{"s-p-a-m", true},
+		{"s_p_a_m", true},
+		{"S . P . A . M", true},
+		{"ѕраm", true},   // Cyrillic lookalikes
+		{"ЅΡΑΜ", true},   // Cyrillic and Greek capitals
+		{"𝐬𝐩𝐚𝐦", true},   // mathematical letters
+		{"spaaam", true}, // a letter three times or more
+		{"SPAMMMM", true},
+		{"spaam", false}, // twice is another word
+		{"sp am", false}, // only single letters are joined
+		{"a spam", true}, // a single letter before a word stays a word
 		{"広い", false},
 		{"", false},
 	} {
@@ -49,6 +62,19 @@ func TestBlockedWords(t *testing.T) {
 		if err != nil && err != ErrWord {
 			t.Errorf("%q: %v", c.text, err)
 		}
+	}
+}
+
+func TestNoFalseHits(t *testing.T) {
+	r := Rules{Words: []string{"ass", "nice ass"}}
+	for _, text := range []string{"class", "assistant", "passage", "bass", "Assam", "as", "a ss", "as s", "glass. a sandwich", "нас"} {
+		if err := Check(r, Author{}, Message{Text: text}, now, time.Time{}); err != nil {
+			t.Errorf("%q: %v", text, err)
+		}
+	}
+	// "-" separates words: "ass-istant" has the word "ass".
+	if Check(r, Author{}, Message{Text: "classic ass-istant"}, now, time.Time{}) == nil {
+		t.Error("ass-istant")
 	}
 }
 
@@ -182,6 +208,90 @@ func TestNormalize(t *testing.T) {
 		{Domains: []string{"https://"}},
 	} {
 		if _, err := Normalize(bad); err == nil {
+			t.Errorf("%+v: no error", bad)
+		}
+	}
+}
+
+// picks returns the given indexes in turn (a seeded random source).
+func picks(i ...int) func(int) int {
+	return func(n int) int {
+		v := i[0] % n
+		i = append(i[1:], i[0])
+		return v
+	}
+}
+
+func TestReplace(t *testing.T) {
+	r := Rules{Replacements: []Replacement{
+		{Phrase: "nice ass", With: []string{"beautiful behind", "lovely posterior"}},
+		{Phrase: "ass", With: []string{"behind"}},
+		{Phrase: "広告", With: []string{"宣伝"}},
+	}}
+	for _, c := range []struct{ text, want string }{
+		{"what a nice ass", "what a beautiful behind"},
+		{"Nice ass!", "Beautiful behind!"}, // a capital stays
+		{"NICE ASS", "BEAUTIFUL BEHIND"},   // so do capitals
+		{"nice   ass and ass", "beautiful behind and behind"},
+		{"ass ass", "behind behind"},
+		{"a s s", "behind"},
+		{"a.s.s.", "behind."},
+		{"a-s-s", "behind"},
+		{"a_s_s", "behind"},
+		{"аss", "behind"},       // Cyrillic а
+		{"ａｓｓ", "behind"},       // full-width
+		{"𝐚𝐬𝐬", "behind"},       // mathematical
+		{"àss", "behind"},       // accents
+		{"a\u200bss", "behind"}, // invisible characters
+		{"asss", "behind"},      // a letter three times
+		{"kick-ass", "kick-behind"},
+		{"||nice ass||", "||beautiful behind||"},
+		{"**ass**", "**behind**"},
+		{"nice\na s s", "beautiful behind"},
+		{"これは広告です", "これは宣伝です"},
+		{"class assistant passage bass glass", "class assistant passage bass glass"},
+		{"", ""},
+	} {
+		if got := Replace(r, c.text, picks(0)); got != c.want {
+			t.Errorf("%q: %q, want %q", c.text, got, c.want)
+		}
+	}
+	// One of the replacements at random, for each match.
+	if got := Replace(r, "nice ass, nice ass", picks(1, 0)); got != "lovely posterior, beautiful behind" {
+		t.Errorf("random: %q", got)
+	}
+	if got := Replace(Rules{}, "nice ass", picks(0)); got != "nice ass" {
+		t.Errorf("no rules: %q", got)
+	}
+}
+
+func TestNormalizeReplacements(t *testing.T) {
+	got, err := Normalize(Rules{Replacements: []Replacement{
+		{Phrase: " nice   ass ", With: []string{" beautiful  behind ", "", "lovely posterior", "beautiful behind"}},
+		{Phrase: "Nice a s s", With: []string{"twice"}}, // the same phrase
+		{Phrase: "butt", With: []string{"🍑", "it's a bottom, really!"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Replacement{
+		{Phrase: "butt", With: []string{"🍑", "it's a bottom, really!"}},
+		{Phrase: "nice ass", With: []string{"beautiful behind", "lovely posterior"}},
+	}
+	if !slices.EqualFunc(got.Replacements, want, func(a, b Replacement) bool { return a.Phrase == b.Phrase && slices.Equal(a.With, b.With) }) {
+		t.Errorf("%q, want %q", got.Replacements, want)
+	}
+	if empty, _ := Normalize(Rules{}); empty.Replacements == nil {
+		t.Error("nil list")
+	}
+	// Plain text only: nothing a message would format, link or mention.
+	for _, with := range []string{"", "**bold**", "_x_", "~~x~~", "`x`", "||x||", "@everyone", "#general", ":smile:", "<b>", "a > b", "https://x.example", "a | b", strings.Repeat("a", maxEntry+1)} {
+		if _, err := Normalize(Rules{Replacements: []Replacement{{Phrase: "x", With: []string{with}}}}); err == nil {
+			t.Errorf("%q: no error", with)
+		}
+	}
+	for _, bad := range []Replacement{{Phrase: "x"}, {Phrase: "c++", With: []string{"y"}}, {Phrase: "", With: []string{"y"}}} {
+		if _, err := Normalize(Rules{Replacements: []Replacement{bad}}); err == nil {
 			t.Errorf("%+v: no error", bad)
 		}
 	}
