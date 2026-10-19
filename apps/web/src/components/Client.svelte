@@ -34,7 +34,7 @@
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
-  import { hiddenMembers, offlineMembers, pictureNames } from "../lib/members";
+  import { hiddenMembers, offlineMembers, pictureNames, readerGroups } from "../lib/members";
   import { adminAction, moderatorAction, roleOf } from "../lib/roles";
   import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../lib/guests";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
@@ -757,6 +757,14 @@
   // cannot see (built-in server), for the member list.
   const offline = $derived(text.voiceChats ? offlineMembers(text.members, text.online, users) : []);
   const hidden = $derived(text.voiceChats ? hiddenMembers(text.members, text.online, users) : []);
+  // In a private text or voice channel: who reads it (null: not private).
+  const privateMembers = $derived.by(() => {
+    const access = textId !== null ? textChannel?.mumble : view.kind === "voice" && dm === null ? channelId : undefined;
+    return access === undefined ? undefined : text.private[access];
+  });
+  const readers = $derived(
+    privateMembers && readerGroups(privateMembers, text.roles, text.members, text.online, users, me?.userId ?? null),
+  );
   // Open user menu: of a user we see (session) or a member we do not see
   // (user id).
   type MenuAt = { x: number; y: number };
@@ -1483,6 +1491,7 @@
       {statusOf}
       {offline}
       {hidden}
+      {readers}
       onMemberMenu={openMemberMenu}
       here={users.filter((u) => u.channelId === channelId)}
       elsewhere={users.filter((u) => u.channelId !== channelId)}
