@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCustomEmojiImages,
+  jumboEmoji,
   customEmojiSet,
   customEntries,
   customName,
@@ -128,5 +129,22 @@ describe("adding custom emoji", () => {
     expect(emojiNameFromFile("Party Parrot.gif")).toBe("party_parrot");
     expect(emojiNameFromFile("über-cool!!.png")).toBe("ber_cool");
     expect(emojiNameFromFile(`${"x".repeat(40)}.png`)).toBe("x".repeat(32));
+  });
+});
+
+describe("jumboEmoji", () => {
+  const urls = new Map([["cat", "/e/cat.png"]]);
+  it("is true for a text of only emoji", () => {
+    expect(jumboEmoji("🎉", urls)).toBe(true);
+    expect(jumboEmoji(" :cat: 👍🏽 ", urls)).toBe(true);
+    expect(jumboEmoji("❤️:cat:", urls)).toBe(true);
+  });
+  it("is false with other text, unknown custom names or too many", () => {
+    expect(jumboEmoji("nice 🎉", urls)).toBe(false);
+    expect(jumboEmoji(":dog:", urls)).toBe(false);
+    expect(jumboEmoji("", urls)).toBe(false);
+    expect(jumboEmoji("   ", urls)).toBe(false);
+    expect(jumboEmoji("🎉".repeat(27), urls)).toBe(true);
+    expect(jumboEmoji("🎉".repeat(28), urls)).toBe(false);
   });
 });

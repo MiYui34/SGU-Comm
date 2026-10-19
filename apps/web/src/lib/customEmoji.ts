@@ -1,4 +1,5 @@
 import { getContext, setContext } from "svelte";
+import { emojiParts } from "./emoji";
 import type { EmojiEntry } from "./emojiPicker";
 
 // Custom server emoji: a name and an image on the server. In messages and
@@ -12,6 +13,7 @@ export type CustomEmojiSet = { list: CustomEmoji[]; urls: ReadonlyMap<string, st
 export const CUSTOM_NAME = "[a-z0-9_]{2,32}";
 const NAME = new RegExp(`^${CUSTOM_NAME}$`);
 const IN_COLONS = new RegExp(`^:(${CUSTOM_NAME}):$`);
+const ANY_IN_COLONS = new RegExp(`:(${CUSTOM_NAME}):`, "g");
 const MAX_EMOJI = 200;
 const MAX_BYTES = 256 * 1024;
 export const EMOJI_TYPES = ["image/png", "image/gif", "image/webp", "image/jpeg"];
@@ -101,3 +103,15 @@ const KEY = Symbol("customEmoji");
 const NONE: CustomEmojiSet = { list: [], urls: new Map() };
 export const setCustomEmoji = (get: () => CustomEmojiSet) => setContext(KEY, get);
 export const customEmojiFor = (): (() => CustomEmojiSet) => getContext<(() => CustomEmojiSet) | undefined>(KEY) ?? (() => NONE);
+
+// Only emoji (Unicode or known custom ones; spaces between them), at most
+// 27: the message shows them large, as Discord does.
+export const jumboEmoji = (text: string, urls: ReadonlyMap<string, string>) => {
+  let count = 0;
+  const rest = text.replace(ANY_IN_COLONS, (all, name: string) => (urls.has(name) ? (count++, " ") : all));
+  for (const part of emojiParts(rest, "")) {
+    if ("emoji" in part) count++;
+    else if (part.text.trim()) return false;
+  }
+  return count > 0 && count <= 27;
+};

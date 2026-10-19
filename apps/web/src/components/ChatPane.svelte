@@ -11,7 +11,7 @@
   import { hideSpoilers, revealSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
-  import { customEmojiFor, customEntries, knownEmoji } from "../lib/customEmoji";
+  import { customEmojiFor, customEntries, jumboEmoji, knownEmoji } from "../lib/customEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -1031,7 +1031,7 @@
       <span class="hint">Escape to cancel, Enter to save, Shift+Enter for a new line</span>
     </form>
   {:else if m.text}
-    <div class="text">
+    <div class="text" class:jumbo={jumboEmoji(m.text, custom.urls)}>
       {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok, custom.urls)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
@@ -1410,6 +1410,12 @@
   }
   .text :global(a) {
     color: var(--link);
+  }
+  /* Only emoji: large, as in Discord (48px). */
+  .text.jumbo :global(img.emoji) {
+    width: 3em;
+    height: 3em;
+    vertical-align: bottom;
   }
   .text :global(img:not(.emoji)) {
     max-width: 400px;

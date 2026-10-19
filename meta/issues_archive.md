@@ -194,3 +194,4 @@
 - [x] [Word and link filter](issues/word-link-filter.md)
 - [x] [Captcha on registration](issues/registration-captcha.md)
 - [x] [Dialog headers stay in view](issues/sticky-dialog-header.md)
+- [x] [Jumbo emoji](issues/jumbo-emoji.md)
