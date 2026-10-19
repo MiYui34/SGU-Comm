@@ -210,3 +210,4 @@
 - [x] [Collapse very long messages](issues/long-message-collapse.md)
 - [x] [Join and leave sounds](issues/join-leave-sounds.md)
 - [x] [Who can read a private channel](issues/private-channel-readers.md)
+- [x] [Word replacements](issues/word-replacements.md)

@@ -8,7 +8,6 @@
   - [ ] [Several servers in one client](issues/multiple-servers.md)
 - [ ] [Desktop: message and invite links use the server's address](issues/desktop-links.md)
 - [ ] [Music mode](issues/music-mode.md)
-- [ ] [Word replacements](issues/word-replacements.md)
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
