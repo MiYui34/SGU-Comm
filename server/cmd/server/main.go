@@ -27,6 +27,7 @@ import (
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/preview"
+	"kallisti.chat/server/internal/recording"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
@@ -131,7 +132,10 @@ func run() error {
 			mumble.srv.AccountPermanent(name) // its users may write again
 			hub.AccountPermanent(name)
 		}
-		cleanup = func(now time.Time) { cleanGuests(db, now, mumble.srv.Unregister) }
+		cleanup = func(now time.Time) {
+			cleanGuests(db, now, mumble.srv.Unregister)
+			mumble.recordings.Clean()
+		}
 		if cfg.Builtin.Password == "" { // a private server keeps them private
 			avatars = mumble.db.Avatars()
 		}
@@ -190,6 +194,9 @@ func run() error {
 		mux.Handle("/api/stream", &stream.Handler{
 			Hub: builtinServer.streams, Redeem: builtinServer.streamTokens.Redeem,
 			AllowedOrigins: cfg.AllowedOrigins, BytesPerSecond: streamBytesPerSecond,
+		})
+		mux.Handle("/api/recordings/", &recording.Handler{
+			Library: builtinServer.recordings, Redeem: builtinServer.recordingTokens.Redeem, MayDownload: builtinServer.srv.MayRecord,
 		})
 	}
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything

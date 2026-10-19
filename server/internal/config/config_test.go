@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -95,6 +96,9 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MAX_CONNECTIONS_PER_IP": "-1"}, "MAX_CONNECTIONS_PER_IP must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "UPLOAD_MAX_MB": "big"}, "UPLOAD_MAX_MB must be a positive integer"},
 		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "BACKUP_KEEP": "0"}, "BACKUP_KEEP must be a positive integer"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_MAX_MINUTES": "0"}, "RECORDING_MAX_MINUTES must be a positive integer"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_MAX_MB": "x"}, "RECORDING_MAX_MB must be a positive integer"},
+		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_KEEP_DAYS": "-1"}, "RECORDING_KEEP_DAYS must be a positive integer"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))
@@ -134,7 +138,8 @@ func TestTheBuiltInServerIsTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &Builtin{Listen: ":64738", ServerName: "Kallisti", MaxUsers: 100, CertDir: "/data"}
+	want := &Builtin{Listen: ":64738", ServerName: "Kallisti", MaxUsers: 100, CertDir: "/data",
+		RecordingDir: "/data/recordings", RecordingMax: 4 * time.Hour, RecordingMaxBytes: 1 << 30, RecordingKeep: 7 * 24 * time.Hour}
 	if !reflect.DeepEqual(got.Builtin, want) {
 		t.Errorf("got %+v, want %+v", got.Builtin, want)
 	}
@@ -143,9 +148,11 @@ func TestTheBuiltInServerIsTheDefault(t *testing.T) {
 		"MUMBLE_WELCOME": "Hi!", "MUMBLE_PASSWORD": "pw", "MUMBLE_MAX_USERS": "20",
 		"MUMBLE_MAX_PER_IP": "5", "CERT_DIR": "/certs",
 		"MUMBLE_CERT_FILE": "/le/c.crt", "MUMBLE_KEY_FILE": "/le/c.key",
+		"RECORDING_DIR": "/rec", "RECORDING_MAX_MINUTES": "90", "RECORDING_MAX_MB": "200", "RECORDING_KEEP_DAYS": "2",
 	}))
 	want = &Builtin{Listen: "0.0.0.0:7000", ServerName: "Our place", Welcome: "Hi!", Password: "pw",
-		MaxUsers: 20, MaxPerIP: 5, CertDir: "/certs", CertFile: "/le/c.crt", KeyFile: "/le/c.key"}
+		MaxUsers: 20, MaxPerIP: 5, CertDir: "/certs", CertFile: "/le/c.crt", KeyFile: "/le/c.key",
+		RecordingDir: "/rec", RecordingMax: 90 * time.Minute, RecordingMaxBytes: 200 << 20, RecordingKeep: 2 * 24 * time.Hour}
 	if !reflect.DeepEqual(got.Builtin, want) {
 		t.Errorf("got %+v, want %+v", got.Builtin, want)
 	}
