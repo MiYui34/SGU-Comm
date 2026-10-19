@@ -1078,3 +1078,28 @@ From `meta/research/discord-comparison.md`.
   come before ServerSync, so the web client plays voice only once
   synced (local mutes and volumes are set then).
 - Not measured: WebKitGTK (Chromium only), the desktop app's UDP voice.
+
+## DM context menu (2026-10-19)
+
+- Right-click, long press or the context-menu key on a direct chat in
+  the sidebar: Profile, Mark as read (only when unread), Mute (the
+  channel durations), Pin to top / Unpin, Close conversation. No
+  delete: the other person keeps the chat. ChannelMenu got a `direct`
+  mode instead of a second menu component (same styles, same mute block).
+- Closed and pinned chats are kept on the device (localStorage
+  `directChats`, per server), like channel mutes. Closed stores the
+  newest message id at close time: a newer message lists the chat
+  again, and so does opening it (user menu "Message", a link). Pure
+  logic in lib/directList.ts. Server-side (per account, synced) would
+  need a new table: read_marks_by_user only holds a message id per chat,
+  so it cannot store "closed" or a pin order. A later option.
+- Mutes reuse channelPrefs with the DM's chat id. A muted DM has no
+  desktop notification, no sound, no badge or bold and no tab title
+  count. Only mutes "until I turn it back on" go to the push "quiet"
+  list: the client sends the list only while a tab is open, so a timed
+  mute would stay quiet on the server after it ended. Notification levels are not offered:
+  every DM message is for us, so only mute makes sense.
+- Closing marks the chat read: else its unread count stays in the tab
+  title with no row to show it.
+- Gap: Ctrl+K does not find a closed chat whose partner is offline (an
+  online one shows as a user).
