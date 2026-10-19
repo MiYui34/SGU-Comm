@@ -20,12 +20,14 @@ import (
 // the voice connection so video never delays voice. The first message is
 // {"type":"auth","token":...} with a token from the sidecar; then text
 // commands (start, stop, watch, unwatch) and, from a streamer, binary
-// frames (see Hub.Frame).
+// frames (see Hub.Frame). Commands about the streamer's own stream say
+// "camera": true for its camera; "session" names a watched stream by id.
 type Handler struct {
 	Hub            *Hub
 	Redeem         func(token string) (session uint32, ok bool)
 	AllowedOrigins []string
-	// A streamer's upload, at most (frames above it are dropped).
+	// A streamer's upload (screen and camera together), at most (frames
+	// above it are dropped).
 	BytesPerSecond int
 }
 
@@ -43,7 +45,7 @@ const (
 type command struct {
 	Type    string `json:"type"`
 	Token   string `json:"token"`
-	Session uint32 `json:"session"` // watch, unwatch: the streamer
+	Session uint32 `json:"session"` // watch, unwatch, keyframe: the stream's id
 	Image   string `json:"image"`   // preview
 	Config
 }
@@ -84,7 +86,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Hub.Connect(session, c)
 	defer h.Hub.Disconnect(session, c)
 	go c.write(ctx, ws)
-	c.SendText(map[string]any{"type": "ready"})
+	// With the limits, for the streamer's encoders.
+	c.SendText(map[string]any{"type": "ready", "limits": map[string]any{"bytesPerSecond": h.BytesPerSecond, "maxSide": maxSide}})
 	bytes := rate.NewLimiter(rate.Limit(h.BytesPerSecond), 2*h.BytesPerSecond)
 	texts := rate.NewLimiter(textsPerSec, 2*textsPerSec)
 	sounds := rate.NewLimiter(soundsPerSec, soundsPerSec/2)
@@ -100,7 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if bytes.AllowN(time.Now(), len(data)) {
 				h.Hub.Frame(session, data)
 			} else {
-				h.Hub.Dropped(session)
+				h.Hub.Dropped(FrameID(session, data))
 			}
 			continue
 		}
@@ -111,12 +114,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch cmd.Type {
 		case "start":
 			if err := h.Hub.Start(session, cmd.Config); err != nil {
-				c.SendText(map[string]any{"type": "error", "message": err.Error()})
+				c.SendText(map[string]any{"type": "error", "message": err.Error(), "camera": cmd.Camera})
 			} else {
-				c.SendText(map[string]any{"type": "started"})
+				c.SendText(map[string]any{"type": "started", "camera": cmd.Camera})
 			}
 		case "stop":
-			h.Hub.Stop(session)
+			h.Hub.Stop(ID(session, cmd.Camera))
 		case "watch":
 			if err := h.Hub.Watch(session, cmd.Session); err != nil {
 				c.SendText(map[string]any{"type": "error", "message": err.Error(), "session": cmd.Session})
@@ -124,7 +127,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "unwatch":
 			h.Hub.Unwatch(session, cmd.Session)
 		case "preview":
-			h.Hub.SetPreview(session, cmd.Image) // a bad one is dropped
+			h.Hub.SetPreview(ID(session, cmd.Camera), cmd.Image) // a bad one is dropped
 		case "keyframe": // a viewer's decoder needs one
 			h.Hub.RequestKey(session, cmd.Session)
 		}
