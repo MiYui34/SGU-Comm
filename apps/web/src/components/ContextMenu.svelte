@@ -44,8 +44,11 @@
     if (next && !menu?.contains(next)) onClose();
   };
 
-  // Arrow keys move between the items that can be used.
+  // Arrow keys move between the items that can be used (sliders and
+  // selects keep theirs).
   const move = (event: KeyboardEvent) => {
+    const from = event.target as HTMLElement;
+    if (from !== menu && from.tagName !== "BUTTON") return;
     const items = [...(menu?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
     const next = menuStep(event.key, items.indexOf(document.activeElement as HTMLElement), items.length);
     if (next === null) return;
