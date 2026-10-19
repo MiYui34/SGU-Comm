@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import Icon from "./Icon.svelte";
-  import { gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
+  import { fullScreenStep, gridColumns, nextFocus, stripOf, type StageView } from "../lib/stream/layout";
   import { createPip } from "../lib/stream/pip";
 
   // The screen shares being watched, above the chat (as Discord's call
@@ -52,8 +52,9 @@
   };
 
   const fullScreen = (el: Element | null | undefined) => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el?.requestFullscreen();
+    if (!el) return;
+    if (fullScreenStep(document.fullscreenElement, el) === "exit") void document.exitFullscreen();
+    else void el.requestFullscreen();
   };
 
   // Picture-in-picture: the canvas's picture in a video element of its own

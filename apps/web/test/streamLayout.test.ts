@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridColumns, nextFocus, stripOf } from "../src/lib/stream/layout";
+import { fullScreenStep, gridColumns, nextFocus, stripOf } from "../src/lib/stream/layout";
 
 describe("gridColumns", () => {
   it("is one column for one tile or none", () => {
@@ -49,5 +49,15 @@ describe("stripOf", () => {
   it("is the others, in order", () => {
     expect(stripOf([3, 1, 2], 1)).toEqual([3, 2]);
     expect(stripOf([3, 1], null)).toEqual([3, 1]);
+  });
+});
+
+describe("fullScreenStep", () => {
+  it("puts the element in full screen, also from the full screen stage", () => {
+    expect(fullScreenStep(null, "tile")).toBe("enter");
+    expect(fullScreenStep("stage", "tile")).toBe("enter");
+  });
+  it("leaves full screen when the element is in it", () => {
+    expect(fullScreenStep("tile", "tile")).toBe("exit");
   });
 });
