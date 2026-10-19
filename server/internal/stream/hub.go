@@ -133,7 +133,7 @@ func (h *Hub) Disconnect(session uint32, s Sink) {
 	for s, st := range h.streams {
 		h.dropViewerLocked(s, st, session)
 	}
-	ended := h.endSharedLocked(session)
+	ended := h.endConnectionLocked(session)
 	h.mu.Unlock()
 	if ended {
 		h.changed()
@@ -187,7 +187,7 @@ func (h *Hub) mayStreamLocked(session uint32) (uint32, error) {
 
 func (h *Hub) Stop(session uint32) {
 	h.mu.Lock()
-	ended := h.endSharedLocked(session)
+	ended := h.endConnectionLocked(session)
 	h.mu.Unlock()
 	if ended {
 		h.changed()
@@ -393,9 +393,9 @@ func (h *Hub) endLocked(session uint32) bool {
 	return true
 }
 
-// endSharedLocked ends a stream that the streamer's connection feeds (not
+// endConnectionLocked ends a stream that the streamer's connection feeds (not
 // an ingest).
-func (h *Hub) endSharedLocked(session uint32) bool {
+func (h *Hub) endConnectionLocked(session uint32) bool {
 	if st := h.streams[session]; st != nil && st.ingest != nil {
 		return false
 	}

@@ -22,13 +22,19 @@ type IngestHooks struct {
 	Ended    func() // the hub ended the stream (a move, a leave, Speak gone)
 }
 
-// MayStream: the session is in a voice channel and may speak there.
+// MayStream: the session is in a voice channel, may speak there and does
+// not share its screen (an ingest of it may be replaced).
 func (h *Hub) MayStream(session uint32) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if st := h.streams[session]; st != nil && st.ingest == nil {
+		return errSharing
+	}
 	_, err := h.mayStreamLocked(session)
 	return err
 }
+
+var errSharing = errors.New("you are sharing your screen already")
 
 // StartIngest begins an ingest stream in the streamer's voice channel
 // (needs Speak, and no screen share of the session).
@@ -39,7 +45,7 @@ func (h *Hub) StartIngest(session uint32, c Config, hooks IngestHooks) (*Ingest,
 	h.mu.Lock()
 	channel, err := h.mayStreamLocked(session)
 	if err == nil && h.streams[session] != nil {
-		err = errors.New("you are sharing your screen already")
+		err = errSharing
 	}
 	if err != nil {
 		h.mu.Unlock()

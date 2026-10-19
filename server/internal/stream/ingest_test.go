@@ -123,8 +123,14 @@ func TestIngestIsNotTheConnections(t *testing.T) {
 	}
 	// And a screen share is not replaced by an ingest.
 	h.Start(3, Config{Codec: "vp8", Width: 640, Height: 360})
+	if err := h.MayStream(3); err == nil {
+		t.Fatal("may stream from OBS while sharing the screen")
+	}
 	if _, err := h.StartIngest(3, obs, k.hooks()); err == nil {
 		t.Fatal("an ingest replaced a screen share")
+	}
+	if err := h.MayStream(1); err != nil { // its ingest: a new one replaces it
+		t.Fatal(err)
 	}
 }
 
