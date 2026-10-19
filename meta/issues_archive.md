@@ -208,3 +208,4 @@
 - [x] [Direct messages: context menu](issues/dm-context-menu.md)
 - [x] [Screen sharing and camera streams (Go Live)](issues/streaming.md)
 - [x] [Collapse very long messages](issues/long-message-collapse.md)
+- [x] [Join and leave sounds](issues/join-leave-sounds.md)

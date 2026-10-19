@@ -11,7 +11,6 @@
 - [ ] [Word replacements](issues/word-replacements.md)
 - [ ] [Who can read a private channel](issues/private-channel-readers.md)
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
-- [ ] [Join and leave sounds](issues/join-leave-sounds.md)
 - [ ] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
