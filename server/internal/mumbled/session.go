@@ -451,6 +451,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		AllowHtml: proto.Bool(false), MessageLength: proto.Uint32(maxTextLength),
 		ImageMessageLength: proto.Uint32(maxTextLength), MaxUsers: proto.Uint32(uint32(s.maxUsers())),
 	})
+	s.tellRecordingLocked(c.session, u.Channel)
 	return nil
 }
 
@@ -589,6 +590,7 @@ func userStateMsg(u *User) *pb.UserState {
 
 // broadcastRemovedLocked tells those who saw them about removed channels.
 func (s *Server) broadcastRemovedLocked(removed []uint32) {
+	s.stopRecordingsLocked(removed, "channel deleted")
 	for _, id := range removed {
 		frame := mumble.MessageFrame(mumble.TypeChannelRemove, &pb.ChannelRemove{ChannelId: proto.Uint32(id)})
 		for _, c := range s.clients {
