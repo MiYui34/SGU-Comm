@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,11 +13,13 @@ import (
 )
 
 // Session 1 is an admin (staff); sessions in guests are guests.
-func (f *fakeVoice) CheckMessage(session uint32, m msgrules.Message) error {
+// Word replacements take the first replacement.
+func (f *fakeVoice) CheckMessage(session uint32, m msgrules.Message) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checked = append(f.checked, m)
-	return msgrules.Check(f.rules, msgrules.Author{Staff: session == 1, Guest: f.guests[session]}, m, clock, time.Time{})
+	m.Text = msgrules.Replace(f.rules, m.Text, func(int) int { return 0 })
+	return m.Text, msgrules.Check(f.rules, msgrules.Author{Staff: session == 1, Guest: f.guests[session]}, m, clock, time.Time{})
 }
 
 func (f *fakeVoice) MessageRules(session uint32) (msgrules.Rules, error) {
@@ -126,6 +129,31 @@ func TestMessageRulesOnSendEditAndUpload(t *testing.T) {
 	}
 }
 
+func TestWordReplacementsOnSendAndEdit(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{rules: msgrules.Rules{Replacements: []msgrules.Replacement{{Phrase: "nice ass", With: []string{"beautiful behind"}}}}}, "")
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 20})
+	ch := strconv.FormatInt(h.channels[0].ID, 10)
+	// The author gets the posted text like everyone.
+	bob.Handle([]byte(`{"type":"send","channel":` + ch + `,"text":"what a Nice a s s"}`))
+	m := next(t, bob)
+	if m["type"] != "message" || m["message"].(map[string]any)["text"] != "what a Beautiful behind" {
+		t.Fatalf("send: %v", m)
+	}
+	id := strconv.FormatInt(int64(m["message"].(map[string]any)["id"].(float64)), 10)
+	bob.Handle([]byte(`{"type":"edit-message","message":` + id + `,"text":"so nice ass"}`))
+	next(t, bob)
+	if m, _ := h.store.MessageByID(mustID(t, id)); m.Text != "so beautiful behind" {
+		t.Fatalf("edited to %q", m.Text)
+	}
+	// Too long with the replacement: refused, the text back to the composer.
+	long := strings.Repeat("x", MaxTextLength-9) + " nice ass"
+	bob.Handle([]byte(`{"type":"send","channel":` + ch + `,"text":"` + long + `"}`))
+	if m := next(t, bob); m["about"] != "refused" || m["text"] != long || !strings.Contains(m["message"].(string), "too long") {
+		t.Fatalf("long: %v", m)
+	}
+}
+
 func mustID(t *testing.T, s string) int64 {
 	t.Helper()
 	id, err := strconv.ParseInt(s, 10, 64)
@@ -147,5 +175,8 @@ func TestMessageRulesSendsEmptyLists(t *testing.T) {
 	}
 	if _, ok := r["domains"].([]any); !ok {
 		t.Fatalf("domains %v", r["domains"])
+	}
+	if _, ok := r["replacements"].([]any); !ok {
+		t.Fatalf("replacements %v", r["replacements"])
 	}
 }

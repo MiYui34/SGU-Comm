@@ -123,9 +123,10 @@ type Voice interface {
 	Captcha() string
 	// Connections: every connection over the recent window (admins).
 	Connections(session uint32) ([]Connection, error)
-	// CheckMessage: why the message rules refuse a session's message (nil:
-	// they do not). MessageRules, SetMessageRules: the rules (admins).
-	CheckMessage(session uint32, m msgrules.Message) error
+	// CheckMessage: a session's message to post (with the word
+	// replacements), or why the message rules refuse it. MessageRules,
+	// SetMessageRules: the rules (admins).
+	CheckMessage(session uint32, m msgrules.Message) (string, error)
 	MessageRules(session uint32) (msgrules.Rules, error)
 	SetMessageRules(session uint32, r msgrules.Rules) (msgrules.Rules, error)
 }
@@ -541,7 +542,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.overLimit(*id, req)
 		return
 	}
-	if c.readOnly(*id, req) || c.refused(*id, req) {
+	if c.readOnly(*id, req) || c.refused(*id, &req) {
 		return
 	}
 	if req.Type == "upload-token" {
