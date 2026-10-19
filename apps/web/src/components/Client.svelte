@@ -382,8 +382,8 @@
   $effect(() =>
     onPlace?.({ view, voice: voiceOn ? channelId : null, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
-  // Voice sounds (see sounds.ts), not for about 3 s after a reconnect:
-  // everyone comes back at once, and we go back into voice.
+  // Mute and deafen sounds (see sounds.ts), not for about 3 s after a
+  // reconnect: we restore our mute and deafen then.
   let soundState: VoiceSnapshot | null = null;
   let lastSound = -Infinity;
   let restored = false;

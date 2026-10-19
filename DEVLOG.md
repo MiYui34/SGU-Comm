@@ -1274,3 +1274,8 @@ From `meta/research/discord-comparison.md`.
   make a word of initials ("A. S. S."); Hangul as separate jamo and
   half-width kana with separate marks do not match; the rules' entries
   are folded again for each message (fast enough for 500).
+
+## Join and leave sounds dropped (2026-10-20)
+
+- Users found the join and leave sounds annoying; they are gone (ours and
+  others'). Mute and deafen sounds stay: they confirm one's own action.

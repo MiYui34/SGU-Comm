@@ -33,7 +33,7 @@ export type Settings = {
   // of stream (also changed while live).
   cameraDeviceId: string | null;
   streamQuality: Record<Kind, Quality>;
-  // Join, leave, mute and deafen sounds (see sounds.ts), volume 0 to 1.
+  // Mute and deafen sounds (see sounds.ts), volume 0 to 1.
   sounds: boolean;
   soundVolume: number;
 };

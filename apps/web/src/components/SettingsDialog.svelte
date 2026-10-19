@@ -278,7 +278,7 @@
   <label class="check">
     <input type="checkbox" checked={settings.sounds} onchange={(e) => onChange({ sounds: e.currentTarget.checked })} />
     <span>Sounds</span>
-    <span class="hint">When someone joins or leaves your voice channel, when you join or leave, mute or deafen. None while deafened.</span>
+    <span class="hint">When you mute or deafen yourself, and undeafen.</span>
   </label>
   {#if settings.sounds}
     <label>
