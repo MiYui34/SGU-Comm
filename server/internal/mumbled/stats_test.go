@@ -2,6 +2,8 @@ package mumbled
 
 import (
 	"bytes"
+	"io"
+	"net"
 	"net/netip"
 	"testing"
 
@@ -41,12 +43,27 @@ func TestVoiceSequenceCountsGapsAndLateFrames(t *testing.T) {
 }
 
 func TestAFullQueueDropsVoiceAndCountsIt(t *testing.T) {
-	c := &client{out: make(chan []byte, 1)}
+	c := &client{voice: make(chan []byte, 1)}
 	for range 3 {
 		c.send([]byte{1}, true)
 	}
 	if got := c.dropped.Load(); got != 2 {
 		t.Fatalf("dropped %d", got)
+	}
+}
+
+// Voice overtakes queued frames (avatars, history), as it would over UDP.
+func TestVoiceOvertakesQueuedFrames(t *testing.T) {
+	conn, peer := net.Pipe()
+	defer peer.Close()
+	c := &client{conn: conn, out: make(chan []byte, 4), voice: make(chan []byte, 4)}
+	c.send([]byte("a"), false)
+	c.send([]byte("b"), false)
+	c.send([]byte("v"), true)
+	go c.writer()
+	got := make([]byte, 3)
+	if _, err := io.ReadFull(peer, got); err != nil || string(got) != "vab" {
+		t.Fatalf("got %q %v", got, err)
 	}
 }
 

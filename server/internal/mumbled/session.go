@@ -320,6 +320,7 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 	c := &client{
 		conn:          conn,
 		out:           make(chan []byte, queueSize),
+		voice:         make(chan []byte, queueSize),
 		name:          id.name,
 		limiter:       rate.NewLimiter(messageLimit, messageBurst),
 		bandwidth:     rate.NewLimiter(maxBandwidth/8, maxBandwidth/8),

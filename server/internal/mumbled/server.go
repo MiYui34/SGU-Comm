@@ -190,6 +190,7 @@ type client struct {
 	conn      net.Conn
 	closeOnce sync.Once
 	out       chan []byte
+	voice     chan []byte // voice frames: sent before out (see writer)
 	session   uint32
 	name      string
 	host      netip.Addr
@@ -380,14 +381,18 @@ func (c *client) close() {
 // send queues a frame. A full queue drops voice; for anything else the
 // client is too slow and is disconnected.
 func (c *client) send(frame []byte, voice bool) {
+	if voice {
+		select {
+		case c.voice <- frame:
+		default:
+			c.dropped.Add(1)
+		}
+		return
+	}
 	select {
 	case c.out <- frame:
 	default:
-		if voice {
-			c.dropped.Add(1)
-		} else {
-			c.close()
-		}
+		c.close()
 	}
 }
 
@@ -404,9 +409,23 @@ func (c *client) sendMsg(typ uint16, m proto.Message) {
 	c.send(mumble.MessageFrame(typ, m), false)
 }
 
-// writer sends the queue until closeAfterFlush or a write error.
+// writer sends the queues until closeAfterFlush or a write error. Voice
+// goes first: queued avatars or a big state would hold it back for
+// seconds on a slow link. As over UDP, it may come before the state that
+// introduces its speaker, even before ServerSync (clients wait for that).
+// On a link too slow for the voice, the other queue fills and the client
+// is dropped, as before.
 func (c *client) writer() {
-	for b := range c.out {
+	for {
+		var b []byte
+		select {
+		case b = <-c.voice:
+		default:
+			select {
+			case b = <-c.voice:
+			case b = <-c.out:
+			}
+		}
 		if b == nil { // closeAfterFlush
 			c.close()
 			return
