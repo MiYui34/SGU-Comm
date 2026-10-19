@@ -145,7 +145,7 @@
     justify-content: space-between;
   }
   header {
-    margin-bottom: 8px;
+    padding-bottom: 8px;
   }
   footer {
     justify-content: flex-end;

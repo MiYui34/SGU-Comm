@@ -376,7 +376,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    padding-bottom: 12px;
   }
   h2 {
     margin: 0;

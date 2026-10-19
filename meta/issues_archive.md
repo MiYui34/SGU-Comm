@@ -193,3 +193,4 @@
 - [x] [Limits for new accounts](issues/new-account-limits.md)
 - [x] [Word and link filter](issues/word-link-filter.md)
 - [x] [Captcha on registration](issues/registration-captcha.md)
+- [x] [Dialog headers stay in view](issues/sticky-dialog-header.md)

@@ -393,7 +393,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 16px;
+    padding-bottom: 16px;
   }
   h2 {
     margin: 0;

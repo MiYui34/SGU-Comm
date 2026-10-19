@@ -102,6 +102,18 @@ button:disabled {
   outline-offset: 2px;
 }
 
+/* Dialogs scroll, their header (title and close button) stays: it
+   covers the dialog's top padding (24px in every dialog). */
+dialog > header,
+dialog > form > header {
+  position: sticky;
+  top: -24px;
+  z-index: 1;
+  margin-top: -24px;
+  padding-top: 24px;
+  background: var(--bg-main);
+}
+
 /* Text for screen readers only. */
 .sr-only {
   position: absolute;
