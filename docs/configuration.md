@@ -89,8 +89,9 @@ Used unless `MUMBLE_HOST` is set.
 ### Streams from OBS (WHIP)
 
 Users stream from OBS 30 or newer (or another WHIP encoder) into their voice
-channel; it shows like a screen share. Each user makes a stream key in
-Settings → "Stream from OBS", which also shows the server address
+channel; it shows like a screen share. Each user makes a stream key in a
+voice channel: voice bar → "Go live" → "Stream from OBS…", which also
+shows the server address
 (`https://<your domain>/api/whip`) and the OBS settings. Off unless
 `WHIP_UDP_PORT` is set (`deploy/compose.yml` sets it).
 

@@ -73,6 +73,7 @@
   import { shareSources } from "../lib/stream/client.svelte";
   import { ownerOf } from "../lib/stream/protocol";
   import { KINDS, qualityOptions, type Kind, type Quality } from "../lib/stream/quality";
+  import { goLiveEntries, isLive, streamBlock, type GoLiveAction } from "../lib/stream/goLive";
   import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
@@ -95,6 +96,7 @@
   import { inviteLink, invitePlace, parseInviteLink } from "../lib/invites";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
+  import ObsDialog from "./ObsDialog.svelte";
   import { mayRecord } from "../lib/recording";
 
   let {
@@ -888,6 +890,27 @@
   });
   const setStreamQuality = (kind: Kind, q: Quality) => settings.update({ streamQuality: { ...prefs.streamQuality, [kind]: q } });
   const toggleStream = (kind: Kind) => (streamClient?.sharing[kind] ? streamClient.stopSharing(kind) : void streamClient?.startSharing(kind));
+  // The "Go live" menu. A stream from OBS is our screen share on the server;
+  // OBS needs an account with a password and the server's WHIP.
+  let whip = $state(false);
+  let showObs = $state(false);
+  $effect(() => {
+    if (account && !account.temporary) void account.streamKey().then((k) => (whip = k.enabled));
+  });
+  const goLive = $derived.by(() => {
+    const sharing = streamClient?.sharing ?? { screen: false, camera: false };
+    const obsLive = !sharing.screen && me !== undefined && liveSessions.has(me.session);
+    const state = {
+      sharing,
+      obsLive,
+      sources: streamClient && text.voiceChats ? shareable : { screen: false, camera: false },
+      whip,
+      password: !!account && !account.temporary,
+      blocked: me ? streamBlock(me, server.channelPermissions[channelId]) : null,
+    };
+    return { entries: goLiveEntries(state), live: isLive(state), obsLive };
+  });
+  const onGoLive = (action: GoLiveAction) => (action === "obs" ? (showObs = true) : toggleStream(action));
   // The camera switch shows with more than one camera.
   let cameraCount = $state(0);
   $effect(() => {
@@ -1163,6 +1186,10 @@
   />
 {/if}
 
+{#if showObs && account}
+  <ObsDialog {account} live={goLive.obsLive} onClose={() => (showObs = false)} />
+{/if}
+
 {#if showSettings}
   <SettingsDialog
     settings={prefs}
@@ -1262,10 +1289,9 @@
           onLeave={leaveVoice}
           music={musicMode}
           info={connection.info}
-          sharing={streamClient?.sharing.screen ?? false}
-          onShare={streamClient && text.voiceChats && shareable.screen ? () => toggleStream("screen") : undefined}
-          camera={streamClient?.sharing.camera ?? false}
-          onCamera={streamClient && text.voiceChats && shareable.camera ? () => toggleStream("camera") : undefined}
+          live={goLive.live}
+          entries={goLive.entries}
+          {onGoLive}
         />
       {/if}
       <UserPanel

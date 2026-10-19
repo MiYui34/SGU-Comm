@@ -1,22 +1,23 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
   import ConnectionInfo from "./ConnectionInfo.svelte";
   import type { ConnectionInfo as Info } from "../lib/connectionInfo.svelte";
+  import type { GoLiveAction, GoLiveEntry } from "../lib/stream/goLive";
 
   // Above the user panel while in a voice channel, as in Discord: where you
-  // are, and the button to leave.
-  // onShare, onCamera: share the screen or the camera, or stop (undefined:
-  // not possible here). music: music mode is on (see Settings.musicMode).
-  // info: the connection's quality (see ConnectionInfo).
+  // are, going live, and the button to leave.
+  // entries: the "Go live" menu (see goLiveEntries; none: no button), live:
+  // one of our streams runs. music: music mode is on (see
+  // Settings.musicMode). info: the connection's quality (see ConnectionInfo).
   let {
     channel,
     onLeave,
     music = false,
     recording = false,
-    sharing = false,
-    onShare,
-    camera = false,
-    onCamera,
+    live = false,
+    entries = [],
+    onGoLive,
     info,
   }: {
     channel: string;
@@ -24,12 +25,17 @@
     music?: boolean;
     // The channel is being recorded.
     recording?: boolean;
-    sharing?: boolean;
-    onShare?: () => void;
-    camera?: boolean;
-    onCamera?: () => void;
+    live?: boolean;
+    entries?: GoLiveEntry[];
+    onGoLive?: (action: GoLiveAction) => void;
     info: Info;
   } = $props();
+
+  let menu = $state<{ x: number; y: number } | null>(null);
+  const choose = (action: GoLiveAction) => {
+    menu = null;
+    onGoLive?.(action);
+  };
 </script>
 
 <section class="bar" aria-label="Voice">
@@ -42,26 +48,19 @@
     </div>
     <div class="channel ellipsis" title={channel}>{channel}</div>
   </div>
-  {#if onCamera}
+  {#if entries.length && onGoLive}
     <button
-      class="share"
-      class:on={camera}
-      title={camera ? "Turn off your camera" : "Turn on your camera"}
-      aria-label={camera ? "Turn off your camera" : "Turn on your camera"}
-      aria-pressed={camera}
-      onclick={onCamera}
-    >
-      <Icon name="camera" size={20} />
-    </button>
-  {/if}
-  {#if onShare}
-    <button
-      class="share"
-      class:on={sharing}
-      title={sharing ? "Stop sharing your screen" : "Share your screen"}
-      aria-label={sharing ? "Stop sharing your screen" : "Share your screen"}
-      aria-pressed={sharing}
-      onclick={onShare}
+      class="live"
+      class:on={live}
+      title="Go live"
+      aria-label="Go live"
+      aria-pressed={live}
+      aria-haspopup="menu"
+      aria-expanded={!!menu}
+      onclick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        menu = { x: r.left, y: r.top - 4 };
+      }}
     >
       <Icon name="screen" size={20} />
     </button>
@@ -70,6 +69,17 @@
     <Icon name="hangup" size={20} />
   </button>
 </section>
+
+{#if menu}
+  <ContextMenu x={menu.x} y={menu.y} up label="Go live" onClose={() => (menu = null)}>
+    {#each entries as e (e.action)}
+      <button class="item" disabled={!!e.off} onclick={() => choose(e.action)}>
+        {e.label}
+        {#if e.off}<span class="why">{e.off}</span>{/if}
+      </button>
+    {/each}
+  </ContextMenu>
+{/if}
 
 <style>
   .bar {
@@ -111,20 +121,38 @@
     color: var(--text-muted);
     font-size: 12px;
   }
-  button {
+  .bar button {
     display: inline-flex;
     padding: 6px;
     border-radius: 6px;
     color: var(--text-muted);
   }
-  button:hover {
+  .bar button:hover {
     background: var(--bg-hover);
     color: var(--danger);
   }
-  .share:hover {
+  .bar .live:hover {
     color: var(--text);
   }
-  .share.on {
+  .bar .live.on {
     color: var(--accent);
+  }
+  .item {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: left;
+    color: var(--text-muted);
+  }
+  .item:not(:disabled):hover {
+    background: var(--accent-strong);
+    color: white;
+  }
+  .why {
+    display: block;
+    font-size: 12px;
+    color: var(--text-faint);
   }
 </style>
