@@ -205,3 +205,4 @@
 - [x] [Playback buffer setting and a music buffer](issues/playback-buffer.md)
 - [x] [One "Go live" button](issues/go-live-menu.md)
 - [x] [Send button on touch screens](issues/mobile-send-button.md)
+- [x] [Direct messages: context menu](issues/dm-context-menu.md)
