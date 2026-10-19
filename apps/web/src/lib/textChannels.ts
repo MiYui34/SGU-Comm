@@ -14,6 +14,7 @@ import type { Members, Online } from "./members";
 import { parseConnections, type Connection } from "./connections";
 import { isCaptchaLevel, type CaptchaLevel } from "./captcha";
 import { parseMessageRules, type MessageRules } from "./messageRules";
+import { parseRecordings, type FinishedRecording } from "./recording";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -92,6 +93,8 @@ export type ServerEvent =
       // Registered users' direct chats (with messages).
       directs?: DirectChat[];
       streams?: LiveStream[];
+      // The recorded voice channels (absent: the server does not record).
+      recording?: number[];
       // Registered users: read marks, and per channel the newest message
       // and unread mentions (voice: the voice channel of a voice chat).
       reads?: Record<number, number>;
@@ -125,6 +128,11 @@ export type ServerEvent =
   | { type: "stream-preview"; session: number; image: string }
   // A token for the stream connection (asked for by the connection).
   | { type: "stream-token"; token: string }
+  // The recorded voice channels changed; the finished recordings (staff,
+  // asked for); a token for one download (see lib/recording).
+  | { type: "recording"; channels: number[] }
+  | { type: "recordings"; recordings: FinishedRecording[] }
+  | { type: "recording-token"; token: string }
   // The listen-only voice channels changed.
   | { type: "listen-only"; channels: ListenOnlyChannel[] }
   // The private channels we see changed (or their members).
@@ -209,6 +217,10 @@ export type TextState = {
   // Live screen shares, and their thumbnails by streamer session.
   streams: readonly LiveStream[];
   streamPreviews: Readonly<Record<number, string>>;
+  // Recorded voice channels (null: the server does not record), and the
+  // finished recordings once asked for (staff).
+  recording: readonly number[] | null;
+  recordings: FinishedRecording[] | null;
   // From ready (registered users): read marks, and the newest message and
   // unread mentions per channel at that time.
   reads: Readonly<Record<number, number>>;
@@ -255,6 +267,8 @@ export const initialTextState: TextState = {
   directs: {},
   streams: [],
   streamPreviews: {},
+  recording: null,
+  recordings: null,
   reads: {},
   summary: {},
   voiceChannels: {},
@@ -407,6 +421,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(isCaptchaLevel(v.captcha) ? { captcha: v.captcha } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
         ...(isStreams(v.streams) ? { streams: v.streams } : {}),
+        ...(Array.isArray(v.recording) && v.recording.every(isNum) ? { recording: v.recording } : {}),
         ...(reads ? { reads: Object.fromEntries(Object.entries(reads).map(([k, n]) => [Number(k), n])) } : {}),
         ...(summary ? { summary } : {}),
         ...(statuses ? { statuses } : {}),
@@ -468,6 +483,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
       return isStr(v.token) ? { type: "stream-token", token: v.token } : null;
+    case "recording":
+      return Array.isArray(v.channels) && v.channels.every(isNum) ? { type: "recording", channels: v.channels } : null;
+    case "recordings": {
+      const recordings = parseRecordings(v.recordings);
+      return recordings && { type: "recordings", recordings };
+    }
+    case "recording-token":
+      return isStr(v.token) ? { type: "recording-token", token: v.token } : null;
     case "stream-preview": // "": the preview was turned off
       return isNum(v.session) && (v.image === "" || isStreamPreview(v.image)) ? { type: "stream-preview", session: v.session, image: v.image as string } : null;
     case "dm":
@@ -561,6 +584,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
         streams: event.streams ?? [],
         streamPreviews: keepPreviews({}, event.streams ?? []),
+        recording: event.recording ?? null,
         reads: event.reads ?? {},
         statuses: statusMap(event.statuses ?? []),
         ownStatus: event.ownStatus ?? initialTextState.ownStatus,
@@ -620,7 +644,12 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, streamPreviews: event.image ? { ...rest, [event.session]: event.image } : rest };
     }
     case "stream-token": // answered by the connection, not state
+    case "recording-token":
       return state;
+    case "recording":
+      return { ...state, recording: event.channels };
+    case "recordings":
+      return { ...state, recordings: event.recordings };
     case "dm":
       return state.directs[event.channel]?.name === event.peer.name
         ? state
@@ -761,7 +790,12 @@ export type ManageAction =
   | { connections: true }
   // The message rules (admins): ask for them, or save new ones.
   | { messageRules: true }
-  | { setMessageRules: MessageRules };
+  | { setMessageRules: MessageRules }
+  // Recording a voice channel (staff): start or stop; the finished ones; a
+  // download token.
+  | { record: number; on: boolean }
+  | { recordings: true }
+  | { recordingToken: true };
 
 // A user for the Kallisti server: by voice server session if online, else
 // a registered user by id.
@@ -790,6 +824,9 @@ const manageBody = (a: ManageAction) => {
   if ("connections" in a) return { type: "connections" };
   if ("messageRules" in a) return { type: "message-rules" };
   if ("setMessageRules" in a) return { type: "set-message-rules", rules: a.setMessageRules };
+  if ("record" in a) return { type: a.on ? "start-recording" : "stop-recording", voice: a.record };
+  if ("recordings" in a) return { type: "recordings" };
+  if ("recordingToken" in a) return { type: "recording-token" };
   return { type: "order-channels", channels: a.order };
 };
 

@@ -61,6 +61,7 @@ import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
 import { createConnectionInfo } from "./connectionInfo.svelte";
 import { transportOf } from "./connectionQuality";
+import { recordingUrl } from "./recording";
 
 // The server drops clients after 30 s without a ping. Each ping also
 // measures the round trip (see connectionInfo), so as in Mumble: often.
@@ -91,25 +92,29 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   const textListeners = new Set<(ev: ServerEvent) => void>();
   // emoji: for a custom emoji (a refusal comes as a manage error).
   let tokenWaiter: { resolve: (token: string) => void; reject: (err: Error) => void; emoji: boolean } | null = null;
-  // Screen sharing (built-in server): its own connection, with a token
-  // asked for here.
+  // Tokens asked for over the WebSocket (type: the request and answer).
   // Answered in order; a waiter that timed out leaves the queue, so a late
   // answer cannot go to the wrong one.
-  const streamTokenWaiters: ((token: string) => void)[] = [];
-  const streamToken = () =>
+  type TokenType = "stream-token" | "recording-token";
+  const tokenWaiters: Record<TokenType, ((token: string) => void)[]> = { "stream-token": [], "recording-token": [] };
+  const askToken = (type: TokenType) =>
     new Promise<string>((resolve, reject) => {
       if (ws.readyState !== WebSocket.OPEN) return reject(new Error("not connected"));
+      const waiters = tokenWaiters[type];
       const waiter = (t: string) => {
         clearTimeout(timeout);
         resolve(t);
       };
       const timeout = setTimeout(() => {
-        streamTokenWaiters.splice(streamTokenWaiters.indexOf(waiter), 1);
-        reject(new Error("no stream token from the server"));
+        waiters.splice(waiters.indexOf(waiter), 1);
+        reject(new Error(`no ${type} from the server`));
       }, 10_000);
-      streamTokenWaiters.push(waiter);
-      ws.send(JSON.stringify({ type: "stream-token" }));
+      waiters.push(waiter);
+      ws.send(JSON.stringify({ type }));
     });
+  // Screen sharing (built-in server): its own connection, with a token
+  // asked for here.
+  const streamToken = () => askToken("stream-token");
   const base = httpBase(url);
   const streams = streamingSupported() ? createStreamClient(`${base.replace(/^http/, "ws")}/api/stream`, streamToken, audio) : null;
   const push = createMessageStream();
@@ -192,7 +197,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const ev = parseServerEvent(event.data);
       if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
       else if (ev?.type === "error" && ev.about === "manage" && tokenWaiter?.emoji) tokenWaiter.reject(new Error(ev.message));
-      else if (ev?.type === "stream-token") streamTokenWaiters.shift()?.(ev.token);
+      else if (ev?.type === "stream-token" || ev?.type === "recording-token") tokenWaiters[ev.type].shift()?.(ev.token);
       else if (ev) text = reduceText(text, ev);
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
@@ -289,6 +294,13 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     // Text channels and roles (admins and moderators).
     manage: (action: ManageAction) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
+    },
+    // Downloads a finished recording (staff): a link with a one-time token.
+    downloadRecording: async (id: string) => {
+      const a = document.createElement("a");
+      a.href = recordingUrl(base, id, await askToken("recording-token"));
+      a.download = "";
+      a.click();
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
