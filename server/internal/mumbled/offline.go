@@ -1,7 +1,5 @@
 package mumbled
 
-import "math"
-
 // offlineAccess answers for a registered user who is not connected (push
 // notifications): groups and roles by user id count, a certificate hash
 // or access tokens do not. It is in no channel.
@@ -11,7 +9,7 @@ func (s *Server) offlineAccess(user, channel uint32, may func(u *User) bool) boo
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := &User{Registered: true, UserID: user, Channel: math.MaxUint32}
+	u := &User{Registered: true, UserID: user, Channel: NoChannel}
 	return s.state.Channels[channel] != nil && may(u)
 }
 

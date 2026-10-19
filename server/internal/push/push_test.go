@@ -100,8 +100,18 @@ func call(t *testing.T, s *Service, method, path, session, body string) *httptes
 	return w
 }
 
+// Keys of the right sizes: a P-256 point and 16 bytes.
+var (
+	p256dh = base64.RawURLEncoding.EncodeToString(append([]byte{4}, make([]byte, 64)...))
+	auth   = base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+)
+
 func subscribe(endpoint string, quiet ...int64) string {
-	b, _ := json.Marshal(map[string]any{"endpoint": endpoint, "keys": map[string]string{"p256dh": "BKEY", "auth": "AUTH"}, "quiet": quiet})
+	return subscribeWith(endpoint, p256dh, auth, quiet, nil)
+}
+
+func subscribeWith(endpoint, p256dh, auth string, quiet []int64, blocked []string) string {
+	b, _ := json.Marshal(map[string]any{"endpoint": endpoint, "keys": map[string]string{"p256dh": p256dh, "auth": auth}, "quiet": quiet, "blocked": blocked})
 	return string(b)
 }
 
@@ -139,6 +149,8 @@ func TestSubscriptionAPI(t *testing.T) {
 		{"g1", subscribe(phone), http.StatusForbidden}, // guest accounts
 		{"a1", subscribe("https://evil.example/x"), http.StatusBadRequest},
 		{"a1", `{"endpoint":"` + phone + `"}`, http.StatusBadRequest}, // no keys
+		{"a1", subscribeWith(phone, "BKEY", auth, nil, nil), http.StatusBadRequest},
+		{"a1", subscribeWith(phone, p256dh, "AUTH", nil, nil), http.StatusBadRequest},
 		{"a1", "nope", http.StatusBadRequest},
 		{"a1", subscribe(phone, 3), http.StatusNoContent},
 		{"a2", subscribe(laptop), http.StatusNoContent},
@@ -221,6 +233,17 @@ func TestNotify(t *testing.T) {
 	}
 	s.Notify("nobody", note) // no subscriptions: nothing
 	if got := f.take(); len(got) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// Users blocked on a device push nothing there (the app hides them too).
+func TestNotifySkipsBlockedAuthors(t *testing.T) {
+	s, f, _ := newService(t)
+	call(t, s, "POST", "/api/push/subscriptions", "a1", subscribeWith(phone, p256dh, auth, nil, []string{"bob"}))
+	call(t, s, "POST", "/api/push/subscriptions", "a2", subscribe(laptop))
+	s.Notify("alice", Note{Channel: 1, Author: "Bob", Body: "Message from Bob", URL: "/channels/1/2"})
+	if got := f.take(); len(got) != 1 || got[0].endpoint != laptop {
 		t.Fatalf("got %+v", got)
 	}
 }

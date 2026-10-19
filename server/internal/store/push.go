@@ -14,7 +14,7 @@ const pushTables = `CREATE TABLE IF NOT EXISTS push_subscriptions (
 	session    TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
 	p256dh     TEXT NOT NULL,
 	auth       TEXT NOT NULL,
-	quiet      TEXT NOT NULL, -- JSON: text channels set to "nothing" there
+	prefs      TEXT NOT NULL, -- JSON: quiet channels and blocked users
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS push_by_session ON push_subscriptions(session);
@@ -28,18 +28,25 @@ CREATE TABLE IF NOT EXISTS push_vapid (
 const maxPushSubscriptions = 10
 
 // PushSubscription is a browser's push endpoint and keys (RFC 8291), and
-// the text channels it wants no pushes for.
+// what it wants no pushes for: text channels, and users it blocked (by
+// names.Key).
 type PushSubscription struct {
 	Endpoint string
 	P256dh   string
 	Auth     string
 	Quiet    []int64
+	Blocked  []string
+}
+
+type pushPrefs struct {
+	Quiet   []int64  `json:"quiet"`
+	Blocked []string `json:"blocked"`
 }
 
 // SetPushSubscription keeps a subscription for a session (by its endpoint:
 // the same browser again replaces it, also for another account).
 func (s *Store) SetPushSubscription(session string, p PushSubscription, at time.Time) error {
-	quiet, err := json.Marshal(append([]int64{}, p.Quiet...))
+	prefs, err := json.Marshal(pushPrefs{p.Quiet, p.Blocked})
 	if err != nil {
 		return err
 	}
@@ -48,8 +55,8 @@ func (s *Store) SetPushSubscription(session string, p PushSubscription, at time.
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO push_subscriptions (endpoint, session, p256dh, auth, quiet, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.Endpoint, session, p.P256dh, p.Auth, string(quiet), at.UnixMilli()); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO push_subscriptions (endpoint, session, p256dh, auth, prefs, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.Endpoint, session, p.P256dh, p.Auth, string(prefs), at.UnixMilli()); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM push_subscriptions WHERE endpoint IN (
@@ -80,7 +87,7 @@ const pushOf = ` FROM push_subscriptions p JOIN sessions x ON x.token_hash = p.s
 
 // PushSubscriptions are an account's subscriptions (by names.Key).
 func (s *Store) PushSubscriptions(nameKey string, now time.Time) ([]PushSubscription, error) {
-	rows, err := s.db.Query(`SELECT p.endpoint, p.p256dh, p.auth, p.quiet`+pushOf+` AND a.name_key = ?`, now.UnixMilli(), nameKey)
+	rows, err := s.db.Query(`SELECT p.endpoint, p.p256dh, p.auth, p.prefs`+pushOf+` AND a.name_key = ?`, now.UnixMilli(), nameKey)
 	if err != nil {
 		return nil, err
 	}
@@ -88,13 +95,15 @@ func (s *Store) PushSubscriptions(nameKey string, now time.Time) ([]PushSubscrip
 	var out []PushSubscription
 	for rows.Next() {
 		var p PushSubscription
-		var quiet string
-		if err := rows.Scan(&p.Endpoint, &p.P256dh, &p.Auth, &quiet); err != nil {
+		var raw string
+		var prefs pushPrefs
+		if err := rows.Scan(&p.Endpoint, &p.P256dh, &p.Auth, &raw); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(quiet), &p.Quiet); err != nil {
+		if err := json.Unmarshal([]byte(raw), &prefs); err != nil {
 			return nil, err
 		}
+		p.Quiet, p.Blocked = prefs.Quiet, prefs.Blocked
 		out = append(out, p)
 	}
 	return out, rows.Err()

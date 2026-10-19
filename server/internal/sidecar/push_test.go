@@ -91,6 +91,9 @@ func pushHub(t *testing.T) (*Hub, *fakeVoice, *Conn, *Conn, func() []string) {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, fmt.Sprintf("%s: %s %s", name, n.Body, n.URL))
+		if n.Author == "" {
+			t.Errorf("no author for blocks: %+v", n)
+		}
 	}
 	mod := joinAs(t, h, mumble.Identity{Session: 1, Name: "mod", Registered: true, UserID: 10})
 	carol := joinAs(t, h, mumble.Identity{Session: 3, Name: "carol", Registered: true, UserID: 30})

@@ -5,6 +5,7 @@ package push
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,14 +31,15 @@ const (
 	ttl         = 12 * time.Hour
 	sendTimeout = 10 * time.Second
 	maxBody     = 8 << 10
-	maxQuiet    = 1000
+	maxList     = 1000 // quiet channels, blocked users
 )
 
 // Note is one push: a short text without the message itself (privacy), the
-// page to open, and its chat. Tag: notifications of a chat replace each
-// other.
+// page to open, its chat and author. Tag: notifications of a chat replace
+// each other.
 type Note struct {
 	Channel int64  `json:"-"`
+	Author  string `json:"-"`
 	Body    string `json:"body"`
 	URL     string `json:"url"`
 	Tag     string `json:"tag"`
@@ -82,7 +84,8 @@ func (s *Service) due(user string, channel int64, now time.Time) bool {
 }
 
 // Notify pushes a note to a user's browsers (by name), but not to those
-// that keep its chat quiet. Gone subscriptions are dropped.
+// that keep its chat quiet or blocked its author. Gone subscriptions are
+// dropped.
 func (s *Service) Notify(name string, n Note) {
 	user, now := names.Key(name), s.Now()
 	if !s.due(user, n.Channel, now) {
@@ -96,8 +99,9 @@ func (s *Service) Notify(name string, n Note) {
 	topic := fmt.Sprintf("chat-%d", n.Channel)
 	n.Tag = topic
 	payload, _ := json.Marshal(n)
+	author := names.Key(n.Author)
 	for _, sub := range subs {
-		if slices.Contains(sub.Quiet, n.Channel) {
+		if slices.Contains(sub.Quiet, n.Channel) || slices.Contains(sub.Blocked, author) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
@@ -144,7 +148,20 @@ type subscription struct {
 		P256dh string `json:"p256dh"`
 		Auth   string `json:"auth"`
 	} `json:"keys"`
-	Quiet []int64 `json:"quiet"`
+	Quiet   []int64  `json:"quiet"`
+	Blocked []string `json:"blocked"`
+}
+
+// validKeys: a P-256 point and a 16-byte secret (RFC 8291), base64url.
+func validKeys(p256dh, auth string) bool {
+	size := func(s string) int {
+		b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "="))
+		if err != nil {
+			return -1
+		}
+		return len(b)
+	}
+	return size(p256dh) == 65 && size(auth) == 16
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -202,10 +219,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "push notifications need an account with a password")
 	case !knownPushService(sub.Endpoint):
 		fail(w, http.StatusBadRequest, "unknown push service")
-	case sub.Keys.P256dh == "" || sub.Keys.Auth == "" || len(sub.Quiet) > maxQuiet:
+	case !validKeys(sub.Keys.P256dh, sub.Keys.Auth) || len(sub.Quiet) > maxList || len(sub.Blocked) > maxList:
 		fail(w, http.StatusBadRequest, "invalid subscription")
 	default:
-		p := store.PushSubscription{Endpoint: sub.Endpoint, P256dh: sub.Keys.P256dh, Auth: sub.Keys.Auth, Quiet: sub.Quiet}
+		blocked := make([]string, len(sub.Blocked))
+		for i, name := range sub.Blocked {
+			blocked[i] = names.Key(name)
+		}
+		p := store.PushSubscription{Endpoint: sub.Endpoint, P256dh: sub.Keys.P256dh, Auth: sub.Keys.Auth, Quiet: sub.Quiet, Blocked: blocked}
 		if err := s.Store.SetPushSubscription(session, p, s.Now()); err != nil {
 			fail(w, http.StatusInternalServerError, "cannot store the subscription")
 			return

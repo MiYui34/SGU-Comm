@@ -18,7 +18,7 @@ func TestPushSubscriptions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	phone := PushSubscription{Endpoint: "https://push.example/phone", P256dh: "p", Auth: "a", Quiet: []int64{3}}
+	phone := PushSubscription{Endpoint: "https://push.example/phone", P256dh: "p", Auth: "a", Quiet: []int64{3}, Blocked: []string{"bob"}}
 	laptop := PushSubscription{Endpoint: "https://push.example/laptop", P256dh: "p2", Auth: "a2"}
 	for _, x := range []struct {
 		session string
@@ -45,7 +45,7 @@ func TestPushSubscriptions(t *testing.T) {
 		t.Fatalf("two devices: %v", got)
 	}
 	if subs, _ := s.PushSubscriptions("alice", now); !slices.ContainsFunc(subs, func(p PushSubscription) bool {
-		return p.Endpoint == phone.Endpoint && slices.Equal(p.Quiet, []int64{3}) && p.P256dh == "p" && p.Auth == "a"
+		return p.Endpoint == phone.Endpoint && slices.Equal(p.Quiet, []int64{3}) && slices.Equal(p.Blocked, []string{"bob"}) && p.P256dh == "p" && p.Auth == "a"
 	}) {
 		t.Fatalf("stored as given: %+v", subs)
 	}
