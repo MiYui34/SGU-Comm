@@ -719,3 +719,25 @@ From `meta/research/discord-comparison.md`.
 - The worker is a separate file (`new Worker(new URL(...))`), so the
   desktop CSP needs no change: no `worker-src`, so `script-src 'self'`
   applies.
+
+## Streaming views (2026-10-19)
+
+- The server already lets a viewer watch several streams (viewers are a
+  map per stream, one connection carries all). No server change.
+- Grid and focus are one keyed list of tiles placed by CSS grid, not two
+  lists: switching views or focus never remounts a canvas. A new canvas
+  would stay blank until the next decoded frame, and a still screen
+  sends few.
+- The hidden strip only hides tiles (`display: none`): their streams
+  still decode and draw. Simple; a hidden 2D draw is cheap next to the
+  decode itself.
+- Picture-in-picture is a `canvas.captureStream()` in a video element
+  that is never in the page (Chromium takes that). Firefox has no
+  Picture-in-Picture API: no button there. The Document PiP API would
+  need the canvas moved out of the page; not used.
+- Stream pictures with sound wait for the sound clock in an animation
+  frame loop, which stops in a hidden tab, so PiP froze while you were
+  in another tab. In a hidden tab pictures now show at once (up to the
+  0.15 s sound lead out of sync).
+- Headless Chromium enters PiP (the promise resolves) but
+  did not enter full screen; full screen was not checked there.
