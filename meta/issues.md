@@ -18,3 +18,5 @@
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
 - [ ] [Audio is rough for seconds after opening the app](issues/join-audio-warmup.md)
+- [ ] [Desktop app hangs (Linux)](issues/desktop-app-hangs.md)
+- [ ] [Direct messages: context menu](issues/dm-context-menu.md)
