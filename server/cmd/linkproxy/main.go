@@ -23,13 +23,23 @@ func main() {
 	delay := flag.Duration("delay", 20*time.Millisecond, "one-way delay")
 	jit := flag.Duration("jitter", 0, "extra one-way delay, up to (both ways)")
 	every := flag.Duration("jitter-every", 100*time.Millisecond, "how often the extra delay changes")
+	chance := flag.Float64("jitter-chance", 1, "share of periods with an extra delay (below 1: spikes of half to full -jitter, as TCP resends)")
 	flag.Parse()
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		log.Fatal(err)
 	}
 	dl, ul := &link{bps: *down}, &link{bps: *up}
-	dj, uj := &jitter{max: *jit, every: *every, rand: rand.Float64}, &jitter{max: *jit, every: *every, rand: rand.Float64}
+	draw := func() float64 {
+		switch {
+		case *chance >= 1:
+			return rand.Float64()
+		case rand.Float64() < *chance:
+			return 0.5 + rand.Float64()/2
+		}
+		return 0
+	}
+	dj, uj := &jitter{max: *jit, every: *every, rand: draw}, &jitter{max: *jit, every: *every, rand: draw}
 	for {
 		c, err := ln.Accept()
 		if err != nil {
