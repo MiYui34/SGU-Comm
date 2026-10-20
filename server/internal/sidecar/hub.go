@@ -401,7 +401,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
-			ready["follows"] = c.hub.followsOf(id.UserID)
+			ready["follows"] = c.hub.followsOf(id)
 			if c.hub.voice != nil {
 				ready["directs"] = c.hub.directs(id)
 			}
@@ -578,7 +578,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name, "")})
 		return
 	}
-	if (req.Type == "send" || req.Type == "react" || req.Type == "edit-message" || req.Type == "typing" || req.Type == "create-thread") && c.timedOut(*id, req) {
+	if chatWrites[req.Type] && c.timedOut(*id, req) {
 		return
 	}
 	if req.Type == "voice-chat" {

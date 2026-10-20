@@ -234,9 +234,9 @@ func TestDeletingThreads(t *testing.T) {
 	if m, _ := s.MessageByID(start.ID); m.Thread != nil {
 		t.Fatalf("start message keeps %+v", m.Thread)
 	}
-	// A new thread on the same message.
-	if _, err := s.CreateThread(1, start.ID, "Again", "bob", nil, t0); err != nil {
-		t.Fatal(err)
+	// A new thread on the same message, with a new id (clients keep ids).
+	if again, err := s.CreateThread(1, start.ID, "Again", "bob", nil, t0); err != nil || again.ID == th.ID {
+		t.Fatalf("again %+v %v", again, err)
 	}
 	if _, err := s.DeleteThread(99); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete unknown: %v", err)

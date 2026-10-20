@@ -146,7 +146,7 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 	}
 	chats := h.readableChats(id)
 	mention := mentionPattern(id.Name)
-	followed := h.followsOf(id.UserID)
+	followed := h.followsOf(id)
 	out := chats[:0]
 	for _, e := range chats {
 		if e.Parent != 0 && !slices.Contains(followed, e.Channel) {

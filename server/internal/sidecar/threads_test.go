@@ -241,6 +241,18 @@ func TestThreadModeration(t *testing.T) {
 	}
 	drain(h.all()...)
 	refused(t, bob, `{"type":"delete-thread","channel":%d}`, id)
+	// Not while timed out.
+	v.mu.Lock()
+	v.timeouts = map[uint32]time.Time{2: clock.Add(time.Hour)}
+	v.mu.Unlock()
+	for _, req := range []string{`{"type":"rename-thread","channel":%d,"name":"x"}`, `{"type":"archive-thread","channel":%d,"on":false}`} {
+		if m := refused(t, bob, req, id); !strings.Contains(m["message"].(string), "timed out") {
+			t.Fatalf("bob got %v", m)
+		}
+	}
+	v.mu.Lock()
+	v.timeouts = nil
+	v.mu.Unlock()
 	// The channel's moderators delete and pin messages there, and delete it.
 	spam := postTo(t, h, dave, id, "spam")
 	do(carol, `{"type":"pin","message":%d,"on":true}`, spam)
@@ -261,16 +273,24 @@ func TestThreadModeration(t *testing.T) {
 			t.Fatalf("got %v", m)
 		}
 	}
+	if m := next(t, bob); m["type"] != "follows" || len(m["threads"].([]any)) != 0 {
+		t.Fatalf("bob got %v", m)
+	}
 	refused(t, bob, `{"type":"history","channel":%d}`, id)
 }
 
 func TestSlowModeAndMessageRulesHoldInThreads(t *testing.T) {
-	h, v, _, bob, _ := threadHub(t)
+	h, v, staff, bob, _ := threadHub(t)
 	general := h.channels[0].ID
 	id := startThread(t, h, bob, postTo(t, h, bob, general, "topic"), "Topic")
 	h.store.SetSlowMode(general, 30)
 	h.reloadChannels()
 	postTo(t, h, bob, id, "first")
+	// Starting a thread takes a turn in the channel.
+	other := postTo(t, h, staff, general, "staff are exempt")
+	if m := refused(t, bob, `{"type":"create-thread","message":%d,"name":"Too soon"}`, other); m["about"] != "slow-mode" {
+		t.Fatalf("bob got %v", m)
+	}
 	if m := refused(t, bob, `{"type":"send","channel":%d,"text":"second"}`, id); m["about"] != "slow-mode" || m["channel"] != float64(id) {
 		t.Fatalf("bob got %v", m)
 	}

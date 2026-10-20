@@ -122,7 +122,7 @@ func (s *Store) SetChannelCategory(channel, category int64) error {
 	}
 	return s.textChannel(`UPDATE channels SET category_id = NULLIF(?, 0),
 		position = (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0)
-		WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, category, channel)
+		WHERE id = ? AND `+textOnly, category, channel)
 }
 
 // categoryExists: nil for 0 (none) and for a category there is.

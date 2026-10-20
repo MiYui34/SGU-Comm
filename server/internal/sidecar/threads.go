@@ -80,21 +80,28 @@ func (h *Hub) threadsFor(id mumble.Identity) []wireThread {
 	}))
 }
 
-// followsOf: the threads a registered user follows (a list, never null).
-func (h *Hub) followsOf(user uint32) []int64 {
-	ids, err := h.store.Followed(user)
+// followsOf: the threads a registered user follows and may read (a list,
+// never null).
+func (h *Hub) followsOf(id mumble.Identity) []int64 {
+	ids, err := h.store.Followed(id.UserID)
 	if err != nil {
 		slog.Error("followed threads", "err", err)
 	}
-	return append([]int64{}, ids...)
+	parents, err := h.store.ThreadParents()
+	if err != nil {
+		slog.Error("threads", "err", err)
+	}
+	return slices.DeleteFunc(append([]int64{}, ids...), func(t int64) bool {
+		parent, ok := parents[t]
+		return !ok || !h.may(id, chat{id: t, parent: parent}, false)
+	})
 }
 
 // sendFollows tells a registered user's connections what it follows.
 func (h *Hub) sendFollows(user uint32) {
-	event := map[string]any{"type": "follows", "threads": h.followsOf(user)}
 	h.eachReady(func(c *Conn, id mumble.Identity) {
 		if id.Registered && id.UserID == user {
-			c.send(event)
+			c.send(map[string]any{"type": "follows", "threads": h.followsOf(id)})
 		}
 	})
 }
@@ -112,10 +119,12 @@ func (h *Hub) follow(user uint32, thread int64, on bool) {
 
 // threadChanged sends a thread's readers the thread as it is now.
 func (h *Hub) threadChanged(thread int64) {
-	t, err := h.store.Thread(thread)
-	if err != nil {
-		return // deleted meanwhile
+	if t, err := h.store.Thread(thread); err == nil { // else deleted meanwhile
+		h.sendThread(t)
 	}
+}
+
+func (h *Hub) sendThread(t store.Thread) {
 	if ch, ok := h.threadChat(t); ok {
 		h.sendTo(ch, map[string]any{"type": "thread", "thread": toWireThread(t)})
 	}
@@ -148,10 +157,17 @@ func (h *Hub) threadFollowers(author mumble.Identity, ch chat, m store.Message) 
 // threadPosted: after a message in a thread, an archived thread opens
 // again, and readers get the new reply count.
 func (h *Hub) threadPosted(ch chat) {
-	if _, err := h.store.SetThreadArchived(ch.id, false); err != nil {
-		slog.Error("open a thread", "err", err)
+	t, err := h.store.Thread(ch.id)
+	if err != nil {
+		return // deleted meanwhile
 	}
-	h.threadChanged(ch.id)
+	if t.Archived {
+		if _, err := h.store.SetThreadArchived(t.ID, false); err != nil {
+			slog.Error("open a thread", "err", err)
+		}
+		t.Archived = false
+	}
+	h.sendThread(t)
 }
 
 // ArchiveIdleThreads archives the threads idle for longer than the
@@ -203,7 +219,7 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 		return
 	case "threads": // a text channel's archived threads, a page
 		ch, ok := h.chatOf(req.Channel)
-		if !ok || ch.isVoice || ch.direct || ch.parent != 0 || !h.may(id, ch, false) {
+		if !ok || !ch.text() || !h.may(id, ch, false) {
 			c.sendError("unknown channel")
 			return
 		}
@@ -256,7 +272,11 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 			c.sendError("only moderators delete threads")
 			return
 		}
-		keys, err := h.store.DeleteThread(t.ID)
+		followers, err := h.store.Followers(t.ID)
+		var keys []string
+		if err == nil {
+			keys, err = h.store.DeleteThread(t.ID)
+		}
 		if err != nil {
 			c.sendError("cannot delete the thread")
 			return
@@ -267,6 +287,9 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 			}
 		}
 		h.sendTo(ch, map[string]any{"type": "thread-deleted", "channel": t.Parent, "id": t.ID})
+		for _, user := range followers {
+			h.sendFollows(user)
+		}
 	}
 }
 
@@ -276,13 +299,16 @@ func (c *Conn) createThread(id mumble.Identity, req request) {
 	h := c.hub
 	m, err := h.store.MessageByID(req.Message)
 	ch, ok := h.chatOf(m.ChannelID)
-	if err != nil || !ok || ch.isVoice || ch.direct || ch.parent != 0 || !h.may(id, ch, true) {
+	if err != nil || !ok || !ch.text() || !h.may(id, ch, true) {
 		c.sendError("you may not start a thread here")
 		return
 	}
 	name, valid := threadName(req.Name)
 	if !valid {
 		c.sendError("a thread name has 1 to 100 characters")
+		return
+	}
+	if c.slowMode(id, ch, "") { // a turn in the channel
 		return
 	}
 	var author *uint32

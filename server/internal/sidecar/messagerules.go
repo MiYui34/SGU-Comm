@@ -25,8 +25,8 @@ func (c *Conn) refused(id mumble.Identity, req *request) bool {
 		m = msgrules.Message{Text: req.Text, MentionAll: mentionAllOf(req.Text) != ""}
 	case "upload-token":
 		m = msgrules.Message{Upload: true}
-	case "create-thread", "rename-thread": // thread names
-		m, field = msgrules.Message{Text: req.Name}, &req.Name
+	case "create-thread", "rename-thread": // thread names; a new thread is a post
+		m, field = msgrules.Message{Text: req.Name, Post: req.Type == "create-thread"}, &req.Name
 	default:
 		return false
 	}

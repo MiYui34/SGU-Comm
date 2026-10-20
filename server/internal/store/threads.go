@@ -175,15 +175,23 @@ func (s *Store) RenameThread(id int64, name string) error {
 // SetThreadArchived archives a thread or opens it again; changed is false
 // when it already was so.
 func (s *Store) SetThreadArchived(id int64, on bool) (changed bool, err error) {
-	if _, err := s.Thread(id); err != nil {
-		return false, err
+	var was bool
+	if err := s.db.QueryRow(`SELECT archived FROM threads WHERE channel_id = ?`, id).Scan(&was); err != nil {
+		return false, cmpErr(errNoRows(err), err)
 	}
-	res, err := s.db.Exec(`UPDATE threads SET archived = ? WHERE channel_id = ? AND archived != ?`, on, id, on)
-	if err != nil {
-		return false, err
+	if was == on {
+		return false, nil
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	_, err = s.db.Exec(`UPDATE threads SET archived = ? WHERE channel_id = ?`, on, id)
+	return err == nil, err
+}
+
+// errNoRows: ErrNotFound for no rows, else nil.
+func errNoRows(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ArchiveIdleThreads archives the active threads without a message since
@@ -214,7 +222,9 @@ func (s *Store) DeleteThread(id int64) ([]string, error) {
 	if err := rowChanged(tx.Exec(`DELETE FROM threads WHERE channel_id = ?`, id)); err != nil {
 		return nil, err
 	}
-	for _, q := range []string{`DELETE FROM read_marks_by_user WHERE channel_id = ?`, `DELETE FROM channels WHERE id = ?`} {
+	// The hidden channel row stays (renamed): ids are never used twice,
+	// as clients keep them.
+	for _, q := range []string{`DELETE FROM read_marks_by_user WHERE channel_id = ?`, `UPDATE channels SET name = 'deleted-thread:' || id WHERE id = ?`} {
 		if _, err := tx.Exec(q, id); err != nil {
 			return nil, err
 		}

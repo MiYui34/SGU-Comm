@@ -82,6 +82,9 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 				return
 			}
 			send(map[string]any{"type": "message-edited", "message": toWire(m)})
+			if m.Thread != nil { // its quote
+				h.threadChanged(m.Thread.ID)
+			}
 		}
 		return
 	}
