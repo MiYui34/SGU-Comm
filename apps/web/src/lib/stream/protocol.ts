@@ -42,6 +42,13 @@ export const fitSize = (width: number, height: number, maxWidth = 1920, maxHeigh
   return { width: even(width), height: even(height) };
 };
 
+// A thumbnail's size: 320 wide, the source's aspect, at most 1024 high
+// (the server takes no larger side).
+export const previewSize = (width: number, height: number) => {
+  const scale = Math.min(320 / Math.max(1, width), 1024 / Math.max(1, height));
+  return { width: Math.max(1, Math.round(Math.max(1, width) * scale)), height: Math.max(1, Math.round(height * scale)) };
+};
+
 // VP8 first: every WebCodecs implementation decodes it (H.264 decoding is
 // missing in browsers without proprietary codecs, though they may encode
 // it and claim to decode it). H.264 (Annex B: no decoder setup) else.

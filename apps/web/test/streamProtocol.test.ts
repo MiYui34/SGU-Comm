@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, fitSize, pickCodec } from "../src/lib/stream/protocol";
+import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, fitSize, pickCodec, previewSize } from "../src/lib/stream/protocol";
 
 describe("stream frames", () => {
   it("go up with flags and a timestamp, and come down with the streamer's session", () => {
@@ -17,6 +17,15 @@ describe("fitSize", () => {
     expect(fitSize(3840, 2160)).toEqual({ width: 1920, height: 1080 });
     expect(fitSize(1001, 601)).toEqual({ width: 1000, height: 600 });
     expect(fitSize(1080, 2400)).toEqual({ width: 486, height: 1080 });
+  });
+});
+
+describe("previewSize", () => {
+  it("is 320 wide, at most 1024 high (the server's limit)", () => {
+    expect(previewSize(1920, 1080)).toEqual({ width: 320, height: 180 });
+    expect(previewSize(1080, 1920)).toEqual({ width: 320, height: 569 });
+    expect(previewSize(300, 1080)).toEqual({ width: 284, height: 1024 });
+    expect(previewSize(0, 0)).toEqual({ width: 320, height: 1 });
   });
 });
 
