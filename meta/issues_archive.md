@@ -215,3 +215,4 @@
 - [x] [Audio is rough for seconds after opening the app](issues/join-audio-warmup.md)
 - [x] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [x] [Smoother stream playback](issues/stream-buffer.md)
+- [x] [Avatar flags recomputed; size limit for chat images](issues/avatar-flags-and-image-limits.md)
