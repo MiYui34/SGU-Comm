@@ -64,6 +64,10 @@ type Service struct {
 	// Revoke closes the open connections whose account ID and session
 	// (SessionKey) match, when sessions end. Nil: none.
 	Revoke func(match func(accountID int64, session string) bool)
+	// EndPasswordLogins disconnects the Mumble clients that logged in with
+	// the account's password, after a password change or a logout
+	// everywhere. Nil: none.
+	EndPasswordLogins func(acc store.Account)
 	// OnPermanent hears that a guest account became a normal account (by
 	// name). Nil: none.
 	OnPermanent func(name string)
@@ -124,6 +128,7 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost {
+		config.LimitBody(w)
 		// Against cross-site forms (CSRF): a form cannot send JSON without a
 		// CORS preflight, and browsers mark cross-site requests.
 		ctype, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -211,6 +216,12 @@ func SessionKey(r *http.Request) string {
 func (a *Service) revoke(match func(accountID int64, session string) bool) {
 	if a.Revoke != nil {
 		a.Revoke(match)
+	}
+}
+
+func (a *Service) endPasswordLogins(acc store.Account) {
+	if a.EndPasswordLogins != nil {
+		a.EndPasswordLogins(acc)
 	}
 }
 
@@ -410,6 +421,7 @@ func (a *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
 	}
 	a.revoke(func(id int64, _ string) bool { return id == acc.ID })
 	a.endStreamKey(acc)
+	a.endPasswordLogins(acc)
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -467,6 +479,7 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	a.revoke(func(id int64, session string) bool { return id == acc.ID && session != keep })
 	a.endStreamKey(acc)
+	a.endPasswordLogins(acc)
 	if acc.Temporary && a.OnPermanent != nil {
 		a.OnPermanent(acc.Name)
 	}

@@ -20,6 +20,7 @@
   import { safeGet, safeSet } from "./lib/storage";
   import { connectionError, proxyUrl } from "./lib/status";
   import type { Place } from "./lib/place";
+  import type { Drafts } from "./lib/composer";
   import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
   import { untrack } from "svelte";
   import { checkForUpdate } from "./lib/update";
@@ -247,6 +248,7 @@
     loginNote = null;
     stopReconnecting();
     place = null;
+    drafts = { value: new Map() };
     connection?.close();
     void audio?.close();
     // Created here: browsers allow audio only after a user gesture.
@@ -268,6 +270,9 @@
   const ATTEMPT_TIMEOUT_MS = 15_000;
   const BUSY_NAME_TRIES = 5;
   let place = $state<Place | null>(null);
+  // Unsent texts, kept over reconnects (the Client is new each time); a
+  // login starts without.
+  let drafts = $state.raw<Drafts>({ value: new Map() });
   let attempt: Connection | null = $state(null);
   let attempts = 0;
   let busyTries = 0;
@@ -364,7 +369,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} />
     {/key}
   </div>
 {:else}

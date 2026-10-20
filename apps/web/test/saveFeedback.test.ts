@@ -76,7 +76,8 @@ describe("confirmsManage", () => {
     expect(rename(channels({ id: 1, name: "news-room" }))).toBe(true); // as the server writes it
     // Go lowers case a little differently.
     expect(confirmsManage({ rename: 1, name: "ΚΑΝΑΛΙΣ" })!(channels({ id: 1, name: "καναλισ" }))).toBe(true);
-    expect(confirmsManage({ rename: 1, name: "İstanbul" })!(channels({ id: 1, name: "istanbul" }))).toBe(true);
+    // Accents stay: the server keeps "cafe" and "café" apart.
+    expect(confirmsManage({ rename: 1, name: "café" })!(channels({ id: 1, name: "cafe" }))).toBe(false);
     expect(confirmsManage({ slowMode: 1, seconds: 5 })!(channels({ id: 1, name: "a" }))).toBe(false);
     expect(confirmsManage({ slowMode: 1, seconds: 5 })!(channels({ id: 1, name: "a", slowMode: 5 }))).toBe(true);
     expect(confirmsManage({ topic: 1, text: "" })!(channels({ id: 1, name: "a" }))).toBe(true);

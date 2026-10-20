@@ -3,13 +3,16 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -264,6 +267,8 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 	a, srv := setup(t)
 	var match func(int64, string) bool
 	a.Revoke = func(m func(int64, string) bool) { match = m }
+	var ended []string // Mumble clients logged in with the password
+	a.EndPasswordLogins = func(acc store.Account) { ended = append(ended, acc.Name) }
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "gina", "password": "longpassword"}, nil)
 	first := sessionCookie(resp)
 	acc, _ := a.AccountFor(requestWith(first))
@@ -272,8 +277,12 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 		return sessionCookie(resp)
 	}
 	second, third := login(), login()
-	check := func(what string, want map[*http.Cookie]bool) {
+	check := func(what string, want map[*http.Cookie]bool, mumble []string) {
 		t.Helper()
+		if !slices.Equal(ended, mumble) {
+			t.Errorf("%s: password logins ended %v, want %v", what, ended, mumble)
+		}
+		ended = nil
 		if match == nil {
 			t.Fatalf("%s: nothing revoked", what)
 		}
@@ -288,11 +297,11 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 		match = nil
 	}
 	post(t, srv, "/api/logout", nil, third)
-	check("logout", map[*http.Cookie]bool{third: true, second: false})
+	check("logout", map[*http.Cookie]bool{third: true, second: false}, nil)
 	post(t, srv, "/api/password", map[string]string{"old": "longpassword", "new": "new password"}, second)
-	check("password change", map[*http.Cookie]bool{first: true, second: false})
+	check("password change", map[*http.Cookie]bool{first: true, second: false}, []string{"gina"})
 	post(t, srv, "/api/logout-all", map[string]string{}, second)
-	check("logout-all", map[*http.Cookie]bool{first: true, second: true})
+	check("logout-all", map[*http.Cookie]bool{first: true, second: true}, []string{"gina"})
 }
 
 func TestExpiredSessionsAreRevoked(t *testing.T) {
@@ -459,5 +468,33 @@ func TestTheTokenComesBeforeACookie(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer new")
 	if SessionKey(r) != tokenHash("new") {
 		t.Fatal("the cookie won")
+	}
+}
+
+// A body that never ends (a proxy without a body timeout passes it on)
+// gets an answer after config.BodyTimeout: it does not hold its connection.
+func TestStalledBodiesTimeOut(t *testing.T) {
+	_, srv := setup(t)
+	defer func(d time.Duration) { config.BodyTimeout = d }(config.BodyTimeout)
+	config.BodyTimeout = 100 * time.Millisecond
+	for _, path := range []string{"/api/login", "/api/accounts", "/api/password"} {
+		body, pw := io.Pipe()
+		defer pw.Close()
+		req, _ := http.NewRequest("POST", srv.URL+path, body)
+		req.ContentLength = 1000
+		req.Header.Set("Content-Type", "application/json")
+		done := make(chan struct{})
+		go func() {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				resp.Body.Close()
+			}
+			close(done)
+		}()
+		io.WriteString(pw, `{"name":`)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the stalled body is still read", path)
+		}
 	}
 }

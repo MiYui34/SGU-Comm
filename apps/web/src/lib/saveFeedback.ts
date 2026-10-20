@@ -34,10 +34,8 @@ export const answer = <W extends { via: Via }>(waiters: readonly W[], via: Via, 
 
 // Names as the server writes them (see textChannelName, categoryName).
 const channelName = (name: string) => name.trim().split(/\s+/).join("-").toLowerCase();
-// Go lowers case a little differently (a final sigma, a dotted I): compared
-// without case and marks.
-const fold = (name: string) => name.toUpperCase().normalize("NFD").replace(/\p{M}/gu, "");
-const sameChannel = (stored: string | undefined, asked: string) => stored !== undefined && fold(stored) === fold(channelName(asked));
+// Go lowers a final sigma differently: compared without case, accents kept.
+const sameChannel = (stored: string | undefined, asked: string) => stored?.toUpperCase() === channelName(asked).toUpperCase();
 const categoryName = (name: string) => name.trim().split(/\s+/).join(" ");
 
 // ids in this order among the listed ones.

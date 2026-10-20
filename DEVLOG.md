@@ -2124,3 +2124,25 @@ From `meta/research/discord-comparison.md`.
   22.04 (an empty apps/web/dist is enough for generate_context). It
   passed in a Linux container; the Murmur tests skip without
   KALLISTI_TEST_MURMUR.
+
+## Review 4 fixes (2026-10-20)
+
+- Drafts live in App.svelte and go to Client as a prop: a reconnect makes
+  a new Client (`{#key connection}`), and the drafts stay. A new login
+  starts without them.
+- A password change or "log out everywhere" also kicks the Mumble clients
+  that logged in with the account's password: they have the account's
+  certificate hash (see identifyAccount), web sessions are left to the
+  bridge. Certificate-registered Mumble users are not accounts and stay.
+  A login that checks the old password just before the change can still
+  join just after the kick (not fixed: rare).
+- Combined channel saves compare names with toUpperCase only: the server
+  keeps accents ("cafe" and "café" are two names). A rename to a Turkish
+  dotted İ now gets no confirmation (JS lowers it to i + U+0307).
+- Native history catch-up for a text mirror checks Sees at delivery: move
+  hooks arrive late.
+- Small request bodies get a 10 s read deadline (config.LimitBody): auth
+  POSTs, upload posts until the token is checked, and WHIP offers from the
+  start of the request. Production's Caddy passes slow bodies on without a
+  timeout. The deadline also ends net/http's wait for the unread rest of
+  a body after an early refusal.

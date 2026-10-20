@@ -403,6 +403,15 @@ func TestStalledOfferTimesOut(t *testing.T) {
 	if h.Sessions() != 0 || h.pendingOffers() != 0 {
 		t.Fatalf("%d sessions, %d pending", h.Sessions(), h.pendingOffers())
 	}
+	// Refused before reading: the rest of the body is not awaited forever.
+	select {
+	case resp := <-stalledOffer(t, srv.URL, "unknown"):
+		if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("unknown key: got %v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refused offer is still read")
+	}
 }
 
 // Offers still coming count against MaxSessions (on their own); a new key
