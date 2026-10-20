@@ -187,15 +187,15 @@ type visit struct {
 	seen   map[int64]int64
 }
 
-// chatAt is the stored chat of a Mumble channel: a text channel's mirror,
-// or a voice channel's chat that the user may read and that exists. place
-// names it in the heading.
+// chatAt is the stored chat of a Mumble channel that the user may read
+// now (the move may be old): a text channel's mirror, or a voice
+// channel's chat that exists. place names it in the heading.
 func (h *Hub) chatAt(session, channel uint32) (chat int64, place string, ok bool) {
 	if channel == noChannel {
 		return 0, "", false
 	}
 	if c, ok := h.textOf(channel); ok {
-		return c.ID, "#" + c.Name, true
+		return c.ID, "#" + c.Name, h.voice.Sees(session, channel)
 	}
 	if !h.voice.MayRead(session, channel) {
 		return 0, "", false

@@ -84,6 +84,20 @@ func TestMumbleUsersGetWhatTheyMissed(t *testing.T) {
 	}
 }
 
+// Moves arrive late: a move into a mirror the user no longer sees (made
+// private meanwhile) brings no history.
+func TestNoHistoryFromAMirrorTheUserNoLongerSees(t *testing.T) {
+	h := newHub(t, "general")
+	v := &fakeVoice{hidden: map[uint32]bool{100: true}}
+	h.SetVoice(v, "")
+	h.MumbleText(mumble.Identity{Session: 1, Name: "admin"}, 100, "members only", nil)
+	h.UserMoved(7, noChannel, 0)
+	h.UserMoved(7, 0, 100)
+	if got := v.userTexts(7); len(got) != 0 {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestNoMirrorsWithoutTheBuiltInServer(t *testing.T) {
 	// The server ran with the built-in Mumble server before, now with
 	// Murmur: Murmur's channels with those ids are not mirrors.
