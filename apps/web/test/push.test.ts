@@ -152,4 +152,24 @@ describe("push lifecycle", () => {
     expect(b.storage.get("pushOwner")).toBe("");
     expect(b.requests).not.toContain(`POST ${base}/api/push/subscriptions`);
   });
+
+  // Each tab has its own copy of the module, but they share the browser.
+  const tab = async () => {
+    vi.resetModules();
+    return import("../src/lib/push");
+  };
+
+  it.each(["key", "subscribe"] as const)("stays off when another tab turns it off during a sync (waiting for the %s)", async (pauseAt) => {
+    const b = fakeBrowser(pauseAt);
+    const base = "https://chat.example";
+    b.storage.set("pushOwner", pushOwner(base, "alice"));
+    const [syncing, other] = [await tab(), await tab()];
+    const sync = syncing.syncPush(base, "alice", { quiet: [], loud: [], blocked: [] });
+    await new Promise((r) => setTimeout(r));
+    await other.turnOffPush(base);
+    b.release();
+    await sync;
+    expect(b.state()).toEqual({ registered: false, subscribed: false });
+    expect(b.storage.get("pushOwner")).toBe("");
+  });
 });
