@@ -24,6 +24,9 @@
     type MessageRules,
   } from "../lib/messageRules";
   import { describeRecording, type FinishedRecording } from "../lib/recording";
+  import { busyLabel } from "../lib/saveFeedback";
+  import { createSave } from "../lib/saveFeedback.svelte";
+  import SaveStatus from "./SaveStatus.svelte";
 
   // Server settings for moderators and admins: the ban list, the
   // registered users, the custom emoji, the finished channel recordings,
@@ -61,22 +64,22 @@
     registered: readonly Registered[] | null;
     rights: { bans: boolean; editBans: boolean; users: boolean; emoji: boolean };
     onLoad: (what: "bans" | "users") => void;
-    onSetBans: (bans: Ban[]) => void;
-    onRename: (userId: number, name: string) => void;
-    onUnregister: (userId: number) => void;
+    onSetBans: (bans: Ban[]) => Promise<void>;
+    onRename: (userId: number, name: string) => Promise<void>;
+    onUnregister: (userId: number) => Promise<void>;
     emoji: readonly CustomEmoji[];
     onAddEmoji: (name: string, file: File) => Promise<void>;
-    onDeleteEmoji: (name: string) => void;
+    onDeleteEmoji: (name: string) => Promise<void>;
     // Admins: whether guests may only read (null: not ours to change).
     guestsReadOnly?: boolean | null;
-    onGuestsReadOnly?: (on: boolean) => void;
+    onGuestsReadOnly?: (on: boolean) => Promise<void>;
     // Admins (with the guests setting): the browser check for new accounts.
     captcha?: CaptchaLevel;
-    onCaptcha?: (level: CaptchaLevel) => void;
+    onCaptcha?: (level: CaptchaLevel) => Promise<void>;
     // Staff: how long threads stay active without messages (seconds);
     // without onThreadArchive, no tab.
     threadArchive?: number;
-    onThreadArchive?: (seconds: number) => void;
+    onThreadArchive?: (seconds: number) => Promise<void>;
     // Admins: every connection (null: not loaded yet), asked for again
     // while the tab is open; without onPollConnections, no tab.
     connections?: readonly Connection[] | null;
@@ -85,7 +88,7 @@
     // onLoadMessageRules, no tab.
     messageRules?: MessageRules | null;
     onLoadMessageRules?: () => void;
-    onSaveMessageRules?: (rules: MessageRules) => void;
+    onSaveMessageRules?: (rules: MessageRules) => Promise<void>;
     // Staff: the finished recordings (null: not loaded yet), asked for
     // again when a recording starts or stops (recording: the recorded
     // channels); without onLoadRecordings, no tab.
@@ -102,6 +105,25 @@
   );
   let renaming = $state<{ id: number; name: string } | null>(null);
   let confirming = $state<number | null>(null);
+  // Each change waits for the server (see lib/saveFeedback); a checkbox or
+  // select goes back to the server's value when refused.
+  const saves = {
+    bans: createSave(),
+    users: createSave(),
+    emoji: createSave(),
+    add: createSave(),
+    guests: createSave(),
+    captcha: createSave(),
+    archive: createSave(),
+    rules: createSave(),
+  };
+  const busy = (what: keyof typeof saves) => saves[what].state.phase === "pending";
+  const setGuests = (el: HTMLInputElement) =>
+    onGuestsReadOnly && saves.guests.run(() => onGuestsReadOnly(el.checked), () => (el.checked = guestsReadOnly === true));
+  const setCaptcha = (el: HTMLSelectElement) =>
+    onCaptcha && saves.captcha.run(() => onCaptcha(el.value as CaptchaLevel), () => (el.value = captcha));
+  const setArchive = (el: HTMLSelectElement) =>
+    onThreadArchive && saves.archive.run(() => onThreadArchive(Number(el.value)), () => (el.value = String(threadArchive)));
   $effect(() => dialog?.showModal());
   $effect(() => {
     if (tab === "bans" || tab === "users") onLoad(tab);
@@ -152,36 +174,30 @@
   const saveRules = (e: SubmitEvent) => {
     e.preventDefault();
     rulesError = minutesError(rulesMinutes);
-    if (!rulesError && replacements.errors.length === 0)
-      onSaveMessageRules?.(rulesFrom(rulesMinutes, rulesWords, rulesDomains, replacements.replacements));
+    if (rulesError || replacements.errors.length > 0 || !onSaveMessageRules) return;
+    const rules = rulesFrom(rulesMinutes, rulesWords, rulesDomains, replacements.replacements);
+    saves.rules.run(() => onSaveMessageRules(rules));
   };
 
-  // A new emoji: name and image; a message says what is wrong.
+  // A new emoji: name and image; the add's status says what is wrong.
   let emojiName = $state("");
   let emojiFile = $state<File | null>(null);
-  let emojiError = $state<string | null>(null);
-  let adding = $state(false);
   let confirmingEmoji = $state<string | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let emojiImage: EmojiImage | undefined = $state();
-  const addEmoji = async (e: SubmitEvent) => {
+  const addEmoji = (e: SubmitEvent) => {
     e.preventDefault();
     const name = emojiName.trim();
-    adding = true;
-    try {
+    saves.add.run(async () => {
       // Checked as uploaded: still images are scaled down first.
       const file = (await emojiImage?.output()) ?? null;
-      emojiError = emojiFormError(name, file, emoji);
-      if (emojiError || !file) return;
+      const problem = emojiFormError(name, file, emoji);
+      if (problem || !file) throw new Error(problem ?? "Choose an image.");
       await onAddEmoji(name, file);
       emojiName = "";
       emojiFile = null;
       if (fileInput) fileInput.value = "";
-    } catch (err) {
-      emojiError = err instanceof Error ? err.message : String(err);
-    } finally {
-      adding = false;
-    }
+    });
   };
 
   const duration = (seconds: number) =>
@@ -237,17 +253,21 @@
               </span>
             </div>
             {#if rights.editBans}
-              <button type="button" onclick={() => onSetBans(bans.filter((_, k) => k !== i))}>Remove</button>
+              <button type="button" disabled={busy("bans")} onclick={() => saves.bans.run(() => onSetBans(bans.filter((_, k) => k !== i)))}>
+                Remove
+              </button>
             {/if}
           </li>
         {/each}
       </ul>
+      <SaveStatus save={saves.bans.state} done="Removed" />
       {#if !rights.editBans}<p class="note">Only admins change the ban list.</p>{/if}
     {/if}
   {:else if tab === "guests"}
     <label class="check">
-      <input type="checkbox" checked={guestsReadOnly === true} onchange={(e) => onGuestsReadOnly?.(e.currentTarget.checked)} />
+      <input type="checkbox" checked={guestsReadOnly === true} disabled={busy("guests")} onchange={(e) => setGuests(e.currentTarget)} />
       Guests may only read
+      <SaveStatus save={saves.guests.state} />
     </label>
     <p class="note">
       Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
@@ -255,11 +275,12 @@
     </p>
     <label class="check">
       Browser check for new accounts and guests
-      <select value={captcha} onchange={(e) => onCaptcha?.(e.currentTarget.value as CaptchaLevel)}>
+      <select value={captcha} disabled={busy("captcha")} onchange={(e) => setCaptcha(e.currentTarget)}>
         <option value="off">Off</option>
         <option value="normal">Normal</option>
         <option value="hard">Hard</option>
       </select>
+      <SaveStatus save={saves.captcha.state} />
     </label>
     <p class="note">
       Before a web browser creates an account or joins as a guest, it does some work by itself: about 1 to 2 seconds (Normal) or 4
@@ -269,9 +290,10 @@
   {:else if tab === "threads"}
     <label class="check">
       Archive threads after
-      <select value={threadArchive} onchange={(e) => onThreadArchive?.(Number(e.currentTarget.value))}>
+      <select value={threadArchive} disabled={busy("archive")} onchange={(e) => setArchive(e.currentTarget)}>
         {#each ARCHIVE_TIMES as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
       </select>
+      <SaveStatus save={saves.archive.state} />
     </label>
     <p class="note">
       A thread without new messages for this time is archived: it leaves the channel list, but stays readable and searchable in the
@@ -310,7 +332,10 @@
           , ! ? -.
         </p>
         {#if rulesError}<p class="error" role="alert">{rulesError}</p>{/if}
-        <button type="submit">Save</button>
+        <div class="row">
+          <button type="submit" disabled={busy("rules")}>{busyLabel(saves.rules.state, "Save")}</button>
+          <SaveStatus save={saves.rules.state} />
+        </div>
       </form>
       <p class="note">
         Staff are exempt from the limits and blocks. The author of a refused message sees why (Mumble clients as "permission denied"); the server log notes
@@ -388,21 +413,20 @@
       <input
         bind:this={fileInput}
         type="file"
-        disabled={adding}
+        disabled={busy("add")}
         accept={EMOJI_TYPES.join(",")}
         aria-label="Emoji image"
         onchange={(e) => {
           emojiFile = e.currentTarget.files?.[0] ?? null;
           if (emojiFile && !emojiName) emojiName = emojiNameFromFile(emojiFile.name);
-          emojiError = null;
         }}
       />
-      <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" oninput={() => (emojiError = null)} />
-      <button type="submit" disabled={adding}>{adding ? "Adding…" : "Add"}</button>
+      <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" />
+      <button type="submit" disabled={busy("add")}>{busyLabel(saves.add.state, "Add", "Adding…")}</button>
+      <SaveStatus save={saves.add.state} done="Added" />
     </form>
     <p class="note">PNG, GIF, WebP or JPEG; still images are scaled to fit 96×96 px. Names: 2 to 32 lower case letters, digits or _.</p>
     <EmojiImage bind:this={emojiImage} file={emojiFile} name={emojiName.trim()} />
-    {#if emojiError}<p class="error" role="alert">{emojiError}</p>{/if}
     {#if emoji.length === 0}
       <p class="note">This server has no custom emoji yet.</p>
     {:else}
@@ -412,7 +436,14 @@
             <img class="emoji-image" src={e.url} alt="" />
             <div class="what"><strong>:{e.name}:</strong></div>
             {#if confirmingEmoji === e.name}
-              <button type="button" class="danger" onclick={() => (onDeleteEmoji(e.name), (confirmingEmoji = null))}>Delete</button>
+              <button
+                type="button"
+                class="danger"
+                disabled={busy("emoji")}
+                onclick={() => (saves.emoji.run(() => onDeleteEmoji(e.name)), (confirmingEmoji = null))}
+              >
+                Delete
+              </button>
               <button type="button" onclick={() => (confirmingEmoji = null)}>Cancel</button>
             {:else}
               <button type="button" onclick={() => (confirmingEmoji = e.name)}>Delete…</button>
@@ -421,6 +452,7 @@
         {/each}
       </ul>
     {/if}
+    <SaveStatus save={saves.emoji.state} done="Deleted" />
   {:else if registered === null}
     <p class="note">Loading…</p>
   {:else}
@@ -432,19 +464,25 @@
               class="rename"
               onsubmit={(e) => {
                 e.preventDefault();
-                if (renaming?.name.trim()) onRename(user.userId, renaming.name.trim());
-                renaming = null;
+                const name = renaming?.name.trim();
+                if (name) saves.users.run(() => onRename(user.userId, name).then(() => (renaming = null)));
+                else renaming = null;
               }}
             >
               <input bind:value={renaming.name} aria-label="New name for {user.name}" />
-              <button type="submit">Save</button>
+              <button type="submit" disabled={busy("users")}>{busyLabel(saves.users.state, "Save")}</button>
               <button type="button" onclick={() => (renaming = null)}>Cancel</button>
             </form>
           {:else}
             <div class="what"><strong>{user.name}</strong><span class="detail">#{user.userId}</span></div>
             {#if user.userId !== 0}
               {#if confirming === user.userId}
-                <button type="button" class="danger" onclick={() => (onUnregister(user.userId), (confirming = null))}>
+                <button
+                  type="button"
+                  class="danger"
+                  disabled={busy("users")}
+                  onclick={() => (saves.users.run(() => onUnregister(user.userId)), (confirming = null))}
+                >
                   Unregister
                 </button>
                 <button type="button" onclick={() => (confirming = null)}>Cancel</button>
@@ -457,6 +495,7 @@
         </li>
       {/each}
     </ul>
+    <SaveStatus save={saves.users.state} />
   {/if}
 </dialog>
 
@@ -625,6 +664,11 @@
   }
   .rules .minutes {
     width: 5em;
+  }
+  .rules .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .rules button {
     align-self: flex-start;

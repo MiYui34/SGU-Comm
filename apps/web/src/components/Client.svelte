@@ -83,7 +83,7 @@
   import ChatPane from "./ChatPane.svelte";
   import ThreadList from "./ThreadList.svelte";
   import ThreadNameDialog from "./ThreadNameDialog.svelte";
-  import { activeThreads, chatTarget, defaultThreadName, startedIn, threadList, type Thread } from "../lib/threads";
+  import { activeThreads, chatTarget, defaultThreadName, startedIn, threadList, threadRequest, type Thread } from "../lib/threads";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
@@ -1488,31 +1488,30 @@
     rights={moderation}
     onLoad={(what) => connection.send(what === "bans" ? queryBans() : queryRegistered())}
     onSetBans={(bans) => {
-      connection.send(setBans(bans));
-      connection.send(queryBans());
+      // Done once the list asked for again has the new length.
+      const before = server.bans;
+      return connection.sendAwait([setBans(bans), queryBans()], (s) => s.bans !== before && s.bans?.length === bans.length);
     }}
-    onRename={(id, name) => {
-      connection.send(renameRegistered(id, name));
-      connection.send(queryRegistered());
-    }}
-    onUnregister={(id) => {
-      connection.send(unregister(id));
-      connection.send(queryRegistered());
-    }}
+    onRename={(id, name) =>
+      connection.sendAwait([renameRegistered(id, name), queryRegistered()], (s) => s.registered?.find((u) => u.userId === id)?.name === name)}
+    onUnregister={(id) =>
+      connection.sendAwait([unregister(id), queryRegistered()], (s) => !!s.registered && !s.registered.some((u) => u.userId === id))}
     emoji={customEmoji.list}
     onAddEmoji={connection.uploadEmoji}
     onDeleteEmoji={connection.deleteEmoji}
     guestsReadOnly={mayChangeGuests(server, text) ? text.guestsReadOnly : null}
-    onGuestsReadOnly={(on) => connection.manage({ guestsReadOnly: on })}
+    onGuestsReadOnly={(on) => connection.request({ guestsReadOnly: on })}
     captcha={text.captcha}
-    onCaptcha={(level) => connection.manage({ captcha: level })}
+    onCaptcha={(level) => connection.request({ captcha: level })}
     connections={text.connections}
     onPollConnections={mayChangeGuests(server, text) ? () => connection.manage({ connections: true }) : undefined}
     messageRules={text.messageRules}
     onLoadMessageRules={mayChangeGuests(server, text) ? () => connection.manage({ messageRules: true }) : undefined}
-    onSaveMessageRules={(rules) => connection.manage({ setMessageRules: rules })}
+    onSaveMessageRules={(rules) => connection.request({ setMessageRules: rules })}
     threadArchive={text.threadArchive}
-    onThreadArchive={canManageText(server, text) ? (seconds) => connection.thread({ archiveAfter: seconds }) : undefined}
+    onThreadArchive={canManageText(server, text)
+      ? (seconds) => connection.ask(threadRequest({ archiveAfter: seconds }), (ev) => ev.type === "thread-archive" && ev.seconds === seconds)
+      : undefined}
     recordings={text.recordings}
     recording={text.recording}
     onLoadRecordings={staffRecords ? () => connection.manage({ recordings: true }) : undefined}
