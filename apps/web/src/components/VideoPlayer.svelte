@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { downloadUrl, formatDuration, mediaRatio, onlyOne, shownLength, videoPreload } from "../lib/media";
+  import { downloadUrl, formatDuration, mediaRatio, onlyOne, releaseOnDestroy, shownLength, videoPreload } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // A video attachment: a play button and the length until it starts, then
@@ -54,6 +54,7 @@
     bind:duration
     onloadedmetadata={onLoad}
     onerror={onError}
+    {@attach releaseOnDestroy}
     onplay={(e) => {
       started = true;
       onlyOne(e.currentTarget);

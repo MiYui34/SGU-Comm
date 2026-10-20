@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { downloadUrl, finite, formatDuration, onlyOne, shownLength } from "../lib/media";
+  import { downloadUrl, finite, formatDuration, onlyOne, releaseOnDestroy, shownLength } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // An audio attachment: the file card with a player row.
@@ -58,6 +58,7 @@
     bind:duration
     bind:muted
     onplay={(e) => onlyOne(e.currentTarget)}
+    {@attach releaseOnDestroy}
     onerror={onError}
   ></audio>
 </div>

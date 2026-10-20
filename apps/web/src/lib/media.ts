@@ -59,6 +59,19 @@ export const onlyOne = (el: HTMLMediaElement) => {
   playing = el;
 };
 
+// A player that leaves the screen (closed, or the client re-mounted on a
+// reconnect) stops and drops its source: else the browser keeps it as the
+// media-session target, and a media key or a headset resumes it hours later.
+export const releaseMedia = (el: HTMLMediaElement) => {
+  el.pause();
+  el.removeAttribute("src");
+  el.load();
+  if (playing === el) playing = null;
+};
+
+// As a Svelte attachment: {@attach releaseOnDestroy}.
+export const releaseOnDestroy = (el: HTMLMediaElement) => () => releaseMedia(el);
+
 // Spoiler attachments are marked by name, as in Discord (no extra field on
 // the server); they show without the prefix, hidden until clicked.
 const SPOILER_PREFIX = "SPOILER_";

@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { asSpoiler, chatSrc, downloadUrl, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload, videoPreload } from "../src/lib/media";
+import { describe, expect, it, vi } from "vitest";
+import {
+  asSpoiler,
+  chatSrc,
+  downloadUrl,
+  formatDuration,
+  imageBox,
+  mediaKind,
+  mediaRatio,
+  onlyOne,
+  releaseMedia,
+  shownLength,
+  spoilerUpload,
+  videoPreload,
+} from "../src/lib/media";
 
 describe("previews", () => {
   it("show a picture's preview in the chat, else the picture", () => {
@@ -83,5 +96,45 @@ describe("downloadUrl", () => {
   it("asks the server for an attachment", () => {
     expect(downloadUrl("https://x.example/files/abc/clip.mp4")).toBe("https://x.example/files/abc/clip.mp4?download");
     expect(downloadUrl("/files/abc/a.mp4?x=1")).toBe("/files/abc/a.mp4?x=1&download");
+  });
+});
+
+// A stand-in for an <audio>/<video> element (the tests run without a DOM).
+const fakeMedia = () => ({ pause: vi.fn(), load: vi.fn(), removeAttribute: vi.fn() }) as unknown as HTMLMediaElement & Record<"pause" | "load" | "removeAttribute", ReturnType<typeof vi.fn>>;
+
+describe("media players", () => {
+  it("play one at a time", () => {
+    const a = fakeMedia();
+    const b = fakeMedia();
+    onlyOne(a);
+    onlyOne(b);
+    expect(a.pause).toHaveBeenCalledOnce();
+    expect(b.pause).not.toHaveBeenCalled();
+    releaseMedia(b);
+  });
+
+  it("stop and drop their source when they leave the screen, so a media key cannot resume them", () => {
+    const a = fakeMedia();
+    onlyOne(a);
+    releaseMedia(a);
+    expect(a.pause).toHaveBeenCalled();
+    expect(a.removeAttribute).toHaveBeenCalledWith("src");
+    expect(a.load).toHaveBeenCalledAfter(a.removeAttribute);
+    // No longer the one that played: the next one does not touch it.
+    a.pause.mockClear();
+    const b = fakeMedia();
+    onlyOne(b);
+    expect(a.pause).not.toHaveBeenCalled();
+    releaseMedia(b);
+  });
+
+  it("keep the one that plays when another leaves", () => {
+    const a = fakeMedia();
+    const b = fakeMedia();
+    onlyOne(a);
+    releaseMedia(b);
+    onlyOne(b);
+    expect(a.pause).toHaveBeenCalledOnce();
+    releaseMedia(b);
   });
 });
