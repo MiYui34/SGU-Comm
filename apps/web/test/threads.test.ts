@@ -97,12 +97,16 @@ describe("thread state", () => {
     const m = { id: 50, channel: 1, author: "bob", text: "topic", at: 1, thread: thread(5, { replies: 4 }) };
     let s = reduceText(ready, ev(JSON.stringify({ type: "history", channel: 1, messages: [m], more: false })));
     expect(s.threads[5]?.replies).toBe(4);
+    expect(s.threads[5]?.quote).toEqual({ id: 50, author: "bob", text: "topic" }); // the message itself
     s = reduceText(s, ev(JSON.stringify({ type: "search-results", text: "x", messages: [], threads: [thread(8)] })));
     expect(s.threads[8]?.name).toBe("t8");
     s = reduceText(s, ev(JSON.stringify({ type: "archived-threads", channel: 1, threads: [thread(9, { archived: true })], more: true })));
     s = reduceText(s, ev(JSON.stringify({ type: "archived-threads", channel: 1, threads: [thread(7, { archived: true })], more: false })));
     expect(s.archived[1]).toEqual({ threads: [thread(9, { archived: true }), thread(7, { archived: true })], more: false });
     expect(s.threads[7]?.archived).toBe(true);
+    // One archived now goes first.
+    s = reduceText(s, ev(`{"type":"thread","thread":${wire(thread(5, { archived: true }))}}`));
+    expect(s.archived[1]?.threads.map((t) => t.id)).toEqual([5, 9, 7]);
   });
   it("keeps archived threads of channels we still read, and drops the rest, on a channel change", () => {
     const s = reduceText(

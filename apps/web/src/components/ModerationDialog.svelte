@@ -2,6 +2,7 @@
   import { banAddress, type Ban, type Registered } from "@kallisti/protocol";
   import { untrack } from "svelte";
   import type { CaptchaLevel } from "../lib/captcha";
+  import { ARCHIVE_TIMES } from "../lib/threads";
   import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
   import EmojiImage from "./EmojiImage.svelte";
   import {
@@ -43,6 +44,8 @@
     onGuestsReadOnly,
     captcha = "off",
     onCaptcha,
+    threadArchive,
+    onThreadArchive,
     connections = null,
     onPollConnections,
     messageRules = null,
@@ -70,6 +73,10 @@
     // Admins (with the guests setting): the browser check for new accounts.
     captcha?: CaptchaLevel;
     onCaptcha?: (level: CaptchaLevel) => void;
+    // Staff: how long threads stay active without messages (seconds);
+    // without onThreadArchive, no tab.
+    threadArchive?: number;
+    onThreadArchive?: (seconds: number) => void;
     // Admins: every connection (null: not loaded yet), asked for again
     // while the tab is open; without onPollConnections, no tab.
     connections?: readonly Connection[] | null;
@@ -90,7 +97,7 @@
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let tab = $state<"bans" | "users" | "emoji" | "guests" | "rules" | "connections" | "recordings">(
+  let tab = $state<"bans" | "users" | "emoji" | "guests" | "threads" | "rules" | "connections" | "recordings">(
     untrack(() => (rights.bans ? "bans" : rights.users ? "users" : rights.emoji ? "emoji" : "guests")),
   );
   let renaming = $state<{ id: number; name: string } | null>(null);
@@ -199,6 +206,9 @@
     {#if guestsReadOnly !== null}
       <button role="tab" aria-selected={tab === "guests"} onclick={() => (tab = "guests")}>Guests</button>
     {/if}
+    {#if onThreadArchive}
+      <button role="tab" aria-selected={tab === "threads"} onclick={() => (tab = "threads")}>Threads</button>
+    {/if}
     {#if onLoadMessageRules}
       <button role="tab" aria-selected={tab === "rules"} onclick={() => (tab = "rules")}>Message rules</button>
     {/if}
@@ -255,6 +265,17 @@
       Before a web browser creates an account or joins as a guest, it does some work by itself: about 1 to 2 seconds (Normal) or 4
       times as long (Hard). This slows down scripts that make many accounts. No third party is involved. Mumble clients and logins
       do no check.
+    </p>
+  {:else if tab === "threads"}
+    <label class="check">
+      Archive threads after
+      <select value={threadArchive} onchange={(e) => onThreadArchive?.(Number(e.currentTarget.value))}>
+        {#each ARCHIVE_TIMES as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
+      </select>
+    </label>
+    <p class="note">
+      A thread without new messages for this time is archived: it leaves the channel list, but stays readable and searchable in the
+      channel's thread list. A new message opens it again.
     </p>
   {:else if tab === "rules"}
     {#if messageRules === null}

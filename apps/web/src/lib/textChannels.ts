@@ -652,8 +652,9 @@ const withPin = (list: readonly TextMessage[], m: TextMessage) =>
 const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
   [...new Map([...a, ...b].map((m) => [m.id, m])).values()].sort((x, y) => x.id - y.id);
 
-// The threads messages started.
-const threadsIn = (ms: readonly TextMessage[]) => ms.flatMap((m) => (m.thread ? [m.thread] : []));
+// The threads messages started (their quote: the message).
+const threadsIn = (ms: readonly TextMessage[]) =>
+  ms.flatMap((m) => (m.thread ? [{ ...m.thread, quote: m.thread.quote ?? { id: m.id, author: m.author, text: m.text } }] : []));
 
 // Threads after a channel list came: its active ones, and the archived
 // ones we knew of channels in it.
@@ -777,7 +778,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return {
         ...state,
         threads: withThreads(state.threads, [t]),
-        ...(list && { archived: { ...state.archived, [t.channel]: { ...list, threads: list.threads.map((x) => (x.id === t.id ? t : x)) } } }),
+        // A newly archived one is the newest there.
+        ...(list && { archived: { ...state.archived, [t.channel]: { ...list, threads: [...(t.archived && !list.threads.some((x) => x.id === t.id) ? [t] : []), ...list.threads.map((x) => (x.id === t.id ? t : x))] } } }),
       };
     }
     case "thread-deleted": {

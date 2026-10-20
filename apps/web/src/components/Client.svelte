@@ -27,13 +27,13 @@
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
-  import { nextPanel, swipeDirection, togglePins, type Panel, type Side } from "../lib/mobile";
+  import { nextPanel, swipeDirection, toggleSide, type Panel, type Side } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { hideSpoilers } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
-  import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
+  import { directChatWith, toChatMessage, type DisplayMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers, pictureNames, readerGroups } from "../lib/members";
   import { adminAction, badgeOf, moderatorAction, roleOf } from "../lib/roles";
   import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../lib/guests";
@@ -81,6 +81,9 @@
   import ChannelMenu from "./ChannelMenu.svelte";
   import ChannelSidebar from "./ChannelSidebar.svelte";
   import ChatPane from "./ChatPane.svelte";
+  import ThreadList from "./ThreadList.svelte";
+  import ThreadNameDialog from "./ThreadNameDialog.svelte";
+  import { activeThreads, defaultThreadName, threadList, type Thread } from "../lib/threads";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
@@ -282,6 +285,18 @@
     // Phones have no PTT key: a hold button instead.
     onHoldTalk: phone && prefs.mode === "ptt" && voiceOn ? (down: boolean) => capture?.setPttDown(down) : undefined,
   });
+  // A stored chat's pane fields (null: not known yet). Errors: not the
+  // quiet ones (quietError).
+  const storedPane = (id: number | null) => ({
+    more: id !== null && (text.more[id] ?? false),
+    loadingOlder: textView.loadingOlder(id),
+    onLoadOlder: () => textView.loadOlder(id),
+    error: uploadError ?? (text.quietError ? null : text.lastError),
+    onUpload: id === null ? undefined : (file: File, caption: string, reply?: number, noPing?: boolean) => upload(file, caption, reply, noPing, id),
+    uploading,
+    uploadMax: text.uploadMax,
+    returned: id !== null && text.returned?.channel === id ? text.returned : null,
+  });
   const pane = $derived.by(() => {
     if (view.kind === "text")
       return {
@@ -290,14 +305,7 @@
         kind: "text" as const,
         messages: textChat,
         welcomeText: "",
-        more: text.more[view.id] ?? false,
-        loadingOlder: textView.loadingOlder,
-        onLoadOlder: textView.loadOlder,
-        error: uploadError ?? (text.quietError ? null : text.lastError), // not the quiet ones (quietError)
-        onUpload: upload,
-        uploading,
-        uploadMax: text.uploadMax,
-        returned: text.returned?.channel === chatId ? text.returned : null,
+        ...storedPane(chatId),
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null && voiceChatId !== null)
@@ -308,14 +316,7 @@
         stored: true,
         messages: textChat,
         welcomeText: "",
-        more: text.more[voiceChatId] ?? false,
-        loadingOlder: textView.loadingOlder,
-        onLoadOlder: textView.loadOlder,
-        error: uploadError ?? (text.quietError ? null : text.lastError),
-        onUpload: upload,
-        uploading,
-        uploadMax: text.uploadMax,
-        returned: text.returned?.channel === chatId ? text.returned : null,
+        ...storedPane(chatId),
         onSend: send,
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
     if (dm === null)
@@ -335,14 +336,7 @@
         stored: true,
         messages: textChat,
         welcomeText: "",
-        more: directChatId === null ? false : (text.more[directChatId] ?? false),
-        loadingOlder: textView.loadingOlder,
-        onLoadOlder: textView.loadOlder,
-        error: uploadError ?? (text.quietError ? null : text.lastError),
-        onUpload: directChatId === null ? undefined : upload,
-        uploading,
-        uploadMax: text.uploadMax,
-        returned: text.returned?.channel === chatId ? text.returned : null,
+        ...storedPane(chatId),
         onSend: directChatId === null ? undefined : send,
         onClose: () => show({ kind: "voice" }),
       } satisfies Partial<ComponentProps<typeof ChatPane>>;
@@ -487,6 +481,9 @@
   // The stored chat that is open: a text channel, a voice channel's or a
   // direct chat.
   const chatId = $derived(textId ?? voiceChatId ?? directChatId);
+  // An open thread (see below), and a message to jump to there.
+  let threadId = $state<number | null>(null);
+  let threadJump = $state<number | null>(null);
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
   // The Mumble channel of what we look at (a text channel's mirror, or our
   // voice channel; null: a direct chat): its moderators and time-outs.
@@ -495,6 +492,11 @@
   // chats: open the chat, then jump to the message. false: not here.
   const openMessage = (link: { chat: number; message: number } | null) => {
     if (!link) return false;
+    const t = text.threads[link.chat];
+    if (t && text.channels.some((c) => c.id === t.channel)) {
+      openThread(t, link.message);
+      return true;
+    }
     const peer = text.directs[link.chat];
     if (text.channels.some((c) => c.id === link.chat)) show({ kind: "text", id: link.chat });
     else if (peer) openDirect(peer);
@@ -581,8 +583,9 @@
   // Link previews of the open chat's messages: asked once per message.
   const previewsAsked = new Set<string>();
   $effect(() => {
-    if (chatId === null) return;
-    const asks = previewsToAsk(text.messages[chatId] ?? [], text.previews, previewsAsked, (url) => !!parseMessageLink(url, site));
+    const asks = [chatId, threadId].flatMap((id) =>
+      id === null ? [] : previewsToAsk(text.messages[id] ?? [], text.previews, previewsAsked, (url) => !!parseMessageLink(url, site)),
+    );
     for (const m of asks) previewsAsked.add(previewKey(m));
     const ids = asks.map((m) => m.id);
     for (let i = 0; i < ids.length; i += 30) connection.previews(ids.slice(i, i + 30));
@@ -599,8 +602,11 @@
       } else if (ev.type === "message") typers = stoppedTyping(typers, ev.message.channel, ev.message.author);
     }),
   );
-  const typingHere = $derived(chatId === null ? [] : typingNames(typers, chatId, typingNow, me?.name ?? "").filter((n) => !blockedUsers.has(n)));
-  const anyoneTyping = $derived(typingHere.length > 0);
+  const typingIn = (id: number | null) =>
+    id === null ? [] : typingNames(typers, id, typingNow, me?.name ?? "").filter((n) => !blockedUsers.has(n));
+  const typingHere = $derived(typingIn(chatId));
+  const typingThread = $derived(typingIn(threadId));
+  const anyoneTyping = $derived(typingHere.length + typingThread.length > 0);
   // Another channel opened: names that ran out meanwhile go at once.
   $effect(() => {
     void chatId;
@@ -612,13 +618,14 @@
     return () => clearInterval(tick);
   });
   const typingSent: Record<number, number> = {};
-  const onTyping = () => {
+  const typingTo = (id: number | null) => () => {
     const now = Date.now();
-    if (chatId === null || !shouldSendTyping(typingSent[chatId], now)) return;
-    typingSent[chatId] = now;
-    connection.typing(chatId);
+    if (id === null || !shouldSendTyping(typingSent[id], now)) return;
+    typingSent[id] = now;
+    connection.typing(id);
   };
-  const textView = createTextView(() => connection, () => chatId, () => me?.name ?? "", blockedUsers.has);
+  const onTyping = $derived(typingTo(chatId));
+  const textView = createTextView(() => connection, () => (phone && threadId !== null ? [threadId] : [chatId, threadId]), () => me?.name ?? "", blockedUsers.has);
   const unreadText = $derived(withoutMuted(textView.unread, mutedText));
   // Unread counts as shown (muted direct chats count none).
   const mentions = $derived(quietDirects(textView.mentions, text.directs, mutedText));
@@ -655,10 +662,10 @@
       const mentioned = pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll);
       if (!notifies(prefOf(channelPrefs.value, connection.httpBase, m.channel), mentioned, Date.now())) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
-      const voice = Object.entries(text.voiceChannels).find(([, chat]) => chat === m.channel)?.[0];
-      const where = textChannel ? `#${textChannel.name}` : (server.channels[Number(voice)]?.name ?? "a voice chat");
-      notify(`${m.author || "Server"} in ${where}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel, () => {
+      const t = text.threads[m.channel];
+      notify(`${m.author || "Server"} in ${whereOf(m)}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel || threadId === m.channel, () => {
         if (textChannel) show({ kind: "text", id: textChannel.id });
+        else if (t) openThread(t);
       });
     }),
   );
@@ -687,7 +694,7 @@
     const channelSettings = untrack(() => channelPrefs.value);
     const quiet = (id: number) => {
       const pref = prefOf(channelSettings, connection.httpBase, id);
-      return id === chatId || (id in text.directs ? isMuted(pref, Date.now()) : !notifies(pref, true, 0));
+      return id === chatId || id === threadId || (id in text.directs ? isMuted(pref, Date.now()) : !notifies(pref, true, 0));
     };
     const total = Object.entries(textView.mentions).reduce((a, [id, n]) => (quiet(Number(id)) ? a : a + n), 0);
     // Mentions from before (the summary at login or reconnect): no sound.
@@ -724,10 +731,13 @@
   let side = $state<Side>("members");
   const openSide = (next: Side) => {
     side = next;
+    if (next !== "members") threadId = null; // the column shows it now
     if (phone) panel = next === "members" ? "chat" : "members";
   };
   // Where a stored message is: "#general", or a voice channel's name.
-  const whereOf = (m: TextMessage) => {
+  const whereOf = (m: TextMessage): string => {
+    const t = text.threads[m.channel];
+    if (t) return `${whereOf({ ...m, channel: t.channel })} › ${t.name}`;
     const ch = text.channels.find((c) => c.id === m.channel);
     if (ch) return `#${ch.name}`;
     const peer = text.directs[m.channel];
@@ -744,11 +754,12 @@
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Slow mode in the open text channel (staff are exempt).
-  const slow = $derived(
-    textId === null || !textChannel?.slowMode || canModerate(server, text, viewMumble)
+  // A thread has its channel's slow mode, and its own turns.
+  const slowIn = (id: number | null, chat: readonly ChatMessage[]) =>
+    id === null || !textChannel?.slowMode || canModerate(server, text, viewMumble)
       ? null
-      : { seconds: textChannel.slowMode, lastPost: lastPostAt(textChat, mine), until: text.slowUntil[textId] },
-  );
+      : { seconds: textChannel.slowMode, lastPost: lastPostAt(chat, mine), until: text.slowUntil[id] };
+  const slow = $derived(slowIn(textId, textChat));
   // Names "@" suggests: who is online, and who wrote in the open chat;
   // for moderators also everyone and here (stored chats, see lib/mentions).
   const people = $derived([
@@ -759,8 +770,7 @@
   // sent (the message box then lets the file go).
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
-  const upload = async (file: File, caption: string, reply?: number, noPing?: boolean) => {
-    const channel = chatId;
+  const upload = async (file: File, caption: string, reply?: number, noPing?: boolean, channel = chatId) => {
     if (channel === null || uploading) return false;
     uploading = true;
     uploadError = null;
@@ -898,6 +908,91 @@
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
+
+  // What both chat panes (the open chat and an open thread) share.
+  const chatCommon = $derived({
+    loginToWrite,
+    me: me?.name ?? "",
+    people,
+    cannotWrite:
+      myTimeout !== null
+        ? `You are timed out until ${untilText(myTimeout)}.`
+        : myChannelTimeout !== null
+          ? `You are timed out in this channel until ${untilText(myChannelTimeout)}.`
+          : null,
+    mayEdit: mine,
+    mayDelete: (m: DisplayMessage) => mine(m) || canModerate(server, text, viewMumble),
+    onEdit: readOnly ? undefined : connection.editMessage,
+    onDelete: connection.deleteMessage,
+    onOpenChannel: (id: number) => show({ kind: "text", id }),
+    onPin: readOnly ? undefined : connection.pin,
+    channelNames: text.channels.map((c) => c.name),
+    onLink: (href: string) => {
+      const link = parseMessageLink(href, site);
+      return link && (openMessage(link) ? "opened" : "unavailable");
+    },
+    onReact: readOnly ? undefined : connection.react,
+    myId: me?.userId ?? null,
+    previewOf: (id: number) => text.previews[id] ?? null,
+    httpBase: connection.httpBase,
+  } satisfies Partial<ComponentProps<typeof ChatPane>>);
+
+  // Threads (see lib/threads), the open one: next to its channel (full
+  // screen on phones). One we started opens when the server made it.
+  const thread = $derived(threadId === null ? undefined : text.threads[threadId]);
+  const threadAside = $derived(!phone && !!thread);
+  const openThread = (t: Thread, jump?: number) => {
+    if (textId !== t.channel) show({ kind: "text", id: t.channel });
+    threadId = t.id;
+    threadJump = jump ?? null;
+    panel = "chat";
+  };
+  // Gone, or its channel is not open: closed.
+  $effect(() => {
+    if (threadId !== null && (!thread || thread.channel !== textId)) threadId = null;
+  });
+  let startedFrom: number | null = null;
+  $effect(() =>
+    connection.onTextEvent((ev) => {
+      if (ev.type === "thread" && ev.thread.start === startedFrom) {
+        startedFrom = null;
+        openThread(ev.thread);
+      }
+    }),
+  );
+  const threadByStart = $derived(new Map(Object.values(text.threads).map((t) => [t.start, t])));
+  const threadChat = $derived(
+    threadId === null ? [] : (text.messages[threadId] ?? []).map((m) => toChatMessage(m, connection.httpBase, channelIds)),
+  );
+  // A name to give: a new thread from a message, or a rename.
+  let naming = $state<{ create: number; name: string } | { rename: number; name: string } | null>(null);
+  // Rights as the server has them: its maker renames and archives it, the
+  // channel's moderators also delete it.
+  const threadRights = (t: Thread) => {
+    const mod = canModerate(server, text, text.channels.find((c) => c.id === t.channel)?.mumble ?? null);
+    const own = me?.userId != null && t.authorId === me.userId && !readOnly;
+    return { change: own || mod, remove: mod };
+  };
+  let threadMenu = $state<(MenuAt & { id: number }) | null>(null);
+  const openThreadMenu = (id: number, event: MouseEvent) => {
+    event.preventDefault();
+    threadMenu = { id, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
+  };
+  // A channel's archived threads, a page at a time (asked: the page asked
+  // for, until it comes).
+  let archivedAsked = $state<string | null>(null);
+  const loadArchived = (channel: number) => {
+    const before = text.archived[channel]?.threads.at(-1)?.id;
+    archivedAsked = `${channel}:${before ?? 0}`;
+    connection.thread({ archived: channel, before });
+  };
+  $effect(() => {
+    void [text.archived, text.lastError]; // answered, or refused
+    archivedAsked = null;
+  });
+  $effect(() => {
+    if (side === "threads" && textId !== null && !text.archived[textId] && archivedAsked === null) untrack(() => loadArchived(textId!));
+  });
   // Screen shares and cameras (by stream id): who is live, and watching (a
   // stream in another channel: join it first).
   const streamClient = $derived(connection.streams);
@@ -1067,15 +1162,25 @@
     const categoryName = (id?: number) => text.categories.find((c) => c.id === id)?.name;
     return [
       // In the sidebar's order (Alt+Up/Down follows it).
-      ...textOrder(text.channels, text.categories).map((c) => ({
-        key: `t${c.id}`,
-        name: c.name,
-        kind: "text" as const,
-        category: categoryName(c.category),
-        unread: unreadText.has(c.id),
-        locked: c.mumble !== undefined && c.mumble in text.private,
-        run: () => show({ kind: "text", id: c.id }),
-      })),
+      ...textOrder(text.channels, text.categories).flatMap((c) => [
+        {
+          key: `t${c.id}`,
+          name: c.name,
+          kind: "text" as const,
+          category: categoryName(c.category),
+          unread: unreadText.has(c.id),
+          locked: c.mumble !== undefined && c.mumble in text.private,
+          run: () => show({ kind: "text", id: c.id }),
+        },
+        ...activeThreads(text.threads, c.id).map((t) => ({
+          key: `h${t.id}`,
+          name: t.name,
+          kind: "thread" as const,
+          category: `#${c.name}`,
+          unread: unreadText.has(t.id),
+          run: () => openThread(t),
+        })),
+      ]),
       ...directs.map((d) => ({
         key: `d${d.channel}`,
         name: d.peer.name,
@@ -1137,6 +1242,44 @@
     onMove={(step) => channels.move(m.kind, m.id, step)}
     onDelete={() => channels.startDelete(m.kind, m.id)}
     onClose={channels.closeMenu}
+  />
+{/if}
+
+{#if threadMenu && text.threads[threadMenu.id]}
+  {@const tm = threadMenu}
+  {@const t = text.threads[tm.id]!}
+  {@const rights = threadRights(t)}
+  <ChannelMenu
+    name={t.name}
+    x={tm.x}
+    y={tm.y}
+    canEdit={rights.change}
+    canDelete={rights.remove}
+    onEdit={() => (naming = { rename: t.id, name: t.name })}
+    onDelete={() => confirm(`Delete the thread “${t.name}” and its messages?`) && connection.thread({ remove: t.id })}
+    notify={{ pref: prefOf(channelPrefs.value, connection.httpBase, t.id), desktop: prefs.notifications }}
+    onNotify={(patch) => channelPrefs.set(connection.httpBase, t.id, patch)}
+    thread={{
+      following: text.follows.has(t.id),
+      onFollow: () => connection.thread({ follow: t.id, on: !text.follows.has(t.id) }),
+      archived: t.archived === true,
+      onArchive: rights.change ? () => connection.thread({ archive: t.id, on: !t.archived }) : undefined,
+    }}
+    onClose={() => (threadMenu = null)}
+  />
+{/if}
+
+{#if naming}
+  {@const n = naming}
+  <ThreadNameDialog
+    title={"create" in n ? "Create thread" : "Rename thread"}
+    name={n.name}
+    action={"create" in n ? "Create thread" : "Rename"}
+    onSubmit={(name) => {
+      if ("create" in n) startedFrom = n.create;
+      connection.thread("create" in n ? { create: n.create, name } : { rename: n.rename, name });
+    }}
+    onClose={() => (naming = null)}
   />
 {/if}
 
@@ -1327,6 +1470,8 @@
     messageRules={text.messageRules}
     onLoadMessageRules={mayChangeGuests(server, text) ? () => connection.manage({ messageRules: true }) : undefined}
     onSaveMessageRules={(rules) => connection.manage({ setMessageRules: rules })}
+    threadArchive={text.threadArchive}
+    onThreadArchive={canManageText(server, text) ? (seconds) => connection.thread({ archiveAfter: seconds }) : undefined}
     recordings={text.recordings}
     recording={text.recording}
     onLoadRecordings={staffRecords ? () => connection.manage({ recordings: true }) : undefined}
@@ -1369,8 +1514,9 @@
 
 <div
   class="layout"
-  class:members={membersOpen || side !== "members"}
-  class:side={side !== "members"}
+  class:members={membersOpen || side !== "members" || threadAside}
+  class:side={side !== "members" || threadAside}
+  class:thread={threadAside}
   data-panel={phone ? panel : undefined}
 >
   <div class="left" bind:this={leftEl} inert={phone && panel !== "channels"}>
@@ -1417,6 +1563,11 @@
       onCreate={channels.startCreate}
       onChannelMenu={channels.open}
       onDirectMenu={openDirectMenu}
+      threadsOf={(id) => activeThreads(text.threads, id)}
+      follows={text.follows}
+      currentThread={threadId}
+      onOpenThread={openThread}
+      onThreadMenu={openThreadMenu}
     />
     {#if me}
       {#if lobby && voiceOn}
@@ -1481,25 +1632,69 @@
       />
     {/if}
   {/snippet}
+  {#snippet threadPane(t: Thread)}
+    {@const parent = text.channels.find((c) => c.id === t.channel)}
+    <ChatPane
+      {...paneCommon}
+      onMenu={phone ? paneCommon.onMenu : undefined}
+      compact
+      title={t.name}
+      topic={parent ? `#${parent.name}` : ""}
+      kind="text"
+      messages={threadChat}
+      welcomeText=""
+      {...storedPane(t.id)}
+      onSend={(message, reply, noPing) => {
+        uploadError = null;
+        connection.sendToTextChannel(t.id, message, undefined, reply, noPing);
+      }}
+      {...chatCommon}
+      {...(readOnly ? { onSend: undefined, onUpload: undefined } : {})}
+      chatKey="thread {t.id}"
+      slow={slowIn(t.id, threadChat)}
+      mayPin={canModerate(server, text, viewMumble)}
+      jumpTarget={text.loaded[t.id] ? threadJump : null}
+      onJumped={() => (threadJump = null)}
+      linkTo={(id) => messageLink(site, t.id, id)}
+      typing={typingText(typingThread)}
+      onTyping={typingTo(t.id)}
+      onClose={() => (threadId = null)}
+    >
+      {#snippet intro()}
+        <div class="thread-intro">
+          <h2>{t.name}</h2>
+          <p>Thread started by {t.author}{t.archived ? " · archived (a new message opens it again)" : ""}</p>
+          {#if t.quote?.author}
+            <button type="button" class="thread-start" onclick={() => {
+                if (phone) threadId = null; // the channel is under it
+                jumpTarget = t.start;
+              }}>
+              <strong>{t.quote.author}</strong>
+              {hideSpoilers(t.quote.text)}
+            </button>
+          {:else}
+            <p><em>The original message was deleted.</em></p>
+          {/if}
+        </div>
+      {/snippet}
+      {#snippet tools()}
+        <button type="button" title="Thread actions" aria-label="Thread actions" onclick={(e) => openThreadMenu(t.id, e)}>
+          <span aria-hidden="true">⋯</span>
+        </button>
+      {/snippet}
+    </ChatPane>
+  {/snippet}
   <div class="main" inert={phone && panel !== "chat"}>
+    {#if phone && thread}
+      {@render threadPane(thread)}
+    {:else}
     <ChatPane
       {...paneCommon}
       {...pane}
+      {...chatCommon}
       {...(readOnly ? { onSend: undefined, onUpload: undefined } : {})}
-      {loginToWrite}
       chatKey={chatKeyOf(view, channelId)}
-      me={me?.name ?? ""}
-      {people}
-      cannotWrite={myTimeout !== null
-        ? `You are timed out until ${untilText(myTimeout)}.`
-        : myChannelTimeout !== null
-          ? `You are timed out in this channel until ${untilText(myChannelTimeout)}.`
-          : null}
       {slow}
-      mayEdit={mine}
-      mayDelete={(m) => mine(m) || canModerate(server, text, viewMumble)}
-      onEdit={readOnly ? undefined : connection.editMessage}
-      onDelete={connection.deleteMessage}
       onSearch={text.available
         ? (q) => {
             searchQuery = q;
@@ -1507,39 +1702,49 @@
             openSide("search");
           }
         : undefined}
-      onOpenChannel={(id) => show({ kind: "text", id })}
       stage={streamClient?.watching.length ? stage : undefined}
-      error={pane.error ?? streamClient?.error}
+      error={("error" in pane ? pane.error : null) ?? streamClient?.error}
       onPins={text.voiceChats && chatId !== null
-        ? () => openSide(togglePins(side, !phone || panel === "members"))
+        ? () => openSide(toggleSide(side, !phone || panel === "members", "pins"))
         : undefined}
       pinsOpen={side === "pins"}
       mayPin={directChatId !== null || canModerate(server, text, viewMumble)}
-      onPin={readOnly ? undefined : connection.pin}
       jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
       onJumped={() => (jumpTarget = null)}
-      channelNames={text.channels.map((c) => c.name)}
       {searchPlaces}
       linkTo={chatId !== null && voiceChatId === null ? (id) => messageLink(site, chatId!, id) : undefined}
-      onLink={(href) => {
-        const link = parseMessageLink(href, site);
-        return link && (openMessage(link) ? "opened" : "unavailable");
-      }}
       typing={typingText(typingHere)}
       {onTyping}
-      onReact={readOnly ? undefined : connection.react}
-      myId={me?.userId ?? null}
-      previewOf={(id) => text.previews[id] ?? null}
-      httpBase={connection.httpBase}
+      threadOf={textId === null ? undefined : (id) => threadByStart.get(id)}
+      onOpenThread={openThread}
+      onCreateThread={textId === null || readOnly ? undefined : (id, body) => (naming = { create: id, name: defaultThreadName(body) })}
+      onThreads={textId === null ? undefined : () => openSide(toggleSide(side, !threadAside && (!phone || panel === "members"), "threads"))}
+      threadsOpen={side === "threads" && !threadAside}
     />
+    {/if}
   </div>
-  {#if side === "search"}
+  {#if threadAside && thread}
+    <aside class="thread-pane">{@render threadPane(thread)}</aside>
+  {:else if side === "threads" && textId !== null}
+    {@const list = text.archived[textId]}
+    <ThreadList
+      inert={phone && panel !== "members"}
+      channel={textChannel?.name ?? ""}
+      threads={threadList(text.threads, list?.threads ?? [], textId)}
+      more={!list || archivedAsked !== null ? null : list.more}
+      unread={unreadText}
+      {mentions}
+      onOpen={(t) => openThread(t)}
+      onMore={() => loadArchived(textId!)}
+      onClose={() => openSide("members")}
+    />
+  {:else if side === "search"}
     <SearchPanel
       inert={phone && panel !== "members"}
       text={text.search ? searchQuery : null}
       messages={(text.search?.messages ?? []).filter((m) => !blockedUsers.has(m.author))}
       where={whereOf}
-      canOpen={(m) => text.channels.some((c) => c.id === m.channel) || m.channel in text.directs}
+      canOpen={(m) => text.channels.some((c) => c.id === m.channel || c.id === text.threads[m.channel]?.channel) || m.channel in text.directs}
       onOpen={(m) => openMessage({ chat: m.channel, message: m.id })}
       onClose={() => {
         openSide("members");
@@ -1590,6 +1795,37 @@
   }
   .layout.members {
     grid-template-columns: 72px 240px 1fr 240px;
+  }
+  .layout.thread {
+    grid-template-columns: 72px 240px 1fr minmax(320px, 420px);
+  }
+  .thread-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--border);
+  }
+  .thread-pane > :global(main) {
+    flex: 1;
+  }
+  .thread-intro h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+  }
+  .thread-intro p {
+    margin: 0 0 8px;
+    color: var(--text-muted);
+  }
+  .thread-start {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border-left: 3px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-sidebar);
+    text-align: left;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   /* Desktop: the wrapper does not exist for the grid. Phone: left drawer. */
   .left,

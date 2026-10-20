@@ -26,6 +26,7 @@
     onMembers,
     onModerators,
     direct,
+    thread,
     category = false,
     onClose,
   }: {
@@ -59,6 +60,9 @@
     onModerators?: () => void;
     // A direct chat (see lib/directList).
     direct?: { pinned: boolean; onProfile: () => void; onRead?: () => void; onPin: () => void; onHide: () => void };
+    // A thread (see lib/threads): follow it, archive it (or open it again;
+    // undefined: may not).
+    thread?: { following: boolean; onFollow: () => void; archived: boolean; onArchive?: () => void };
     // A text category (see lib/categories).
     category?: boolean;
     onClose: () => void;
@@ -77,11 +81,16 @@
   ];
   const id = $props.id();
   const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
-  const noun = $derived(direct ? "conversation" : category ? "category" : "channel");
+  const noun = $derived(direct ? "conversation" : thread ? "thread" : category ? "category" : "channel");
   const changes = $derived(canEdit || canCreateSub || canMoveUp || canMoveDown || canMembers || canModerators);
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
+  {#if thread}
+    <button onclick={act(thread.onFollow)}>{thread.following ? "Unfollow thread" : "Follow thread"}</button>
+    {#if thread.onArchive}<button onclick={act(thread.onArchive)}>{thread.archived ? "Open thread again" : "Archive thread"}</button>{/if}
+    <div class="sep"></div>
+  {/if}
   {#if direct}
     <button onclick={act(direct.onProfile)}>Profile</button>
     {#if direct.onRead}<button onclick={act(direct.onRead)}>Mark as read</button>{/if}
@@ -135,7 +144,7 @@
       <div class="sep"></div>
       <button class="danger" onclick={act(onDelete)}>Delete {noun}</button>
     {/if}
-  {:else if !notify && recording === undefined && !direct}
+  {:else if !notify && recording === undefined && !direct && !thread}
     <p class="none">You may not change this channel.</p>
   {/if}
 </ContextMenu>
