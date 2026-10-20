@@ -2146,3 +2146,16 @@ From `meta/research/discord-comparison.md`.
   start of the request. Production's Caddy passes slow bodies on without a
   timeout. The deadline also ends net/http's wait for the unread rest of
   a body after an early refusal.
+
+## Stale media playback (2026-10-20)
+
+- Attachment players stop and drop their source when they unmount
+  (`releaseMedia`, as `{@attach releaseOnDestroy}`). Before, the last one
+  that played stayed the media-session target after a reconnect, and a
+  media key or headset resumed it hours later.
+- Stream sound is dropped while the AudioContext is not "running"
+  (suspended, WebKit "interrupted"): its clock stands still, so chunks
+  piled up (about 690 MB per hour) and played as one burst on resume. The
+  playout re-anchors on the first item after the clock runs again.
+- Checked in headless Chromium: a draft stays after the server restarts
+  and the client re-mounts.
