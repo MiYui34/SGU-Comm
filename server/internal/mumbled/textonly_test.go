@@ -2,6 +2,7 @@ package mumbled
 
 import (
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -239,6 +240,44 @@ func TestModerationHitsAllSessionsOfAnAccount(t *testing.T) {
 	account := &WebAccount{Name: "alice", CertHash: "alice-cert"}
 	again := webClient(t, s, Origin{Host: netip.MustParseAddr("192.0.2.3"), Account: account}, "alice")
 	again.expect(mumble.TypeReject)
+}
+
+func TestABanCoversTheAddressesOfAllSessions(t *testing.T) {
+	s, addr, _ := lobbyServer(t)
+	su := superUser(t, addr)
+	first := aliceTab(t, s, "203.0.113.1")
+	second := aliceTab(t, s, "2001:db8::2")
+	third := aliceTab(t, s, "203.0.113.1")
+	third.sync()
+	if err := s.Ban(su.session, second.session, "spam", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []*testClient{first, second, third} {
+		c.waitForRemove(c.session)
+	}
+	var prefixes, hashes []string
+	for _, b := range s.currentBans() {
+		if b.Reason != "spam" || b.Duration != time.Hour {
+			t.Errorf("ban %+v", b)
+		}
+		if b.Prefix.IsValid() {
+			prefixes = append(prefixes, b.Prefix.String())
+		}
+		if b.Hash != "" {
+			hashes = append(hashes, b.Hash)
+		}
+	}
+	if len(hashes) != 1 { // the tabs share the account's certificate
+		t.Errorf("certificate bans %v", hashes)
+	}
+	if len(prefixes) != 2 || !slices.Contains(prefixes, "203.0.113.1/32") || !slices.Contains(prefixes, "2001:db8::2/128") {
+		t.Fatalf("address bans %v", prefixes)
+	}
+	for _, ip := range []string{"203.0.113.1", "2001:db8::2"} {
+		if _, ok := <-webClient(t, s, Origin{Host: netip.MustParseAddr(ip)}, "bob").frames; ok {
+			t.Errorf("%s got in", ip) // banned addresses are closed at once
+		}
+	}
 }
 
 func TestAServerMuteOutlastsTheVoiceTab(t *testing.T) {

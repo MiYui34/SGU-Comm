@@ -20,6 +20,7 @@ import {
   formatSize,
   type TextMessage,
 } from "../src/lib/textChannels";
+import { mentionCounts } from "../src/lib/mentions";
 
 const msg = (id: number, channel = 1, author = "alice"): TextMessage => ({
   id,
@@ -455,6 +456,18 @@ describe("read state from the server", () => {
   it("marks channels unread by the summary, without loaded messages", () => {
     const s = reduceText(initialTextState, parseServerEvent(raw)!);
     expect([...unreadTextIds(s, { 1: 4, 2: 3 })]).toEqual([1]);
+  });
+
+  it("follows read marks of the account's other sessions; marks never go back", () => {
+    const s = reduceText(initialTextState, parseServerEvent(raw)!);
+    const ev = parseServerEvent(JSON.stringify({ type: "read", channel: 1, message: 9 }));
+    expect(ev).toEqual({ type: "read", channel: 1, message: 9 });
+    const read = reduceText(s, ev!);
+    expect(read.reads).toEqual({ 1: 9 });
+    expect([...unreadTextIds(read, read.reads)]).toEqual([2]);
+    expect(mentionCounts(read, read.reads, "alice")).toEqual({ 7: 1 });
+    expect(reduceText(read, { type: "read", channel: 1, message: 5 }).reads).toEqual({ 1: 9 });
+    expect(parseServerEvent(JSON.stringify({ type: "read", channel: "1", message: 9 }))).toBeNull();
   });
 
   it("builds the mark-read request", () => {

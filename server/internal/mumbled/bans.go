@@ -105,25 +105,35 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 		return need, false
 	}
 	var ban *BanEntry
-	var more []BanEntry // the certificates of the account's other sessions
+	var more []BanEntry // the other certificates and addresses of the account's sessions
 	if m.GetBan() {
 		// Clients before 1.6 send neither option: both, as Murmur.
-		byCert := (m.BanCertificate == nil || m.GetBanCertificate()) && u.Hash != ""
+		byCert := m.BanCertificate == nil || m.GetBanCertificate()
 		byIP := m.BanIp == nil || m.GetBanIp()
-		ban = &BanEntry{Name: u.Name, Reason: m.GetReason(), Start: time.Now().UTC().Truncate(time.Second), Duration: d}
-		if byCert {
-			ban.Hash = u.Hash
+		// entry bans a session by what is not banned yet.
+		start := time.Now().UTC().Truncate(time.Second)
+		hashes, hosts := map[string]bool{"": true}, map[netip.Prefix]bool{{}: true}
+		entry := func(o *User) BanEntry {
+			b := BanEntry{Name: u.Name, Reason: m.GetReason(), Start: start, Duration: d}
+			if byCert && !hashes[o.Hash] {
+				b.Hash, hashes[o.Hash] = o.Hash, true
+			}
+			if t := s.clients[o.Session]; byIP && t != nil && t.host.IsValid() {
+				if p := netip.PrefixFrom(t.host, t.host.BitLen()); !hosts[p] {
+					b.Prefix, hosts[p] = p, true
+				}
+			}
+			return b
 		}
-		if t := s.clients[u.Session]; byIP && t != nil && t.host.IsValid() {
-			ban.Prefix = netip.PrefixFrom(t.host, t.host.BitLen())
-		}
+		first := entry(u)
+		ban = &first
 		if !ban.Prefix.IsValid() && ban.Hash == "" {
 			s.mu.Unlock()
 			return 0, false // nothing to ban by
 		}
 		for _, o := range s.siblingsLocked(u) {
-			if byCert && o.Hash != "" && o.Hash != u.Hash {
-				more = append(more, BanEntry{Hash: o.Hash, Name: ban.Name, Reason: ban.Reason, Start: ban.Start, Duration: d})
+			if b := entry(o); b.Prefix.IsValid() || b.Hash != "" {
+				more = append(more, b)
 			}
 		}
 	}

@@ -146,9 +146,7 @@ func (h *Hub) UserMoved(session, from, to uint32) {
 		last := h.lastMessage(v.in)
 		v.seen[v.in] = last
 		if v.user.Registered && last > 0 {
-			if err := h.store.SetReadMark(v.user.UserID, v.in, last); err != nil {
-				slog.Error("read mark", "err", err)
-			}
+			h.setReadMark(v.user.UserID, v.in, last)
 		}
 		v.in = 0
 	}

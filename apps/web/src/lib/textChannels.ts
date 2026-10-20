@@ -200,6 +200,8 @@ export type ServerEvent =
   // "message-deleted").
   | { type: "messages-deleted"; channel: number; ids: number[] }
   | { type: "search-results"; text: string; messages: TextMessage[]; threads?: Thread[] }
+  // A session of our account (also this one) read a chat up to a message.
+  | { type: "read"; channel: number; message: number }
   // about "manage": the answer to a channel or role change; slow: a post
   // refused by slow mode, and when the wait ends.
   // returned: a refused send's text, for the composer of its chat.
@@ -624,6 +626,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isStr(v.text) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "search-results", text: v.text, messages: v.messages, ...(isThreads(v.threads) ? { threads: v.threads } : {}) }
         : null;
+    case "read":
+      return isNum(v.channel) && isNum(v.message) ? { type: "read", channel: v.channel, message: v.message } : null;
     case "error":
       if (!isStr(v.message)) return null;
       const returned = isNum(v.channel) && isStr(v.text) ? { returned: { channel: v.channel, text: v.text } } : {};
@@ -860,6 +864,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, pins: { ...state.pins, [event.channel]: event.messages } };
     case "search-results":
       return { ...state, search: { text: event.text, messages: event.messages }, threads: withThreads(state.threads, event.threads ?? []) };
+    case "read":
+      return { ...state, reads: { ...state.reads, [event.channel]: Math.max(state.reads[event.channel] ?? 0, event.message) } };
     case "preview":
       return { ...state, previews: { ...state.previews, [event.message]: event.preview } };
     case "reactions": {

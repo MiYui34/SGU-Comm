@@ -1993,8 +1993,10 @@ From `meta/research/discord-comparison.md`.
   oldest. It counts text-only sessions, so pushes stay off while any
   session is connected.
 - Moderation: a kick or ban removes every session of the account; a ban
-  also covers the certificates of the other sessions (a Mumble client
-  logging in with the account's password may have its own). A time-out
+  also covers the certificates and addresses of the other sessions (a
+  Mumble client logging in with the account's password may have its own
+  certificate). One entry per session at most, without what the ban
+  already has (full addresses, as single bans). A time-out
   mutes every session. Channel time-outs, message rules and slow mode
   were per user id already.
 - MaxUsers counts users in channels only; more sessions of an account
@@ -2024,6 +2026,13 @@ From `meta/research/discord-comparison.md`.
   bob still saw one alice and heard the active tab (speaking ring), the
   text-only tab heard nothing. Closing the voice tab brought the other
   into the lobby, still online for bob.
-- Gaps: read marks are not synced live between open tabs (an unread
-  badge stays in the other tab until it reloads); the connections view
-  lists every session but does not mark text-only ones.
+- Read marks sync live: a stored mark (a web tab's mark-read, or a
+  Mumble client reading a chat or a direct message) goes as
+  `{"type":"read","channel","message"}` to the account's web sessions
+  (`Hub.setReadMark`); the client raises `reads`, so unread marks,
+  mention counts and the title follow. The sender gets it too: a tab
+  re-sends marks above its `reads` on every event (for reconnects), so
+  without the echo two tabs ahead in different chats sent theirs to each
+  other forever.
+- Gap: the connections view lists every session but does not mark
+  text-only ones.

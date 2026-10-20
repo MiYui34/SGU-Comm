@@ -187,7 +187,20 @@ func (c *Conn) markRead(id mumble.Identity, req request) {
 	if !ok || !c.hub.may(id, ch, false) {
 		return
 	}
-	if err := c.hub.store.SetReadMark(id.UserID, req.Channel, req.Message); err != nil {
+	c.hub.setReadMark(id.UserID, req.Channel, req.Message)
+}
+
+// setReadMark stores a registered user's read mark and tells the user's
+// web sessions, so their unread marks follow (the sender too: else its
+// marks stay behind, and it sends them again on every event).
+func (h *Hub) setReadMark(user uint32, channel, message int64) {
+	if err := h.store.SetReadMark(user, channel, message); err != nil {
 		slog.Error("read mark", "err", err)
+		return
 	}
+	h.eachReady(func(c *Conn, id mumble.Identity) {
+		if id.Registered && id.UserID == user {
+			c.send(map[string]any{"type": "read", "channel": channel, "message": message})
+		}
+	})
 }
