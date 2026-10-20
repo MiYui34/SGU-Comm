@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -193,31 +194,27 @@ func TestSubscriptionAPI(t *testing.T) {
 	}
 }
 
-func TestNotify(t *testing.T) {
+func TestDeliver(t *testing.T) {
+	ctx := context.Background()
 	s, f, now := newService(t)
 	call(t, s, "POST", "/api/push/subscriptions", "a1", subscribe(phone, 3))
 	call(t, s, "POST", "/api/push/subscriptions", "a2", subscribe(laptop))
 	note := Note{Channel: 1, Body: "Mention in #general from bob", URL: "/channels/1/7"}
-	s.Notify("alice", note)
+	s.deliver(ctx, "alice", note)
 	got := f.take()
 	slices.SortFunc(got, func(a, b sent) int { return strings.Compare(a.endpoint, b.endpoint) })
 	if len(got) != 2 || got[0].endpoint != phone || got[0].topic != "chat-1" || got[0].note.Body != note.Body || got[0].note.URL != note.URL || got[0].note.Tag != "chat-1" {
 		t.Fatalf("both devices: %+v", got)
 	}
-	// At most one per chat and minute; other chats still go.
-	s.Notify("alice", note)
-	if got := f.take(); len(got) != 0 {
-		t.Fatalf("collapsed: %+v", got)
-	}
 	// A device's quiet channel (set to "nothing" there) gets none.
-	s.Notify("alice", Note{Channel: 3, Body: "x", URL: "/channels/3/8"})
+	s.deliver(ctx, "alice", Note{Channel: 3, Body: "x", URL: "/channels/3/8"})
 	if got := f.take(); len(got) != 1 || got[0].endpoint != laptop {
 		t.Fatalf("quiet on the phone: %+v", got)
 	}
 	*now = now.Add(time.Minute)
 	// Gone subscriptions are dropped; other errors keep them.
 	f.status[phone], f.status[laptop] = http.StatusGone, http.StatusInternalServerError
-	s.Notify("alice", note)
+	s.deliver(ctx, "alice", note)
 	if got := f.take(); len(got) != 2 {
 		t.Fatalf("after a minute: %+v", got)
 	}
@@ -227,22 +224,22 @@ func TestNotify(t *testing.T) {
 	}
 	f.status[laptop] = http.StatusNotFound
 	*now = now.Add(time.Minute)
-	s.Notify("Alice", note)
+	s.deliver(ctx, "Alice", note)
 	if subs, _ := s.Store.PushSubscriptions("alice", *now); len(subs) != 0 {
 		t.Fatalf("404 drops: %+v", subs)
 	}
-	s.Notify("nobody", note) // no subscriptions: nothing
+	s.deliver(ctx, "nobody", note) // no subscriptions: nothing
 	if got := f.take(); len(got) != 1 {
 		t.Fatalf("got %+v", got)
 	}
 }
 
 // Users blocked on a device push nothing there (the app hides them too).
-func TestNotifySkipsBlockedAuthors(t *testing.T) {
+func TestDeliverSkipsBlockedAuthors(t *testing.T) {
 	s, f, _ := newService(t)
 	call(t, s, "POST", "/api/push/subscriptions", "a1", subscribeWith(phone, p256dh, auth, nil, []string{"bob"}))
 	call(t, s, "POST", "/api/push/subscriptions", "a2", subscribe(laptop))
-	s.Notify("alice", Note{Channel: 1, Author: "Bob", Body: "Message from Bob", URL: "/channels/1/2"})
+	s.deliver(context.Background(), "alice", Note{Channel: 1, Author: "Bob", Body: "Message from Bob", URL: "/channels/1/2"})
 	if got := f.take(); len(got) != 1 || got[0].endpoint != laptop {
 		t.Fatalf("got %+v", got)
 	}
@@ -254,9 +251,56 @@ func TestSendErrorsKeepTheSubscription(t *testing.T) {
 	s.Sender = senderFunc(func(context.Context, store.PushSubscription, []byte, string) (int, error) {
 		return 0, errors.New("offline")
 	})
-	s.Notify("alice", Note{Channel: 1, Body: "x", URL: "/"})
+	s.deliver(context.Background(), "alice", Note{Channel: 1, Body: "x", URL: "/"})
 	if subs, _ := s.Store.PushSubscriptions("alice", clock); len(subs) != 1 {
 		t.Fatalf("kept: %+v", subs)
+	}
+}
+
+// Notify queues at most one push per user and chat and minute (before the
+// queue), and drops pushes when the queue is full.
+func TestNotifyQueue(t *testing.T) {
+	s, _, now := newService(t)
+	s.Start(0, 3) // no workers: the queue fills
+	defer s.Stop()
+	for range 3 {
+		s.Notify("alice", Note{Channel: 1})
+		s.Notify("Alice", Note{Channel: 1})
+	}
+	s.Notify("alice", Note{Channel: 2})
+	if len(s.queue) != 2 || s.dropped.Load() != 0 {
+		t.Fatalf("collapsed: %d queued, %d dropped", len(s.queue), s.dropped.Load())
+	}
+	*now = now.Add(time.Minute)
+	for _, name := range []string{"alice", "bob", "carol"} {
+		s.Notify(name, Note{Channel: 1})
+	}
+	if len(s.queue) != 3 || s.dropped.Load() != 2 {
+		t.Fatalf("full: %d queued, %d dropped", len(s.queue), s.dropped.Load())
+	}
+}
+
+// Stop cancels the sends on their way and drops the queue.
+func TestNotifyStop(t *testing.T) {
+	s, _, _ := newService(t)
+	call(t, s, "POST", "/api/push/subscriptions", "a1", subscribe(phone))
+	var sends atomic.Int32
+	started := make(chan struct{})
+	s.Sender = senderFunc(func(ctx context.Context, _ store.PushSubscription, _ []byte, _ string) (int, error) {
+		if sends.Add(1) == 1 {
+			close(started)
+		}
+		<-ctx.Done()
+		return 0, ctx.Err()
+	})
+	s.Start(1, 4)
+	s.Notify("alice", Note{Channel: 1})
+	s.Notify("alice", Note{Channel: 2})
+	<-started
+	s.Stop() // returns: the send was cancelled
+	s.Notify("alice", Note{Channel: 3})
+	if n := sends.Load(); n != 1 {
+		t.Fatalf("%d sends", n)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
@@ -61,6 +62,44 @@ type Service struct {
 
 	mu   sync.Mutex
 	last map[string]time.Time // by user and chat
+
+	// Pushes waiting for a worker (see Start), and those dropped because
+	// the queue was full.
+	queue   chan job
+	dropped atomic.Int64
+	ctx     context.Context
+	stop    context.CancelFunc
+	workers sync.WaitGroup
+}
+
+type job struct {
+	name string
+	note Note
+}
+
+// Start runs workers that send queued pushes, at most size waiting.
+func (s *Service) Start(workers, size int) {
+	s.queue = make(chan job, size)
+	s.ctx, s.stop = context.WithCancel(context.Background())
+	for range workers {
+		s.workers.Go(func() {
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case j := <-s.queue:
+					s.deliver(s.ctx, j.name, j.note)
+				}
+			}
+		})
+	}
+}
+
+// Stop cancels the sends on their way and waits for the workers; queued
+// pushes are dropped.
+func (s *Service) Stop() {
+	s.stop()
+	s.workers.Wait()
 }
 
 // due: no push for a user's chat in the window before now (then counted).
@@ -83,14 +122,26 @@ func (s *Service) due(user string, channel int64, now time.Time) bool {
 	return true
 }
 
-// Notify pushes a note to a user's browsers (by name), but not to those
-// that keep its chat quiet or blocked its author. Gone subscriptions are
-// dropped.
+// Notify queues a push to a user's browsers (by name): one per user and
+// chat in collapseWindow, none when the queue is full or stopped. After
+// Start.
 func (s *Service) Notify(name string, n Note) {
-	user, now := names.Key(name), s.Now()
-	if !s.due(user, n.Channel, now) {
+	if s.ctx.Err() != nil || !s.due(names.Key(name), n.Channel, s.Now()) {
 		return
 	}
+	select {
+	case s.queue <- job{name, n}:
+	default:
+		if d := s.dropped.Add(1); d == 1 || d%100 == 0 {
+			slog.Warn("push queue full: pushes dropped", "total", d)
+		}
+	}
+}
+
+// deliver sends a note to a user's browsers, but not to those that keep
+// its chat quiet or blocked its author. Gone subscriptions are dropped.
+func (s *Service) deliver(ctx context.Context, name string, n Note) {
+	user, now := names.Key(name), s.Now()
 	subs, err := s.Store.PushSubscriptions(user, now)
 	if err != nil {
 		slog.Error("push subscriptions", "err", err)
@@ -101,11 +152,14 @@ func (s *Service) Notify(name string, n Note) {
 	payload, _ := json.Marshal(n)
 	author := names.Key(n.Author)
 	for _, sub := range subs {
+		if ctx.Err() != nil {
+			return
+		}
 		if slices.Contains(sub.Quiet, n.Channel) || slices.Contains(sub.Blocked, author) {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
-		status, err := s.Sender.Send(ctx, sub, payload, topic)
+		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+		status, err := s.Sender.Send(sendCtx, sub, payload, topic)
 		cancel()
 		switch {
 		case err != nil:
