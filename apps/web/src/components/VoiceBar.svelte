@@ -10,6 +10,8 @@
   // entries: the "Go live" menu (see goLiveEntries; none: no button), live:
   // one of our streams runs. music: music mode is on (see
   // Settings.musicMode). info: the connection's quality (see ConnectionInfo).
+  // onJoinHere: we are text-only, our account is in voice on another
+  // device in the channel; the bar offers to move voice here instead.
   let {
     channel,
     onLeave,
@@ -19,6 +21,7 @@
     entries = [],
     onGoLive,
     info,
+    onJoinHere,
   }: {
     channel: string;
     onLeave: () => void;
@@ -29,6 +32,7 @@
     entries?: GoLiveEntry[];
     onGoLive?: (action: GoLiveAction) => void;
     info: Info;
+    onJoinHere?: () => void;
   } = $props();
 
   let menu = $state<{ x: number; y: number } | null>(null);
@@ -41,15 +45,21 @@
 
 <section class="bar" aria-label="Voice">
   <div class="where">
-    <div class="state">
-      <ConnectionInfo {info} />
-      Voice connected
-      {#if music}<span class="note" title="No filters, better sound (see the settings)">Music mode</span>{/if}
-      {#if recording}<span class="note rec" title="Everything said in this channel is recorded">● Recording</span>{/if}
+    <div class="state" class:elsewhere={onJoinHere}>
+      {#if onJoinHere}
+        You are in voice on another device
+      {:else}
+        <ConnectionInfo {info} />
+        Voice connected
+        {#if music}<span class="note" title="No filters, better sound (see the settings)">Music mode</span>{/if}
+        {#if recording}<span class="note rec" title="Everything said in this channel is recorded">● Recording</span>{/if}
+      {/if}
     </div>
     <div class="channel ellipsis" title={channel}>{channel}</div>
   </div>
-  {#if entries.length && onGoLive}
+  {#if onJoinHere}
+    <button class="here" onclick={onJoinHere}>Join voice here</button>
+  {:else if entries.length && onGoLive}
     <button
       class="live"
       class:on={live}
@@ -67,9 +77,11 @@
       <Icon name="screen" size={20} />
     </button>
   {/if}
-  <button title="Leave voice" aria-label="Leave voice" onclick={onLeave}>
-    <Icon name="hangup" size={20} />
-  </button>
+  {#if !onJoinHere}
+    <button title="Leave voice" aria-label="Leave voice" onclick={onLeave}>
+      <Icon name="hangup" size={20} />
+    </button>
+  {/if}
 </section>
 
 {#if menu}
@@ -138,6 +150,21 @@
   }
   .bar .live.on {
     color: var(--accent);
+  }
+  .state.elsewhere {
+    color: var(--text-muted);
+  }
+  .bar .here {
+    padding: 6px 10px;
+    background: var(--accent-strong);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .bar .here:hover {
+    background: var(--accent);
+    color: white;
   }
   .item {
     display: block;

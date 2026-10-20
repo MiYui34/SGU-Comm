@@ -4,7 +4,9 @@
     commentMissing,
     inVoice,
     isLobby,
+    isTextOnly,
     joinChannel,
+    listedUsers,
     messagesIn,
     escapeHtml,
     queryBans,
@@ -16,7 +18,7 @@
     queryPermissions,
     registerSelf,
     setSelfState,
-    usersSorted,
+    voiceElsewhere,
   } from "@kallisti/protocol";
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
@@ -130,10 +132,13 @@
 
   const server = $derived(connection.state);
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
-  const channelId = $derived(me?.channelId ?? 0);
+  // A text-only session (our account is in voice elsewhere) is in no
+  // channel: it shows root.
+  const channelId = $derived(me && !isTextOnly(server) ? me.channelId : 0);
   const channelName = $derived(server.channels[channelId]?.name ?? "");
   const serverName = $derived(server.channels[0]?.name ?? "Server");
-  const users = $derived(usersSorted(server));
+  const users = $derived(listedUsers(server));
+  const elsewhere = $derived(voiceElsewhere(server));
   // Avatars show the pictures of online users, by name.
   const pictureBase = $derived(connection.text.avatars ? connection.httpBase : null);
   const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, onlinePicture(u, pictureBase)])));
@@ -1658,10 +1663,17 @@
           entries={goLive.entries}
           {onGoLive}
         />
+      {:else if elsewhere}
+        <VoiceBar
+          channel={server.channels[elsewhere.channelId]?.name ?? ""}
+          onLeave={leaveVoice}
+          info={connection.info}
+          onJoinHere={() => join(elsewhere.channelId)}
+        />
       {/if}
       <UserPanel
         {me}
-        status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
+        status={elsewhere ? "In voice on another device" : !voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
         active={voiceOn && !lobby}
         info={voiceOn && !lobby ? connection.info : undefined}
         micError={micOn ? (capture ? capture.micError : noVoice) : null}
