@@ -48,6 +48,7 @@
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import { rejoinTarget } from "../lib/reconnect";
+  import { voiceSession } from "../lib/mediaSession";
   import {
     channelTimedOutUntil,
     mayDeleteMessages,
@@ -378,7 +379,8 @@
   let view = $state<View>(back?.view ?? { kind: "voice" });
   let navigated = back !== null;
   // The voice channel we come back to counts as ours until we are in it
-  // (or it failed): a second drop meanwhile keeps it.
+  // (or it failed): a second drop meanwhile keeps it, and so does the
+  // media session.
   let rejoining = $state(back?.voice ?? null);
   const voiceHere = $derived(rejoining ?? (voiceOn ? channelId : null));
   $effect(() => {
@@ -387,6 +389,12 @@
   $effect(() =>
     onPlace?.({ view, voice: voiceHere, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
+  // In voice: keeps phones from freezing the page (see lib/mediaSession).
+  const session = $derived(voiceHere === null ? null : voiceSession({ channel: server.channels[voiceHere]?.name ?? "", server: serverName, lobby }));
+  $effect(() =>
+    connection.playback?.setVoice(session, (action) => (action === "leave" ? leaveVoice() : updateSelf({ selfMute: true, selfDeaf: true }))),
+  );
+  $effect(() => () => connection.playback?.releaseVoice());
   // Mute and deafen sounds (see sounds.ts), not for about 3 s after a
   // reconnect: we restore our mute and deafen then. REJOIN_MS: how long
   // the rejoin may take.

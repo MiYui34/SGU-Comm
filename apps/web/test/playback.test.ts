@@ -8,6 +8,7 @@ vi.mock("../src/lib/voice/codec", () => ({
   voiceDecoder: () => ({ decode: (opus: Uint8Array) => decoded.push(opus), close: () => {} }),
 }));
 vi.mock("../src/lib/voice/limiter", () => ({ createLimiter: () => ({ input: {}, output: { connect: () => {} } }) }));
+vi.mock("../src/lib/voice/output", () => ({ voiceOutput: () => ({ input: {} }) }));
 
 const gainNode = () => ({ gain: { value: 1, setTargetAtTime: vi.fn() }, connect: vi.fn(), disconnect: vi.fn() });
 const setup = () => {
