@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -46,13 +47,13 @@ func (f *fakeVoice) SetPrivate(session, channel uint32, on bool, members []uint3
 	return nil
 }
 
-func (f *fakeVoice) CreatePrivateChannel(session uint32, name string) (uint32, error) {
+func (f *fakeVoice) CreatePrivateChannel(session, parent uint32, name string) (uint32, error) {
 	if session != 1 {
 		return 0, errors.New("only admins and moderators make private channels")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.created = append(f.created, name)
+	f.created = append(f.created, fmt.Sprintf("%s in %d", name, parent))
 	return 500, nil
 }
 
@@ -229,10 +230,11 @@ func TestStaffMakeChannelsPrivate(t *testing.T) {
 		t.Fatalf("carol got %v", m)
 	}
 	staff.Handle([]byte(`{"type":"create-private-voice","name":"Lounge"}`))
+	staff.Handle([]byte(`{"type":"create-private-voice","name":"Den","voice":7}`))
 	v.mu.Lock()
 	created := slices.Clone(v.created)
 	v.mu.Unlock()
-	if !slices.Equal(created, []string{"Lounge"}) {
+	if !slices.Equal(created, []string{"Lounge in 0", "Den in 7"}) {
 		t.Fatalf("created %v", created)
 	}
 }
