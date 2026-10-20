@@ -94,6 +94,11 @@ const (
 	// Mumble clients ping every 5 s; Murmur drops them after 30 s.
 	idleTimeout  = 30 * time.Second
 	writeTimeout = 10 * time.Second
+	// The web bridge keeps a suspended page up to two minutes
+	// (bridge.Options.PingGrace) and stops reading from us meanwhile. It
+	// closes the pipe when it gives up. Voice is dropped and other frames
+	// queue (a full queue still disconnects).
+	webWriteTimeout = 3 * time.Minute
 	// When a connection ends, queued frames (a kick reason) still go out.
 	flushTimeout = 2 * time.Second
 	// Before Authenticate frames stay small; after it, nothing in the
@@ -448,12 +453,19 @@ func (c *client) writer() {
 			c.close()
 			return
 		}
-		c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout()))
 		if _, err := c.conn.Write(b); err != nil {
 			c.close()
 			return
 		}
 	}
+}
+
+func (c *client) writeTimeout() time.Duration {
+	if c.web {
+		return webWriteTimeout
+	}
+	return writeTimeout
 }
 
 // cryptStats counts the UDP packets from the client.

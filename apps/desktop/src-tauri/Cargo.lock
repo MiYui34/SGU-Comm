@@ -2009,6 +2009,7 @@ dependencies = [
  "aes",
  "futures-util",
  "hex",
+ "objc2-foundation",
  "rand",
  "rcgen",
  "rustls",
