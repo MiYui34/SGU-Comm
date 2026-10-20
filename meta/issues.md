@@ -14,3 +14,4 @@
 - [ ] [Disconnects when the app is in the background](issues/background-disconnects.md)
 - [ ] [The same user on several devices](issues/multiple-sessions.md) (design)
 - [ ] [Request ids for manage requests](issues/request-ids.md)
+- [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
