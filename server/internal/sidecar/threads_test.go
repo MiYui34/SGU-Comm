@@ -357,6 +357,34 @@ func TestArchivingThreads(t *testing.T) {
 	}
 }
 
+// A thread by id (a link to an archived one): for its channel's readers;
+// others learn no more than of a thread that does not exist.
+func TestGetThread(t *testing.T) {
+	h, _, staff, bob, carol := threadHub(t)
+	secret := h.channels[1].ID
+	id := startThread(t, h, bob, postTo(t, h, bob, secret, "the plan"), "Plan")
+	do(bob, `{"type":"archive-thread","channel":%d,"on":true}`, id)
+	drain(h.all()...)
+	for _, c := range []*Conn{bob, staff} {
+		do(c, `{"type":"get-thread","channel":%d}`, id)
+		if m := next(t, c); m["type"] != "thread" || threadOf(m)["id"] != float64(id) || threadOf(m)["archived"] != true || threadOf(m)["name"] != "Plan" {
+			t.Fatalf("got %v", m)
+		}
+	}
+	empty(t, carol)
+	// The same answer as for no thread (the client tells the link is not
+	// here); not for other chats either.
+	for _, c := range []struct {
+		c  *Conn
+		id int64
+	}{{carol, id}, {carol, id + 100}, {bob, secret}} {
+		do(c.c, `{"type":"get-thread","channel":%d}`, c.id)
+		if m := next(t, c.c); m["type"] != "no-thread" || m["id"] != float64(c.id) || len(m) != 2 {
+			t.Fatalf("%d: got %v", c.id, m)
+		}
+	}
+}
+
 func TestFollowingThreads(t *testing.T) {
 	h, _, staff, bob, carol := threadHub(t)
 	general := h.channels[0].ID

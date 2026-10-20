@@ -91,7 +91,7 @@ func (h *Hub) pushFor(c chat, m store.Message) {
 		ids[names.Key(name)] = id
 	}
 	online := h.voice.Online()
-	note := push.Note{Channel: c.id, Author: m.Author, Body: pushBody(m, c.direct, h.where(c)), URL: fmt.Sprintf("/channels/%d/%d", c.id, m.ID)}
+	note := push.Note{Channel: c.id, Parent: c.parent, Author: m.Author, Body: pushBody(m, c.direct, h.where(c)), URL: fmt.Sprintf("/channels/%d/%d", c.id, m.ID)}
 	for _, name := range subscribed {
 		user, ok := ids[names.Key(name)]
 		if !ok || !pings(m, c.direct, name, user) {

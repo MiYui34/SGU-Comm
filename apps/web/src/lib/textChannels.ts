@@ -179,12 +179,13 @@ export type ServerEvent =
   | { type: "channels"; channels: TextChannel[]; categories?: TextCategory[]; threads?: Thread[] }
   // A thread was made or changed (replies, name, archived); deleted; the
   // threads we follow; a page of a channel's archived threads (asked for);
-  // the archive time changed.
+  // the archive time changed; a thread asked for by id is not there.
   | { type: "thread"; thread: Thread }
   | { type: "thread-deleted"; channel: number; id: number }
   | { type: "follows"; threads: number[] }
   | { type: "archived-threads"; channel: number; threads: Thread[]; more: boolean }
   | { type: "thread-archive"; seconds: number }
+  | { type: "no-thread"; id: number }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "message-edited"; message: TextMessage }
@@ -595,6 +596,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isNum(v.channel) && isThreads(v.threads) ? { type: "archived-threads", channel: v.channel, threads: v.threads, more: v.more === true } : null;
     case "thread-archive":
       return isNum(v.seconds) ? { type: "thread-archive", seconds: v.seconds } : null;
+    case "no-thread":
+      return isNum(v.id) ? { type: "no-thread", id: v.id } : null;
     case "history":
       return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
@@ -807,6 +810,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     }
     case "thread-archive":
       return { ...state, threadArchive: event.seconds };
+    case "no-thread":
+      return { ...state, notice: { text: "You cannot open this message here", n: (state.notice?.n ?? 0) + 1 } };
     case "history":
       return {
         ...state,

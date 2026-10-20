@@ -13,6 +13,20 @@ import (
 	"kallisti.chat/server/internal/store"
 )
 
+// A thread's push names its channel: devices keep the threads of their
+// quiet channels quiet (see push.Note).
+func TestThreadPushesNameTheChannel(t *testing.T) {
+	h, _, mod, _, _ := pushHub(t)
+	general := h.channels[0].ID
+	id := startThread(t, h, mod, postTo(t, h, mod, general, "topic"), "Topic")
+	var got []push.Note
+	h.Push = func(_ string, n push.Note) { got = append(got, n) }
+	postTo(t, h, mod, id, "@alice look")
+	if len(got) != 1 || got[0].Channel != id || got[0].Parent != general {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 // Offline access: private mirrors only for bob (20), as Private says;
 // voice channel 9 for nobody.
 func (f *fakeVoice) UserSees(user, channel uint32) bool {

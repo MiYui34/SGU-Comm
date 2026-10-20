@@ -44,7 +44,7 @@
   import { watchAway } from "../lib/away";
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
-  import { lastPostAt } from "../lib/slowMode";
+  import { lastTurnAt } from "../lib/slowMode";
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
@@ -63,7 +63,7 @@
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { textOrder } from "../lib/categories";
-  import { isMuted, mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { forgetPref, isMuted, mutedIds, notifies, prefOf, pushLists, setThreadPref, withoutMuted, withParents } from "../lib/channelPrefs";
   import { closeDirect, quietDirects, reopenDirect, togglePin, visibleDirects } from "../lib/directList";
   import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
@@ -83,7 +83,7 @@
   import ChatPane from "./ChatPane.svelte";
   import ThreadList from "./ThreadList.svelte";
   import ThreadNameDialog from "./ThreadNameDialog.svelte";
-  import { activeThreads, defaultThreadName, threadList, type Thread } from "../lib/threads";
+  import { activeThreads, chatTarget, defaultThreadName, startedIn, threadList, type Thread } from "../lib/threads";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
@@ -377,7 +377,7 @@
   let view = $state<View>(back?.view ?? { kind: "voice" });
   let navigated = back !== null;
   $effect(() =>
-    onPlace?.({ view, voice: voiceOn ? channelId : null, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+    onPlace?.({ view, voice: voiceOn ? channelId : null, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
   // Mute and deafen sounds (see sounds.ts), not for about 3 s after a
   // reconnect: we restore our mute and deafen then.
@@ -488,33 +488,44 @@
   // The Mumble channel of what we look at (a text channel's mirror, or our
   // voice channel; null: a direct chat): its moderators and time-outs.
   const viewMumble = $derived(textId !== null ? (textChannel?.mumble ?? null) : view.kind === "voice" && dm === null ? channelId : null);
-  // Message links (see lib/messageLink), for text channels and direct
-  // chats: open the chat, then jump to the message. false: not here.
-  const openMessage = (link: { chat: number; message: number } | null) => {
-    if (!link) return false;
-    const t = text.threads[link.chat];
-    if (t && text.channels.some((c) => c.id === t.channel)) {
-      openThread(t, link.message);
-      return true;
+  // Message links (see lib/messageLink), for text channels, threads and
+  // direct chats: open the chat, then jump to the message. A chat we do
+  // not know may be an archived thread: asked for, opened when it comes
+  // (see openThread). false: not here.
+  let askedThread: { id: number; message?: number } | null = null;
+  const openChat = (chat: number, message?: number) => {
+    const to = chatTarget(chat, text);
+    if (!to) return false;
+    if ("thread" in to) openThread(to.thread, message);
+    else if ("ask" in to) {
+      askedThread = { id: chat, message };
+      connection.thread({ get: chat });
+    } else {
+      if ("channel" in to) show({ kind: "text", id: chat });
+      else openDirect(to.direct);
+      jumpTarget = message ?? null;
     }
-    const peer = text.directs[link.chat];
-    if (text.channels.some((c) => c.id === link.chat)) show({ kind: "text", id: link.chat });
-    else if (peer) openDirect(peer);
-    else return false;
-    jumpTarget = link.message;
     return true;
   };
+  const openMessage = (link: { chat: number; message: number } | null) => !!link && openChat(link.chat, link.message);
+  // After a reconnect: the thread open before, again (once the channels
+  // are known; an archived one is asked for).
+  let reopen = untrack(() => back?.thread ?? null);
+  $effect(() => {
+    if (reopen === null || !text.available) return;
+    const id = reopen;
+    reopen = null;
+    untrack(() => openChat(id));
+  });
   // Push notifications (see lib/push), for accounts with a password: on
   // start and when channel settings or blocks change, the server learns
-  // this session, the channels set to "nothing" and direct chats muted
-  // for good (a timed mute would outlive closed tabs), and the blocked
-  // users (as
-  // a string: the same prefs post nothing). A click on one in an open
+  // this session, the quiet chats (see pushLists) and the blocked users
+  // (as a string: the same prefs post nothing). A click on one in an open
   // window comes from the service worker.
   const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
   const pushPrefsKey = $derived(
     JSON.stringify({
-      quiet: [...nothingIds(channelPrefs.value, connection.httpBase), ...Object.keys(text.directs).map(Number).filter((id) => prefOf(channelPrefs.value, connection.httpBase, id).mutedUntil === 0)].sort(),
+      ...pushLists(channelPrefs.value, connection.httpBase, Object.keys(text.directs).map(Number)),
       blocked: [...blockedUsers.list].sort(),
     }),
   );
@@ -579,7 +590,11 @@
     const timer = setInterval(() => (muteNow = Date.now()), 30_000);
     return () => clearInterval(timer);
   });
-  const mutedText = $derived(mutedIds(channelPrefs.value, connection.httpBase, muteNow));
+  // The settings as they hold: threads without their own take their
+  // channel's (see lib/channelPrefs).
+  const chatPrefs = $derived(withParents(channelPrefs.value, connection.httpBase, text.threads));
+  const prefIn = (id: number) => prefOf(chatPrefs, connection.httpBase, id);
+  const mutedText = $derived(mutedIds(chatPrefs, connection.httpBase, muteNow));
   // Link previews of the open chat's messages: asked once per message.
   const previewsAsked = new Set<string>();
   $effect(() => {
@@ -654,13 +669,13 @@
       if (own || blockedUsers.has(m.author)) return;
       const peer = text.directs[m.channel];
       if (peer) {
-        if (isMuted(prefOf(channelPrefs.value, connection.httpBase, m.channel), Date.now())) return;
+        if (isMuted(prefIn(m.channel), Date.now())) return;
         notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
-      // By the channel's setting (see lib/channelPrefs); not our own.
+      // By the chat's setting (see lib/channelPrefs); not our own.
       const mentioned = pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll);
-      if (!notifies(prefOf(channelPrefs.value, connection.httpBase, m.channel), mentioned, Date.now())) return;
+      if (!notifies(prefIn(m.channel), mentioned, Date.now())) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const t = text.threads[m.channel];
       notify(`${m.author || "Server"} in ${whereOf(m)}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel || threadId === m.channel, () => {
@@ -691,7 +706,7 @@
   let knownSummary: unknown = null;
   $effect(() => {
     // The settings as they are now; changing them alone plays nothing.
-    const channelSettings = untrack(() => channelPrefs.value);
+    const channelSettings = untrack(() => chatPrefs);
     const quiet = (id: number) => {
       const pref = prefOf(channelSettings, connection.httpBase, id);
       return id === chatId || id === threadId || (id in text.directs ? isMuted(pref, Date.now()) : !notifies(pref, true, 0));
@@ -754,11 +769,12 @@
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Slow mode in the open text channel (staff are exempt).
-  // A thread has its channel's slow mode, and its own turns.
+  // A thread has its channel's slow mode, and its own turns; starting one
+  // takes a turn in the channel.
   const slowIn = (id: number | null, chat: readonly ChatMessage[]) =>
     id === null || !textChannel?.slowMode || canModerate(server, text, viewMumble)
       ? null
-      : { seconds: textChannel.slowMode, lastPost: lastPostAt(chat, mine), until: text.slowUntil[id] };
+      : { seconds: textChannel.slowMode, lastPost: lastTurnAt(chat, mine, startedIn(text.threads, id, me, joinedAt)), until: text.slowUntil[id] };
   const slow = $derived(slowIn(textId, textChat));
   // Names "@" suggests: who is online, and who wrote in the open chat;
   // for moderators also everyone and here (stored chats, see lib/mentions).
@@ -951,13 +967,19 @@
   $effect(() => {
     if (threadId !== null && (!thread || thread.channel !== textId)) threadId = null;
   });
+  // One asked for by id (see openChat) opens when it comes (or the server
+  // says it is not there).
   let startedFrom: number | null = null;
   $effect(() =>
     connection.onTextEvent((ev) => {
       if (ev.type === "thread" && ev.thread.start === startedFrom) {
         startedFrom = null;
         openThread(ev.thread);
-      }
+      } else if (ev.type === "thread" && ev.thread.id === askedThread?.id) {
+        const jump = askedThread.message;
+        askedThread = null;
+        openThread(ev.thread, jump);
+      } else if (ev.type === "no-thread" && ev.id === askedThread?.id) askedThread = null;
     }),
   );
   const threadByStart = $derived(new Map(Object.values(text.threads).map((t) => [t.start, t])));
@@ -1257,13 +1279,16 @@
     canDelete={rights.remove}
     onEdit={() => (naming = { rename: t.id, name: t.name })}
     onDelete={() => confirm(`Delete the thread “${t.name}” and its messages?`) && connection.thread({ remove: t.id })}
-    notify={{ pref: prefOf(channelPrefs.value, connection.httpBase, t.id), desktop: prefs.notifications }}
-    onNotify={(patch) => channelPrefs.set(connection.httpBase, t.id, patch)}
+    notify={{ pref: prefIn(t.id), desktop: prefs.notifications }}
+    onNotify={(patch) => channelPrefs.update((p) => setThreadPref(p, connection.httpBase, t.id, prefIn(t.id), patch))}
     thread={{
       following: text.follows.has(t.id),
       onFollow: () => connection.thread({ follow: t.id, on: !text.follows.has(t.id) }),
       archived: t.archived === true,
       onArchive: rights.change ? () => connection.thread({ archive: t.id, on: !t.archived }) : undefined,
+      onInherit: t.id in (channelPrefs.value[connection.httpBase] ?? {})
+        ? () => channelPrefs.update((p) => forgetPref(p, connection.httpBase, t.id))
+        : undefined,
     }}
     onClose={() => (threadMenu = null)}
   />

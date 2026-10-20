@@ -32,14 +32,15 @@ const (
 	ttl         = 12 * time.Hour
 	sendTimeout = 10 * time.Second
 	maxBody     = 8 << 10
-	maxList     = 1000 // quiet channels, blocked users
+	maxList     = 1000 // quiet chats, blocked users, loud threads
 )
 
 // Note is one push: a short text without the message itself (privacy), the
-// page to open, its chat and author. Tag: notifications of a chat replace
-// each other.
+// page to open, its chat (Parent: a thread's channel) and author. Tag:
+// notifications of a chat replace each other.
 type Note struct {
 	Channel int64  `json:"-"`
+	Parent  int64  `json:"-"`
 	Author  string `json:"-"`
 	Body    string `json:"body"`
 	URL     string `json:"url"`
@@ -138,6 +139,13 @@ func (s *Service) Notify(name string, n Note) {
 	}
 }
 
+// quiet: a device keeps the note's chat quiet; a thread also its channel,
+// unless it has a setting of its own there.
+func quiet(sub store.PushSubscription, n Note) bool {
+	return slices.Contains(sub.Quiet, n.Channel) ||
+		n.Parent != 0 && slices.Contains(sub.Quiet, n.Parent) && !slices.Contains(sub.Loud, n.Channel)
+}
+
 // deliver sends a note to a user's browsers, but not to those that keep
 // its chat quiet or blocked its author. Gone subscriptions are dropped.
 func (s *Service) deliver(ctx context.Context, name string, n Note) {
@@ -155,7 +163,7 @@ func (s *Service) deliver(ctx context.Context, name string, n Note) {
 		if ctx.Err() != nil {
 			return
 		}
-		if slices.Contains(sub.Quiet, n.Channel) || slices.Contains(sub.Blocked, author) {
+		if quiet(sub, n) || slices.Contains(sub.Blocked, author) {
 			continue
 		}
 		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
@@ -204,6 +212,7 @@ type subscription struct {
 	} `json:"keys"`
 	Quiet   []int64  `json:"quiet"`
 	Blocked []string `json:"blocked"`
+	Loud    []int64  `json:"loud"`
 }
 
 // validKeys: a P-256 point and a 16-byte secret (RFC 8291), base64url.
@@ -273,14 +282,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "push notifications need an account with a password")
 	case !knownPushService(sub.Endpoint):
 		fail(w, http.StatusBadRequest, "unknown push service")
-	case !validKeys(sub.Keys.P256dh, sub.Keys.Auth) || len(sub.Quiet) > maxList || len(sub.Blocked) > maxList:
+	case !validKeys(sub.Keys.P256dh, sub.Keys.Auth) || len(sub.Quiet) > maxList || len(sub.Blocked) > maxList || len(sub.Loud) > maxList:
 		fail(w, http.StatusBadRequest, "invalid subscription")
 	default:
 		blocked := make([]string, len(sub.Blocked))
 		for i, name := range sub.Blocked {
 			blocked[i] = names.Key(name)
 		}
-		p := store.PushSubscription{Endpoint: sub.Endpoint, P256dh: sub.Keys.P256dh, Auth: sub.Keys.Auth, Quiet: sub.Quiet, Blocked: blocked}
+		p := store.PushSubscription{Endpoint: sub.Endpoint, P256dh: sub.Keys.P256dh, Auth: sub.Keys.Auth, Quiet: sub.Quiet, Blocked: blocked, Loud: sub.Loud}
 		if err := s.Store.SetPushSubscription(session, p, s.Now()); err != nil {
 			fail(w, http.StatusInternalServerError, "cannot store the subscription")
 			return

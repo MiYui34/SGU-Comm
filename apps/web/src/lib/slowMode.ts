@@ -29,3 +29,8 @@ export const slowLeft = (seconds: number, lastPost: number | undefined, until: n
 // When we last posted among the messages (undefined: not among them).
 export const lastPostAt = <M extends { at: number }>(messages: readonly M[], mine: (m: M) => boolean) =>
   messages.reduce<number | undefined>((last, m) => (mine(m) && (last === undefined || m.at > last) ? m.at : last), undefined);
+
+// Our last turn in a text channel: a post there, or a thread we started
+// from one of its messages (the server counts both).
+export const lastTurnAt = <M extends { at: number }>(messages: readonly M[], mine: (m: M) => boolean, starts: readonly { at: number }[]) =>
+  starts.reduce((last, t) => (last === undefined || t.at > last ? t.at : last), lastPostAt(messages, mine));

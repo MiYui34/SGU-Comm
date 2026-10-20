@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeThreads, defaultThreadName, replyBoxText, threadList, threadRequest, type Thread } from "../src/lib/threads";
+import { activeThreads, chatTarget, defaultThreadName, replyBoxText, startedIn, threadList, threadRequest, type Thread } from "../src/lib/threads";
 import { initialTextState, parseServerEvent, reduceText, unreadTextIds, type TextState } from "../src/lib/textChannels";
 import { mentionCounts } from "../src/lib/mentions";
 
@@ -51,8 +51,43 @@ describe("thread lists", () => {
   });
 });
 
+describe("threads we started", () => {
+  const threads = {
+    1: thread(1, { authorId: 7, at: 5 }),
+    2: thread(2, { authorId: 8 }),
+    3: thread(3, { channel: 2, authorId: 7 }),
+    4: thread(4, { author: "Guest", at: 50 }),
+    5: thread(5, { author: "guest", at: 10 }),
+  };
+  it("are ours by id, or as guests by name since we joined, in a channel", () => {
+    expect(startedIn(threads, 1, { name: "bob", userId: 7 }, 0).map((t) => t.id)).toEqual([1]);
+    expect(startedIn(threads, 1, { name: "guest", userId: null }, 20).map((t) => t.id)).toEqual([4]);
+    expect(startedIn(threads, 1, undefined, 0)).toEqual([]);
+  });
+});
+
+describe("links to chats", () => {
+  const s = {
+    threads: { 5: thread(5), 6: thread(6, { channel: 3 }) },
+    channels: [{ id: 1 }],
+    directs: { 7: "carol" },
+    voiceChannels: { 2: 8 },
+  };
+  it("open known threads, channels and direct chats, and ask for other chats (archived threads)", () => {
+    expect(chatTarget(5, s)).toEqual({ thread: s.threads[5] });
+    expect(chatTarget(1, s)).toEqual({ channel: 1 });
+    expect(chatTarget(7, s)).toEqual({ direct: "carol" });
+    expect(chatTarget(9, s)).toEqual({ ask: 9 });
+  });
+  it("go nowhere in voice chats and threads of channels we do not read", () => {
+    expect(chatTarget(8, s)).toBeNull();
+    expect(chatTarget(6, s)).toBeNull();
+  });
+});
+
 describe("thread requests", () => {
   it("are built per action", () => {
+    expect(JSON.parse(threadRequest({ get: 3 }))).toEqual({ type: "get-thread", channel: 3 });
     expect(JSON.parse(threadRequest({ create: 7, name: "Games" }))).toEqual({ type: "create-thread", message: 7, name: "Games" });
     expect(JSON.parse(threadRequest({ rename: 3, name: "x" }))).toEqual({ type: "rename-thread", channel: 3, name: "x" });
     expect(JSON.parse(threadRequest({ archive: 3, on: true }))).toEqual({ type: "archive-thread", channel: 3, on: true });
@@ -114,6 +149,11 @@ describe("thread state", () => {
       ev(`{"type":"channels","channels":[{"id":1,"name":"general"}],"threads":[]}`),
     );
     expect(Object.keys(s.threads)).toEqual(["7"]);
+  });
+  it("tells when a thread asked for by id is not there", () => {
+    const e = ev('{"type":"no-thread","id":9}');
+    expect(e).toEqual({ type: "no-thread", id: 9 });
+    expect(reduceText(ready, e).notice).toEqual({ text: "You cannot open this message here", n: 1 });
   });
   it("takes the archive time", () => {
     expect(reduceText(ready, ev('{"type":"thread-archive","seconds":86400}')).threadArchive).toBe(86400);

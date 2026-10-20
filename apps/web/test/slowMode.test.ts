@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSeconds, lastPostAt, SLOW_MODES, slowLeft, slowModeLabel } from "../src/lib/slowMode";
+import { formatSeconds, lastPostAt, lastTurnAt, SLOW_MODES, slowLeft, slowModeLabel } from "../src/lib/slowMode";
 import { initialTextState, manageRequest, parseServerEvent, reduceText } from "../src/lib/textChannels";
 
 describe("slowModeLabel", () => {
@@ -44,6 +44,16 @@ describe("lastPostAt", () => {
     ];
     expect(lastPostAt(msgs, (m) => m.me)).toBe(5);
     expect(lastPostAt(msgs, () => false)).toBeUndefined();
+  });
+});
+
+describe("lastTurnAt", () => {
+  it("is our newest post or thread start in the channel", () => {
+    const msgs = [{ at: 5, me: true }];
+    expect(lastTurnAt(msgs, (m) => m.me, [{ at: 9 }, { at: 3 }])).toBe(9);
+    expect(lastTurnAt(msgs, (m) => m.me, [{ at: 3 }])).toBe(5);
+    expect(lastTurnAt(msgs, () => false, [{ at: 3 }])).toBe(3);
+    expect(lastTurnAt(msgs, () => false, [])).toBeUndefined();
   });
 });
 

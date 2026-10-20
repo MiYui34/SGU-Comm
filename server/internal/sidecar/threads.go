@@ -235,12 +235,18 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 	t, err := h.store.Thread(req.Channel)
 	ch, ok := h.threadChat(t)
 	if err != nil || !ok || !h.may(id, ch, false) {
+		if req.Type == "get-thread" { // a link: the client tells it is not here
+			c.send(map[string]any{"type": "no-thread", "id": req.Channel})
+			return
+		}
 		c.sendError("unknown thread")
 		return
 	}
 	own := id.Registered && t.AuthorID != nil && *t.AuthorID == id.UserID && h.may(id, ch, true)
 	mod := h.mayModerate(id, ch)
 	switch req.Type {
+	case "get-thread": // by id (a link to an archived one)
+		c.send(map[string]any{"type": "thread", "thread": toWireThread(t)})
 	case "follow-thread":
 		if !id.Registered {
 			c.sendError("join with an account (or a guest account) to follow threads")

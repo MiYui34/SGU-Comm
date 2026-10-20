@@ -234,6 +234,30 @@ func TestDeliver(t *testing.T) {
 	}
 }
 
+// A thread follows its channel's "nothing" on a device, unless it has a
+// setting of its own there (loud), or is set to "nothing" itself.
+func TestDeliverThreadsOfQuietChannels(t *testing.T) {
+	s, f, _ := newService(t)
+	b, _ := json.Marshal(map[string]any{"endpoint": phone, "keys": map[string]string{"p256dh": p256dh, "auth": auth}, "quiet": []int64{3, 9}, "loud": []int64{8}})
+	if w := call(t, s, "POST", "/api/push/subscriptions", "a1", string(b)); w.Code != http.StatusNoContent {
+		t.Fatalf("subscribe: %d %s", w.Code, w.Body)
+	}
+	for _, c := range []struct {
+		note Note
+		want int
+	}{
+		{Note{Channel: 7, Parent: 3}, 0}, // in a quiet channel
+		{Note{Channel: 8, Parent: 3}, 1}, // a setting of its own
+		{Note{Channel: 9, Parent: 1}, 0}, // quiet itself
+		{Note{Channel: 10, Parent: 1}, 1},
+	} {
+		s.deliver(context.Background(), "alice", c.note)
+		if got := f.take(); len(got) != c.want {
+			t.Errorf("%+v: got %+v", c.note, got)
+		}
+	}
+}
+
 // Users blocked on a device push nothing there (the app hides them too).
 func TestDeliverSkipsBlockedAuthors(t *testing.T) {
 	s, f, _ := newService(t)
