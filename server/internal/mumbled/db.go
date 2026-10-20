@@ -112,8 +112,32 @@ func OpenDB(db *sql.DB) (*DB, error) {
 			return nil, err
 		}
 	}
+	if err := recheckPictures(db); err != nil {
+		return nil, err
+	}
 	d := &DB{db}
 	return d, d.initACL()
+}
+
+// recheckPictures sets the picture flags again, once: flags set before
+// the size check (see avatarType) can mark avatars Avatars does not serve.
+func recheckPictures(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var done int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM mumble_meta WHERE key = 'pictures_checked'`).Scan(&done); err != nil || done > 0 {
+		return err
+	}
+	if err := flagPictures(tx); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO mumble_meta (key, value) VALUES ('pictures_checked', 1)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // addColumn adds a column if it is missing and fills it, in one
@@ -713,6 +737,9 @@ func (d *DB) Pictures() (map[uint32]bool, error) {
 
 // flagPictures sets the picture column of saved avatars (see migrations).
 func flagPictures(tx *sql.Tx) error {
+	if _, err := tx.Exec(`UPDATE mumble_users SET picture = 0`); err != nil {
+		return err
+	}
 	rows, err := tx.Query(`SELECT id, texture FROM mumble_users WHERE length(texture) > 0`)
 	if err != nil {
 		return err
