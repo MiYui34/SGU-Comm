@@ -44,8 +44,12 @@ func (h *Handler) uploadEmoji(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "an emoji is a PNG, GIF, WebP or JPEG image", http.StatusUnsupportedMediaType)
 		return
 	}
-	if !imagesize.Inline(bytes.NewReader(data)) {
-		jsonError(w, "the emoji image is broken or has too many pixels", http.StatusRequestEntityTooLarge)
+	switch err := imagesize.Inline(bytes.NewReader(data)); {
+	case errors.Is(err, imagesize.ErrTooLarge):
+		jsonError(w, "the emoji image has too many pixels", http.StatusRequestEntityTooLarge)
+		return
+	case err != nil:
+		jsonError(w, "the emoji image is broken", http.StatusUnsupportedMediaType)
 		return
 	}
 	e, err := h.Store.AddEmoji(store.Emoji{Name: name, Type: ctype, Data: data, Author: author}, h.Now())

@@ -54,7 +54,7 @@ func extractImages(msg string) (string, []Image) {
 			return ""
 		}
 		// Clients show them inline: no pictures that take GBs to decode.
-		switch err := imagesize.Check(bytes.NewReader(data), imagesize.MaxSide, imagesize.MaxPixels); {
+		switch err := imagesize.Inline(bytes.NewReader(data)); {
 		case errors.Is(err, imagesize.ErrTooLarge):
 			return "[image too large]"
 		case err != nil:

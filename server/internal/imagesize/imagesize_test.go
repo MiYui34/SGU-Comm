@@ -24,12 +24,13 @@ func TestInline(t *testing.T) {
 	}{
 		{"small", pngOf(t, 16, 16), true},
 		{"widest", pngOf(t, MaxSide, 1), true},
+		{"50 MP phone photo", pngOf(t, 8192, 6144), true},
 		{"too wide", pngOf(t, MaxSide+1, 1), false},
-		{"too many pixels", pngOf(t, 8000, 8000), false},
+		{"too many pixels", pngOf(t, 9000, 9000), false},
 		{"only the signature", []byte("\x89PNG\r\n\x1a\n"), false},
 		{"no image", []byte("<svg/>"), false},
 	} {
-		if got := Inline(bytes.NewReader(c.data)); got != c.want {
+		if got := Inline(bytes.NewReader(c.data)) == nil; got != c.want {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}

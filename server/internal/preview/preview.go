@@ -297,7 +297,7 @@ func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if err != nil || len(data) > maxImage {
 		return picture{}
 	}
-	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) && imagesize.Inline(bytes.NewReader(data)) {
+	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) && imagesize.Inline(bytes.NewReader(data)) == nil {
 		return picture{data, typ}
 	}
 	return picture{}

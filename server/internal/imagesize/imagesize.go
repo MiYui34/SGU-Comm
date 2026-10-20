@@ -14,11 +14,11 @@ import (
 )
 
 // Limits for images that clients show inline (chat images, link
-// previews): panoramas and large phone photos pass, decompression bombs
-// do not (50 MP is 200 MB decoded).
+// previews): panoramas and "50 MP" phone photos (8192x6144) pass,
+// decompression bombs do not (64 Mi pixels are 256 MiB decoded).
 const (
 	MaxSide   = 16384
-	MaxPixels = 50_000_000
+	MaxPixels = 1 << 26
 )
 
 var ErrTooLarge = errors.New("image too large")
@@ -36,5 +36,5 @@ func Check(r io.Reader, maxSide, maxPixels int) error {
 
 func Fits(r io.Reader, maxSide, maxPixels int) bool { return Check(r, maxSide, maxPixels) == nil }
 
-// Inline: r is an image within the limits for inline images.
-func Inline(r io.Reader) bool { return Fits(r, MaxSide, MaxPixels) }
+// Inline checks an image against the limits for inline images.
+func Inline(r io.Reader) error { return Check(r, MaxSide, MaxPixels) }

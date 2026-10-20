@@ -119,7 +119,7 @@ func TestOversizedImagesAreLeftOut(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprintf(w, `<head><title>Hello</title><meta property="og:image" content="%s.png"></head>`, r.URL.Path)
 		case "/huge.png":
-			w.Write(pngOf(8000, 8000))
+			w.Write(pngOf(9000, 9000))
 		case "/broken.png":
 			w.Write([]byte("\x89PNG\r\n\x1a\n"))
 		}

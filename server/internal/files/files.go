@@ -233,7 +233,7 @@ func fitsInline(path string) bool {
 		return false
 	}
 	defer f.Close()
-	return imagesize.Inline(f)
+	return imagesize.Inline(f) == nil
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {

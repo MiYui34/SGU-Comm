@@ -137,7 +137,7 @@ func TestOversizedImagesAreDownloads(t *testing.T) {
 	app := append([]byte{0xff, 0xe1, 0x04, 0x02}, make([]byte, 0x400)...) // 1 KB of metadata
 	bigJPEG := slices.Concat(j.Bytes()[:2], app, j.Bytes()[2:])
 	var p bytes.Buffer
-	png.Encode(&p, image.NewGray(image.Rect(0, 0, 8000, 8000)))
+	png.Encode(&p, image.NewGray(image.Rect(0, 0, 9000, 9000)))
 	for name, data := range map[string][]byte{"wide.jpg": bigJPEG, "huge.png": p.Bytes()} {
 		resp, v := upload(t, srv, "good", name, "image/jpeg", data)
 		if resp.StatusCode != 200 || v["type"] != "application/octet-stream" {
