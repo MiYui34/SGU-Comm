@@ -1251,15 +1251,21 @@ func (h *Hub) orderIDs() (channels, categories []int64) {
 	return channels, categories
 }
 
+// known: the given ids that are in all, once each.
+func known(given, all []int64) []int64 {
+	var out []int64
+	for _, id := range given {
+		if slices.Contains(all, id) && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // inSlots: all, with the given ids in the places where they stood, in
 // the given order.
 func inSlots(given, all []int64) []int64 {
-	var order []int64
-	for _, id := range given {
-		if slices.Contains(all, id) && !slices.Contains(order, id) {
-			order = append(order, id)
-		}
-	}
+	order := known(given, all)
 	out, next := slices.Clone(all), order
 	for i, id := range all {
 		if slices.Contains(order, id) {
@@ -1272,12 +1278,7 @@ func inSlots(given, all []int64) []int64 {
 // fullOrder: the given ids of all first, the others after them in their
 // current order (a partial list must not leave two at one position).
 func fullOrder(first, all []int64) []int64 {
-	var out []int64
-	for _, id := range first {
-		if slices.Contains(all, id) && !slices.Contains(out, id) {
-			out = append(out, id)
-		}
-	}
+	out := known(first, all)
 	for _, id := range all {
 		if !slices.Contains(out, id) {
 			out = append(out, id)

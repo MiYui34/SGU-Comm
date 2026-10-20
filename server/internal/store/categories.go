@@ -20,7 +20,7 @@ type Category struct {
 
 // name_key: names.Key, as Mumble compares sibling channel names.
 const categoriesTable = `CREATE TABLE IF NOT EXISTS categories (
-	id             INTEGER PRIMARY KEY,
+	id             INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused (clients keep ids)
 	name           TEXT NOT NULL,
 	name_key       TEXT NOT NULL UNIQUE,
 	position       INTEGER NOT NULL,
