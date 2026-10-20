@@ -3,6 +3,9 @@
   import { untrack } from "svelte";
   import { memberCandidates, type Member } from "../lib/privateChannels";
   import { expiryChoices, inviteExpiry, inviteUses, useChoices, type Invite } from "../lib/invites";
+  import { busyLabel } from "../lib/saveFeedback";
+  import { createSave } from "../lib/saveFeedback.svelte";
+  import SaveStatus from "./SaveStatus.svelte";
 
   // The members of a private channel, for admins, moderators and the
   // channel's moderators: remove them, or add registered users (the server
@@ -17,8 +20,8 @@
     moderators = false,
     onLoad,
     onSubmit,
-    onCreateInvite = () => {},
-    onDeleteInvite = () => {},
+    onCreateInvite = async () => {},
+    onDeleteInvite = async () => {},
     onClose,
   }: {
     name: string;
@@ -31,9 +34,9 @@
     link?: string | null;
     moderators?: boolean;
     onLoad: () => void;
-    onSubmit: (members: Member[]) => void;
-    onCreateInvite?: (seconds: number, uses: number) => void;
-    onDeleteInvite?: (id: number) => void;
+    onSubmit: (members: Member[]) => Promise<void>;
+    onCreateInvite?: (seconds: number, uses: number) => Promise<void>;
+    onDeleteInvite?: (id: number) => Promise<void>;
     onClose: () => void;
   } = $props();
   const noun = untrack(() => (moderators ? "moderator" : "member"));
@@ -56,10 +59,12 @@
     if (u) list = [...list, u];
     event.currentTarget.value = "";
   };
+  // Save closes once the server confirms; links show their own status.
+  const save = createSave();
+  const links = createSave();
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
-    onSubmit(list);
-    dialog?.close();
+    save.run(() => onSubmit(list).then(() => dialog?.close()));
   };
 </script>
 
@@ -112,8 +117,11 @@
         <select aria-label="Uses" bind:value={uses}>
           {#each useChoices as c (c.uses)}<option value={c.uses}>{c.label}</option>{/each}
         </select>
-        <button type="button" class="action" onclick={() => onCreateInvite(seconds, uses)}>Create link</button>
+        <button type="button" class="action" disabled={links.busy} onclick={() => links.run(() => onCreateInvite(seconds, uses))}>
+          {busyLabel(links.state, "Create link", "Creating…")}
+        </button>
       </div>
+      <SaveStatus save={links.state} />
       {#if invites === null}
         <p class="note">Loading invite links…</p>
       {:else if invites.length}
@@ -121,7 +129,14 @@
           {#each invites as i (i.id)}
             <li>
               <span class="ellipsis">{inviteUses(i)}, {inviteExpiry(i.expires, now)}, by {i.creator}</span>
-              <button type="button" aria-label="Delete the link by {i.creator}, {inviteUses(i)}" onclick={() => onDeleteInvite(i.id)}>×</button>
+              <button
+                type="button"
+                aria-label="Delete the link by {i.creator}, {inviteUses(i)}"
+                disabled={links.busy}
+                onclick={() => links.run(() => onDeleteInvite(i.id))}
+              >
+                ×
+              </button>
             </li>
           {/each}
         </ul>
@@ -130,8 +145,9 @@
       {/if}
     {/if}
     <footer>
+      <SaveStatus save={save.state} />
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
-      <button type="submit">Save</button>
+      <button type="submit" disabled={save.busy}>{busyLabel(save.state, "Save")}</button>
     </footer>
   </form>
 </dialog>

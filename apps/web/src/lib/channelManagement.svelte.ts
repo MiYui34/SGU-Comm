@@ -18,6 +18,7 @@ import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOn
 import { accessChannel, membersAction, privateAction, type Member } from "./privateChannels";
 import { moveInList, moveVoiceChannel } from "./channelOrder";
 import type { Connection } from "./connection.svelte";
+import type { ManageAction } from "./textChannels";
 import { menuAnchor } from "./menu";
 
 export type ChannelValues = {
@@ -169,14 +170,15 @@ export const createChannelManagement = (current: () => Connection) => {
       if (access !== null) moderators = { kind, id, access };
     },
     closeModerators: () => (moderators = null),
-    submitModerators: (after: Member[]) => {
+    // Both settle once the server confirms every change (see lib/saveFeedback).
+    submitModerators: async (after: Member[]) => {
       const f = moderatorsForm;
       if (!f) return;
-      for (const a of channelModActions(f.access, f.members.map((m) => m.id), after.map((m) => m.id))) connection.manage(a);
+      await Promise.all(channelModActions(f.access, f.members.map((m) => m.id), after.map((m) => m.id)).map(connection.request));
     },
-    submitMembers: (after: Member[]) => {
+    submitMembers: async (after: Member[]) => {
       const action = membersForm && membersAction(membersForm.access, membersForm.members, after);
-      if (action) connection.manage(action);
+      if (action) await connection.request(action);
     },
     startDelete: (kind: ChannelKind, id: number) => (form = { form: { mode: "delete", kind, name: nameOf(kind, id) }, id }),
     closeForm: () => (form = null),
@@ -188,25 +190,29 @@ export const createChannelManagement = (current: () => Connection) => {
         if (group) connection.manage({ order: moveInList(group.channels.map((c) => c.id), id, step) });
       } else for (const c of moveVoiceChannel(voiceSiblings(server, text, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
     },
+    // Settles once the server confirms the Kallisti changes (Mumble's
+    // channel changes have no answer to wait for).
     submit: (v: ChannelValues) => {
-      if (!form) return;
+      if (!form) return Promise.resolve();
       const { form: f, id } = form;
+      const waits: Promise<void>[] = [];
+      const ask = (a: ManageAction) => waits.push(connection.request(a));
       if (f.mode === "create") {
-        if (v.kind === "category") connection.manage({ createCategory: v.name });
-        else if (v.kind === "text") connection.manage({ create: v.name, private: v.private, ...(v.category ? { category: v.category } : {}) });
-        else if (v.private) connection.manage({ createPrivateVoice: v.name, parent: f.parent });
+        if (v.kind === "category") ask({ createCategory: v.name });
+        else if (v.kind === "text") ask({ create: v.name, private: v.private, ...(v.category ? { category: v.category } : {}) });
+        else if (v.private) ask({ createPrivateVoice: v.name, parent: f.parent });
         else connection.send(createChannel(f.parent ?? 0, v.name, { temporary: v.temporary }));
       } else if (f.mode === "edit") {
         const access = accessChannel(v.kind, id, text.channels);
         const priv = f.private && access !== null && privateAction(access, f.private.on, v.private ?? false, f.private.members);
-        if (priv) connection.manage(priv);
+        if (priv) ask(priv);
         if (v.kind === "category") {
-          if (v.name !== f.name) connection.manage({ renameCategory: id, name: v.name });
+          if (v.name !== f.name) ask({ renameCategory: id, name: v.name });
         } else if (v.kind === "text") {
-          if (v.name !== f.name) connection.manage({ rename: id, name: v.name });
-          if (v.description.trim() !== f.description) connection.manage({ topic: id, text: v.description.trim() });
-          if (v.slowMode !== undefined && v.slowMode !== f.slowMode) connection.manage({ slowMode: id, seconds: v.slowMode });
-          if (v.category !== undefined && f.categories && v.category !== f.category) connection.manage({ setCategory: id, category: v.category });
+          if (v.name !== f.name) ask({ rename: id, name: v.name });
+          if (v.description.trim() !== f.description) ask({ topic: id, text: v.description.trim() });
+          if (v.slowMode !== undefined && v.slowMode !== f.slowMode) ask({ slowMode: id, seconds: v.slowMode });
+          if (v.category !== undefined && f.categories && v.category !== f.category) ask({ setCategory: id, category: v.category });
         } else {
           const changes = {
             ...(v.name !== f.name ? { name: v.name } : {}),
@@ -214,11 +220,12 @@ export const createChannelManagement = (current: () => Connection) => {
           };
           if (Object.keys(changes).length) connection.send(editChannel(id, changes));
           const listenOnly = f.listenOnly && v.listenOnly && listenOnlyAction(id, f.listenOnly, v.listenOnly);
-          if (listenOnly) connection.manage(listenOnly);
+          if (listenOnly) ask(listenOnly);
         }
-      } else if (v.kind === "category") connection.manage({ removeCategory: id });
-      else if (v.kind === "text") connection.manage({ remove: id });
+      } else if (v.kind === "category") ask({ removeCategory: id });
+      else if (v.kind === "text") ask({ remove: id });
       else connection.send(removeChannel(id));
+      return Promise.all(waits).then(() => {});
     },
   };
 };

@@ -64,6 +64,7 @@ import { createConnectionInfo } from "./connectionInfo.svelte";
 import { exposePlayback } from "./perfHook";
 import { transportOf } from "./connectionQuality";
 import { recordingUrl } from "./recording";
+import { answer, ANSWER_MS, confirmsManage, type Via } from "./saveFeedback";
 
 // The server drops clients after 30 s without a ping. Each ping also
 // measures the round trip (see connectionInfo), so as in Mumble: often.
@@ -116,6 +117,37 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       waiters.push(waiter);
       ws.send(JSON.stringify({ type }));
     });
+  // Requests a control waits on (see lib/saveFeedback): settled by the
+  // server's answer, its refusal, or no answer in time. A refusal goes to
+  // the control, not to the notice.
+  type Check = { via: "text"; confirms: (ev: ServerEvent) => boolean } | { via: "mumble"; holds: (s: ServerState) => boolean };
+  type Waiter = Check & { done: (error?: string) => void };
+  let awaiting: Waiter[] = [];
+  const wait = (check: Check, request: () => void) =>
+    new Promise<void>((resolve, reject) => {
+      if (ws.readyState !== WebSocket.OPEN) return reject(new Error("Not connected"));
+      const timeout = setTimeout(() => waiter.done("No answer from the server"), ANSWER_MS);
+      const waiter: Waiter = {
+        ...check,
+        done: (error) => {
+          clearTimeout(timeout);
+          awaiting = awaiting.filter((w) => w !== waiter);
+          if (error === undefined) resolve();
+          else reject(new Error(error));
+        },
+      };
+      awaiting = [...awaiting, waiter];
+      request();
+    });
+  // Settles the waiters an answer is for; true if one took the refusal.
+  const settleWaiters = (via: Via, refusal: string | null, matches: (w: Waiter) => boolean) => {
+    if (!awaiting.some((w) => w.via === via)) return false;
+    const r = answer(awaiting, via, refusal !== null, matches);
+    awaiting = r.rest;
+    r.confirmed.forEach((w) => w.done());
+    r.refused?.done(refusal ?? undefined);
+    return r.refused !== undefined;
+  };
   // Screen sharing (built-in server): its own connection, with a token
   // asked for here.
   const streamToken = () => askToken("stream-token");
@@ -208,7 +240,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       if (ev?.type === "upload-token") tokenWaiter?.resolve(ev.token);
       else if (ev?.type === "error" && ev.about === "manage" && tokenWaiter?.emoji) tokenWaiter.reject(new Error(ev.message));
       else if (ev?.type === "stream-token" || ev?.type === "recording-token") tokenWaiters[ev.type].shift()?.(ev.token);
-      else if (ev) text = reduceText(text, ev);
+      else if (ev && !settleWaiters("text", ev.type === "error" && ev.about === "manage" ? ev.message : null, (w) => w.via === "text" && w.confirms(ev)))
+        text = reduceText(text, ev);
       if (ev?.type === "ready") fetchTextures();
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
@@ -217,7 +250,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       const messages = push(new Uint8Array(event.data as ArrayBuffer));
       messages.forEach(routeAudio);
       for (const m of messages) if (m.type === "UserRemove") text = forgetStatus(text, m.message.session);
+      const before = state;
       state = messages.reduce((s, m) => reduce(s, m, Date.now()), state);
+      const denied = messages.some((m) => m.type === "PermissionDenied") ? (state.notice?.text ?? "") : null;
+      if (settleWaiters("mumble", denied, (w) => w.via === "mumble" && w.holds(state))) state = { ...state, notice: before.notice };
       if (state.status === "synced" && !wasSynced) {
         wasSynced = true;
         // The first measured one, after the first render: a busy page
@@ -238,6 +274,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     closeReason = event.reason;
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
+    awaiting.forEach((w) => w.done("Not connected"));
     capture?.close();
     streams?.close();
     playback?.close(); // the audio context stays: the app may reconnect with it
@@ -307,6 +344,19 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     manage: (action: ManageAction) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
     },
+    // The same, for a control that waits on the answer (see wait); a
+    // request without an answer of its own counts as done once sent.
+    request: (action: ManageAction) => {
+      const confirms = confirmsManage(action);
+      if (confirms) return wait({ via: "text", confirms }, () => ws.send(manageRequest(action)));
+      if (ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected"));
+      ws.send(manageRequest(action));
+      return Promise.resolve();
+    },
+    // Other requests a control waits on: a text request (done on its
+    // answer), Mumble messages (done once the state holds the change).
+    ask: (body: string, confirms: (ev: ServerEvent) => boolean) => wait({ via: "text", confirms }, () => ws.send(body)),
+    sendAwait: (messages: Bytes[], holds: (s: ServerState) => boolean) => wait({ via: "mumble", holds }, () => messages.forEach(send)),
     // Downloads a finished recording (staff): a link with a one-time token.
     // On another origin "download" does not count: a new tab, so an error
     // page does not replace the app.
@@ -383,9 +433,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     uploadEmoji: async (name: string, file: File): Promise<void> => {
       await upload(emojiTokenRequest(name), "/api/emoji", file, true);
     },
-    deleteEmoji: (name: string) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(deleteEmojiRequest(name));
-    },
+    deleteEmoji: (name: string) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "emoji" && !ev.emoji.some((e) => e.name === name) }, () => ws.send(deleteEmojiRequest(name))),
     playback,
     capture,
     streams,

@@ -10,6 +10,9 @@
   import { outputDeviceSupported } from "../lib/voice/support";
   import { noiseLabel, type NoiseMode } from "../lib/voice/noise";
   import { BUFFERS, bufferLabel, type PlaybackBuffer } from "../lib/voice/buffer";
+  import { busyLabel } from "../lib/saveFeedback";
+  import { createSave } from "../lib/saveFeedback.svelte";
+  import SaveStatus from "./SaveStatus.svelte";
 
   let {
     settings,
@@ -66,17 +69,22 @@
   // The switch shows the browser's subscription; changes wait for it.
   const pushSupport = browserPushSupport();
   let pushOn = $state(false);
-  let pushBusy = $state(false);
-  let pushNote = $state<string | null>(null);
+  const pushSave = createSave();
   $effect(() => {
     if (push && pushSupport === "ok") void pushIsOn(push.base, push.name).then((on) => (pushOn = on));
   });
-  const setPush = async (on: boolean) => {
+  const setPush = (el: HTMLInputElement) => {
     if (!push) return;
-    pushBusy = true;
-    pushNote = on ? await turnOnPush(push.base, push.name, push.prefs) : (await turnOffPush(push.base), null);
-    pushOn = await pushIsOn(push.base, push.name);
-    pushBusy = false;
+    const { base, name, prefs } = push;
+    const on = el.checked;
+    pushSave.run(
+      async () => {
+        const note = on ? await turnOnPush(base, name, prefs) : (await turnOffPush(base), null);
+        pushOn = await pushIsOn(base, name);
+        if (note || pushOn !== on) throw new Error(note ?? "The browser did not change it.");
+      },
+      () => (el.checked = pushOn),
+    );
   };
 
   let dialog: HTMLDialogElement | undefined = $state();
@@ -110,17 +118,17 @@
 
   let oldPassword = $state("");
   let newPassword = $state("");
-  let passwordNote = $state<string | null>(null);
-  const changePassword = async (event: SubmitEvent) => {
+  let passwordNote = $state<string | null>(null); // what changed (errors: passwordSave)
+  const passwordSave = createSave();
+  const changePassword = (event: SubmitEvent) => {
     event.preventDefault();
-    try {
+    passwordNote = null;
+    passwordSave.run(async () => {
       const kept = account?.temporary;
       await account?.changePassword(oldPassword, newPassword);
       passwordNote = kept ? "Password set: your account stays." : "Password changed. Other devices are logged out.";
       oldPassword = newPassword = "";
-    } catch (err) {
-      passwordNote = err instanceof Error ? err.message : String(err);
-    }
+    });
   };
 
   const recordKey = (event: KeyboardEvent) => {
@@ -408,10 +416,10 @@
   </label>
   {#if push && pushSupport === "ok"}
     <label class="check">
-      <input type="checkbox" checked={pushOn} disabled={pushBusy} onchange={(e) => setPush(e.currentTarget.checked)} />
+      <input type="checkbox" checked={pushOn} disabled={pushSave.busy} onchange={(e) => setPush(e.currentTarget)} />
       <span>Push notifications on this device</span>
       <span class="hint">Mentions and direct messages also while Kallisti is closed. They say who and where, not the message.</span>
-      {#if pushNote}<span class="hint warn" role="status">{pushNote}</span>{/if}
+      <SaveStatus save={pushSave.state} />
     </label>
   {:else if push && pushSupport === "install"}
     <p class="hint">
@@ -434,7 +442,10 @@
       <input type="password" bind:value={newPassword} placeholder="New password (8 or more characters)" autocomplete="new-password" minlength="8" required />
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
-        <button type="submit" class="secondary">{account.temporary ? "Set password" : "Change password"}</button>
+        <button type="submit" class="secondary" disabled={passwordSave.busy}>
+          {busyLabel(passwordSave.state, account.temporary ? "Set password" : "Change password")}
+        </button>
+        <SaveStatus save={passwordSave.state} done="" />
       </div>
     </form>
     <div class="account">
