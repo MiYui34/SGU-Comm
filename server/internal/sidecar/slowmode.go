@@ -10,7 +10,7 @@ import (
 )
 
 // Slow mode (built-in server): in a text channel, each user may post once
-// per so many seconds; staff are exempt. Web posts (uploads too) and
+// per so many seconds; staff and the channel's moderators are exempt. Web posts (uploads too) and
 // Mumble clients' texts to the channel's mirror take the same turn (see
 // MumbleTextAllowed). Edits and reactions are no posts. Last posts live in
 // memory: a restart forgets them.
@@ -45,7 +45,7 @@ func slowText(wait time.Duration) string {
 // long it waits (and until when). Posts count also while slow mode is
 // off: one turned on holds back who just posted (as the composer does).
 func (h *Hub) slowTurn(id mumble.Identity, channel int64) (time.Duration, time.Time) {
-	if h.voice == nil || h.voice.MayManage(id.Session) {
+	if h.voice == nil || h.mayModerate(id, chat{id: channel}) {
 		return 0, time.Time{}
 	}
 	every := time.Duration(h.slowModeOf(channel)) * time.Second

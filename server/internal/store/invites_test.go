@@ -49,11 +49,17 @@ func TestInvites(t *testing.T) {
 	}
 
 	// Delete: it says whose it was.
+	if ch, err := s.InviteChannel(forever.ID); err != nil || ch != 7 {
+		t.Fatalf("channel: %v %v", ch, err)
+	}
 	if ch, err := s.DeleteInvite(forever.ID); err != nil || ch != 7 {
 		t.Fatalf("delete: %v %v", ch, err)
 	}
 	if _, err := s.DeleteInvite(forever.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted twice: %v", err)
+	}
+	if _, err := s.InviteChannel(forever.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("channel after the delete: %v", err)
 	}
 
 	// Pruning: invalid ones and those of channels not private any more.

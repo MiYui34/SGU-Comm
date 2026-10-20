@@ -8,8 +8,9 @@ import (
 	"kallisti.chat/server/internal/store"
 )
 
-// Pinned messages: moderators and admins pin and unpin, in a direct chat
-// its two users; everyone who may read a chat sees its pins.
+// Pinned messages: moderators and admins pin and unpin (and a channel's
+// moderators there), in a direct chat its two users; everyone who may
+// read a chat sees its pins.
 
 func (c *Conn) pin(id mumble.Identity, req request) {
 	h := c.hub
@@ -23,7 +24,7 @@ func (c *Conn) pin(id mumble.Identity, req request) {
 		c.sendError("unknown message")
 		return
 	}
-	if !ch.direct && (h.voice == nil || !h.voice.MayManage(id.Session)) {
+	if !ch.direct && !h.mayModerate(id, ch) {
 		c.sendError("only moderators pin messages")
 		return
 	}

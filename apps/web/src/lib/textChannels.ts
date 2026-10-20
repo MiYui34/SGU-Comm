@@ -72,6 +72,9 @@ export type SessionStatus = PresenceView & { session: number };
 // A running time-out (built-in server): of a registered user (user id) or
 // a guest (session); until: Unix milliseconds.
 export type Timeout = { user?: number; session?: number; until: number };
+// A time-out in a Mumble channel and its subchannels: no writing or
+// speaking there.
+export type ChannelTimeout = Timeout & { channel: number };
 
 export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
 
@@ -89,6 +92,7 @@ export type ServerEvent =
       listenOnly?: ListenOnlyChannel[];
       private?: PrivateChannel[];
       timeouts?: Timeout[];
+      channelTimeouts?: ChannelTimeout[];
       // Guests may only read (see lib/guests).
       guestsReadOnly?: boolean;
       // The browser check for new accounts (see lib/captcha).
@@ -150,7 +154,7 @@ export type ServerEvent =
   | { type: "invite-created"; voice: number; token: string }
   | { type: "invite-joined"; voice: number; channel?: number }
   // The running time-outs changed.
-  | { type: "timeouts"; timeouts: Timeout[] }
+  | { type: "timeouts"; timeouts: Timeout[]; channelTimeouts: ChannelTimeout[] }
   // Admins changed whether guests may only read.
   | { type: "guests-read-only"; on: boolean }
   | { type: "captcha"; level: CaptchaLevel }
@@ -214,6 +218,7 @@ export type TextState = {
   // Invite links of private channels (staff), once asked for.
   invites: Readonly<Record<number, Invite[]>>;
   timeouts: readonly Timeout[];
+  channelTimeouts: readonly ChannelTimeout[];
   guestsReadOnly: boolean;
   // Slow mode: when the server said our wait ends, by channel.
   slowUntil: Readonly<Record<number, number>>;
@@ -274,6 +279,7 @@ export const initialTextState: TextState = {
   private: {},
   invites: {},
   timeouts: [],
+  channelTimeouts: [],
   guestsReadOnly: false,
   slowUntil: {},
   captcha: "off",
@@ -314,9 +320,15 @@ const isSummaryEntry = (v: unknown): v is SummaryEntry =>
   isNum((v as SummaryEntry).mentions) &&
   ((v as SummaryEntry).voice === undefined || isNum((v as SummaryEntry).voice));
 const isIds = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNum);
+// Channel moderators come as a list, [{channel, users}] (older servers:
+// none).
+const parseChannelMods = (v: unknown): Pick<Roles, "channelMods"> =>
+  Array.isArray(v)
+    ? { channelMods: Object.fromEntries(v.flatMap((m) => (isObj(m) && isNum(m.channel) && isIds(m.users) ? [[m.channel, m.users]] : []))) }
+    : {};
 const parseRoles = (v: unknown): Roles | null =>
   typeof v === "object" && v !== null && isIds((v as Roles).admins) && isIds((v as Roles).moderators)
-    ? { admins: (v as Roles).admins, moderators: (v as Roles).moderators }
+    ? { admins: (v as Roles).admins, moderators: (v as Roles).moderators, ...parseChannelMods((v as Record<string, unknown>).channelModerators) }
     : null;
 
 const isStr = (v: unknown): v is string => typeof v === "string";
@@ -345,6 +357,7 @@ const isInvite = (v: unknown): v is Invite =>
 const privateMap = (cs: PrivateChannel[]) => Object.fromEntries(cs.map((c) => [c.channel, c.members ?? []]));
 const isTimeouts = (v: unknown): v is Timeout[] =>
   Array.isArray(v) && v.every((t) => isObj(t) && isNum(t.until) && (isNum(t.user) !== isNum(t.session)));
+const isChannelTimeouts = (v: unknown): v is ChannelTimeout[] => isTimeouts(v) && v.every((t) => isNum((t as ChannelTimeout).channel));
 // Direct chats follow their peer's renames (a removed peer keeps its name).
 const renamePeer = (directs: TextState["directs"], id: number, name: string) =>
   Object.fromEntries(Object.entries(directs).map(([ch, p]) => [ch, p.id === id ? { id, name } : p]));
@@ -440,6 +453,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(isListenOnly(v.listenOnly) ? { listenOnly: v.listenOnly } : {}),
         ...(isPrivateList(v.private) ? { private: v.private } : {}),
         ...(isTimeouts(v.timeouts) ? { timeouts: v.timeouts } : {}),
+        ...(isChannelTimeouts(v.channelTimeouts) ? { channelTimeouts: v.channelTimeouts } : {}),
         ...(v.guestsReadOnly === true ? { guestsReadOnly: true } : {}),
         ...(isCaptchaLevel(v.captcha) ? { captcha: v.captcha } : {}),
         ...(Array.isArray(v.directs) ? { directs: v.directs.filter(isDirect) } : {}),
@@ -502,7 +516,9 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return rules && { type: "message-rules", rules };
     }
     case "timeouts":
-      return isTimeouts(v.timeouts) ? { type: "timeouts", timeouts: v.timeouts } : null;
+      return isTimeouts(v.timeouts)
+        ? { type: "timeouts", timeouts: v.timeouts, channelTimeouts: isChannelTimeouts(v.channelTimeouts) ? v.channelTimeouts : [] }
+        : null;
     case "streams":
       return isStreams(v.streams) ? { type: "streams", streams: v.streams } : null;
     case "stream-token":
@@ -605,6 +621,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         listenOnly: listenOnlyMap(event.listenOnly ?? []),
         private: privateMap(event.private ?? []),
         timeouts: event.timeouts ?? [],
+        channelTimeouts: event.channelTimeouts ?? [],
         guestsReadOnly: event.guestsReadOnly === true,
         captcha: event.captcha ?? "off",
         directs: { ...state.directs, ...Object.fromEntries((event.directs ?? []).map((d) => [d.channel, d.peer])) },
@@ -621,7 +638,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         },
       };
     case "roles":
-      return { ...state, roles: { admins: event.admins, moderators: event.moderators } };
+      return { ...state, roles: { admins: event.admins, moderators: event.moderators, ...(event.channelMods ? { channelMods: event.channelMods } : {}) } };
     case "emoji":
       return { ...state, emoji: event.emoji };
     case "member": {
@@ -655,7 +672,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, ownStatus: v };
     }
     case "timeouts":
-      return { ...state, timeouts: event.timeouts };
+      return { ...state, timeouts: event.timeouts, channelTimeouts: event.channelTimeouts };
     case "guests-read-only":
       return { ...state, guestsReadOnly: event.on };
     case "captcha":
@@ -803,6 +820,8 @@ export type ManageAction =
   | { order: number[] }
   | { moderator: number; on: boolean }
   | { admin: number; on: boolean }
+  // A registered user a moderator of a Mumble channel, or not (staff).
+  | { channelModerator: number; channel: number; on: boolean }
   | { listenOnly: number; on: boolean; users: number[] }
   | { topic: number; text: string }
   | { slowMode: number; seconds: number }
@@ -810,6 +829,8 @@ export type ManageAction =
   // ever), a time-out (0: end it).
   | { ban: number; reason: string; seconds: number }
   | { timeout: number; seconds: number }
+  // A time-out in a Mumble channel (staff and its moderators).
+  | { channelTimeout: number; channel: number; seconds: number }
   // A user's messages of the last seconds (staff): see UserTarget.
   | { deleteMessages: UserTarget; seconds: number }
   | { guestsReadOnly: boolean }
@@ -839,11 +860,13 @@ const manageBody = (a: ManageAction) => {
   if ("remove" in a) return { type: "delete-channel", channel: a.remove };
   if ("moderator" in a) return { type: "set-moderator", user: a.moderator, moderator: a.on };
   if ("admin" in a) return { type: "set-admin", user: a.admin, admin: a.on };
+  if ("channelModerator" in a) return { type: "set-channel-moderator", user: a.channelModerator, voice: a.channel, on: a.on };
   if ("listenOnly" in a) return { type: "set-listen-only", voice: a.listenOnly, on: a.on, users: a.users };
   if ("topic" in a) return { type: "set-topic", channel: a.topic, text: a.text };
   if ("slowMode" in a) return { type: "set-slow-mode", channel: a.slowMode, seconds: a.seconds };
   if ("ban" in a) return { type: "ban", session: a.ban, text: a.reason, seconds: a.seconds };
   if ("timeout" in a) return { type: "time-out", session: a.timeout, seconds: a.seconds };
+  if ("channelTimeout" in a) return { type: "channel-time-out", session: a.channelTimeout, voice: a.channel, seconds: a.seconds };
   if ("deleteMessages" in a) return { type: "delete-messages", ...a.deleteMessages, seconds: a.seconds };
   if ("guestsReadOnly" in a) return { type: "set-guests-read-only", on: a.guestsReadOnly };
   if ("captcha" in a) return { type: "set-captcha", level: a.captcha };

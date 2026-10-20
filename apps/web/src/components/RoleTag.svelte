@@ -1,10 +1,13 @@
 <script lang="ts">
-  import type { Role } from "../lib/roles";
-  // A small label for admins and moderators.
-  let { role }: { role: Role | null } = $props();
+  import type { Badge } from "../lib/roles";
+  // A small label for admins and moderators; a channel's moderators get an
+  // outlined one (only in that channel's member list).
+  let { role }: { role: Badge | null } = $props();
 </script>
 
-{#if role}
+{#if role === "channelmod"}
+  <span class="tag channel" title="Moderator of this channel">Mod</span>
+{:else if role}
   <span class="tag" class:admin={role === "admin"}>{role === "admin" ? "Admin" : "Mod"}</span>
 {/if}
 
@@ -21,5 +24,11 @@
   }
   .admin {
     background: var(--danger);
+  }
+  .channel {
+    padding: 0 4px;
+    border: 1px solid var(--accent);
+    background: none;
+    color: var(--accent);
   }
 </style>

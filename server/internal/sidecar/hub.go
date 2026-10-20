@@ -59,6 +59,13 @@ type Voice interface {
 	SetAdmin(session, user uint32, on bool) error
 	// Roles: registered user ids of admins and moderators.
 	Roles() (admins, moderators []uint32)
+	// ModeratesIn: the user is staff or a moderator of the Mumble channel
+	// (or one above it). ChannelModerators lists each channel's own
+	// moderators; SetChannelModerator makes a registered user one, or not
+	// (admins and moderators).
+	ModeratesIn(session, channel uint32) bool
+	ChannelModerators() []ChannelModerators
+	SetChannelModerator(session, user, channel uint32, on bool) error
 	// SetListenOnly makes a voice channel listen-only for all but the
 	// given registered users, or not (admins and moderators).
 	SetListenOnly(session, channel uint32, on bool, speakers []uint32) error
@@ -114,6 +121,11 @@ type Voice interface {
 	SetTimeout(actor, session uint32, d time.Duration) error
 	TimedOut(session uint32) (time.Time, bool)
 	Timeouts() []Timeout
+	// The same for channel time-outs: in a Mumble channel and below it
+	// (staff and the channel's moderators give them).
+	SetChannelTimeout(actor, session, channel uint32, d time.Duration) error
+	ChannelTimedOut(session, channel uint32) (time.Time, bool)
+	ChannelTimeouts() []Timeout
 	// SetGuestsReadOnly: guests may only read, or write again (admins).
 	// ReadOnly: the session's user is a guest that may not write now.
 	SetGuestsReadOnly(session uint32, on bool) error
@@ -372,7 +384,8 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 			ready["avatars"] = true
 		}
 		if c.hub.voice != nil {
-			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles(), c.hub.listenOnlyFor(id), c.hub.timeouts()
+			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles().forUser(c.hub, id), c.hub.listenOnlyFor(id), c.hub.timeouts()
+			ready["channelTimeouts"] = c.hub.channelTimeoutsFor(id)
 			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
 			ready["guestsReadOnly"], ready["captcha"] = c.hub.voice.GuestsReadOnly(), c.hub.voice.Captcha()
 			if c.hub.LiveStreams != nil {
@@ -602,6 +615,12 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "time-out":
 		c.timeOut(*id, req)
+		return
+	case "channel-time-out":
+		c.channelTimeOut(*id, req)
+		return
+	case "set-channel-moderator":
+		c.setChannelModerator(*id, req)
 		return
 	case "dm":
 		c.direct(*id, req.User)
@@ -909,17 +928,28 @@ func (h *Hub) mumbleText(m store.Message) string {
 // readers are the connections whose user may read a chat (a text
 // channel: everyone).
 
-// roles are the registered user ids of admins and moderators.
+// roles are the registered user ids of admins and moderators, and the
+// moderators of the channels the user sees.
 type roles struct {
-	Type       string   `json:"type,omitempty"` // "roles" as an event of its own
-	Admins     []uint32 `json:"admins"`
-	Moderators []uint32 `json:"moderators"`
+	Type              string              `json:"type,omitempty"` // "roles" as an event of its own
+	Admins            []uint32            `json:"admins"`
+	Moderators        []uint32            `json:"moderators"`
+	ChannelModerators []ChannelModerators `json:"channelModerators"`
 }
 
+// roles for everyone; channel moderators come with forUser.
 func (h *Hub) roles() roles {
 	admins, moderators := h.voice.Roles()
 	// Lists, never null in JSON.
-	return roles{Admins: append([]uint32{}, admins...), Moderators: append([]uint32{}, moderators...)}
+	return roles{Admins: append([]uint32{}, admins...), Moderators: append([]uint32{}, moderators...), ChannelModerators: h.voice.ChannelModerators()}
+}
+
+func (r roles) forUser(h *Hub, id mumble.Identity) roles {
+	r.ChannelModerators = slices.DeleteFunc(slices.Clone(r.ChannelModerators), func(m ChannelModerators) bool { return !h.voice.Sees(id.Session, m.Channel) })
+	if r.ChannelModerators == nil {
+		r.ChannelModerators = []ChannelModerators{}
+	}
+	return r
 }
 
 // RolesChanged sends everyone the new admins and moderators.
@@ -927,9 +957,9 @@ func (h *Hub) RolesChanged() {
 	if h.voice == nil {
 		return
 	}
-	r := h.roles()
-	r.Type = "roles"
-	h.broadcast(r)
+	all := h.roles()
+	all.Type = "roles"
+	h.eachReady(func(c *Conn, id mumble.Identity) { c.send(all.forUser(h, id)) })
 	h.PrivateChanged() // staff see all channels
 }
 
@@ -1061,11 +1091,12 @@ func textChannelName(raw string) (string, bool) {
 
 const maxTopicLength = 200
 
-// manage changes the text channels (admins only) and sends everyone the
-// new list.
+// manage changes the text channels (staff; topic and slow mode also the
+// channel's moderators) and sends everyone the new list.
 func (c *Conn) manage(id mumble.Identity, req request) {
 	h := c.hub
-	if h.voice == nil || !h.voice.MayManage(id.Session) {
+	own := (req.Type == "set-topic" || req.Type == "set-slow-mode") && h.mirrorOf(req.Channel) != 0 && h.mayModerate(id, chat{id: req.Channel})
+	if h.voice == nil || !own && !h.voice.MayManage(id.Session) {
 		c.manageError("you may not manage channels")
 		return
 	}

@@ -112,7 +112,8 @@ func (s *Server) Private() []PrivateChannel {
 }
 
 // SetPrivate makes a channel private with these members (registered user
-// ids), or public. Only admins and moderators may.
+// ids), or public. Only admins and moderators may; the channel's
+// moderators change the members of a private channel.
 func (s *Server) SetPrivate(actor, channel uint32, on bool, members []uint32) error {
 	if len(members) > maxGroupMembers {
 		return errors.New("too many members")
@@ -126,7 +127,7 @@ func (s *Server) SetPrivate(actor, channel uint32, on bool, members []uint32) er
 	case ch == nil || u == nil:
 		s.mu.Unlock()
 		return errors.New("no such channel")
-	case !s.state.isStaff(u):
+	case !s.state.isStaff(u) && !(on && isPrivate(ch) && s.state.isChannelMod(u, channel)):
 		s.mu.Unlock()
 		return errors.New("only admins and moderators make channels private")
 	case channel == 0 || channel == s.textParent:

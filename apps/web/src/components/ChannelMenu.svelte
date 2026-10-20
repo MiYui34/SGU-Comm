@@ -13,6 +13,7 @@
     canMoveUp = false,
     canMoveDown = false,
     canMembers = false,
+    canModerators = false,
     recording,
     onRecord,
     notify,
@@ -21,6 +22,7 @@
     onMove,
     onDelete,
     onMembers,
+    onModerators,
     direct,
     onClose,
   }: {
@@ -31,8 +33,10 @@
     canDelete?: boolean;
     canMoveUp?: boolean;
     canMoveDown?: boolean;
-    // A private channel's members (admins and moderators).
+    // A private channel's members (staff and its moderators); the
+    // channel's moderators (staff).
     canMembers?: boolean;
+    canModerators?: boolean;
     // Voice channels (staff): being recorded or not; undefined: may not
     // record.
     recording?: boolean;
@@ -46,6 +50,7 @@
     onMove?: (step: -1 | 1) => void;
     onDelete?: () => void;
     onMembers?: () => void;
+    onModerators?: () => void;
     // A direct chat (see lib/directList).
     direct?: { pinned: boolean; onProfile: () => void; onRead?: () => void; onPin: () => void; onHide: () => void };
     onClose: () => void;
@@ -65,6 +70,7 @@
   const id = $props.id();
   const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
   const noun = $derived(direct ? "conversation" : "channel");
+  const changes = $derived(canEdit || canMoveUp || canMoveDown || canMembers || canModerators);
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
@@ -100,7 +106,7 @@
       {/each}
       {#if !notify.desktop}<p class="none">Desktop notifications are off (Settings).</p>{/if}
     </div>
-    {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
+    {#if changes}<div class="sep"></div>{/if}
   {/if}
   {#if recording !== undefined && onRecord}
     {#if recording}
@@ -108,11 +114,12 @@
     {:else}
       <button onclick={act(() => onRecord(true))}>Record channel</button>
     {/if}
-    {#if canEdit || canMoveUp || canMoveDown}<div class="sep"></div>{/if}
+    {#if changes}<div class="sep"></div>{/if}
   {/if}
-  {#if canEdit || canMoveUp || canMoveDown}
+  {#if changes}
     {#if canEdit && onEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
     {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
+    {#if canModerators && onModerators}<button onclick={act(onModerators)}>Moderators…</button>{/if}
     {#if canMoveUp}<button onclick={act(() => onMove?.(-1))}>Move up</button>{/if}
     {#if canMoveDown}<button onclick={act(() => onMove?.(1))}>Move down</button>{/if}
     {#if canDelete && onDelete}

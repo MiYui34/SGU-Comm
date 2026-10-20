@@ -2,6 +2,7 @@ import { channelSiblings, may, Perm, type ServerState } from "@kallisti/protocol
 import type { ChannelKind } from "./channelForm";
 import { mirrorIds } from "./mirrors";
 import { accessChannel } from "./privateChannels";
+import { channelModIn, myUserId } from "./roles";
 import type { TextState } from "./textChannels";
 
 export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: boolean; canMoveDown: boolean };
@@ -11,10 +12,22 @@ export type MenuRights = { canEdit: boolean; canDelete: boolean; canMoveUp: bool
 export const canManageText = (server: ServerState, text: TextState): boolean =>
   text.voiceChats && may(server, 0, Perm.MakeChannel);
 
-// The members of a private channel: admins and moderators.
+// We moderate a Mumble channel (a voice channel or a text channel's
+// mirror; null: none): staff everywhere, its moderators there.
+export const canModerate = (server: ServerState, text: TextState, channel: number | null): boolean =>
+  canManageText(server, text) || (text.voiceChats && channelModIn(server, text.roles, channel, myUserId(server)));
+
+// The members of a private channel: admins, moderators and its moderators.
 export const canManageMembers = (server: ServerState, text: TextState, kind: ChannelKind, id: number): boolean => {
   const access = accessChannel(kind, id, text.channels);
-  return canManageText(server, text) && access !== null && access in text.private;
+  return access !== null && access in text.private && canModerate(server, text, access);
+};
+
+// A channel's moderators (staff appoint them): the Mumble channel that
+// holds them, or null. Not root: its moderators are the server's.
+export const moderatorsChannel = (server: ServerState, text: TextState, kind: ChannelKind, id: number): number | null => {
+  const access = accessChannel(kind, id, text.channels);
+  return canManageText(server, text) && access !== null && access !== 0 && server.channels[access] ? access : null;
 };
 
 // A voice channel and its siblings, without text channel mirrors (they
@@ -25,7 +38,8 @@ export const voiceSiblings = (server: ServerState, text: TextState, id: number) 
 };
 
 // What a channel's menu offers (null: no menu; text channels always have
-// one, to mute them). Voice channels follow
+// one, to mute them). A text channel's moderators edit its topic and slow
+// mode. Voice channels follow
 // Mumble's permissions, known after a queryPermissions. A move renumbers
 // all siblings, so it needs Write on each of them.
 export const menuRights = (server: ServerState, text: TextState, kind: ChannelKind, id: number): MenuRights | null => {
@@ -36,7 +50,8 @@ export const menuRights = (server: ServerState, text: TextState, kind: ChannelKi
   if (kind === "text") {
     if (!text.channels.some((c) => c.id === id)) return null;
     const manage = canManageText(server, text);
-    return rights(manage, manage, text.channels.map((c) => c.id), manage);
+    const own = canModerate(server, text, accessChannel(kind, id, text.channels));
+    return rights(own, manage, text.channels.map((c) => c.id), manage);
   }
   if (!server.channels[id]) return null;
   const siblings = voiceSiblings(server, text, id);

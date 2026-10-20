@@ -30,6 +30,7 @@
     onAdmin,
     moderation = null,
     timedOutUntil = null,
+    channelTimeout = null,
     onModerate,
     onConfirm,
     onDeleteMessages,
@@ -62,8 +63,11 @@
     // once, onConfirm asks first (kick, ban, time-out).
     moderation?: UserModeration | null;
     timedOutUntil?: number | null;
+    // Where we may give a channel time-out (see moderation.channelTimeout),
+    // and when the user's there ends (null: none).
+    channelTimeout?: { name: string; until: number | null } | null;
     onModerate?: (a: ModerationAction) => void;
-    onConfirm?: (kind: "kick" | "ban" | "timeout") => void;
+    onConfirm?: (kind: "kick" | "ban" | "timeout" | "channelTimeout") => void;
     // Asks before deleting their recent messages (staff; offline too).
     onDeleteMessages?: () => void;
     onClose: () => void;
@@ -141,6 +145,9 @@
     {#if timedOutUntil !== null}
       <p class="note">Timed out until {untilText(timedOutUntil)}</p>
     {/if}
+    {#if channelTimeout?.until != null}
+      <p class="note">Timed out in {channelTimeout.name} until {untilText(channelTimeout.until)}</p>
+    {/if}
     {#if moderation && onModerate && onConfirm}
       <div class="sep"></div>
       {#if moderation.mute}
@@ -162,6 +169,18 @@
             {#each moderation.moveTo as c (c.id)}<option value={String(c.id)}>{c.name}</option>{/each}
           </select>
         </label>
+      {/if}
+      {#if moderation.disconnect}
+        <button onclick={act(() => onModerate({ kind: "move", channel: 0 }))}>Disconnect from voice</button>
+      {/if}
+      {#if moderation.channelTimeout !== null && channelTimeout}
+        {#if channelTimeout.until !== null}
+          <button onclick={act(() => onModerate({ kind: "channelTimeout", channel: moderation.channelTimeout!, seconds: 0 }))}>
+            Remove time-out in {channelTimeout.name}
+          </button>
+        {:else}
+          <button class="danger" onclick={act(() => onConfirm("channelTimeout"))}>Time out in {channelTimeout.name}…</button>
+        {/if}
       {/if}
       {#if moderation.timeout}
         {#if timedOutUntil !== null}

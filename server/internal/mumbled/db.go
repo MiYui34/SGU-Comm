@@ -76,6 +76,14 @@ CREATE TABLE IF NOT EXISTS mumble_timeouts (
 	user_id INTEGER PRIMARY KEY,
 	until   INTEGER NOT NULL -- Unix milliseconds
 );
+-- Kallisti channel time-outs of registered users (no foreign key:
+-- temporary channels are not saved).
+CREATE TABLE IF NOT EXISTS mumble_channel_timeouts (
+	user_id    INTEGER NOT NULL,
+	channel_id INTEGER NOT NULL,
+	until      INTEGER NOT NULL, -- Unix milliseconds
+	PRIMARY KEY (user_id, channel_id)
+);
 -- Settings that are no numbers (see mumble_meta), as JSON.
 CREATE TABLE IF NOT EXISTS mumble_settings (
 	key   TEXT PRIMARY KEY,
@@ -595,6 +603,7 @@ func (d *DB) UnregisterUser(id uint32) error {
 		`DELETE FROM mumble_acl WHERE user_id = ?`,
 		`DELETE FROM mumble_group_members WHERE user_id = ?`,
 		`DELETE FROM mumble_timeouts WHERE user_id = ?`,
+		`DELETE FROM mumble_channel_timeouts WHERE user_id = ?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
 			return err
@@ -678,6 +687,39 @@ func (d *DB) SaveTimeout(id uint32, until time.Time) error {
 	}
 	_, err := d.db.Exec(`INSERT INTO mumble_timeouts (user_id, until) VALUES (?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET until = excluded.until`, id, until.UnixMilli())
+	return err
+}
+
+// UserChannel names a registered user's channel time-out.
+type UserChannel struct{ User, Channel uint32 }
+
+// ChannelTimeouts: the saved channel time-outs.
+func (d *DB) ChannelTimeouts() (map[UserChannel]time.Time, error) {
+	rows, err := d.db.Query(`SELECT user_id, channel_id, until FROM mumble_channel_timeouts`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[UserChannel]time.Time{}
+	for rows.Next() {
+		var uc UserChannel
+		var until int64
+		if err := rows.Scan(&uc.User, &uc.Channel, &until); err != nil {
+			return nil, err
+		}
+		out[uc] = time.UnixMilli(until)
+	}
+	return out, rows.Err()
+}
+
+// SaveChannelTimeout keeps a channel time-out (zero: none).
+func (d *DB) SaveChannelTimeout(uc UserChannel, until time.Time) error {
+	if until.IsZero() {
+		_, err := d.db.Exec(`DELETE FROM mumble_channel_timeouts WHERE user_id = ? AND channel_id = ?`, uc.User, uc.Channel)
+		return err
+	}
+	_, err := d.db.Exec(`INSERT INTO mumble_channel_timeouts (user_id, channel_id, until) VALUES (?, ?, ?)
+		ON CONFLICT (user_id, channel_id) DO UPDATE SET until = excluded.until`, uc.User, uc.Channel, until.UnixMilli())
 	return err
 }
 

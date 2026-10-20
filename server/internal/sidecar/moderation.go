@@ -33,11 +33,13 @@ func (c *Conn) ban(id mumble.Identity, req request) {
 }
 
 // Timeout is a running time-out: of a registered user (UserID) or a guest
-// (Session). Timed out users may not chat and are server-muted.
+// (Session). Timed out users may not chat and are server-muted; in a
+// channel time-out (Channel) they neither chat nor speak there.
 type Timeout struct {
 	Registered bool
 	UserID     uint32
 	Session    uint32
+	Channel    uint32
 	Until      time.Time
 }
 
@@ -63,7 +65,8 @@ func (c *Conn) timeOut(id mumble.Identity, req request) {
 	}
 }
 
-// timedOut refuses chat requests of a timed out user (typing quietly).
+// timedOut refuses chat requests of a timed out user (typing quietly), and
+// those in a channel where it is timed out.
 func (c *Conn) timedOut(id mumble.Identity, req request) bool {
 	if c.hub.voice == nil {
 		return false
@@ -72,28 +75,36 @@ func (c *Conn) timedOut(id mumble.Identity, req request) bool {
 	if ok && req.Type != "typing" {
 		c.sendError("you are timed out until " + until.UTC().Format("2006-01-02 15:04") + " UTC")
 	}
-	return ok
+	return ok || c.channelTimedOut(id, req)
+}
+
+func toWireTimeout(t Timeout) wireTimeout {
+	w := wireTimeout{Until: t.Until.UnixMilli()}
+	if t.Registered {
+		w.User = &t.UserID
+	} else {
+		w.Session = t.Session
+	}
+	return w
 }
 
 // timeouts is a list, never null in JSON.
 func (h *Hub) timeouts() []wireTimeout {
 	out := []wireTimeout{}
 	for _, t := range h.voice.Timeouts() {
-		w := wireTimeout{Until: t.Until.UnixMilli()}
-		if t.Registered {
-			w.User = &t.UserID
-		} else {
-			w.Session = t.Session
-		}
-		out = append(out, w)
+		out = append(out, toWireTimeout(t))
 	}
 	return out
 }
 
-// TimeoutsChanged sends everyone the running time-outs.
+// TimeoutsChanged sends everyone the running time-outs, and the channel
+// time-outs in channels it sees.
 func (h *Hub) TimeoutsChanged() {
 	if h.voice == nil {
 		return
 	}
-	h.broadcast(map[string]any{"type": "timeouts", "timeouts": h.timeouts()})
+	all := h.timeouts()
+	h.eachReady(func(c *Conn, id mumble.Identity) {
+		c.send(map[string]any{"type": "timeouts", "timeouts": all, "channelTimeouts": h.channelTimeoutsFor(id)})
+	})
 }

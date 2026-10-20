@@ -21,7 +21,7 @@
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
   import { createChannelManagement } from "../lib/channelManagement.svelte";
-  import { canManageText } from "../lib/channelManagement";
+  import { canManageText, canModerate } from "../lib/channelManagement";
   import type { Connection } from "../lib/connection.svelte";
   import { onlinePicture, pictureLookup, setAvatarPictures } from "../lib/avatar";
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
@@ -35,7 +35,7 @@
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers, pictureNames, readerGroups } from "../lib/members";
-  import { adminAction, moderatorAction, roleOf } from "../lib/roles";
+  import { adminAction, badgeOf, moderatorAction, roleOf } from "../lib/roles";
   import { loginAction, mayChangeGuests, mayWrite, readOnlyNote } from "../lib/guests";
   import { missingVoiceApis, unsupportedVoiceMessage } from "../lib/voice/support";
   import { createTextView } from "../lib/textView.svelte";
@@ -48,6 +48,7 @@
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
+    channelTimedOutUntil,
     mayDeleteMessages,
     moderationRequests,
     moderationRights,
@@ -486,6 +487,9 @@
   // direct chat.
   const chatId = $derived(textId ?? voiceChatId ?? directChatId);
   const textChannel = $derived(text.channels.find((c) => c.id === textId));
+  // The Mumble channel of what we look at (a text channel's mirror, or our
+  // voice channel; null: a direct chat): its moderators and time-outs.
+  const viewMumble = $derived(textId !== null ? (textChannel?.mumble ?? null) : view.kind === "voice" && dm === null ? channelId : null);
   // Message links (see lib/messageLink), for text channels and direct
   // chats: open the chat, then jump to the message. false: not here.
   const openMessage = (link: { chat: number; message: number } | null) => {
@@ -740,7 +744,7 @@
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Slow mode in the open text channel (staff are exempt).
   const slow = $derived(
-    textId === null || !textChannel?.slowMode || canManageText(server, text)
+    textId === null || !textChannel?.slowMode || canModerate(server, text, viewMumble)
       ? null
       : { seconds: textChannel.slowMode, lastPost: lastPostAt(textChat, mine), until: text.slowUntil[textId] },
   );
@@ -820,7 +824,13 @@
     if (menuUser) connection.fetchComment(menuUser.session);
     if (showSettings && me) connection.fetchComment(me.session);
   });
-  const menuModeration = $derived(menuUser ? userModeration(server, text, menuUser) : null);
+  const menuModeration = $derived(menuUser ? userModeration(server, text, menuUser, viewMumble) : null);
+  // A Mumble channel's name for people: "#general" for a text channel's
+  // mirror.
+  const mumbleName = (id: number) => {
+    const t = text.channels.find((c) => c.mumble === id);
+    return t ? `#${t.name}` : (server.channels[id]?.name ?? "");
+  };
   const moderate = (who: UserTarget, a: ModerationAction) => {
     for (const r of moderationRequests(who, a)) {
       if ("mumble" in r) connection.send(r.mumble);
@@ -830,7 +840,8 @@
   // A kick, ban, time-out or deleting messages to confirm (deletes: offer
   // deleting messages too); closed when a user we see leaves (the session
   // number may go to someone else).
-  type Confirming = { kind: ConfirmKind; who: UserTarget; name: string; timedBans?: boolean; deletes?: boolean };
+  // channel: a channel time-out there.
+  type Confirming = { kind: ConfirmKind; who: UserTarget; name: string; timedBans?: boolean; deletes?: boolean; channel?: number };
   let confirming = $state<Confirming | null>(null);
   $effect(() => {
     const who = confirming?.who;
@@ -838,6 +849,13 @@
   });
   // Our own time-out: the message box says so.
   const myTimeout = $derived(me ? timedOutUntil(text.timeouts, me) : null);
+  // Who may become a private channel's member: staff ask Mumble for the
+  // registered users; a channel's moderators may not, and pick from the
+  // members list (registered users but guest accounts).
+  const registeredUsers = $derived(
+    canManageText(server, text) ? server.registered : Object.entries(text.members).map(([id, name]) => ({ userId: Number(id), name })),
+  );
+  const myChannelTimeout = $derived(me ? channelTimedOutUntil(server, text.channelTimeouts, me, viewMumble) : null);
   // A guest that may only read: a way to an account instead of the message
   // box (a guest account gets a password in the settings).
   const guestAccount = $derived(account?.temporary ?? false);
@@ -1101,9 +1119,11 @@
     canMoveUp={m.canMoveUp}
     canMoveDown={m.canMoveDown}
     canMembers={m.canMembers}
+    canModerators={m.canModerators}
     recording={m.kind === "voice" && staffRecords ? recorded.has(m.id) : undefined}
     onRecord={(on) => connection.manage({ record: m.id, on })}
     onMembers={() => channels.startMembers(m.kind, m.id)}
+    onModerators={() => channels.startModerators(m.kind, m.id)}
     notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
     onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
     onEdit={() => channels.startEdit(m.kind, m.id)}
@@ -1146,11 +1166,11 @@
     <MembersDialog
       name={f.kind === "text" ? `#${f.name}` : f.name}
       members={f.members}
-      registered={server.registered}
+      registered={registeredUsers}
       invites={text.invites[f.access] ?? null}
       link={newInvite?.voice === f.access ? inviteLink(site, newInvite.token) : null}
       onLoad={() => {
-        connection.send(queryRegistered());
+        if (canManageText(server, text)) connection.send(queryRegistered());
         connection.manage({ invites: f.access });
       }}
       onSubmit={channels.submitMembers}
@@ -1160,6 +1180,21 @@
         newInvite = null;
         channels.closeMembers();
       }}
+    />
+  {/key}
+{/if}
+
+{#if channels.moderators}
+  {@const f = channels.moderators}
+  {#key f.access}
+    <MembersDialog
+      moderators
+      name={f.kind === "text" ? `#${f.name}` : f.name}
+      members={f.members}
+      registered={server.registered}
+      onLoad={() => connection.send(queryRegistered())}
+      onSubmit={channels.submitModerators}
+      onClose={channels.closeModerators}
     />
   {/key}
 {/if}
@@ -1184,14 +1219,22 @@
     onAdmin={(on) => menuUser.userId !== null && connection.manage({ admin: menuUser.userId, on })}
     moderation={menuModeration}
     timedOutUntil={timedOutUntil(text.timeouts, menuUser)}
+    channelTimeout={menuModeration?.channelTimeout != null
+      ? {
+          name: mumbleName(menuModeration.channelTimeout),
+          // That channel's own (the server ends only those).
+          until: timedOutUntil(text.channelTimeouts.filter((t) => t.channel === menuModeration.channelTimeout), menuUser),
+        }
+      : null}
     onModerate={(a) => moderate({ session: menuUser.session }, a)}
     onConfirm={(kind) =>
       (confirming = {
-        kind,
+        kind: kind === "channelTimeout" ? "timeout" : kind,
         who: { session: menuUser.session },
         name: menuUser.name,
         timedBans: menuModeration?.timedBans,
-        deletes: menuModeration?.deleteMessages,
+        deletes: kind !== "channelTimeout" && menuModeration?.deleteMessages,
+        ...(kind === "channelTimeout" && menuModeration?.channelTimeout != null ? { channel: menuModeration.channelTimeout } : {}),
       })}
     onDeleteMessages={menuModeration?.deleteMessages
       ? () => {
@@ -1234,7 +1277,8 @@
     name={c.name}
     timedBans={c.timedBans}
     deletes={c.deletes}
-    onSubmit={(a) => moderate(c.who, a)}
+    where={c.channel === undefined ? undefined : mumbleName(c.channel)}
+    onSubmit={(a) => moderate(c.who, c.channel !== undefined && a.kind === "timeout" ? { kind: "channelTimeout", channel: c.channel, seconds: a.seconds } : a)}
     onClose={() => (confirming = null)}
   />
 {/if}
@@ -1435,10 +1479,14 @@
       chatKey={chatKeyOf(view, channelId)}
       me={me?.name ?? ""}
       {people}
-      cannotWrite={myTimeout === null ? null : `You are timed out until ${untilText(myTimeout)}.`}
+      cannotWrite={myTimeout !== null
+        ? `You are timed out until ${untilText(myTimeout)}.`
+        : myChannelTimeout !== null
+          ? `You are timed out in this channel until ${untilText(myChannelTimeout)}.`
+          : null}
       {slow}
       mayEdit={mine}
-      mayDelete={(m) => mine(m) || canManageText(server, text)}
+      mayDelete={(m) => mine(m) || canModerate(server, text, viewMumble)}
       onEdit={readOnly ? undefined : connection.editMessage}
       onDelete={connection.deleteMessage}
       onSearch={text.available
@@ -1455,7 +1503,7 @@
         ? () => openSide(togglePins(side, !phone || panel === "members"))
         : undefined}
       pinsOpen={side === "pins"}
-      mayPin={directChatId !== null || canManageText(server, text)}
+      mayPin={directChatId !== null || canModerate(server, text, viewMumble)}
       onPin={readOnly ? undefined : connection.pin}
       jumpTarget={chatId !== null && text.loaded[chatId] ? jumpTarget : null}
       onJumped={() => (jumpTarget = null)}
@@ -1510,7 +1558,7 @@
       {unread}
       {speaking}
       onUserMenu={openMenu}
-      roleOf={(u) => roleOf(text.roles, u.userId)}
+      roleOf={(u) => badgeOf(server, text.roles, viewMumble, u.userId)}
       {statusOf}
       {offline}
       {hidden}

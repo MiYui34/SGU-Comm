@@ -12,6 +12,7 @@
     name,
     timedBans = false,
     deletes = false,
+    where,
     onSubmit,
     onClose,
   }: {
@@ -19,6 +20,8 @@
     name: string;
     timedBans?: boolean;
     deletes?: boolean;
+    // A time-out in this channel only.
+    where?: string;
     onSubmit: (a: ModerationAction) => void;
     onClose: () => void;
   } = $props();
@@ -53,7 +56,7 @@
 <dialog bind:this={dialog} onclose={onClose} aria-labelledby="user-action-title">
   <form onsubmit={submit}>
     <header>
-      <h2 id="user-action-title">{title} {name}</h2>
+      <h2 id="user-action-title">{title} {name}{where ? ` in ${where}` : ""}</h2>
       <button type="button" class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
     </header>
     <p>
@@ -62,7 +65,7 @@
         : k === "ban"
           ? `${name} leaves the server and cannot come back${times.length ? " for this time" : ""}.`
           : k === "timeout"
-            ? `${name} cannot write, react or speak for this time.`
+            ? `${name} cannot write, react or speak${where ? ` in ${where}` : ""} for this time.`
             : `${name}'s messages from this time go from all text channels and voice channel chats (not from direct messages). This cannot be undone.`}
     </p>
     {#if times.length}

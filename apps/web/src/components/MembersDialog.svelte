@@ -4,19 +4,21 @@
   import { memberCandidates, type Member } from "../lib/privateChannels";
   import { expiryChoices, inviteExpiry, inviteUses, useChoices, type Invite } from "../lib/invites";
 
-  // The members of a private channel, for admins and moderators: remove
-  // them, or add registered users (the server checks again). Invite links
-  // apply at once (not on Save).
+  // The members of a private channel, for admins, moderators and the
+  // channel's moderators: remove them, or add registered users (the server
+  // checks again). Invite links apply at once (not on Save). moderators:
+  // the channel's moderators instead (staff appoint them), no links.
   let {
     name,
     members,
     registered,
-    invites,
-    link,
+    invites = null,
+    link = null,
+    moderators = false,
     onLoad,
     onSubmit,
-    onCreateInvite,
-    onDeleteInvite,
+    onCreateInvite = () => {},
+    onDeleteInvite = () => {},
     onClose,
   }: {
     name: string;
@@ -24,15 +26,17 @@
     // Registered users and invite links (null: not loaded yet; onLoad asks
     // for them).
     registered: readonly Registered[] | null;
-    invites: readonly Invite[] | null;
+    invites?: readonly Invite[] | null;
     // A link just made: shown only now.
-    link: string | null;
+    link?: string | null;
+    moderators?: boolean;
     onLoad: () => void;
     onSubmit: (members: Member[]) => void;
-    onCreateInvite: (seconds: number, uses: number) => void;
-    onDeleteInvite: (id: number) => void;
+    onCreateInvite?: (seconds: number, uses: number) => void;
+    onDeleteInvite?: (id: number) => void;
     onClose: () => void;
   } = $props();
+  const noun = untrack(() => (moderators ? "moderator" : "member"));
 
   let dialog: HTMLDialogElement | undefined = $state();
   // The list starts from the current members; Save sends it.
@@ -62,12 +66,16 @@
 <dialog bind:this={dialog} onclose={onClose} aria-labelledby="members-dialog-title">
   <form onsubmit={submit}>
     <header>
-      <h2 id="members-dialog-title">Members of {name}</h2>
+      <h2 id="members-dialog-title">{moderators ? "Moderators" : "Members"} of {name}</h2>
       <button type="button" class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
     </header>
-    <p class="note">Only members, admins and moderators see this channel.</p>
+    <p class="note">
+      {moderators
+        ? "They delete and pin messages, set the topic and slow mode, mute, move and time out people here and in its subchannels, and manage the members of a private channel. Never admins or moderators."
+        : "Only members, admins and moderators see this channel."}
+    </p>
     {#if list.length}
-      <ul aria-label="Members">
+      <ul aria-label={moderators ? "Moderators" : "Members"}>
         {#each list as m (m.id)}
           <li>
             <span class="ellipsis">{m.name}</span>
@@ -76,48 +84,50 @@
         {/each}
       </ul>
     {:else}
-      <p>No members yet.</p>
+      <p>No {noun}s yet.</p>
     {/if}
     {#if registered === null}
       <p class="note">Loading registered users…</p>
     {:else if addable.length}
-      <select aria-label="Add a member" value="" onchange={add}>
-        <option value="" disabled>Add a member (registered users)…</option>
+      <select aria-label="Add a {noun}" value="" onchange={add}>
+        <option value="" disabled>Add a {noun} (registered users)…</option>
         {#each addable as u (u.id)}<option value={String(u.id)}>{u.name}</option>{/each}
       </select>
     {:else}
-      <p class="note">All registered users are members.</p>
+      <p class="note">All registered users are {noun}s.</p>
     {/if}
-    <h3>Invite links</h3>
-    {#if link}
+    {#if !moderators}
+      <h3>Invite links</h3>
+      {#if link}
+        <div class="row">
+          <input readonly value={link} aria-label="New invite link" onfocus={(e) => e.currentTarget.select()} />
+          <button type="button" class="action" onclick={() => copy(link)}>{copied === link ? "Copied" : "Copy"}</button>
+        </div>
+        <p class="note">Copy it now: it is shown only once.</p>
+      {/if}
       <div class="row">
-        <input readonly value={link} aria-label="New invite link" onfocus={(e) => e.currentTarget.select()} />
-        <button type="button" class="action" onclick={() => copy(link)}>{copied === link ? "Copied" : "Copy"}</button>
+        <select aria-label="Valid for" bind:value={seconds}>
+          {#each expiryChoices as c (c.seconds)}<option value={c.seconds}>{c.label}</option>{/each}
+        </select>
+        <select aria-label="Uses" bind:value={uses}>
+          {#each useChoices as c (c.uses)}<option value={c.uses}>{c.label}</option>{/each}
+        </select>
+        <button type="button" class="action" onclick={() => onCreateInvite(seconds, uses)}>Create link</button>
       </div>
-      <p class="note">Copy it now: it is shown only once.</p>
-    {/if}
-    <div class="row">
-      <select aria-label="Valid for" bind:value={seconds}>
-        {#each expiryChoices as c (c.seconds)}<option value={c.seconds}>{c.label}</option>{/each}
-      </select>
-      <select aria-label="Uses" bind:value={uses}>
-        {#each useChoices as c (c.uses)}<option value={c.uses}>{c.label}</option>{/each}
-      </select>
-      <button type="button" class="action" onclick={() => onCreateInvite(seconds, uses)}>Create link</button>
-    </div>
-    {#if invites === null}
-      <p class="note">Loading invite links…</p>
-    {:else if invites.length}
-      <ul class="links" aria-label="Active invite links">
-        {#each invites as i (i.id)}
-          <li>
-            <span class="ellipsis">{inviteUses(i)}, {inviteExpiry(i.expires, now)}, by {i.creator}</span>
-            <button type="button" aria-label="Delete the link by {i.creator}, {inviteUses(i)}" onclick={() => onDeleteInvite(i.id)}>×</button>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p class="note">No active invite links.</p>
+      {#if invites === null}
+        <p class="note">Loading invite links…</p>
+      {:else if invites.length}
+        <ul class="links" aria-label="Active invite links">
+          {#each invites as i (i.id)}
+            <li>
+              <span class="ellipsis">{inviteUses(i)}, {inviteExpiry(i.expires, now)}, by {i.creator}</span>
+              <button type="button" aria-label="Delete the link by {i.creator}, {inviteUses(i)}" onclick={() => onDeleteInvite(i.id)}>×</button>
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="note">No active invite links.</p>
+      {/if}
     {/if}
     <footer>
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>

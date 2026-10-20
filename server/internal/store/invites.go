@@ -104,6 +104,15 @@ func (s *Store) UseInvite(id int64, now time.Time) error {
 	return nil
 }
 
+// InviteChannel says whose channel an invite is (valid or not).
+func (s *Store) InviteChannel(id int64) (channel uint32, err error) {
+	err = s.db.QueryRow(`SELECT channel FROM invites WHERE id = ?`, id).Scan(&channel)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return channel, err
+}
+
 // DeleteInvite deletes an invite and says whose channel it was.
 func (s *Store) DeleteInvite(id int64) (channel uint32, err error) {
 	err = s.db.QueryRow(`DELETE FROM invites WHERE id = ? RETURNING channel`, id).Scan(&channel)

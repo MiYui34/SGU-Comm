@@ -84,7 +84,7 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 		}
 		return
 	}
-	if !own && (h.voice == nil || !h.voice.MayManage(id.Session)) {
+	if !own && !h.mayModerate(id, ch) {
 		c.sendError("you may only delete your own messages")
 		return
 	}

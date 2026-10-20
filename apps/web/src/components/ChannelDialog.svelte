@@ -86,7 +86,7 @@
       <label>
         Channel name
         <!-- svelte-ignore a11y_autofocus -->
-        <input bind:value={name} maxlength={kind === "text" ? 32 : 100} required autofocus
+        <input bind:value={name} maxlength={kind === "text" ? 32 : 100} required autofocus readonly={start.mode === "edit" && start.topicOnly}
           placeholder={kind === "text" ? "new-channel" : "New channel"} />
       </label>
       {#if form.mode === "edit"}
@@ -101,7 +101,7 @@
           <select bind:value={slowMode}>
             {#each SLOW_MODES as s (s)}<option value={s}>{slowModeLabel(s)}</option>{/each}
           </select>
-          <span class="note hint">How often each member may post here. Admins and moderators are exempt.</span>
+          <span class="note hint">How often each member may post here. Admins and moderators (also this channel's) are exempt.</span>
         </label>
       {/if}
       {#if canPrivate}

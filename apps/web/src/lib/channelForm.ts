@@ -18,5 +18,7 @@ export type ChannelForm =
       private?: { on: boolean; members: Member[] };
       // Text channels with the built-in server: seconds (see lib/slowMode).
       slowMode?: number;
+      // A text channel's moderator: only the topic and slow mode change.
+      topicOnly?: boolean;
     }
   | { mode: "delete"; kind: ChannelKind; name: string };

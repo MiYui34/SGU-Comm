@@ -12,11 +12,12 @@ import (
 	"kallisti.chat/server/internal/mumble"
 )
 
-// Mumble channels that only session 1 (staff) and members see.
+// Mumble channels that only session 1 (staff), members and the channel's
+// moderators see.
 func (f *fakeVoice) Sees(session, channel uint32) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return session == 1 || !f.hidden[channel] || f.members[session]
+	return session == 1 || !f.hidden[channel] || f.members[session] || f.moderates[session] == channel
 }
 
 func (f *fakeVoice) Private() []PrivateChannel {

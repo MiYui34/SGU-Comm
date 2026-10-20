@@ -285,17 +285,25 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 			c.denyPerm(missing, where)
 			return
 		}
+		if u != actor && s.state.shields(actor, u, u.Channel) {
+			c.denyPerm(MuteDeafen, u.Channel)
+			return
+		}
 		if until, ok := s.timedOutLocked(u); ok {
 			if mute, _ := serverMuteState(u.Mute, u.Deaf, m); !mute {
 				c.deny(timedOutText(u.Name+" is", until))
 				return
 			}
 		}
+		if until, ok := s.timedOutInLocked(u, u.Channel); ok && m.Suppress != nil {
+			c.deny(timedOutText(u.Name+" is", until, s.state.Channels[u.Channel].Name))
+			return
+		}
 	}
 	dest := s.state.Channels[m.GetChannelId()]
 	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel
 	if move {
-		if u != actor && !s.state.Has(actor, u.Channel, Move) {
+		if u != actor && (!s.state.Has(actor, u.Channel, Move) || s.state.shields(actor, u, u.Channel)) {
 			c.denyPerm(Move, u.Channel)
 			return
 		}
@@ -652,6 +660,10 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		check[s.state.Users[session].Channel] = true
 	}
 	for _, id := range slices.Sorted(maps.Keys(check)) {
+		if until, ok := s.timedOutInLocked(actor, id); ok {
+			c.deny(timedOutText("you are", until, s.state.Channels[id].Name))
+			return
+		}
 		if s.state.Channels[id] != nil && !s.state.Has(actor, id, TextMessage) {
 			c.denyPerm(TextMessage, id)
 			return
@@ -768,7 +780,7 @@ func (s *Server) registerMsg(c *client, m *pb.UserState) {
 		s.mu.Unlock()
 		c.denyPerm(need, 0)
 		return
-	case s.timeouts[timeoutKeyOf(u)] != nil: // a guest's time-out would not follow
+	case len(s.timeoutKeysLocked(timeoutKeyOf(u))) > 0: // a guest's time-outs would not follow
 		err = deny(pb.PermissionDenied_Text, "timed out users cannot register")
 	case u.Hash == "":
 		err = deny(pb.PermissionDenied_MissingCertificate, "registration needs a client certificate")

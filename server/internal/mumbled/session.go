@@ -518,7 +518,10 @@ func (s *Server) removeLocked(c *client, msg *pb.UserRemove) User {
 		delete(s.byAddr, c.udpAddr)
 	}
 	removed := s.state.RemoveUser(c.session)
-	if !u.Registered && s.dropTimeoutLocked(timeoutKeyOf(&u)) {
+	if keys := s.timeoutKeysLocked(timeoutKeyOf(&u)); !u.Registered && len(keys) > 0 {
+		for _, k := range keys {
+			s.dropTimeoutLocked(k)
+		}
 		go s.timeoutsChanged()
 	}
 	frame := mumble.MessageFrame(mumble.TypeUserRemove, msg)
