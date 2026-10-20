@@ -424,6 +424,24 @@ func TestStreamsEndWhenSpeakIsGone(t *testing.T) {
 	}
 }
 
+// A muted streamer who sends only thumbnails (no frames) loses the stream
+// too, camera or screen share.
+func TestPreviewsEndTheStreamWhenSpeakIsGone(t *testing.T) {
+	for _, camera := range []bool{false, true} {
+		h, v, sinks := setup()
+		var got []Info
+		h.OnPreview = func(i Info) { got = append(got, i) }
+		h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Camera: camera})
+		v.mute = map[uint32]bool{1: true}
+		if err := h.SetPreview(ID(1, camera), "data:image/jpeg;base64,/9j/"); err == nil {
+			t.Error("accepted")
+		}
+		if len(got) != 0 || len(h.Streams()) != 0 || !slices.Contains(sinks[1].types(), "stopped") {
+			t.Fatalf("camera %v: previews %v, streams %v", camera, got, h.Streams())
+		}
+	}
+}
+
 func TestPreviewsAreLimitedAndCanBeCleared(t *testing.T) {
 	h, _, _ := setup()
 	now := time.Unix(100, 0)

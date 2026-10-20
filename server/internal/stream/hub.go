@@ -282,6 +282,11 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 		h.mu.Unlock()
 		return nil
 	}
+	if image != "" && h.speakGoneLocked(session, st) {
+		h.mu.Unlock()
+		h.changed()
+		return errors.New("no stream")
+	}
 	st.preview, st.previewAt = image, now
 	info := Info{Session: session, Channel: st.channel, Preview: image}
 	h.mu.Unlock()
@@ -310,11 +315,9 @@ func (h *Hub) forward(session uint32, f []byte, from *Ingest) {
 		h.mu.Unlock()
 		return
 	}
-	// Speak can go (an admin's mute, an ACL change): then so does the stream.
 	if now := h.now(); now.Sub(st.speakAt) >= speakEvery {
 		st.speakAt = now
-		if !h.voice.MaySpeak(session, st.channel) {
-			h.endLocked(streamer)
+		if h.speakGoneLocked(streamer, st) {
 			h.mu.Unlock()
 			h.changed()
 			return
@@ -420,6 +423,16 @@ func (h *Hub) Streams() []Info {
 		out = append(out, Info{Session: s, Channel: st.channel, Preview: st.preview, Audio: st.config.Audio != ""})
 	}
 	return out
+}
+
+// speakGoneLocked ends a stream whose streamer may no longer speak (an
+// admin's mute, an ACL change).
+func (h *Hub) speakGoneLocked(id uint32, st *stream) bool {
+	if h.voice.MaySpeak(owner(id), st.channel) {
+		return false
+	}
+	h.endLocked(id)
+	return true
 }
 
 func (h *Hub) endLocked(id uint32) bool {
