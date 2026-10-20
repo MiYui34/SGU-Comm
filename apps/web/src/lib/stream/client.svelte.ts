@@ -386,7 +386,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   const watch = async (session: number) => {
     error = null;
     if (watched.has(session)) return;
-    watched.set(session, {
+    const v: Viewer = {
       decoder: null,
       codec: "",
       needKey: true,
@@ -398,13 +398,17 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       decoding: new Map(),
       queue: [],
       failures: decodeWatch(MAX_DECODE_ERRORS),
-    });
+    };
+    watched.set(session, v);
     startLoop();
     watching = [...watched.keys()];
     try {
       await open();
-      send({ type: "watch", session });
+      // Stopped while the connection opened (perhaps watched again: that
+      // asks itself).
+      if (watched.get(session) === v) send({ type: "watch", session });
     } catch (e) {
+      if (watched.get(session) !== v) return;
       unwatch(session, false);
       error = e instanceof Error ? e.message : String(e);
     }

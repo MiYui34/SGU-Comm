@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/lib/stream/ticker.worker?worker", () => ({ default: class {} }));
+vi.mock("../src/lib/stream/ticker.worker?worker", () => ({ default: class { postMessage() {} terminate() {} } }));
 const { createStreamClient } = await import("../src/lib/stream/client.svelte");
 
 // Starting a screen share while the connection goes away: the browser parts
@@ -153,6 +153,34 @@ describe("starting a screen share", () => {
     await start;
     expect(FakeSocket.all[0]!.types()).toEqual(["auth", "start", "stop"]);
     expect(client.error).toBeNull();
+  });
+});
+
+describe("watching", () => {
+  beforeEach(() => {
+    vi.stubGlobal("document", { hidden: false, addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  it("asks for nothing when stopped before the connection is open", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    const watch = client.watch(7);
+    client.unwatch(7);
+    await watch;
+    await flush();
+    expect(FakeSocket.all[0]!.types()).toEqual(["auth"]);
+    expect(client.watching).toEqual([]);
+  });
+
+  it("watches when started again while the first start waited", async () => {
+    const client = createStreamClient("ws://x", async () => "t", null);
+    const first = client.watch(7);
+    client.unwatch(7);
+    const again = client.watch(7);
+    await Promise.all([first, again]);
+    expect(FakeSocket.all[0]!.types()).toEqual(["auth", "watch"]);
+    expect(client.watching).toEqual([7]);
   });
 });
 
