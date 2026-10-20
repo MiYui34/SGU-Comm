@@ -88,6 +88,7 @@ func (h *Handler) post(w http.ResponseWriter, r *http.Request, upload http.Handl
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPost:
+		config.LimitBody(w) // until the token checks out (then uploadTimeout)
 		upload(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

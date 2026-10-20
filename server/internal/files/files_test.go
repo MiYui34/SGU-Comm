@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -207,6 +208,38 @@ func TestPreflight(t *testing.T) {
 	resp.Body.Close()
 	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
 		t.Error("CORS allowed for an unknown origin")
+	}
+}
+
+// A refused upload whose body never ends gets its answer after
+// config.BodyTimeout: the unread rest is not awaited forever.
+func TestRefusedStalledUploadsEnd(t *testing.T) {
+	srv, _ := setup(t, 1<<20)
+	defer func(d time.Duration) { config.BodyTimeout = d }(config.BodyTimeout)
+	config.BodyTimeout = 100 * time.Millisecond
+	body, pw := io.Pipe()
+	defer pw.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/upload", body)
+	req.ContentLength = 1000
+	req.Header.Set("X-Upload-Token", "bad")
+	done := make(chan int, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			done <- 0
+			return
+		}
+		resp.Body.Close()
+		done <- resp.StatusCode
+	}()
+	io.WriteString(pw, "abc")
+	select {
+	case code := <-done:
+		if code != http.StatusUnauthorized {
+			t.Fatalf("status %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refused upload is still read")
 	}
 }
 

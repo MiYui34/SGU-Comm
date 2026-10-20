@@ -128,6 +128,7 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost {
+		config.LimitBody(w)
 		// Against cross-site forms (CSRF): a form cannot send JSON without a
 		// CORS preflight, and browsers mark cross-site requests.
 		ctype, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))

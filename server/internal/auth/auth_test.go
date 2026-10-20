@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/store"
 )
 
@@ -466,5 +468,33 @@ func TestTheTokenComesBeforeACookie(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer new")
 	if SessionKey(r) != tokenHash("new") {
 		t.Fatal("the cookie won")
+	}
+}
+
+// A body that never ends (a proxy without a body timeout passes it on)
+// gets an answer after config.BodyTimeout: it does not hold its connection.
+func TestStalledBodiesTimeOut(t *testing.T) {
+	_, srv := setup(t)
+	defer func(d time.Duration) { config.BodyTimeout = d }(config.BodyTimeout)
+	config.BodyTimeout = 100 * time.Millisecond
+	for _, path := range []string{"/api/login", "/api/accounts", "/api/password"} {
+		body, pw := io.Pipe()
+		defer pw.Close()
+		req, _ := http.NewRequest("POST", srv.URL+path, body)
+		req.ContentLength = 1000
+		req.Header.Set("Content-Type", "application/json")
+		done := make(chan struct{})
+		go func() {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				resp.Body.Close()
+			}
+			close(done)
+		}()
+		io.WriteString(pw, `{"name":`)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the stalled body is still read", path)
+		}
 	}
 }

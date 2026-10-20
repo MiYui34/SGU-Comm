@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"errors"
 	"net"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -247,3 +248,14 @@ func OriginAllowed(allowed []string, origin string) bool {
 var appOrigins = []string{"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"}
 
 func IsAppOrigin(origin string) bool { return slices.Contains(appOrigins, origin) }
+
+// BodyTimeout is how long a small request body (JSON) may take: the HTTP
+// server has only a header timeout, and a proxy may pass a slow body on
+// without one.
+var BodyTimeout = 10 * time.Second
+
+// LimitBody gives the request's body BodyTimeout. An early answer (the
+// body unread) stops waiting for the rest of it then too.
+func LimitBody(w http.ResponseWriter) {
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(BodyTimeout))
+}

@@ -84,6 +84,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
+	// The offer's deadline (see readOffer), also for an early refusal: else
+	// net/http waits for the unread rest of the body.
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(cmp.Or(h.OfferTimeout, offerTimeout)))
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	key = strings.TrimSpace(key)
 	name, ok := h.Account(key)
@@ -97,8 +100,8 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	body, status, err := h.readOffer(w, r, name)
 	if err != nil {
-		// Else net/http reads the rest of the body (of a Content-Length)
-		// before the answer, without a deadline.
+		// Else net/http waits for the rest of the body (of a
+		// Content-Length) before the answer, until the deadline.
 		w.Header().Set("Connection", "close")
 		if now, ok := h.Account(key); !ok || now != name { // EndAccount stopped the read
 			unauthorized(w)
@@ -159,9 +162,9 @@ func unauthorized(w http.ResponseWriter) {
 
 var errKeyChanged = errors.New("the stream key changed")
 
-// readOffer reads the offer within OfferTimeout, if fewer than MaxSessions
-// are coming; EndAccount (a new key) stops it. The error goes to the
-// encoder with the status.
+// readOffer reads the offer within OfferTimeout (set by start), if
+// fewer than MaxSessions are coming; EndAccount (a new key) stops it. The
+// error goes to the encoder with the status.
 func (h *Handler) readOffer(w http.ResponseWriter, r *http.Request, account string) ([]byte, int, error) {
 	rc := http.NewResponseController(w)
 	h.mu.Lock()
@@ -179,9 +182,6 @@ func (h *Handler) readOffer(w http.ResponseWriter, r *http.Request, account stri
 		delete(h.pending, rc)
 		h.mu.Unlock()
 	}()
-	if err := rc.SetReadDeadline(time.Now().Add(cmp.Or(h.OfferTimeout, offerTimeout))); err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxOffer))
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
