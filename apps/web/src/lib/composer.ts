@@ -68,12 +68,22 @@ export const afterUpload = (ok: boolean, sent: Sent, now: Now) => {
   };
 };
 
+// The drafts of the chats not open, kept above the panes (a pane closes
+// with its chat: a thread over the channel on phones, a thread pane).
+export type Drafts = { value: ReadonlyMap<string, string> };
+
+// A chat's draft kept (none when empty), as when its pane closes.
+export const keepDraft = (drafts: ReadonlyMap<string, string>, chat: string, draft: string): ReadonlyMap<string, string> => {
+  const next = new Map(drafts);
+  if (draft.trim()) next.set(chat, draft);
+  else next.delete(chat);
+  return next;
+};
+
 // Another chat: the draft of the one we leave is kept (drafts: of the
 // chats not open, by chat key), the other one's comes back.
 export const switchDraft = (drafts: ReadonlyMap<string, string>, from: string, to: string, draft: string) => {
-  const next = new Map(drafts);
-  if (draft.trim()) next.set(from, draft);
-  else next.delete(from);
+  const next = new Map(keepDraft(drafts, from, draft));
   const back = next.get(to) ?? "";
   next.delete(to);
   return { drafts: next, draft: back };

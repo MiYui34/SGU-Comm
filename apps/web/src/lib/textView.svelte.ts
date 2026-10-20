@@ -1,13 +1,13 @@
 import { untrack } from "svelte";
 import type { Connection } from "./connection.svelte";
 import { mentionCounts } from "./mentions";
-import { pageAnswered, unreadTextIds } from "./textChannels";
+import { autoSeen, pageAnswered, unreadTextIds } from "./textChannels";
 
 // Text channel behaviour of the client view: load history once per channel,
 // page back, track what was seen. Call during component setup (it uses
 // effects). `currentIds` are the open chats (the main one and an open
 // thread; null: none).
-// `me` is our name, for mentions.
+// `me` is our name, for mentions. `visible`: the tab is visible.
 const MARK_DELAY_MS = 2000;
 
 // blocked: users whose messages do not count as mentions.
@@ -16,6 +16,7 @@ export const createTextView = (
   currentIds: () => readonly (number | null)[],
   me: () => string,
   blocked: (name: string) => boolean,
+  visible: () => boolean,
 ) => {
   const text = $derived(connection().text);
   const requested = new Set<number>();
@@ -54,16 +55,16 @@ export const createTextView = (
     if (page && pageAnswered(text, page)) page = null;
   });
 
-  // New messages in the open chats count as seen.
+  // New messages in the open chats count as seen, while the tab is visible
+  // (and when it becomes visible again).
   $effect(() => {
-    for (const id of open()) {
-      const newest = text.messages[id]?.at(-1)?.id ?? 0;
-      untrack(() => {
-        if ((read[id] ?? 0) >= newest) return;
+    const [state, ids, shown] = [text, open(), visible()];
+    untrack(() => {
+      for (const [id, newest] of autoSeen(state, ids, read, shown)) {
         seen = { ...seen, [id]: newest };
         queueMark(id, newest);
-      });
-    }
+      }
+    });
   });
 
   // Read marks go to the server (registered users keep them), at most every

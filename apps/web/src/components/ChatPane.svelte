@@ -30,7 +30,7 @@
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type Attachment, type DisplayMessage } from "../lib/textChannels";
   import { replyBoxText, type Thread } from "../lib/threads";
-  import { afterUpload, canAttach, clipboardImage, emptyPaste, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
+  import { afterUpload, canAttach, clipboardImage, emptyPaste, keepDraft, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle, type Drafts } from "../lib/composer";
   import { linuxApp } from "../lib/desktop";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
@@ -95,6 +95,7 @@
     slow = null,
     loginToWrite = null,
     chatKey,
+    drafts = { value: new Map() },
     compact = false,
     intro,
     tools,
@@ -180,6 +181,8 @@
     loginToWrite?: { note: string; action: string; onAction?: () => void } | null;
     // Tells the chats apart (see chatKeyOf); else the title.
     chatKey?: string;
+    // Kept here while no pane shows their chat (see lib/composer).
+    drafts?: Drafts;
     // A thread's pane (see lib/threads): no member list button; intro: in
     // place of the channel's welcome; tools: more header buttons.
     compact?: boolean;
@@ -320,21 +323,27 @@
   });
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
-  // switchDraft); draftFor: the chat of `draft`.
+  // switchDraft), also when this pane closes; draftFor: the chat of `draft`.
   const chat = $derived(chatKey ?? target);
-  let drafts: ReadonlyMap<string, string> = new Map();
   let draftFor = "";
   $effect(() => {
     const to = chat;
     untrack(() => {
       if (to === draftFor) return;
-      ({ drafts, draft } = switchDraft(drafts, draftFor, to, draft));
+      ({ drafts: drafts.value, draft } = switchDraft(drafts.value, draftFor, to, draft));
       draftFor = to;
       cancelPending();
       replying = null;
       editing = null;
       expanded = new Set();
     });
+  });
+  // After this pane closes, an upload that ends finds its chat not open
+  // (see afterUpload): a sent caption leaves the kept drafts.
+  let closed = false;
+  $effect(() => () => {
+    closed = true;
+    drafts.value = keepDraft(drafts.value, draftFor, draft);
   });
   const onPaste = (event: ClipboardEvent) => {
     if (!onUpload) return;
@@ -371,10 +380,10 @@
       const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
       void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
-        const done = afterUpload(ok, sent, { chat, draft, file: pending?.file, drafts });
+        const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
-        drafts = done.drafts;
+        drafts.value = done.drafts;
         if (ok && replying?.id === sent.reply) replying = null;
       });
       return;

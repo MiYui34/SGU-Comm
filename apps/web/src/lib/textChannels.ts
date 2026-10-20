@@ -711,7 +711,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         statuses: statusMap(event.statuses ?? []),
         ownStatus: event.ownStatus ?? initialTextState.ownStatus,
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
-        threads: withThreads({}, event.threads ?? []),
+        // As a channel list (a ready after a resync must not close an open
+        // archived thread).
+        threads: keptThreads(state.threads, event.channels, event.threads ?? []),
         follows: new Set(event.follows ?? []),
         archived: {},
         threadArchive: event.threadArchive ?? initialTextState.threadArchive,
@@ -1033,6 +1035,8 @@ export const directChatWith = (directs: TextState["directs"], user: number): num
 export const pinRequest = (message: number, on: boolean) => JSON.stringify({ type: "pin", message, on });
 export const pinsRequest = (channel: number) => JSON.stringify({ type: "pins", channel });
 export const typingRequest = (channel: number) => JSON.stringify({ type: "typing", channel });
+// After a resync: the server sends the whole state again (a ready).
+export const resyncRequest = JSON.stringify({ type: "resync" });
 export const markReadRequest = (channel: number, message: number) =>
   JSON.stringify({ type: "mark-read", channel, message });
 export const editMessageRequest = (message: number, text: string) =>
@@ -1110,6 +1114,17 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
   }
   return chat;
 };
+
+// The open chats whose new messages count as seen, with their newest
+// message: only in a visible tab. A hidden one would mark them read for
+// the whole account while the user reads elsewhere.
+export const autoSeen = (state: TextState, open: readonly number[], read: Record<number, number>, visible: boolean): [number, number][] =>
+  visible
+    ? open.flatMap((id): [number, number][] => {
+        const newest = state.messages[id]?.at(-1)?.id ?? 0;
+        return newest > (read[id] ?? 0) ? [[id, newest]] : [];
+      })
+    : [];
 
 // Channels (and active threads we follow) with a message newer than the
 // newest one seen there (loaded, or known from the server's summary).

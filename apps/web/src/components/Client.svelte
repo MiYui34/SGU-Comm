@@ -47,7 +47,7 @@
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
   import { lastTurnAt } from "../lib/slowMode";
-  import { chatKeyOf } from "../lib/composer";
+  import { chatKeyOf, type Drafts } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import { rejoinTarget } from "../lib/reconnect";
   import { voiceSession } from "../lib/mediaSession";
@@ -393,8 +393,17 @@
   $effect(() => {
     if (rejoining !== null && me?.channelId === rejoining) rejoining = null;
   });
+  // The session that holds our voice: the old one until we are back in it.
+  const placeSession = $derived(rejoining !== null ? (back?.session ?? null) : server.session);
   $effect(() =>
-    onPlace?.({ view, voice: voiceHere, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+    onPlace?.({
+      session: placeSession,
+      view,
+      voice: voiceHere,
+      thread: threadId,
+      selfMute: me?.selfMute ?? false,
+      selfDeaf: me?.selfDeaf ?? false,
+    }),
   );
   // In voice: keeps phones from freezing the page (see lib/mediaSession).
   const session = $derived(voiceHere === null ? null : voiceSession({ channel: server.channels[voiceHere]?.name ?? "", server: serverName, lobby }));
@@ -415,7 +424,7 @@
     lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
     if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
-    const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id]);
+    const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id], elsewhere?.session ?? null);
     if (target === null) return void (rejoining = null);
     connection.send(joinChannel(me.session, target));
     setTimeout(() => (rejoining = null), REJOIN_MS); // refused: not in voice after all
@@ -675,7 +684,15 @@
     connection.typing(id);
   };
   const onTyping = $derived(typingTo(chatId));
-  const textView = createTextView(() => connection, () => (phone && threadId !== null ? [threadId] : [chatId, threadId]), () => me?.name ?? "", blockedUsers.has);
+  // Only a visible tab marks new messages read (see createTextView).
+  let pageVisible = $state(document.visibilityState === "visible");
+  const textView = createTextView(
+    () => connection,
+    () => (phone && threadId !== null ? [threadId] : [chatId, threadId]),
+    () => me?.name ?? "",
+    blockedUsers.has,
+    () => pageVisible,
+  );
   const unreadText = $derived(withoutMuted(textView.unread, mutedText));
   // Unread counts as shown (muted direct chats count none).
   const mentions = $derived(quietDirects(textView.mentions, text.directs, mutedText));
@@ -993,8 +1010,11 @@
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
 
+  // Unsent texts of the chats not open: here, as the panes come and go.
+  const drafts: Drafts = { value: new Map() };
   // What both chat panes (the open chat and an open thread) share.
   const chatCommon = $derived({
+    drafts,
     loginToWrite,
     me: me?.name ?? "",
     people,
@@ -1307,7 +1327,7 @@
 {/if}
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
-<svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
+<svelte:document ontouchstart={touchStart} ontouchend={touchEnd} onvisibilitychange={() => (pageVisible = document.visibilityState === "visible")} />
 
 {#if channels.menu}
   {@const m = channels.menu}

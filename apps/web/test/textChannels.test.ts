@@ -14,6 +14,8 @@ import {
   sendRequest,
   toChatMessage,
   unreadTextIds,
+  autoSeen,
+  resyncRequest,
   uploadTokenRequest,
   voiceChatRequest,
   httpBase,
@@ -206,6 +208,19 @@ describe("unreadTextIds", () => {
   });
 });
 
+describe("autoSeen", () => {
+  let s = reduceText(initialTextState, { type: "message", message: msg(5, 1) });
+  s = reduceText(s, { type: "message", message: msg(6, 2) });
+
+  it("marks new messages in the open chats seen", () => {
+    expect(autoSeen(s, [1, 2], { 1: 5 }, true)).toEqual([[2, 6]]);
+  });
+
+  it("marks nothing in a hidden tab (another tab may be the one the user reads)", () => {
+    expect(autoSeen(s, [1, 2], {}, false)).toEqual([]);
+  });
+});
+
 describe("uploads", () => {
   it("parses messages with an attachment", () => {
     const ev = parseServerEvent(
@@ -307,6 +322,24 @@ describe("robustness", () => {
     expect(s.loaded).toEqual({});
     expect(s.resyncs).toBe(1);
     expect(s.channels).toEqual(ready.channels);
+  });
+
+  it("asks for the whole state again after a resync", () => {
+    expect(JSON.parse(resyncRequest)).toEqual({ type: "resync" });
+  });
+
+  it("takes the state sent again after a resync, and keeps the archived threads it knows", () => {
+    const thread = (id: number, archived = false, channel = 1) => ({ id, channel, start: id, name: "t", author: "a", at: 0, last: 0, replies: 0, archived });
+    const channels = [{ id: 1, name: "a" }];
+    let s = reduceText(initialTextState, { type: "ready", channels, threads: [thread(1), thread(2)], follows: [1], reads: { 1: 3 } });
+    s = reduceText(s, { type: "thread", thread: thread(3, true) });
+    s = reduceText(s, { type: "thread", thread: thread(4, true, 2) }); // of a channel we no longer see
+    s = reduceText(s, { type: "resync" });
+    // Missed meanwhile: thread 2 was deleted, thread 1 unfollowed, chat 1 read further.
+    s = reduceText(s, { type: "ready", channels, threads: [thread(1)], follows: [], reads: { 1: 8 } });
+    expect(Object.keys(s.threads).map(Number)).toEqual([1, 3]);
+    expect(s.follows).toEqual(new Set());
+    expect(s.reads).toEqual({ 1: 8 });
   });
 
   it("marks verified authors on chat messages", () => {

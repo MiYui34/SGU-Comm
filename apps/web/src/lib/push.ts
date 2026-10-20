@@ -79,18 +79,26 @@ const registration = async () => navigator.serviceWorker?.getRegistration("/");
 
 // Subscribing runs one at a time. Turning off does not wait: it counts up
 // offs, and subscribing asked for before that does not start, or undoes
-// what it did (a sync from the start must not turn push on again).
+// what it did (a sync from the start must not turn push on again). The
+// subscription is the browser's, so offs in other tabs count too (shared
+// in localStorage; this tab's count still works without storage).
 let queue: Promise<unknown> = Promise.resolve();
-let offs = 0;
+const OFFS_KEY = "pushOffs";
+let tabOffs = 0;
+const offs = () => `${safeGet(localStorage, OFFS_KEY)} ${tabOffs}`;
+const countOff = () => {
+  tabOffs++;
+  safeSet(localStorage, OFFS_KEY, String(Number(safeGet(localStorage, OFFS_KEY)) + 1));
+};
 
 // Subscribes (again, if the server's key changed) and tells the server,
 // for the session now.
 const subscribe = (base: string, owner: string, prefs: PushPrefs) => {
-  const asked = offs;
+  const asked = offs();
   const run = queue.then(async () => {
-    if (asked !== offs) return;
+    if (asked !== offs()) return;
     const key = await serverKey(base);
-    if (asked !== offs) return;
+    if (asked !== offs()) return;
     await navigator.serviceWorker.register("/sw.js", { scope: "/" });
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
@@ -99,8 +107,8 @@ const subscribe = (base: string, owner: string, prefs: PushPrefs) => {
       sub = null;
     }
     sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationServerKey(key) });
-    if (asked === offs) await send(base, "POST", subscriptionBody(sub.toJSON(), prefs));
-    if (asked !== offs) return stopPush(base, reg, sub);
+    if (asked === offs()) await send(base, "POST", subscriptionBody(sub.toJSON(), prefs));
+    if (asked !== offs()) return stopPush(base, reg, sub);
     safeSet(localStorage, OWNER_KEY, owner);
   });
   queue = run.catch(() => {});
@@ -123,7 +131,7 @@ export const turnOnPush = async (base: string, name: string, prefs: PushPrefs): 
 
 // Also on logout. The server forgets it with the session anyway.
 export const turnOffPush = (base: string) => {
-  offs++;
+  countOff();
   const run = stopPush(base);
   queue = Promise.all([queue, run]).catch(() => {}); // later subscribing waits for it
   return run;

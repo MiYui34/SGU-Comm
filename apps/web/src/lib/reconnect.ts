@@ -32,6 +32,9 @@ export const busyName = (s: Pick<ServerState, "status" | "rejectType">) =>
   s.status === "rejected" && s.rejectType === proto.Reject_RejectType.UsernameInUse;
 
 // After a reconnect: the voice channel to join again (null: none, already
-// there, or the channel is gone).
-export const rejoinTarget = (back: Place | null, here: number, exists: (id: number) => boolean): number | null =>
-  back?.voice != null && back.voice !== here && exists(back.voice) ? back.voice : null;
+// there, or the channel is gone). voiceOther: our account's session in
+// voice now, if not this one. That may be our old session, which the
+// server has not let go yet; another device that went into voice meanwhile
+// keeps it (the user can still take voice with a click).
+export const rejoinTarget = (back: Place | null, here: number, exists: (id: number) => boolean, voiceOther: number | null): number | null =>
+  back?.voice != null && back.voice !== here && exists(back.voice) && (voiceOther === null || voiceOther === back.session) ? back.voice : null;

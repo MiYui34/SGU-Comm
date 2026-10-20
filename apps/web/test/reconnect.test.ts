@@ -47,17 +47,26 @@ describe("busyName", () => {
 });
 
 describe("rejoinTarget", () => {
-  const back: Place = { view: { kind: "voice" }, voice: 5, thread: null, selfMute: true, selfDeaf: false };
+  const back: Place = { session: 3, view: { kind: "voice" }, voice: 5, thread: null, selfMute: true, selfDeaf: false };
   const exists = (id: number) => id !== 9;
 
   it("the voice channel the user was in", () => {
-    expect(rejoinTarget(back, 0, exists)).toBe(5);
+    expect(rejoinTarget(back, 0, exists, null)).toBe(5);
   });
 
   it("none when not in voice before, already there, or the channel is gone", () => {
-    expect(rejoinTarget(null, 0, exists)).toBe(null);
-    expect(rejoinTarget({ ...back, voice: null }, 0, exists)).toBe(null);
-    expect(rejoinTarget(back, 5, exists)).toBe(null);
-    expect(rejoinTarget({ ...back, voice: 9 }, 0, exists)).toBe(null);
+    expect(rejoinTarget(null, 0, exists, null)).toBe(null);
+    expect(rejoinTarget({ ...back, voice: null }, 0, exists, null)).toBe(null);
+    expect(rejoinTarget(back, 5, exists, null)).toBe(null);
+    expect(rejoinTarget({ ...back, voice: 9 }, 0, exists, null)).toBe(null);
+  });
+
+  it("takes voice back from our old session, which the server has not let go yet", () => {
+    expect(rejoinTarget(back, 0, exists, 3)).toBe(5);
+  });
+
+  it("not from another device of the account that went into voice meanwhile", () => {
+    expect(rejoinTarget(back, 0, exists, 4)).toBe(null);
+    expect(rejoinTarget({ ...back, session: null }, 0, exists, 4)).toBe(null);
   });
 });

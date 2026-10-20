@@ -42,6 +42,7 @@ import {
   manageRequest,
   parseServerEvent,
   reduceText,
+  resyncRequest,
   forgetStatus,
   sendRequest,
   uploadTokenRequest,
@@ -243,6 +244,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       else if (ev && !settleWaiters("text", ev.type === "error" && ev.about === "manage" ? ev.message : null, (w) => w.via === "text" && w.confirms(ev)))
         text = reduceText(text, ev);
       if (ev?.type === "ready") fetchTextures();
+      if (ev?.type === "resync") ws.send(resyncRequest); // lost events: the state comes again
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
     }
