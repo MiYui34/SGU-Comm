@@ -126,7 +126,7 @@ func (s *Service) due(user string, channel int64, now time.Time) bool {
 // chat in collapseWindow, none when the queue is full or stopped. After
 // Start.
 func (s *Service) Notify(name string, n Note) {
-	if s.ctx.Err() != nil || !s.due(names.Key(name), n.Channel, s.Now()) {
+	if s.ctx == nil || s.ctx.Err() != nil || !s.due(names.Key(name), n.Channel, s.Now()) { // not started, or stopped
 		return
 	}
 	select {

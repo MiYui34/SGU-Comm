@@ -259,6 +259,15 @@ func TestSendErrorsKeepTheSubscription(t *testing.T) {
 
 // Notify queues at most one push per user and chat and minute (before the
 // queue), and drops pushes when the queue is full.
+// Before Start (or with push off) there is no queue: nothing happens.
+func TestNotifyBeforeStart(t *testing.T) {
+	s, f, _ := newService(t)
+	s.Notify("alice", Note{Channel: 1})
+	if len(f.sent) != 0 {
+		t.Fatalf("sent %v", f.sent)
+	}
+}
+
 func TestNotifyQueue(t *testing.T) {
 	s, _, now := newService(t)
 	s.Start(0, 3) // no workers: the queue fills
