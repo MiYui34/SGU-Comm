@@ -382,32 +382,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.sendAccess(id) // a registration can change what it sees
 	}
 	if becomesReady {
-		channels := c.hub.channelsFor(id)
-		ready := map[string]any{"type": "ready", "channels": channels, "categories": c.hub.categoriesFor(id, channels), "threads": c.hub.threadsFor(id),
-			"threadArchive": c.hub.threadArchive(), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
-		if c.hub.Avatars {
-			ready["avatars"] = true
-		}
-		if c.hub.voice != nil {
-			ready["roles"], ready["listenOnly"], ready["timeouts"] = c.hub.roles().forUser(c.hub, id), c.hub.listenOnlyFor(id), c.hub.timeouts()
-			ready["channelTimeouts"] = c.hub.channelTimeoutsFor(id)
-			ready["private"], ready["members"] = c.hub.privateFor(id), c.hub.members()
-			ready["guestsReadOnly"], ready["captcha"] = c.hub.voice.GuestsReadOnly(), c.hub.voice.Captcha()
-			if c.hub.LiveStreams != nil {
-				ready["streams"] = c.hub.liveStreams(id)
-			}
-			if c.hub.Recorder != nil {
-				ready["recording"] = c.hub.recordingFor(id)
-			}
-		}
-		if id.Registered {
-			ready["reads"], ready["summary"] = c.hub.readState(id)
-			ready["follows"] = c.hub.followsOf(id)
-			if c.hub.voice != nil {
-				ready["directs"] = c.hub.directs(id)
-			}
-		}
-		c.sendReady(id, ready)
+		c.sendReady(id, c.hub.readyFor(id))
 	}
 }
 
@@ -621,6 +596,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "mark-read":
 		c.markRead(*id, req)
+		return
+	case "resync":
+		c.resendReady(*id)
 		return
 	case "create-thread", "threads", "get-thread", "rename-thread", "archive-thread", "delete-thread", "follow-thread", "set-thread-archive":
 		c.threadRequest(*id, req)
