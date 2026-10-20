@@ -380,8 +380,8 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.sendAccess(id) // a registration can change what it sees
 	}
 	if becomesReady {
-		channels := c.hub.channelsEvent(id)
-		ready := map[string]any{"type": "ready", "channels": channels["channels"], "categories": channels["categories"], "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
+		channels := c.hub.channelsFor(id)
+		ready := map[string]any{"type": "ready", "channels": channels, "categories": c.hub.categoriesFor(id, channels), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
 		if c.hub.Avatars {
 			ready["avatars"] = true
 		}
@@ -1108,6 +1108,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	h.manageMu.Lock()
 	defer h.manageMu.Unlock()
 	var err error
+	taken := "a channel with this name exists"
 	var private int64 // a new private text channel
 	// Private channels change too: a new one, or a private one deleted.
 	access := false
@@ -1120,7 +1121,9 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 		if req.Type == "create-channel" {
 			var ch store.Channel
-			if ch, err = h.store.CreateChannel(name, req.Category); err == nil && req.Private {
+			// Only staff bring back a deleted channel's history (it may
+			// have been private).
+			if ch, err = h.store.CreateChannel(name, req.Category, h.voice.MayManage(id.Session)); err == nil && req.Private {
 				private, access = ch.ID, true
 			}
 		} else {
@@ -1143,13 +1146,15 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 		err = h.store.SetSlowMode(req.Channel, req.Seconds)
 	case "order-channels":
-		err = h.store.SetPositions(fullOrder(req.Channels, idsOf(h, &h.channels, func(c wireChannel) int64 { return c.ID })))
+		channels, _ := h.orderIDs()
+		err = h.store.SetPositions(fullOrder(req.Channels, channels))
 	case "create-category", "rename-category":
 		name, ok := categoryName(req.Name)
 		if !ok {
 			c.manageError("a category name has 1 to 32 letters, digits, spaces or - _ = ( ) [ ] { } @ |")
 			return
 		}
+		taken = "a category with this name exists"
 		if req.Type == "create-category" {
 			_, err = h.store.CreateCategory(name)
 		} else {
@@ -1158,16 +1163,14 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 	case "delete-category": // its channels stay, without a category
 		access, err = true, h.store.DeleteCategory(req.Category)
 	case "order-categories":
-		err = h.store.SetCategoryPositions(fullOrder(req.Cats, idsOf(h, &h.categories, func(c wireCategory) int64 { return c.ID })))
+		_, cats := h.orderIDs()
+		err = h.store.SetCategoryPositions(fullOrder(req.Cats, cats))
 	case "set-category": // its moderators change
 		access, err = true, h.store.SetChannelCategory(req.Channel, req.Category)
 	}
 	switch {
-	case errors.Is(err, store.ErrNameTaken) && strings.Contains(req.Type, "categor"):
-		c.manageError("a category with this name exists")
-		return
 	case errors.Is(err, store.ErrNameTaken):
-		c.manageError("a channel with this name exists")
+		c.manageError(taken)
 		return
 	case err != nil:
 		c.manageError("cannot change the channel")
@@ -1231,16 +1234,17 @@ func (h *Hub) reloadChannels() error {
 	return nil
 }
 
-// idsOf lists the ids of the text channels or categories (list is under
-// mu).
-func idsOf[T any](h *Hub, list *[]T, id func(T) int64) []int64 {
+// orderIDs: the text channels' and the categories' ids, in order.
+func (h *Hub) orderIDs() (channels, categories []int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := make([]int64, len(*list))
-	for i, x := range *list {
-		out[i] = id(x)
+	for _, c := range h.channels {
+		channels = append(channels, c.ID)
 	}
-	return out
+	for _, c := range h.categories {
+		categories = append(categories, c.ID)
+	}
+	return channels, categories
 }
 
 // fullOrder: the given ids of all first, the others after them in their

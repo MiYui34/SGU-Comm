@@ -52,11 +52,11 @@ func TestChannelsInCategories(t *testing.T) {
 	s := open(t)
 	s.EnsureChannels([]string{"general"})
 	games, _ := s.CreateCategory("Games")
-	mc, err := s.CreateChannel("minecraft", games.ID)
+	mc, err := s.CreateChannel("minecraft", games.ID, true)
 	if err != nil || mc.Category != games.ID {
 		t.Fatalf("create in a category: %+v %v", mc, err)
 	}
-	if _, err := s.CreateChannel("nope", 99); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CreateChannel("nope", 99, true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("create in an unknown category: %v", err)
 	}
 	chans, _ := s.Channels()
@@ -84,7 +84,10 @@ func TestChannelsInCategories(t *testing.T) {
 	if err := s.DeleteCategory(games.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete twice: %v", err)
 	}
-	back, _ := s.CreateChannel("minecraft", 0)
+	if _, err := s.CreateChannel("minecraft", 0, false); !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("came back without revive: %v", err)
+	}
+	back, _ := s.CreateChannel("minecraft", 0, true)
 	chans, _ = s.Channels()
 	if cats, _ := s.Categories(); len(cats) != 0 || back.ID != mc.ID || chans[0].Category != 0 || chans[1].Category != 0 {
 		t.Fatalf("after delete: %+v %+v", cats, chans)

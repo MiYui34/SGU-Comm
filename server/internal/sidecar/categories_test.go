@@ -168,6 +168,9 @@ func TestCategoryModeratorsManageChannelsInTheirCategory(t *testing.T) {
 		t.Fatalf("got %v", m)
 	}
 	manageOK(t, carol, `{"type":"delete-channel","channel":`+val+`}`)
+	// A deleted channel (it may have been private) comes back only by
+	// staff, with its history.
+	manageRefused(t, carol, `{"type":"create-channel","name":"valorant","category":`+games+`}`)
 }
 
 // A private channel in a category: its moderators manage it only as

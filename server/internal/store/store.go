@@ -529,8 +529,8 @@ func (s *Store) SeedChannels(names []string) error {
 }
 
 // CreateChannel adds a text channel at the end, in a category (0: none).
-// A deleted channel of that name comes back, with its history.
-func (s *Store) CreateChannel(name string, category int64) (Channel, error) {
+// With revive, a deleted channel of that name comes back, with its history.
+func (s *Store) CreateChannel(name string, category int64, revive bool) (Channel, error) {
 	if strings.Contains(name, ":") {
 		return Channel{}, ErrInvalidName
 	}
@@ -541,10 +541,10 @@ func (s *Store) CreateChannel(name string, category int64) (Channel, error) {
 	err := s.db.QueryRow(`INSERT INTO channels (name, position, category_id)
 		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0), NULLIF(?, 0))
 		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position, category_id = excluded.category_id
-		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL
-		RETURNING id, position`, name, category).Scan(&c.ID, &c.Position)
+		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL AND ?
+		RETURNING id, position`, name, category, revive).Scan(&c.ID, &c.Position)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Channel{}, ErrNameTaken // a visible channel has the name
+		return Channel{}, ErrNameTaken // a visible channel has the name (or a deleted one)
 	}
 	return c, err
 }

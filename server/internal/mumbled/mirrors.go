@@ -67,7 +67,7 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 	var save []*Channel
 	var removed []uint32
 	touched := map[uint32]bool{}
-	moved := false
+	inherited := false // moves and category entries: what channels inherit changed
 	parent := s.state.Channels[saved]
 	if saved == 0 || parent == nil || parent.Parent != 0 {
 		// One from before whose id was not saved, or a new one.
@@ -107,13 +107,16 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 			slog.Error("move a text channel mirror", "channel", id, "err", err)
 			return
 		}
-		touched[id], moved = true, true
+		touched[id], inherited = true, true
 	}
-	// Kept mirrors leave categories that go; then unwanted channels go,
-	// so their names are free.
+	// Kept mirrors leave categories that go (clients learn it before the
+	// removal, or they drop the mirror with its users); then unwanted
+	// channels go, so their names are free. A mirror that could not move
+	// goes with its category and is made anew.
 	for _, id := range slices.Sorted(maps.Keys(keep)) {
 		if p := s.state.Channels[id].Parent; p != parent.ID && !keepCat[p] {
 			move(id, parent.ID)
+			s.showChannelLocked(s.state.Channels[id])
 		}
 	}
 	for _, ch := range s.state.Tree() {
@@ -121,6 +124,7 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 			removed = append(removed, s.removeChannelLocked(ch.ID, 0)...)
 		}
 	}
+	maps.DeleteFunc(keep, func(id uint32, _ bool) bool { return s.state.Channels[id] == nil })
 	// Positions count per parent; under the parent the categories come
 	// after the mirrors.
 	next := map[uint32]int32{}
@@ -154,7 +158,7 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 		}
 		if !slices.Contains(ch.ACLs, categoryACL) {
 			ch.ACLs = append([]ACL{categoryACL}, ch.ACLs...)
-			touched[ch.ID] = true
+			touched[ch.ID], inherited = true, true
 		}
 		edit(ch, c.Name, ch.Description, uncategorized+int32(i))
 		catIDs[i] = ch.ID
@@ -188,8 +192,8 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 			s.showChannelLocked(ch)
 		}
 	}
-	if touched[parent.ID] || moved {
-		s.permissionsChangedLocked(parent) // suppress states follow Speak; moved mirrors inherit anew
+	if touched[parent.ID] || inherited {
+		s.permissionsChangedLocked(parent) // suppress states follow Speak
 	}
 	lastID := s.state.LastChannelID()
 	s.mu.Unlock()

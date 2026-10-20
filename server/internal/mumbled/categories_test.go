@@ -77,6 +77,27 @@ func TestSyncTextTreeWithCategories(t *testing.T) {
 	}
 }
 
+// A mirror that cannot leave a deleted category (a stray channel has its
+// name) goes with it and is made anew.
+func TestAMirrorThatCannotMoveIsMadeAnew(t *testing.T) {
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{DB: testDB(t)}, nil)
+	cats, ids, _ := s.SyncTextTree([]TextCategory{{Name: "Games"}}, []TextMirror{{Name: "general", Category: 1}})
+	parent, _ := mirrorTree(t, s)
+	s.mu.Lock()
+	s.state.AddChannel(parent.ID, "#general", false)
+	s.mu.Unlock()
+	_, again, err := s.SyncTextTree(nil, []TextMirror{{Channel: ids[0], Name: "general"}})
+	if err != nil || again[0] == 0 || again[0] == ids[0] || parentOf(s, again[0]) != parent.ID {
+		t.Fatalf("again %v %v", again, err)
+	}
+	s.mu.Lock()
+	gone := s.state.Channels[cats[0]] == nil
+	s.mu.Unlock()
+	if !gone {
+		t.Fatal("the category stayed")
+	}
+}
+
 // A category is a channel moderators' channel: its moderators moderate
 // its text channels, but not private ones they are not members of.
 func TestCategoryModeratorsModerateItsChannels(t *testing.T) {

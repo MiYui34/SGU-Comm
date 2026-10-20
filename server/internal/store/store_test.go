@@ -368,11 +368,11 @@ func TestManagingTextChannels(t *testing.T) {
 	if got := names(); !slices.Equal(got, []string{"general", "links"}) {
 		t.Fatalf("seeded %v", got)
 	}
-	games, err := s.CreateChannel("games", 0)
+	games, err := s.CreateChannel("games", 0, true)
 	if err != nil || games.Name != "games" {
 		t.Fatalf("create %+v %v", games, err)
 	}
-	if _, err := s.CreateChannel("games", 0); !errors.Is(err, ErrNameTaken) {
+	if _, err := s.CreateChannel("games", 0, true); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("duplicate: %v", err)
 	}
 	if err := s.RenameChannel(games.ID, "gaming"); err != nil {
@@ -391,7 +391,7 @@ func TestManagingTextChannels(t *testing.T) {
 	if got := names(); !slices.Equal(got, []string{"general", "links"}) {
 		t.Fatalf("after delete %v", got)
 	}
-	if back, err := s.CreateChannel("gaming", 0); err != nil || back.ID != games.ID {
+	if back, err := s.CreateChannel("gaming", 0, true); err != nil || back.ID != games.ID {
 		t.Fatalf("made again: %+v %v (want the old channel back)", back, err)
 	}
 	// Voice channel chats cannot be renamed or hidden as text channels.
@@ -407,7 +407,7 @@ func TestTextChannelNamesCannotLookLikeVoiceChats(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.CreateChannel("voice:7", 0); !errors.Is(err, ErrInvalidName) {
+	if _, err := s.CreateChannel("voice:7", 0, true); !errors.Is(err, ErrInvalidName) {
 		t.Fatalf("create: %v", err)
 	}
 	if err := s.EnsureChannels([]string{"voice:7"}); !errors.Is(err, ErrInvalidName) {
