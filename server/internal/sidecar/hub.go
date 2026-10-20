@@ -1115,7 +1115,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 		if req.Type == "create-channel" {
 			var ch store.Channel
-			if ch, err = h.store.CreateChannel(name); err == nil && req.Private {
+			if ch, err = h.store.CreateChannel(name, 0); err == nil && req.Private {
 				private, access = ch.ID, true
 			}
 		} else {
