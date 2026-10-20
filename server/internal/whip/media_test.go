@@ -267,3 +267,47 @@ func TestClock(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// Unfinished FU-A fragments (starts without ends, each on its own
+// timestamp) must not pile up into the next picture.
+func TestUnfinishedFragmentsAreDropped(t *testing.T) {
+	v := newVideoIn()
+	junk := append([]byte{0x7c, 0x85}, make([]byte, 1200)...) // FU-A start of an IDR slice
+	for i := range 1000 {
+		v.push(&rtp.Packet{Header: rtp.Header{SequenceNumber: uint16(i), Timestamp: uint32(i) * 3000}, Payload: junk}, 0)
+	}
+	frames := clipFrames(t)
+	var got []timed
+	seq := uint16(1000)
+	for i, f := range frames { // in fragments (a small MTU)
+		payloads := (&codecs.H264Payloader{}).Payload(300, f)
+		for j, p := range payloads {
+			got = append(got, v.push(&rtp.Packet{Header: rtp.Header{SequenceNumber: seq, Timestamp: uint32(3_000_000 + 3000*i), Marker: j == len(payloads)-1}, Payload: p}, 0)...)
+			seq++
+		}
+	}
+	for _, g := range got {
+		if g.key {
+			if !bytes.Equal(g.data, frames[0]) {
+				t.Fatalf("the keyframe has %d bytes, want %d", len(g.data), len(frames[0]))
+			}
+			return
+		}
+	}
+	t.Fatal("no keyframe")
+}
+
+func TestFragmentsOverTheLimitAreDropped(t *testing.T) {
+	d := &h264Depacketizer{}
+	mid := append([]byte{0x7c, 0x05}, make([]byte, 1200)...)
+	d.Unmarshal(append([]byte{0x7c, 0x85}, make([]byte, 1200)...))
+	for range maxUnit / 1200 {
+		d.Unmarshal(mid)
+	}
+	if out, _ := d.Unmarshal([]byte{0x7c, 0x45, 0}); len(out) != 0 {
+		t.Fatalf("a %d-byte unit", len(out))
+	}
+	if out, _ := d.Unmarshal([]byte{0x65, 1, 2}); len(out) == 0 { // the next unit comes through
+		t.Fatal("no unit after")
+	}
+}
