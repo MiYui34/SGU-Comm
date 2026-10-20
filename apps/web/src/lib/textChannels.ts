@@ -711,7 +711,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         statuses: statusMap(event.statuses ?? []),
         ownStatus: event.ownStatus ?? initialTextState.ownStatus,
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
-        threads: withThreads({}, event.threads ?? []),
+        // Ready lists the active threads; archived ones we know stay (a
+        // ready after a resync must not close an open one).
+        threads: withThreads(Object.fromEntries(Object.entries(state.threads).filter(([, t]) => t.archived)), event.threads ?? []),
         follows: new Set(event.follows ?? []),
         archived: {},
         threadArchive: event.threadArchive ?? initialTextState.threadArchive,
@@ -1033,6 +1035,8 @@ export const directChatWith = (directs: TextState["directs"], user: number): num
 export const pinRequest = (message: number, on: boolean) => JSON.stringify({ type: "pin", message, on });
 export const pinsRequest = (channel: number) => JSON.stringify({ type: "pins", channel });
 export const typingRequest = (channel: number) => JSON.stringify({ type: "typing", channel });
+// After a resync: the server sends the whole state again (a ready).
+export const resyncRequest = JSON.stringify({ type: "resync" });
 export const markReadRequest = (channel: number, message: number) =>
   JSON.stringify({ type: "mark-read", channel, message });
 export const editMessageRequest = (message: number, text: string) =>
