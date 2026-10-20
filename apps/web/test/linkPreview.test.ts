@@ -41,6 +41,9 @@ describe("link previews", () => {
       JSON.stringify({ type: "preview", channel: 1, message: 5, preview: { url: "https://a.org", title: "A", image: "/api/link-image/k" } }),
     );
     expect(ev).toEqual({ type: "preview", message: 5, preview: { url: "https://a.org", title: "A", image: "/api/link-image/k" } });
+    const sized = { url: "https://a.org", title: "A", image: "/api/link-image/k", imageWidth: 120, imageHeight: 60 };
+    expect(parseServerEvent(JSON.stringify({ type: "preview", message: 7, preview: sized }))).toEqual({ type: "preview", message: 7, preview: sized });
+    expect(parseServerEvent(JSON.stringify({ type: "preview", message: 7, preview: { ...sized, imageWidth: -1 } }))).toBeNull();
     expect(parseServerEvent('{"type":"preview","message":6,"preview":null}')).toEqual({ type: "preview", message: 6, preview: null });
     expect(parseServerEvent('{"type":"preview","message":6,"preview":{"url":"javascript:x","title":"A"}}')).toBeNull();
     const state = reduceText(initialTextState, ev!);

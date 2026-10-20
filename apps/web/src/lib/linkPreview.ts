@@ -3,7 +3,7 @@ import type { TextMessage } from "./textChannels";
 
 // Link previews: the server fetches the first link of a message and sends a
 // card (image served by the server). null: the page has none.
-export type LinkPreview = { url: string; title: string; description?: string; site?: string; image?: string };
+export type LinkPreview = { url: string; title: string; description?: string; site?: string; image?: string; imageWidth?: number; imageHeight?: number };
 
 // The same rule as the server's (sidecar firstLink).
 // Links in spoilers do not count: the card would show them.
