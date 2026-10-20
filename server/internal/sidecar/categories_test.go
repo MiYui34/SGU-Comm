@@ -164,7 +164,7 @@ func TestCategoryModeratorsManageChannelsInTheirCategory(t *testing.T) {
 	manageOK(t, carol, `{"type":"order-channels","channels":[`+val+`,`+mc+`]}`)
 	manageOK(t, carol, `{"type":"rename-channel","channel":`+mc+`,"name":"terraria"}`)
 	m := manageOK(t, carol, `{"type":"set-topic","channel":`+mc+`,"text":"blocks"}`)
-	if _, of := categoriesOf(m); of["valorant"] != "Games" || of["terraria"] != "Games" || channelNames(m)[0] != "valorant" {
+	if _, of := categoriesOf(m); of["valorant"] != "Games" || of["terraria"] != "Games" || !slices.Equal(channelNames(m), []string{"general", "valorant", "terraria"}) {
 		t.Fatalf("got %v", m)
 	}
 	manageOK(t, carol, `{"type":"delete-channel","channel":`+val+`}`)

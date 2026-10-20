@@ -1147,7 +1147,11 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		err = h.store.SetSlowMode(req.Channel, req.Seconds)
 	case "order-channels":
 		channels, _ := h.orderIDs()
-		err = h.store.SetPositions(fullOrder(req.Channels, channels))
+		order := fullOrder(req.Channels, channels)
+		if len(req.Channels) > 0 && h.categoryOf(req.Channels[0]) != 0 {
+			order = inSlots(req.Channels, channels) // one category's: the others keep their places
+		}
+		err = h.store.SetPositions(order)
 	case "create-category", "rename-category":
 		name, ok := categoryName(req.Name)
 		if !ok {
@@ -1245,6 +1249,24 @@ func (h *Hub) orderIDs() (channels, categories []int64) {
 		categories = append(categories, c.ID)
 	}
 	return channels, categories
+}
+
+// inSlots: all, with the given ids in the places where they stood, in
+// the given order.
+func inSlots(given, all []int64) []int64 {
+	var order []int64
+	for _, id := range given {
+		if slices.Contains(all, id) && !slices.Contains(order, id) {
+			order = append(order, id)
+		}
+	}
+	out, next := slices.Clone(all), order
+	for i, id := range all {
+		if slices.Contains(order, id) {
+			out[i], next = next[0], next[1:]
+		}
+	}
+	return out
 }
 
 // fullOrder: the given ids of all first, the others after them in their
