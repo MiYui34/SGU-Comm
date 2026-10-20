@@ -11,5 +11,4 @@
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
 - [ ] [Streams: temporal layers for slow viewers](issues/stream-temporal-layers.md)
-- [ ] [Media dimensions: no jumping while loading](issues/media-dimensions.md)
 - [ ] [Previews with optional ffmpeg](issues/media-previews-ffmpeg.md)

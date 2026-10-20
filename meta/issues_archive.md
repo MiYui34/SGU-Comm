@@ -221,3 +221,4 @@
 - [x] [Text channel categories](issues/text-categories.md)
 - [x] [Limits for moderators' voice subchannels](issues/subchannel-limits.md)
 - [x] [Threads](issues/threads.md)
+- [x] [Media dimensions: no jumping while loading](issues/media-dimensions.md)
