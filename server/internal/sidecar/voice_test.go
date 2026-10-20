@@ -63,6 +63,11 @@ type fakeVoice struct {
 	rules   msgrules.Rules
 	checked []msgrules.Message
 	captcha string // "": off
+	// Channel moderators: the Mumble channel each session moderates, the
+	// list, and channel time-outs (by session and channel).
+	moderates    map[uint32]uint32
+	channelMods  []ChannelModerators
+	chanTimeouts map[[2]uint32]time.Time
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

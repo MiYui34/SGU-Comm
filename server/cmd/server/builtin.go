@@ -302,10 +302,24 @@ func (v voiceServer) Private() []sidecar.PrivateChannel {
 	return out
 }
 
-func (v voiceServer) Timeouts() []sidecar.Timeout {
-	var out []sidecar.Timeout
-	for _, t := range v.Server.Timeouts() {
-		out = append(out, sidecar.Timeout{Registered: t.Registered, UserID: t.UserID, Session: t.Session, Until: t.Until})
+func (v voiceServer) Timeouts() []sidecar.Timeout { return sidecarTimeouts(v.Server.Timeouts()) }
+
+func (v voiceServer) ChannelTimeouts() []sidecar.Timeout {
+	return sidecarTimeouts(v.Server.ChannelTimeouts())
+}
+
+func sidecarTimeouts(list []mumbled.Timeout) []sidecar.Timeout {
+	out := make([]sidecar.Timeout, len(list))
+	for i, t := range list {
+		out[i] = sidecar.Timeout(t)
+	}
+	return out
+}
+
+func (v voiceServer) ChannelModerators() []sidecar.ChannelModerators {
+	var out []sidecar.ChannelModerators
+	for _, m := range v.Server.ChannelModerators() {
+		out = append(out, sidecar.ChannelModerators(m))
 	}
 	return out
 }

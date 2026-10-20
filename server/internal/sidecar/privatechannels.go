@@ -30,17 +30,16 @@ func (h *Hub) channelsFor(id mumble.Identity) []wireChannel {
 	return slices.DeleteFunc(all, func(c wireChannel) bool { return !h.may(id, chat{id: c.ID}, false) })
 }
 
-// privateFor: the private channels the user sees, with members for staff
-// and the channel's members (who reads it, see the member list); not for
-// others who see it (by an ACL from a Mumble client).
+// privateFor: the private channels the user sees, with members for staff,
+// the channel's moderators and its members (who reads it, see the member
+// list); not for others who see it (by an ACL from a Mumble client).
 func (h *Hub) privateFor(id mumble.Identity) []PrivateChannel {
-	staff := h.voice.MayManage(id.Session)
 	out := []PrivateChannel{}
 	for _, p := range h.voice.Private() {
 		if !h.voice.Sees(id.Session, p.Channel) {
 			continue
 		}
-		if !staff && !(id.Registered && slices.ContainsFunc(p.Members, func(m Member) bool { return m.ID == id.UserID })) {
+		if !h.voice.ModeratesIn(id.Session, p.Channel) && !(id.Registered && slices.ContainsFunc(p.Members, func(m Member) bool { return m.ID == id.UserID })) {
 			p.Members = nil
 		}
 		out = append(out, p)

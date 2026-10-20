@@ -12,8 +12,8 @@ import (
 	"kallisti.chat/server/internal/store"
 )
 
-// Invite links to private channels (built-in server): admins and
-// moderators make them; opening one makes the user a member. The link
+// Invite links to private channels (built-in server): admins, moderators
+// and the channel's moderators make them; opening one makes the user a member. The link
 // holds a random token (192 bits: guessing is hopeless, so the request
 // rate limit is all the defence needed); the store keeps only its hash.
 // Every bad link gets the same answer, which names no channel.
@@ -38,13 +38,14 @@ func inviteHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// mayInvite: staff, for a private channel; else a manage error.
+// mayInvite: staff and the channel's moderators, for a private channel;
+// else a manage error.
 func (c *Conn) mayInvite(id mumble.Identity, channel uint32) bool {
 	switch {
 	case c.hub.voice == nil:
 		c.manageError("invite links need the built-in Mumble server")
-	case !c.hub.voice.MayManage(id.Session):
-		c.manageError("only admins and moderators manage invite links")
+	case !c.hub.voice.ModeratesIn(id.Session, channel):
+		c.manageError("only moderators manage invite links")
 	case !c.hub.isPrivate(channel):
 		c.manageError("invite links are for private channels")
 	default:
@@ -105,12 +106,15 @@ func (c *Conn) createInvite(id mumble.Identity, req request) {
 }
 
 func (c *Conn) deleteInvite(id mumble.Identity, req request) {
-	if c.hub.voice == nil || !c.hub.voice.MayManage(id.Session) {
-		c.manageError("only admins and moderators manage invite links")
+	channel, err := c.hub.store.InviteChannel(req.Invite)
+	if err != nil {
+		c.manageError("no such invite link")
 		return
 	}
-	channel, err := c.hub.store.DeleteInvite(req.Invite)
-	if err != nil {
+	if !c.mayInvite(id, channel) {
+		return
+	}
+	if _, err := c.hub.store.DeleteInvite(req.Invite); err != nil {
 		c.manageError("no such invite link")
 		return
 	}
