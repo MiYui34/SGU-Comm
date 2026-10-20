@@ -357,6 +357,29 @@ func TestArchivingThreads(t *testing.T) {
 	}
 }
 
+// A thread by id (a link to an archived one): for its channel's readers;
+// others learn no more than of a thread that does not exist.
+func TestGetThread(t *testing.T) {
+	h, _, staff, bob, carol := threadHub(t)
+	secret := h.channels[1].ID
+	id := startThread(t, h, bob, postTo(t, h, bob, secret, "the plan"), "Plan")
+	do(bob, `{"type":"archive-thread","channel":%d,"on":true}`, id)
+	drain(h.all()...)
+	for _, c := range []*Conn{bob, staff} {
+		do(c, `{"type":"get-thread","channel":%d}`, id)
+		if m := next(t, c); m["type"] != "thread" || threadOf(m)["id"] != float64(id) || threadOf(m)["archived"] != true || threadOf(m)["name"] != "Plan" {
+			t.Fatalf("got %v", m)
+		}
+	}
+	empty(t, carol)
+	unknown := refused(t, carol, `{"type":"get-thread","channel":%d}`, id+100)
+	if m := refused(t, carol, `{"type":"get-thread","channel":%d}`, id); m["message"] != unknown["message"] {
+		t.Fatalf("carol got %v, not %v", m, unknown)
+	}
+	// Not other chats.
+	refused(t, bob, `{"type":"get-thread","channel":%d}`, secret)
+}
+
 func TestFollowingThreads(t *testing.T) {
 	h, _, staff, bob, carol := threadHub(t)
 	general := h.channels[0].ID

@@ -83,7 +83,7 @@
   import ChatPane from "./ChatPane.svelte";
   import ThreadList from "./ThreadList.svelte";
   import ThreadNameDialog from "./ThreadNameDialog.svelte";
-  import { activeThreads, defaultThreadName, startedIn, threadList, type Thread } from "../lib/threads";
+  import { activeThreads, chatTarget, defaultThreadName, startedIn, threadList, type Thread } from "../lib/threads";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
@@ -377,7 +377,7 @@
   let view = $state<View>(back?.view ?? { kind: "voice" });
   let navigated = back !== null;
   $effect(() =>
-    onPlace?.({ view, voice: voiceOn ? channelId : null, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+    onPlace?.({ view, voice: voiceOn ? channelId : null, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
   // Mute and deafen sounds (see sounds.ts), not for about 3 s after a
   // reconnect: we restore our mute and deafen then.
@@ -488,22 +488,35 @@
   // The Mumble channel of what we look at (a text channel's mirror, or our
   // voice channel; null: a direct chat): its moderators and time-outs.
   const viewMumble = $derived(textId !== null ? (textChannel?.mumble ?? null) : view.kind === "voice" && dm === null ? channelId : null);
-  // Message links (see lib/messageLink), for text channels and direct
-  // chats: open the chat, then jump to the message. false: not here.
-  const openMessage = (link: { chat: number; message: number } | null) => {
-    if (!link) return false;
-    const t = text.threads[link.chat];
-    if (t && text.channels.some((c) => c.id === t.channel)) {
-      openThread(t, link.message);
-      return true;
+  // Message links (see lib/messageLink), for text channels, threads and
+  // direct chats: open the chat, then jump to the message. A chat we do
+  // not know may be an archived thread: asked for, opened when it comes
+  // (see openThread). false: not here.
+  let askedThread: { id: number; message?: number } | null = null;
+  const openChat = (chat: number, message?: number) => {
+    const to = chatTarget(chat, text);
+    if (!to) return false;
+    if ("thread" in to) openThread(to.thread, message);
+    else if ("ask" in to) {
+      askedThread = { id: chat, message };
+      connection.thread({ get: chat });
+    } else {
+      if ("channel" in to) show({ kind: "text", id: chat });
+      else openDirect(to.direct);
+      jumpTarget = message ?? null;
     }
-    const peer = text.directs[link.chat];
-    if (text.channels.some((c) => c.id === link.chat)) show({ kind: "text", id: link.chat });
-    else if (peer) openDirect(peer);
-    else return false;
-    jumpTarget = link.message;
     return true;
   };
+  const openMessage = (link: { chat: number; message: number } | null) => !!link && openChat(link.chat, link.message);
+  // After a reconnect: the thread open before, again (once the channels
+  // are known; an archived one is asked for).
+  let reopen = untrack(() => back?.thread ?? null);
+  $effect(() => {
+    if (reopen === null || !text.available) return;
+    const id = reopen;
+    reopen = null;
+    untrack(() => openChat(id));
+  });
   // Push notifications (see lib/push), for accounts with a password: on
   // start and when channel settings or blocks change, the server learns
   // this session, the quiet chats (see pushLists) and the blocked users
@@ -956,13 +969,19 @@
   $effect(() => {
     if (threadId !== null && (!thread || thread.channel !== textId)) threadId = null;
   });
+  // One asked for by id (see openChat) opens when it comes; a refusal
+  // ends the wait.
   let startedFrom: number | null = null;
   $effect(() =>
     connection.onTextEvent((ev) => {
       if (ev.type === "thread" && ev.thread.start === startedFrom) {
         startedFrom = null;
         openThread(ev.thread);
-      }
+      } else if (ev.type === "thread" && ev.thread.id === askedThread?.id) {
+        const jump = askedThread.message;
+        askedThread = null;
+        openThread(ev.thread, jump);
+      } else if (ev.type === "error") askedThread = null;
     }),
   );
   const threadByStart = $derived(new Map(Object.values(text.threads).map((t) => [t.start, t])));

@@ -241,6 +241,8 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 	own := id.Registered && t.AuthorID != nil && *t.AuthorID == id.UserID && h.may(id, ch, true)
 	mod := h.mayModerate(id, ch)
 	switch req.Type {
+	case "get-thread": // by id (a link to an archived one)
+		c.send(map[string]any{"type": "thread", "thread": toWireThread(t)})
 	case "follow-thread":
 		if !id.Registered {
 			c.sendError("join with an account (or a guest account) to follow threads")

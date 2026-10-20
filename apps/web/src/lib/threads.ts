@@ -93,11 +93,29 @@ export const threadList = (threads: Threads, archived: readonly Thread[], channe
   return [...active, ...archived.filter((t) => !seen.has(t.id)).map((t) => threads[t.id] ?? t)];
 };
 
-// Requests about threads (the server checks the rights): start one from a
-// message, rename, archive (or open again), delete, follow (or not), a
-// channel's archived threads (a page before a thread), and how long
-// threads stay active without messages (staff).
+// Where a link to a chat goes: a thread we know (of a channel we read), a
+// text channel or direct chat, or a thread to ask the server for (a chat
+// we do not know: maybe an archived thread); null: not here (voice
+// chats).
+export const chatTarget = <P>(
+  chat: number,
+  s: { threads: Threads; channels: readonly { id: number }[]; directs: Readonly<Record<number, P>>; voiceChannels: Readonly<Record<number, number>> },
+): { thread: Thread } | { channel: number } | { direct: P } | { ask: number } | null => {
+  const reads = (id: number) => s.channels.some((c) => c.id === id);
+  const t = s.threads[chat];
+  const peer = s.directs[chat];
+  if (t) return reads(t.channel) ? { thread: t } : null;
+  if (reads(chat)) return { channel: chat };
+  if (peer) return { direct: peer };
+  return Object.values(s.voiceChannels).includes(chat) ? null : { ask: chat };
+};
+
+// Requests about threads (the server checks the rights): one by id, start
+// one from a message, rename, archive (or open again), delete, follow (or
+// not), a channel's archived threads (a page before a thread), and how
+// long threads stay active without messages (staff).
 export type ThreadAction =
+  | { get: number }
   | { create: number; name: string }
   | { rename: number; name: string }
   | { archive: number; on: boolean }
@@ -107,6 +125,7 @@ export type ThreadAction =
   | { archiveAfter: number };
 
 const threadBody = (a: ThreadAction) => {
+  if ("get" in a) return { type: "get-thread", channel: a.get };
   if ("create" in a) return { type: "create-thread", message: a.create, name: a.name };
   if ("rename" in a) return { type: "rename-thread", channel: a.rename, name: a.name };
   if ("archive" in a) return { type: "archive-thread", channel: a.archive, on: a.on };

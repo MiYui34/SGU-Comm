@@ -593,7 +593,7 @@ func (c *Conn) Handle(raw []byte) {
 	case "mark-read":
 		c.markRead(*id, req)
 		return
-	case "create-thread", "threads", "rename-thread", "archive-thread", "delete-thread", "follow-thread", "set-thread-archive":
+	case "create-thread", "threads", "get-thread", "rename-thread", "archive-thread", "delete-thread", "follow-thread", "set-thread-archive":
 		c.threadRequest(*id, req)
 		return
 	case "search":

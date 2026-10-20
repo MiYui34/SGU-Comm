@@ -7,6 +7,7 @@ export type View =
   | { kind: "dm"; session: number | null; name: string; userId?: number | null };
 
 // Where the user is, to come back to after a reconnect: the view, the
-// voice channel (null: not in voice) and the self-mute state (a new session
-// starts unmuted: it must not come back with a live microphone).
-export type Place = { view: View; voice: number | null; selfMute: boolean; selfDeaf: boolean };
+// voice channel (null: not in voice), the open thread and the self-mute
+// state (a new session starts unmuted: it must not come back with a live
+// microphone).
+export type Place = { view: View; voice: number | null; thread: number | null; selfMute: boolean; selfDeaf: boolean };
