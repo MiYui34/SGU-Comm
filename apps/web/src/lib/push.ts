@@ -51,7 +51,7 @@ export const pushOwner = (base: string, name: string) => `${base} ${name.toLower
 
 // What this browser wants no pushes for: text channels set to "nothing",
 // and users it blocked.
-export type PushPrefs = { quiet: number[]; blocked: readonly string[] };
+export type PushPrefs = { quiet: number[]; loud: number[]; blocked: readonly string[] };
 
 export const subscriptionBody = (sub: PushSubscriptionJSON, prefs: PushPrefs) => ({ endpoint: sub.endpoint, keys: sub.keys, ...prefs });
 

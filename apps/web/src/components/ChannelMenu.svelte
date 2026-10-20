@@ -61,8 +61,9 @@
     // A direct chat (see lib/directList).
     direct?: { pinned: boolean; onProfile: () => void; onRead?: () => void; onPin: () => void; onHide: () => void };
     // A thread (see lib/threads): follow it, archive it (or open it again;
-    // undefined: may not).
-    thread?: { following: boolean; onFollow: () => void; archived: boolean; onArchive?: () => void };
+    // undefined: may not), take its channel's notification settings again
+    // (undefined: it does).
+    thread?: { following: boolean; onFollow: () => void; archived: boolean; onArchive?: () => void; onInherit?: () => void };
     // A text category (see lib/categories).
     category?: boolean;
     onClose: () => void;
@@ -121,6 +122,7 @@
       {#each LEVELS as [level, label] (level)}
         <button class="choice" aria-pressed={levelOf(notify.pref) === level} onclick={act(() => onNotify({ level }))}>{label}</button>
       {/each}
+      {#if thread?.onInherit}<button onclick={act(thread.onInherit)}>Same as the channel</button>{/if}
       {#if !notify.desktop}<p class="none">Desktop notifications are off (Settings).</p>{/if}
     </div>
     {#if changes}<div class="sep"></div>{/if}

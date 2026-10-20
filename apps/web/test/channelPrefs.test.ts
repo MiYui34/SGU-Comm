@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mutedIds, nothingIds, notifies, parseChannelPrefs, prefOf, setChannelPref, withoutMuted } from "../src/lib/channelPrefs";
+import { forgetPref, mutedIds, nothingIds, notifies, parseChannelPrefs, prefOf, pushLists, setChannelPref, setThreadPref, withoutMuted, withParents } from "../src/lib/channelPrefs";
 
 const A = "https://a";
 
@@ -43,5 +43,35 @@ describe("channel settings", () => {
     expect(notifies({ level: "all", mutedUntil: 0 }, true, 0)).toBe(true);
     expect(notifies({ level: "all", mutedUntil: 10 }, false, 20)).toBe(true); // mute is over
     expect(notifies({ level: "nothing" }, true, 0)).toBe(false);
+  });
+
+  it("gives threads their channel's settings, unless they have their own", () => {
+    const prefs = { [A]: { 1: { mutedUntil: 0 }, 2: { level: "all" as const }, 11: { level: "mentions" as const } }, b: { 3: { level: "nothing" as const } } };
+    const parents = { 10: 1, 11: 1, 12: 2, 13: 4 };
+    const all = withParents(prefs, A, parents);
+    expect(prefOf(all, A, 10)).toEqual({ mutedUntil: 0 });
+    expect(prefOf(all, A, 11)).toEqual({ level: "mentions" }); // its own: not muted
+    expect(prefOf(all, A, 12)).toEqual({ level: "all" });
+    expect(prefOf(all, A, 13)).toEqual({});
+    expect(mutedIds(all, A, 0)).toEqual(new Set([1, 10]));
+    expect(all.b).toBe(prefs.b);
+    expect(withParents(prefs, A, { 11: 1 })).toBe(prefs);
+  });
+
+  it("keeps a thread's own setting whole (the default level too), and forgets it", () => {
+    let prefs = setThreadPref({}, A, 10, { mutedUntil: 0 }, { mutedUntil: undefined });
+    expect(prefOf(prefs, A, 10)).toEqual({ level: "mentions" });
+    expect(parseChannelPrefs(JSON.stringify(prefs))).toEqual(prefs);
+    prefs = setThreadPref(prefs, A, 10, { level: "mentions" }, { level: "all" });
+    expect(prefOf(prefs, A, 10)).toEqual({ level: "all" });
+    prefs = setThreadPref(prefs, A, 10, { level: "all" }, { mutedUntil: 5 });
+    expect(prefOf(prefs, A, 10)).toEqual({ level: "all", mutedUntil: 5 });
+    expect(forgetPref(prefs, A, 10)[A]).toEqual({});
+  });
+
+  it("lists for push: quiet chats, and those with a setting of their own (threads of quiet channels)", () => {
+    const prefs = { [A]: { 1: { level: "nothing" as const }, 7: { mutedUntil: 0 }, 8: { mutedUntil: 10 }, 11: { level: "mentions" as const } } };
+    expect(pushLists(prefs, A, [7, 8])).toEqual({ quiet: [1, 7], loud: [7, 8, 11] });
+    expect(pushLists({}, A, [7])).toEqual({ quiet: [], loud: [] });
   });
 });

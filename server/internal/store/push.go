@@ -28,25 +28,28 @@ CREATE TABLE IF NOT EXISTS push_vapid (
 const maxPushSubscriptions = 10
 
 // PushSubscription is a browser's push endpoint and keys (RFC 8291), and
-// what it wants no pushes for: text channels, and users it blocked (by
-// names.Key).
+// what it wants no pushes for: chats, and users it blocked (by
+// names.Key). Loud: threads with a setting of their own (their channel's
+// quiet does not hold).
 type PushSubscription struct {
 	Endpoint string
 	P256dh   string
 	Auth     string
 	Quiet    []int64
 	Blocked  []string
+	Loud     []int64
 }
 
 type pushPrefs struct {
 	Quiet   []int64  `json:"quiet"`
 	Blocked []string `json:"blocked"`
+	Loud    []int64  `json:"loud,omitempty"`
 }
 
 // SetPushSubscription keeps a subscription for a session (by its endpoint:
 // the same browser again replaces it, also for another account).
 func (s *Store) SetPushSubscription(session string, p PushSubscription, at time.Time) error {
-	prefs, err := json.Marshal(pushPrefs{p.Quiet, p.Blocked})
+	prefs, err := json.Marshal(pushPrefs{p.Quiet, p.Blocked, p.Loud})
 	if err != nil {
 		return err
 	}
@@ -103,7 +106,7 @@ func (s *Store) PushSubscriptions(nameKey string, now time.Time) ([]PushSubscrip
 		if err := json.Unmarshal([]byte(raw), &prefs); err != nil {
 			return nil, err
 		}
-		p.Quiet, p.Blocked = prefs.Quiet, prefs.Blocked
+		p.Quiet, p.Blocked, p.Loud = prefs.Quiet, prefs.Blocked, prefs.Loud
 		out = append(out, p)
 	}
 	return out, rows.Err()

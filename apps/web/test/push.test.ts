@@ -41,10 +41,11 @@ describe("keys", () => {
 describe("subscriptions", () => {
   it("are sent with the quiet channels and blocked users", () => {
     const json = { endpoint: "https://push.example/x", keys: { p256dh: "P", auth: "A" }, expirationTime: null };
-    expect(subscriptionBody(json, { quiet: [3, 4], blocked: ["bob"] })).toEqual({
+    expect(subscriptionBody(json, { quiet: [3, 4], loud: [5], blocked: ["bob"] })).toEqual({
       endpoint: "https://push.example/x",
       keys: { p256dh: "P", auth: "A" },
       quiet: [3, 4],
+      loud: [5],
       blocked: ["bob"],
     });
   });
@@ -142,7 +143,7 @@ describe("push lifecycle", () => {
     const b = fakeBrowser(pauseAt);
     const base = "https://chat.example";
     b.storage.set("pushOwner", pushOwner(base, "alice"));
-    const sync = syncPush(base, "alice", { quiet: [], blocked: [] });
+    const sync = syncPush(base, "alice", { quiet: [], loud: [], blocked: [] });
     await new Promise((r) => setTimeout(r));
     const off = turnOffPush(base);
     b.release();

@@ -63,7 +63,7 @@
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { textOrder } from "../lib/categories";
-  import { isMuted, mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
+  import { forgetPref, isMuted, mutedIds, notifies, prefOf, pushLists, setThreadPref, withoutMuted, withParents } from "../lib/channelPrefs";
   import { closeDirect, quietDirects, reopenDirect, togglePin, visibleDirects } from "../lib/directList";
   import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
@@ -506,15 +506,13 @@
   };
   // Push notifications (see lib/push), for accounts with a password: on
   // start and when channel settings or blocks change, the server learns
-  // this session, the channels set to "nothing" and direct chats muted
-  // for good (a timed mute would outlive closed tabs), and the blocked
-  // users (as
-  // a string: the same prefs post nothing). A click on one in an open
+  // this session, the quiet chats (see pushLists) and the blocked users
+  // (as a string: the same prefs post nothing). A click on one in an open
   // window comes from the service worker.
   const pushName = $derived(account && !account.temporary && browserPushSupport() !== "none" ? me?.name : undefined);
   const pushPrefsKey = $derived(
     JSON.stringify({
-      quiet: [...nothingIds(channelPrefs.value, connection.httpBase), ...Object.keys(text.directs).map(Number).filter((id) => prefOf(channelPrefs.value, connection.httpBase, id).mutedUntil === 0)].sort(),
+      ...pushLists(channelPrefs.value, connection.httpBase, Object.keys(text.directs).map(Number)),
       blocked: [...blockedUsers.list].sort(),
     }),
   );
@@ -579,7 +577,13 @@
     const timer = setInterval(() => (muteNow = Date.now()), 30_000);
     return () => clearInterval(timer);
   });
-  const mutedText = $derived(mutedIds(channelPrefs.value, connection.httpBase, muteNow));
+  // The settings as they hold: threads without their own take their
+  // channel's (see lib/channelPrefs).
+  const chatPrefs = $derived(
+    withParents(channelPrefs.value, connection.httpBase, Object.fromEntries(Object.values(text.threads).map((t) => [t.id, t.channel]))),
+  );
+  const prefIn = (id: number) => prefOf(chatPrefs, connection.httpBase, id);
+  const mutedText = $derived(mutedIds(chatPrefs, connection.httpBase, muteNow));
   // Link previews of the open chat's messages: asked once per message.
   const previewsAsked = new Set<string>();
   $effect(() => {
@@ -654,13 +658,13 @@
       if (own || blockedUsers.has(m.author)) return;
       const peer = text.directs[m.channel];
       if (peer) {
-        if (isMuted(prefOf(channelPrefs.value, connection.httpBase, m.channel), Date.now())) return;
+        if (isMuted(prefIn(m.channel), Date.now())) return;
         notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
-      // By the channel's setting (see lib/channelPrefs); not our own.
+      // By the chat's setting (see lib/channelPrefs); not our own.
       const mentioned = pingsMe(escapeHtml(m.text), m.author, replyPing(m), me.name, m.mentionAll);
-      if (!notifies(prefOf(channelPrefs.value, connection.httpBase, m.channel), mentioned, Date.now())) return;
+      if (!notifies(prefIn(m.channel), mentioned, Date.now())) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const t = text.threads[m.channel];
       notify(`${m.author || "Server"} in ${whereOf(m)}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel || threadId === m.channel, () => {
@@ -691,7 +695,7 @@
   let knownSummary: unknown = null;
   $effect(() => {
     // The settings as they are now; changing them alone plays nothing.
-    const channelSettings = untrack(() => channelPrefs.value);
+    const channelSettings = untrack(() => chatPrefs);
     const quiet = (id: number) => {
       const pref = prefOf(channelSettings, connection.httpBase, id);
       return id === chatId || id === threadId || (id in text.directs ? isMuted(pref, Date.now()) : !notifies(pref, true, 0));
@@ -1257,13 +1261,16 @@
     canDelete={rights.remove}
     onEdit={() => (naming = { rename: t.id, name: t.name })}
     onDelete={() => confirm(`Delete the thread “${t.name}” and its messages?`) && connection.thread({ remove: t.id })}
-    notify={{ pref: prefOf(channelPrefs.value, connection.httpBase, t.id), desktop: prefs.notifications }}
-    onNotify={(patch) => channelPrefs.set(connection.httpBase, t.id, patch)}
+    notify={{ pref: prefIn(t.id), desktop: prefs.notifications }}
+    onNotify={(patch) => channelPrefs.update((p) => setThreadPref(p, connection.httpBase, t.id, prefIn(t.id), patch))}
     thread={{
       following: text.follows.has(t.id),
       onFollow: () => connection.thread({ follow: t.id, on: !text.follows.has(t.id) }),
       archived: t.archived === true,
       onArchive: rights.change ? () => connection.thread({ archive: t.id, on: !t.archived }) : undefined,
+      onInherit: t.id in (channelPrefs.value[connection.httpBase] ?? {})
+        ? () => channelPrefs.update((p) => forgetPref(p, connection.httpBase, t.id))
+        : undefined,
     }}
     onClose={() => (threadMenu = null)}
   />
