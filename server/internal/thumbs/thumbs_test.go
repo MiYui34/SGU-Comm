@@ -178,6 +178,22 @@ func TestFailuresLeaveNoFile(t *testing.T) {
 	}
 }
 
+// A full disk or an ffmpeg that does not start is not the file's fault:
+// not ErrFailed (the preview is tried again at the next start).
+func TestPassingFailuresAreNotErrFailed(t *testing.T) {
+	_, _, job := setup(t)
+	for name, tool := range map[string]Tool{
+		"disk full": fakeFFmpeg(t, `printf partial > "$out"; echo "[out#0/image2] Error writing trailer: No space left on device" >&2; exit 1`),
+		"quota":     fakeFFmpeg(t, `echo "av_interleaved_write_frame(): Disk quota exceeded" >&2; exit 1`),
+		"no start":  {Command: []string{filepath.Join(t.TempDir(), "gone")}, Format: WebP},
+	} {
+		m := New(t.Context(), tool, 1, 1)
+		if _, err := m.Make(t.Context(), job); err == nil || errors.Is(err, ErrFailed) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestTimeoutKills(t *testing.T) {
 	dir, tmp, job := setup(t)
 	m := New(t.Context(), fakeFFmpeg(t, `printf partial > "$out"; exec sleep 30`), 1, 1)

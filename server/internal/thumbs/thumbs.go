@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -207,6 +208,9 @@ func (m *Maker) Enqueue(j Job, done func(ctype string, err error)) bool {
 // pass.
 var ErrFailed = errors.New("no preview from this file")
 
+// errPassing: ffmpeg did not start, or the disk was full (not ErrFailed).
+var errPassing = errors.New("not the file's fault")
+
 // Make makes a picture now (waiting for a free slot) and returns its type.
 func (m *Maker) Make(ctx context.Context, j Job) (string, error) {
 	if !Supported(j.Type) {
@@ -232,6 +236,8 @@ func (m *Maker) Make(ctx context.Context, j Job) (string, error) {
 		return "", ctx.Err()
 	case limit.Err() != nil:
 		return "", fmt.Errorf("%w: ffmpeg: %w", ErrFailed, limit.Err())
+	case errors.Is(err, errPassing):
+		return "", err
 	case err != nil:
 		return "", fmt.Errorf("%w: %w", ErrFailed, err)
 	}
@@ -249,8 +255,15 @@ func (m *Maker) exec(ctx context.Context, args []string) error {
 	cmd.WaitDelay = time.Second
 	var stderr limited
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg: %w: %s", err, bytes.TrimSpace(stderr.b))
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%w: ffmpeg: %w", errPassing, err)
+	}
+	if err := cmd.Wait(); err != nil {
+		err = fmt.Errorf("ffmpeg: %w: %s", err, bytes.TrimSpace(stderr.b))
+		if stderr.diskFull {
+			err = fmt.Errorf("%w: %w", errPassing, err)
+		}
+		return err
 	}
 	return nil
 }
@@ -283,10 +296,17 @@ func place(src, dst string) error {
 	return err
 }
 
-// limited keeps the first maxStderr bytes written.
-type limited struct{ b []byte }
+// limited keeps the first maxStderr bytes written, and sees all of it for
+// a full disk (ffmpeg writes a line at a time).
+type limited struct {
+	b        []byte
+	diskFull bool
+}
+
+var diskFull = regexp.MustCompile(`(?i)no space left on device|quota exceeded`)
 
 func (l *limited) Write(p []byte) (int, error) {
 	l.b = append(l.b, p[:min(len(p), maxStderr-len(l.b))]...)
+	l.diskFull = l.diskFull || diskFull.Match(p)
 	return len(p), nil
 }
