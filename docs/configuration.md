@@ -39,6 +39,16 @@ brackets.
 - `LINK_PREVIEWS=0`: the server fetches no pages for link previews. By
   default it fetches the first link of a message, only from public
   addresses, so linked sites see the server's address.
+- `FFMPEG_PATH` (none: `ffmpeg` on `PATH`) and `MEDIA_PREVIEWS=0`: with
+  ffmpeg, videos get a thumbnail (a frame at 1 s, at most 480 px) and large
+  pictures (over 1600 px on a side, or over 1 MB) a smaller copy for the
+  chat (1000 px); the original opens in the lightbox. WebP if the ffmpeg
+  build has libwebp, else JPEG (then PNG and WebP pictures get none, to keep
+  their transparency). At most 2 ffmpeg processes run at once, at low
+  priority, for at most 20 s each, on the stored file only. The log says at
+  start whether previews are on. Without ffmpeg, or with
+  `MEDIA_PREVIEWS=0`, there are none. The Docker image has ffmpeg (about
+  110 MB more).
 
 ## The built-in Mumble server
 

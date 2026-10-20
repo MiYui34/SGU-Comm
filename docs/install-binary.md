@@ -21,6 +21,9 @@ cd ..
 
 The program has no other dependencies (no cgo), so you can build it on
 another machine: add `GOOS=linux GOARCH=amd64` (or `arm64`) for the server.
+Optional: install ffmpeg on the server (`apt install ffmpeg`) for video
+thumbnails and picture previews (see `FFMPEG_PATH` in
+[configuration](configuration.md)).
 
 ## Install
 

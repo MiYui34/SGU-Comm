@@ -80,6 +80,11 @@ Everything lives in the `kallisti-data` volume (`/data` in the container):
 the database, uploads, database backups (`/data/backups`) and, with the
 built-in server, its certificate. See [backups](backups.md).
 
+The image includes ffmpeg for video thumbnails and picture previews (about
+110 MB of the image; `MEDIA_PREVIEWS=0` turns them off). It works with the
+read-only container: ffmpeg writes to the `/tmp` tmpfs, the previews go
+next to the uploads in `/data/uploads`.
+
 Bans and limits use the client's IP. Some rootless podman networks
 (slirp4netns with rootlesskit) rewrite the source address of all clients,
 web and native, so they all share one IP; Docker, podman with a root
