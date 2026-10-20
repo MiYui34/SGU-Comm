@@ -307,16 +307,80 @@ func TestKeepsSilentClientsAlive(t *testing.T) {
 	}
 }
 
-func TestClosesBrowsersThatDoNotAnswerPings(t *testing.T) {
+// A suspended page (background app, frozen tab) answers no pings for a
+// while: it keeps its connection, and its Mumble session, for the grace.
+func TestSuspendedBrowsersGetAGrace(t *testing.T) {
 	echo := startEcho(t)
-	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), KeepAlive: 30 * time.Millisecond})
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), KeepAlive: 20 * time.Millisecond, PingGrace: 600 * time.Millisecond})
 	c, _, err := connect(t, url, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Not reading: the client answers no WebSocket ping.
-	_ = c
+	time.Sleep(300 * time.Millisecond) // not reading: no pongs, well past three pings
+	if b.count() != 1 || echo.open.Load() != 1 {
+		t.Fatalf("closed during the grace: %d connections, %d upstream", b.count(), echo.open.Load())
+	}
+	// Back: it reads (and answers pings) again and gets what came meanwhile.
+	if _, _, err := c.Read(testCtx(t)); err != nil {
+		t.Fatal(err)
+	}
+	go func() { // reading on
+		for {
+			if _, _, err := c.Read(context.Background()); err != nil {
+				return
+			}
+		}
+	}()
+	time.Sleep(700 * time.Millisecond) // beyond the grace, now answering
+	if b.count() != 1 {
+		t.Fatal("closed although it answers again")
+	}
+}
+
+// Writes to a page that does not read block, and pings wait for them:
+// not a reason to close before the grace either.
+func TestSuspendedBrowsersSurviveAFullSocket(t *testing.T) {
+	const size = 16 << 20 // beyond the socket buffers
+	var upstreamClosed atomic.Bool
+	flood := func(context.Context, Upstream) (net.Conn, error) {
+		ours, theirs := net.Pipe()
+		go theirs.Write(make([]byte, size))
+		go func() {
+			io.Copy(io.Discard, theirs) // the bridge's pings
+			upstreamClosed.Store(true)
+		}()
+		return ours, nil
+	}
+	b, url := startBridgeWith(t, Options{Dial: flood, KeepAlive: 20 * time.Millisecond, PingGrace: time.Second})
+	c, _, err := connect(t, url, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if b.count() != 1 || upstreamClosed.Load() {
+		t.Fatalf("closed during the grace: %d connections", b.count())
+	}
+	for got := 0; got < size; {
+		_, data, err := c.Read(testCtx(t))
+		if err != nil {
+			t.Fatalf("after %d bytes: %v", got, err)
+		}
+		got += len(data)
+	}
+}
+
+func TestClosesSuspendedBrowsersAfterTheGrace(t *testing.T) {
+	echo := startEcho(t)
+	b, url := startBridgeWith(t, Options{Dial: dialer(echo.addr), KeepAlive: 20 * time.Millisecond, PingGrace: 300 * time.Millisecond})
+	if _, _, err := connect(t, url, ""); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
 	eventually(t, func() bool { return b.count() == 0 })
+	if d := time.Since(start); d < 250*time.Millisecond {
+		t.Fatalf("closed after %v, before the grace", d)
+	}
+	eventually(t, func() bool { return echo.open.Load() == 0 })
 }
 
 // The desktop app sends its session token as a WebSocket subprotocol next
