@@ -8,6 +8,7 @@ import {
   pastedFiles,
   refusedDraft,
   switchDraft,
+  keepDraft,
   tooLarge,
   uploadTitle,
 } from "../src/lib/composer";
@@ -78,6 +79,15 @@ describe("switchDraft", () => {
     const drafts = new Map([["#random", "hi"]]);
     switchDraft(drafts, "#general", "#random", "x");
     expect(drafts).toEqual(new Map([["#random", "hi"]]));
+  });
+
+  // The panes come and go (a thread over the channel on phones, a closed
+  // thread pane): the drafts are kept above them.
+  it("keeps the draft of a pane that closes for the pane that opens next", () => {
+    const opened = switchDraft(new Map(), "", "text 1", ""); // a new pane
+    const closed = keepDraft(opened.drafts, "text 1", "half a thought");
+    expect(switchDraft(closed, "", "text 1", "").draft).toBe("half a thought");
+    expect(keepDraft(closed, "text 1", " ")).toEqual(new Map());
   });
 });
 

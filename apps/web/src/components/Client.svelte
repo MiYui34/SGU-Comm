@@ -47,7 +47,7 @@
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
   import { lastTurnAt } from "../lib/slowMode";
-  import { chatKeyOf } from "../lib/composer";
+  import { chatKeyOf, type Drafts } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import { rejoinTarget } from "../lib/reconnect";
   import { voiceSession } from "../lib/mediaSession";
@@ -1010,8 +1010,11 @@
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
 
+  // Unsent texts of the chats not open: here, as the panes come and go.
+  const drafts: Drafts = { value: new Map() };
   // What both chat panes (the open chat and an open thread) share.
   const chatCommon = $derived({
+    drafts,
     loginToWrite,
     me: me?.name ?? "",
     people,
