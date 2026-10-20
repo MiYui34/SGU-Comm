@@ -98,9 +98,9 @@ func (c *Conn) slowMode(id mumble.Identity, ch chat, text string) bool {
 	return wait > 0
 }
 
-// MumbleTextAllowed takes a Mumble client's turn to write to a channel
-// (see mumbled.Config.CheckChannelText): slow mode holds it in text
-// channel mirrors.
+// MumbleTextAllowed takes the turn of a Mumble protocol text to a channel
+// (see mumbled.Config.CheckChannelText), also a web client's binary one
+// (by its account): slow mode holds it in text channel mirrors.
 func (h *Hub) MumbleTextAllowed(session, channel uint32) error {
 	text, ok := h.textOf(channel)
 	if !ok || h.voice == nil {

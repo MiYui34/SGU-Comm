@@ -2053,3 +2053,20 @@ From `meta/research/discord-comparison.md`.
   post, and its upload stays unused (for the cleanup).
 - Gap: a post to a text channel that staff delete at the same time is
   still stored (hidden channel, comes back if staff restore it).
+
+## Review 3: voice sessions and bans (2026-10-20)
+
+- Voice handoff keeps the old voice session's channel (`State.held`)
+  until the new session is in: a Mumble client or tab that took voice in
+  the account's temporary channel joined a deleted channel (later a nil
+  dereference on a permission refresh). `takeVoiceLocked` returns the
+  release; `enterLocked` is the one way into a channel for a session,
+  also when it makes a temporary channel (single voice session, server
+  mute goes along).
+- Slow mode: `MumbleClient` returns who a web session is too (ok: false),
+  so binary web texts take the account's turn, not the session's.
+- A moderator's move from one moderated channel into another counts the
+  moved channels against the destination's 50.
+- Bans: a Mumble client's own certificate is banned along with its
+  account's; the list is published under the server lock, and `join`
+  checks bans again, so a connection admitted meanwhile does not stay.

@@ -111,8 +111,8 @@ type Voice interface {
 	// Online: the connected registered users but SuperUser, by id, in any
 	// channel.
 	Online() map[uint32]OnlineUser
-	// MumbleClient: the session is a Mumble client (not a web client), and
-	// who it is.
+	// MumbleClient is who the session is (also a web session's), and
+	// whether it is a Mumble client (not a web client).
 	MumbleClient(session uint32) (MumbleUser, bool)
 	// Ban bans a user for a time (0: forever), if the actor may.
 	Ban(actor, session uint32, reason string, d time.Duration) error

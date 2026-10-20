@@ -382,10 +382,7 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 		s.sendUserLocked(u, out)
 	}
 	if move {
-		if u.textOnly() {
-			s.takeVoiceLocked(u)
-		}
-		s.moveLocked(u, dest.ID, c.session)
+		s.enterLocked(u, dest.ID, c.session)
 	}
 	return after
 }
@@ -489,7 +486,7 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 	var save []*Channel
 	if ch.Temporary {
 		// The creator goes into a temporary channel, as in Murmur.
-		s.moveLocked(actor, ch.ID, c.session)
+		s.enterLocked(actor, ch.ID, c.session)
 	} else {
 		save = []*Channel{cloneChannel(ch)}
 	}

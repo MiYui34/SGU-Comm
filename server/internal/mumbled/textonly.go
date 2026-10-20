@@ -72,18 +72,37 @@ func (c *client) sees(u *User) bool { return u.Session == c.session || c.seen[u.
 
 // takeVoiceLocked runs before u joins a channel: the account's voice
 // session becomes text-only, or goes if it is a Mumble client. u takes
-// over its server mute, deafen and priority.
-func (s *Server) takeVoiceLocked(u *User) {
+// over its server mute, deafen and priority. The voice session's channel
+// stays until done runs, once u is in: u may go there, and a temporary
+// channel must not go empty in between.
+func (s *Server) takeVoiceLocked(u *User) (done func()) {
 	v := s.voiceSiblingLocked(u)
 	if v == nil {
-		return
+		return func() {}
+	}
+	held := v.Channel
+	s.state.held = held
+	done = func() {
+		s.state.held = 0
+		s.broadcastRemovedLocked(s.state.removeIfEmptyTemporary(held))
 	}
 	s.inheritLocked(u, v)
 	if c := s.clients[v.Session]; c != nil && !c.web {
 		s.kickLocked(v.Session, 0, "You joined voice on another device.", false)
-		return
+		return done
 	}
 	s.moveLocked(v, TextOnly, 0)
+	return done
+}
+
+// enterLocked moves u into a channel. A text-only session takes voice.
+func (s *Server) enterLocked(u *User, channel, actor uint32) {
+	done := func() {}
+	if u.textOnly() {
+		done = s.takeVoiceLocked(u)
+	}
+	s.moveLocked(u, channel, actor)
+	done()
 }
 
 // inheritLocked gives u the server mute, deafen and priority of from, the

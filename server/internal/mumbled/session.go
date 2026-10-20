@@ -385,6 +385,13 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Again: a ban may have come (and kicked the account's sessions)
+	// since identify. Bans are published under the lock (see removeUser).
+	for _, hash := range []string{id.hash, certHash(c.certs)} {
+		if reject := s.bannedReject(c.host, hash); reject != nil {
+			return reject
+		}
+	}
 	online := make([]Presence, 0, len(s.state.Users))
 	voiceUsers, siblings := 0, 0
 	for _, u := range s.state.Users {
@@ -447,10 +454,11 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
 	}
 	_, u.Mute = s.timedOutLocked(u)
+	tookVoice := func() {}
 	if voice != nil && c.web {
 		u.Channel = TextOnly
 	} else if voice != nil {
-		s.takeVoiceLocked(u)
+		tookVoice = s.takeVoiceLocked(u)
 	}
 	s.state.Refresh(u)
 	c.seen = s.state.Visible(u)
@@ -468,6 +476,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		s.byHost[c.host] = map[*client]bool{}
 	}
 	s.byHost[c.host][c] = true
+	tookVoice() // with c told if the voice session's channel goes
 	s.sendUserLocked(u, userStateMsg(u))
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),

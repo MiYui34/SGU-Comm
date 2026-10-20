@@ -249,16 +249,16 @@ type MumbleUser struct {
 	UserID     uint32 // with Registered
 }
 
-// MumbleClient: the session is a Mumble client (not a web client through
-// the bridge), and who it is.
+// MumbleClient is who the session is (also a web session's), and whether
+// it is a Mumble client (not a web client through the bridge).
 func (s *Server) MumbleClient(session uint32) (MumbleUser, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, u := s.clients[session], s.state.Users[session]
-	if c == nil || c.web || u == nil {
+	if c == nil || u == nil {
 		return MumbleUser{}, false
 	}
-	return MumbleUser{Registered: u.Registered, UserID: u.UserID}, true
+	return MumbleUser{Registered: u.Registered, UserID: u.UserID}, !c.web
 }
 
 func (s *Server) SendServerText(session uint32, text string) {

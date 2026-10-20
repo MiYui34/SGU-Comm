@@ -3,6 +3,7 @@ package mumbled
 import (
 	"net/netip"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -431,5 +432,86 @@ func TestTextOnlySessionsJoinAndLeaveFromNoChannel(t *testing.T) {
 	second.conn.Close()
 	if m := next(); m != (move{second.session, NoChannel, NoChannel}) {
 		t.Fatalf("second left: %+v", m)
+	}
+}
+
+// userIn is the channel of a session and whether that channel exists
+// (TextOnly counts as existing).
+func userIn(s *Server, session uint32) (uint32, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.state.Users[session]
+	if u == nil {
+		return 0, false
+	}
+	return u.Channel, u.textOnly() || s.state.Channels[u.Channel] != nil
+}
+
+func TestAMumbleClientTakesVoiceInATemporaryChannel(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	web := aliceTab(t, s, "203.0.113.1")
+	tmp := web.createChannel(general, "Tmp", true)
+	web.waitForMove(web.session, tmp)
+	native := dialAs(t, addr, dialOpts{name: "alice", password: "pw", cert: clientCert(t)})
+	web.waitForState(web.session, isIn(TextOnly))
+	if ch, ok := userIn(s, native.session); ch != tmp || !ok {
+		t.Fatalf("Mumble client in %d (exists: %v), want %d", ch, ok, tmp)
+	}
+	s.mu.Lock()
+	s.permissionsChangedLocked(nil) // walks users' channels: crashed
+	s.mu.Unlock()
+}
+
+func TestMakingATemporaryChannelTakesVoice(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	su := superUser(t, addr)
+	voice := aliceTab(t, s, "203.0.113.1")
+	voice.move(voice.session, general)
+	su.waitForMove(voice.session, general)
+	su.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(voice.session), Mute: proto.Bool(true)})
+	su.waitForState(voice.session, func(m *pb.UserState) bool { return m.GetMute() })
+	text := aliceTab(t, s, "203.0.113.1")
+	tmp := text.createChannel(general, "Tmp", true)
+	voice.waitForState(voice.session, isIn(TextOnly))
+	text.waitForMove(text.session, tmp)
+	s.mu.Lock()
+	muted := s.state.Users[text.session].Mute
+	s.mu.Unlock()
+	if !muted {
+		t.Fatal("the server mute did not go along")
+	}
+}
+
+func TestATabTakesVoiceInTheTemporaryChannelOfAnother(t *testing.T) {
+	s, _, general := lobbyServer(t)
+	first := aliceTab(t, s, "203.0.113.1")
+	tmp := first.createChannel(general, "Tmp", true)
+	first.waitForMove(first.session, tmp)
+	second := aliceTab(t, s, "203.0.113.1")
+	second.move(second.session, tmp)
+	first.waitForState(first.session, isIn(TextOnly))
+	second.waitForMove(second.session, tmp)
+	if ch, ok := userIn(s, second.session); ch != tmp || !ok {
+		t.Fatalf("second tab in %d (exists: %v), want %d", ch, ok, tmp)
+	}
+}
+
+func TestAnAccountBanCoversTheCertificateOfItsMumbleClient(t *testing.T) {
+	_, addr, _ := lobbyServer(t)
+	su := superUser(t, addr)
+	cert := clientCert(t)
+	native := dialAs(t, addr, dialOpts{name: "alice", password: "pw", cert: cert})
+	su.send(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(native.session), Ban: proto.Bool(true),
+		BanCertificate: proto.Bool(true), BanIp: proto.Bool(false)})
+	native.waitForRemove(native.session)
+	// Its certificate as a guest under another name: no.
+	again, err := tryDialWith(t, addr, dialOpts{name: "fresh", cert: cert})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r pb.Reject
+	proto.Unmarshal(again.expect(mumble.TypeReject), &r)
+	if !strings.Contains(r.GetReason(), "banned") {
+		t.Fatalf("reject %v", &r)
 	}
 }
