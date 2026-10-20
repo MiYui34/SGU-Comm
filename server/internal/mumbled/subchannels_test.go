@@ -1,6 +1,7 @@
 package mumbled
 
 import (
+	"fmt"
 	"testing"
 
 	"golang.org/x/time/rate"
@@ -228,4 +229,58 @@ func TestChannelModeratorsMoveNoHiddenPrivateSubchannels(t *testing.T) {
 	if c.channel(c.sub).Parent != c.club {
 		t.Fatal("moved")
 	}
+}
+
+// fill adds channels below a channel in the server's state (fast, no
+// clients) and returns the last one.
+func (c clubServer) fill(parent uint32, n int, nested bool) uint32 {
+	c.s.mu.Lock()
+	defer c.s.mu.Unlock()
+	for i := range n {
+		ch, err := c.s.state.AddChannel(parent, fmt.Sprintf("Fill %d", i), false)
+		if err != nil {
+			c.alice.t.Fatal(err)
+		}
+		if nested {
+			parent = ch.ID
+		}
+	}
+	return parent
+}
+
+func TestChannelModeratorsMakeAtMostFiftySubchannels(t *testing.T) {
+	c := newClubServer(t)
+	c.fill(c.club, maxModSubchannels-1, false) // and Sub
+	c.alice.send(mumble.TypeChannelState, &pb.ChannelState{Parent: proto.Uint32(c.sub), Name: proto.String("No")})
+	if d := c.alice.expectDenied(pb.PermissionDenied_ChannelCountLimit); d.GetReason() != "This channel has the most subchannels it may have (50)" {
+		t.Fatalf("reason %q", d.GetReason())
+	}
+	if _, err := c.s.CreatePrivateChannel(c.alice.session, c.club, "No"); err == nil || err.Error() != "This channel has the most subchannels it may have (50)" {
+		t.Fatalf("web: %v", err)
+	}
+	// Staff are not limited.
+	c.su.createChannel(c.sub, "Staff", false)
+	mod, modID := registered(t, c.addr, "mod")
+	c.s.SetModerator(c.su.session, modID, true)
+	if _, err := c.s.CreatePrivateChannel(mod.session, c.club, "Mods"); err != nil {
+		t.Fatalf("a moderator: %v", err)
+	}
+}
+
+func TestChannelModeratorsMakeSubchannelsAtMostFiveLevelsDeep(t *testing.T) {
+	c := newClubServer(t)
+	// Also a moderator of Sub: the levels count from Club, the channel
+	// she may not edit.
+	if err := c.s.SetChannelModerator(c.su.session, c.aliceID, c.sub, true); err != nil {
+		t.Fatal(err)
+	}
+	fifth := c.alice.createChannel(c.fill(c.sub, maxModSubchannelDepth-2, true), "Fifth", false)
+	c.alice.send(mumble.TypeChannelState, &pb.ChannelState{Parent: proto.Uint32(fifth), Name: proto.String("No")})
+	if d := c.alice.expectDenied(pb.PermissionDenied_NestingLimit); d.GetReason() != "Subchannels may be at most 5 levels deep" {
+		t.Fatalf("reason %q", d.GetReason())
+	}
+	if _, err := c.s.CreatePrivateChannel(c.alice.session, fifth, "No"); err == nil || err.Error() != "Subchannels may be at most 5 levels deep" {
+		t.Fatalf("web: %v", err)
+	}
+	c.su.createChannel(fifth, "Staff", false)
 }

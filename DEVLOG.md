@@ -1566,9 +1566,16 @@ From `meta/research/discord-comparison.md`.
   this (State.Mirror).
 - The rights are added to the ACLs' (not filtered by them): an ACL deny
   for "channelmod" does not take them away.
-- Known gaps: no limit on the number or depth of channels moderators
-  make (Murmur has channelcountlimit and channelnestinglimit); two
-  mirror checks (isMirrorLocked: the parent and its children,
+- Limits (State.modLimit, like Murmur's channelcountlimit and
+  channelnestinglimit): a channel made with a moderator's MakeChannel is
+  refused if the moderated channel has 50 channels below it, or if it
+  would be more than 5 levels below it. The moderated channel is the
+  topmost of the moderator's above the parent, the one it may not edit;
+  with nested moderated channels the outer one counts. Mumble clients
+  get ChannelCountLimit / NestingLimit with the reason, the web the same
+  text as a manage error. Staff are not limited. Only creation checks
+  them: a move within the subtree may go deeper.
+- Known gaps: two mirror checks (isMirrorLocked: the parent and its children,
   State.Mirror: any depth).
 
 ## Text categories (2026-10-20)
