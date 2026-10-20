@@ -51,15 +51,18 @@ func (s *Server) MayWrite(session, channel uint32) bool {
 // channel, as if the user had sent it (for messages written in the web
 // client). Mumble clients read HTML, so it goes out escaped.
 func (s *Server) SendChannelText(from, channel uint32, text string) {
-	text = mumbleHTML(text)
-	if text == "" {
+	if mumbleHTML(text) == "" {
 		return
 	}
-	frame := mumble.MessageFrame(mumble.TypeTextMessage, &pb.TextMessage{
-		Actor: proto.Uint32(from), ChannelId: []uint32{channel}, Message: proto.String(text),
-	})
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	msg := &pb.TextMessage{Actor: proto.Uint32(from), ChannelId: []uint32{channel}, Message: proto.String(mumbleHTML(text))}
+	if actor, ok := s.textActorLocked(from); ok {
+		msg.Actor = proto.Uint32(actor)
+	} else if u := s.state.Users[from]; u != nil {
+		msg.Actor, msg.Message = nil, proto.String(mumbleHTML(u.Name+": "+text))
+	}
+	frame := mumble.MessageFrame(mumble.TypeTextMessage, msg)
 	for _, u := range s.state.Users {
 		if u.Channel == channel && u.Session != from {
 			if c := s.clients[u.Session]; c != nil {
@@ -85,8 +88,8 @@ func (s *Server) SendPrivateText(from uint32, fromName string, toUser uint32, te
 	msg := &pb.TextMessage{}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Users[from] != nil {
-		msg.Actor = proto.Uint32(from)
+	if actor, ok := s.textActorLocked(from); ok {
+		msg.Actor = proto.Uint32(actor)
 	} else {
 		text = fromName + ": " + text
 	}

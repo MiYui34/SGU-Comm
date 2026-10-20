@@ -78,11 +78,7 @@ func (s *Server) takeVoiceLocked(u *User) {
 	if v == nil {
 		return
 	}
-	if u.Mute != v.Mute || u.Deaf != v.Deaf || u.PrioritySpeaker != v.PrioritySpeaker {
-		u.Mute, u.Deaf, u.PrioritySpeaker = v.Mute, v.Deaf, v.PrioritySpeaker
-		s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute),
-			Deaf: proto.Bool(u.Deaf), PrioritySpeaker: proto.Bool(u.PrioritySpeaker)})
-	}
+	s.inheritLocked(u, v)
 	if c := s.clients[v.Session]; c != nil && !c.web {
 		s.kickLocked(v.Session, 0, "You joined voice on another device.", false)
 		return
@@ -90,16 +86,47 @@ func (s *Server) takeVoiceLocked(u *User) {
 	s.moveLocked(v, TextOnly, 0)
 }
 
+// inheritLocked gives u the server mute, deafen and priority of from, the
+// account's voice session that goes.
+func (s *Server) inheritLocked(u, from *User) {
+	if u.Mute != from.Mute || u.Deaf != from.Deaf || u.PrioritySpeaker != from.PrioritySpeaker {
+		u.Mute, u.Deaf, u.PrioritySpeaker = from.Mute, from.Deaf, from.PrioritySpeaker
+		s.sendUserLocked(u, &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute),
+			Deaf: proto.Bool(u.Deaf), PrioritySpeaker: proto.Bool(u.PrioritySpeaker)})
+	}
+}
+
 // promoteLocked runs after a session left: if it was its account's voice
-// session, the newest text-only one goes to root, so others still see the
-// user. Only where root is a lobby: elsewhere root has voice.
+// session, the others keep its server mute, and the newest goes to root,
+// so others still see the user. Only where root is a lobby: elsewhere
+// root has voice.
 func (s *Server) promoteLocked(gone *User) {
 	siblings := s.siblingsLocked(gone)
 	if gone.textOnly() || len(siblings) == 0 || s.voiceSiblingLocked(gone) != nil {
 		return
 	}
+	for _, o := range siblings {
+		s.inheritLocked(o, gone)
+	}
 	u := siblings[len(siblings)-1]
 	if !s.state.Has(u, 0, Speak) && s.state.Has(u, 0, Enter) {
 		s.moveLocked(u, 0, 0)
 	}
+}
+
+// textActorLocked is the session Mumble clients see a text from session
+// come from: itself, or for a text-only one the account's voice session;
+// false: none they know (name the sender in the text).
+func (s *Server) textActorLocked(session uint32) (uint32, bool) {
+	u := s.state.Users[session]
+	switch {
+	case u == nil:
+		return 0, false
+	case !u.textOnly():
+		return session, true
+	}
+	if v := s.voiceSiblingLocked(u); v != nil {
+		return v.Session, true
+	}
+	return 0, false
 }

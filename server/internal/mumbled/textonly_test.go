@@ -241,6 +241,47 @@ func TestModerationHitsAllSessionsOfAnAccount(t *testing.T) {
 	again.expect(mumble.TypeReject)
 }
 
+func TestAServerMuteOutlastsTheVoiceTab(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	su := superUser(t, addr)
+	voice := aliceTab(t, s, "203.0.113.1")
+	voice.move(voice.session, general)
+	su.waitForMove(voice.session, general)
+	text := aliceTab(t, s, "203.0.113.1")
+	text.sync()
+	su.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(voice.session), Mute: proto.Bool(true)})
+	su.waitForState(voice.session, func(m *pb.UserState) bool { return m.GetMute() })
+	voice.conn.Close()
+	su.waitForState(text.session, isIn(0)) // promoted to the lobby
+	text.move(text.session, general)
+	if m := su.waitForState(text.session, isIn(general)); !m.GetMute() {
+		s.mu.Lock()
+		muted := s.state.Users[text.session].Mute
+		s.mu.Unlock()
+		if !muted {
+			t.Fatal("the mute was lost with the voice tab")
+		}
+	}
+}
+
+func TestTextFromATextOnlyTabComesFromTheVoiceSession(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	carol := dial(t, addr, "carol")
+	carol.move(carol.session, general)
+	carol.waitForMove(carol.session, general)
+	voice := aliceTab(t, s, "203.0.113.1")
+	voice.move(voice.session, general)
+	carol.waitForMove(voice.session, general)
+	text := aliceTab(t, s, "203.0.113.1")
+	text.sync()
+	s.SendChannelText(text.session, general, "hi")
+	var m pb.TextMessage
+	proto.Unmarshal(carol.expect(mumble.TypeTextMessage), &m)
+	if m.GetActor() != voice.session {
+		t.Fatalf("carol got %v", &m)
+	}
+}
+
 func TestAKickRemovesAllSessions(t *testing.T) {
 	s, addr, _ := lobbyServer(t)
 	su := superUser(t, addr)
