@@ -1830,3 +1830,24 @@ From `meta/research/discord-comparison.md`.
   query); non-square pixels (SAR) are not corrected in video thumbnails;
   old octet-stream uploads with media names get none. The systemd unit's
   MemoryDenyWriteExecute applies to ffmpeg too (not checked).
+
+## Background disconnects (2026-10-20)
+
+- Cause: the bridge pinged the browser every 10 s and closed it after 30 s
+  without a pong. A suspended page (macOS app in the background, Android)
+  cannot answer. Now bridge.Options.PingGrace (default 2 min): each ping
+  waits up to the next one, the last pong time decides. Mumble pings go
+  upstream every 10 s as before.
+- A page that does not read: the bridge's writes to it block (no
+  timeout), so it stops reading upstream. mumbled now gives web clients a
+  3 min write timeout (was 10 s, the bridge closes the pipe when it gives
+  up); voice is dropped, other frames queue (512, a full queue still
+  disconnects). Sidecar text overflows its outbox and resyncs. A ping
+  frame write can still time out (5 s, coder/websocket) if the socket is
+  full at exactly that moment; data writes normally hold the lock then.
+  Murmur upstream: not checked how long Murmur waits for us.
+- macOS app: window config backgroundThrottling "disabled" (Tauri sets
+  WKPreferences.inactiveSchedulingPolicy to none, macOS 14+) and
+  background::no_app_nap (NSProcessInfo activity, user initiated, idle
+  system sleep allowed) for the app's lifetime. Compiled and unit-tested
+  on macOS and Linux (podman); not run on the dev Mac.
