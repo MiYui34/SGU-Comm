@@ -213,7 +213,14 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 		return
 	}
 	ch.NoInheritACL = !m.GetInheritAcls()
+	old := ch.Groups[channelModGroup]
 	ch.ACLs, ch.Groups = aclsFromProto(m, known)
+	if !s.state.isStaff(u) { // only staff appoint channel moderators
+		delete(ch.Groups, channelModGroup)
+		if old != nil {
+			ch.Groups[channelModGroup] = old
+		}
+	}
 	s.state.keepWrite(ch, u)
 	s.permissionsChangedLocked(ch)
 	if !ch.Temporary {

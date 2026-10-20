@@ -13,9 +13,10 @@ import (
 )
 
 // Invite links to private channels (built-in server): admins, moderators
-// and the channel's moderators make them; opening one makes the user a member. The link
-// holds a random token (192 bits: guessing is hopeless, so the request
-// rate limit is all the defence needed); the store keeps only its hash.
+// and the channel's moderators make them; opening one makes the user a
+// member. The link holds a random token (192 bits: guessing is hopeless,
+// so the request rate limit is all the defence needed); the store keeps
+// only its hash.
 // Every bad link gets the same answer, which names no channel.
 
 const (

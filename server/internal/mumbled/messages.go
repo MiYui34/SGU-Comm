@@ -295,6 +295,10 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 				return
 			}
 		}
+		if until, ok := s.timedOutInLocked(u, u.Channel); ok && m.Suppress != nil {
+			c.deny(timedOutText(u.Name+" is", until, s.state.Channels[u.Channel].Name))
+			return
+		}
 	}
 	dest := s.state.Channels[m.GetChannelId()]
 	move := m.ChannelId != nil && dest != nil && dest.ID != u.Channel

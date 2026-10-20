@@ -22,10 +22,11 @@ func channelModACL() ACL {
 }
 
 // isChannelMod: the user is in the channel's "channelmod" group (inherited
-// from channels above, as Mumble groups are).
+// from channels above, as Mumble groups are) and sees the channel (a
+// private subchannel stays hidden from a parent's moderators).
 func (s *State) isChannelMod(u *User, channel uint32) bool {
 	ch := s.Channels[channel]
-	return ch != nil && s.groupMember(ch, channelModGroup, u)
+	return ch != nil && s.groupMember(ch, channelModGroup, u) && s.Sees(u, channel)
 }
 
 // moderates: staff, or a moderator of the channel.
@@ -75,6 +76,10 @@ func (s *Server) ChannelModerators() []ChannelModerators {
 // SetChannelModerator makes a registered user (not SuperUser) a moderator
 // of a channel, or not. Only admins and moderators may.
 func (s *Server) SetChannelModerator(actor, user, channel uint32, on bool) error {
+	const denied = "only admins and moderators make channel moderators"
+	if !s.ModeratesIn(actor, 0) { // first: others do not learn who is registered
+		return errors.New(denied)
+	}
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	if user == 0 || !s.registeredIDs([]uint32{user})[user] {
@@ -85,7 +90,7 @@ func (s *Server) SetChannelModerator(actor, user, channel uint32, on bool) error
 	switch {
 	case u == nil || !s.state.isStaff(u):
 		s.mu.Unlock()
-		return errors.New("only admins and moderators make channel moderators")
+		return errors.New(denied)
 	case ch == nil || channel == 0 || channel == s.textParent:
 		s.mu.Unlock()
 		return errors.New("this channel cannot have moderators")

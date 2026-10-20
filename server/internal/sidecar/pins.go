@@ -9,7 +9,8 @@ import (
 )
 
 // Pinned messages: moderators and admins pin and unpin (and a channel's
-// moderators there), in a direct chat its two users; everyone who may read a chat sees its pins.
+// moderators there), in a direct chat its two users; everyone who may
+// read a chat sees its pins.
 
 func (c *Conn) pin(id mumble.Identity, req request) {
 	h := c.hub

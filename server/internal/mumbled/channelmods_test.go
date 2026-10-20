@@ -332,3 +332,56 @@ func TestGuestChannelTimeOutsEndWhenTheyLeave(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestChannelTimedOutUsersCannotUnsuppressThemselves(t *testing.T) {
+	c := newClubServer(t)
+	c.in(c.alice, c.club)
+	if err := c.s.SetChannelTimeout(c.su.session, c.alice.session, c.club, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	c.alice.waitForState(c.alice.session, suppressed(true))
+	c.alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(c.alice.session), Suppress: proto.Bool(false)})
+	c.alice.expectDenied(pb.PermissionDenied_Text)
+}
+
+func TestOnlyStaffChangeChannelModeratorsInACLs(t *testing.T) {
+	c := newClubServer(t)
+	bob, bobID := registered(t, c.addr, "bob")
+	// Bob may edit Other's ACL (as a temporary channel's maker may his).
+	changeACL(c.s, c.other, func(ch *Channel) {
+		ch.ACLs = append(ch.ACLs, ACL{ApplyHere: true, HasUser: true, UserID: bobID, Allow: Write})
+	})
+	group := &pb.ACL_ChanGroup{Name: proto.String(channelModGroup), Inherit: proto.Bool(true), Inheritable: proto.Bool(true), Add: []uint32{bobID}}
+	bob.setACL(c.other, true, []*pb.ACL_ChanACL{{UserId: proto.Uint32(bobID), ApplyHere: proto.Bool(true), Grant: proto.Uint32(uint32(Write))}}, []*pb.ACL_ChanGroup{group})
+	bob.setACL(c.club, true, nil, nil) // a round trip: denied, so the edit before is done
+	bob.expectDenied(pb.PermissionDenied_Permission)
+	if c.s.ModeratesIn(bob.session, c.other) || len(c.s.ChannelModerators()) != 1 {
+		t.Fatalf("bob made himself a moderator: %+v", c.s.ChannelModerators())
+	}
+	// Staff may.
+	c.su.setACL(c.other, true, nil, []*pb.ACL_ChanGroup{group})
+	deadline := time.Now().Add(2 * time.Second)
+	for !c.s.ModeratesIn(bob.session, c.other) {
+		if time.Now().After(deadline) {
+			t.Fatal("SuperUser's edit did not make bob a moderator")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestChannelModeratorsDoNothingInPrivateSubchannelsTheyDoNotSee(t *testing.T) {
+	c := newClubServer(t)
+	s := c.s
+	guest, guestID := registered(t, c.addr, "member")
+	s.SetPrivate(c.su.session, c.sub, true, []uint32{guestID})
+	c.in(guest, c.sub)
+	if s.ModeratesIn(c.alice.session, c.sub) {
+		t.Fatal("moderates a private subchannel")
+	}
+	if err := s.SetPrivate(c.alice.session, c.sub, true, []uint32{c.aliceID}); err == nil {
+		t.Fatal("joined a private subchannel")
+	}
+	if err := s.SetChannelTimeout(c.alice.session, guest.session, c.sub, time.Hour); err == nil {
+		t.Fatal("timed out in a private subchannel")
+	}
+}
