@@ -34,21 +34,40 @@ type TextMirror struct {
 	// A new mirror is private (only staff see it); an existing one keeps
 	// its access (see SetPrivate).
 	Private bool
+	// Its category: an index into the categories, plus one (0: none).
+	Category int
 }
 
-// SyncTextChannels makes the mirrors match want, in order, and returns
-// their Mumble channels. Missing ones (or a missing parent) are made anew.
+// TextCategory is one wanted category: its Mumble channel (0: make one),
+// which holds its mirrors (so its moderators' group and time-outs hold
+// there too), and its name.
+type TextCategory struct {
+	Channel uint32
+	Name    string
+}
+
+// SyncTextChannels is SyncTextTree without categories.
 func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
+	_, ids, err := s.SyncTextTree(nil, want)
+	return ids, err
+}
+
+// SyncTextTree makes the mirrors match: under the parent the mirrors
+// without a category, then the categories with theirs, each in order. It
+// returns the Mumble channels of both. Missing ones (or a missing parent)
+// are made anew; a mirror moves when its category changes.
+func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, ids []uint32, err error) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	saved, err := s.loadTextParent()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s.mu.Lock()
 	var save []*Channel
 	var removed []uint32
 	touched := map[uint32]bool{}
+	moved := false
 	parent := s.state.Channels[saved]
 	if saved == 0 || parent == nil || parent.Parent != 0 {
 		// One from before whose id was not saved, or a new one.
@@ -61,7 +80,7 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 		if parent == nil {
 			if parent, err = s.state.AddChannel(0, textParentName, false); err != nil {
 				s.mu.Unlock()
-				return nil, err
+				return nil, nil, err
 			}
 			parent.Position = textParentPosition
 		}
@@ -72,24 +91,84 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 		touched[parent.ID] = true
 	}
 	s.textParent = parent.ID
-	keep := map[uint32]bool{}
+	keepCat, keep := map[uint32]bool{}, map[uint32]bool{}
+	for _, c := range cats {
+		if ch := s.state.Channels[c.Channel]; c.Channel != 0 && ch != nil && ch.Parent == parent.ID {
+			keepCat[c.Channel] = true
+		}
+	}
 	for _, w := range want {
-		if ch := s.state.Channels[w.Channel]; w.Channel != 0 && ch != nil && ch.Parent == parent.ID {
+		if w.Channel != 0 && w.Channel != parent.ID && !keepCat[w.Channel] && s.isMirrorLocked(w.Channel) {
 			keep[w.Channel] = true
 		}
 	}
-	// Unwanted mirrors go first, so their names are free.
+	move := func(id, to uint32) {
+		if err := s.state.EditChannel(id, ChannelEdit{Parent: &to}); err != nil {
+			slog.Error("move a text channel mirror", "channel", id, "err", err)
+			return
+		}
+		touched[id], moved = true, true
+	}
+	// Kept mirrors leave categories that go; then unwanted channels go,
+	// so their names are free.
+	for _, id := range slices.Sorted(maps.Keys(keep)) {
+		if p := s.state.Channels[id].Parent; p != parent.ID && !keepCat[p] {
+			move(id, parent.ID)
+		}
+	}
 	for _, ch := range s.state.Tree() {
-		if ch.Parent == parent.ID && ch.ID != parent.ID && !keep[ch.ID] {
+		if s.state.Channels[ch.ID] != nil && !keep[ch.ID] && !keepCat[ch.ID] && (ch.Parent == parent.ID || keepCat[ch.Parent]) {
 			removed = append(removed, s.removeChannelLocked(ch.ID, 0)...)
 		}
 	}
-	ids := make([]uint32, len(want))
+	// Positions count per parent; under the parent the categories come
+	// after the mirrors.
+	next := map[uint32]int32{}
+	position := func(parent uint32) int32 {
+		next[parent]++
+		return next[parent] - 1
+	}
+	uncategorized := int32(0)
+	for _, w := range want {
+		if w.Category == 0 {
+			uncategorized++
+		}
+	}
+	edit := func(ch *Channel, name, desc string, pos int32) {
+		if ch.Name != name || ch.Position != pos || ch.Description != desc {
+			if err := s.state.EditChannel(ch.ID, ChannelEdit{Name: &name, Position: &pos, Description: &desc}); err != nil {
+				slog.Error("text channel mirror", "name", name, "err", err)
+			}
+			touched[ch.ID] = true
+		}
+	}
+	catIDs = make([]uint32, len(cats))
+	for i, c := range cats {
+		ch := s.state.Channels[c.Channel]
+		if !keepCat[c.Channel] {
+			if ch, err = s.state.AddChannel(parent.ID, c.Name, false); err != nil {
+				slog.Error("text category", "name", c.Name, "err", err)
+				continue
+			}
+			touched[ch.ID] = true
+		}
+		if !slices.Contains(ch.ACLs, categoryACL) {
+			ch.ACLs = append([]ACL{categoryACL}, ch.ACLs...)
+			touched[ch.ID] = true
+		}
+		edit(ch, c.Name, ch.Description, uncategorized+int32(i))
+		catIDs[i] = ch.ID
+	}
+	ids = make([]uint32, len(want))
 	for i, w := range want {
-		name, pos := "#"+w.Name, int32(i)
+		at := parent.ID
+		if w.Category > 0 && w.Category <= len(cats) && catIDs[w.Category-1] != 0 {
+			at = catIDs[w.Category-1]
+		}
+		name := "#" + w.Name
 		ch := s.state.Channels[w.Channel]
 		if !keep[w.Channel] {
-			if ch, err = s.state.AddChannel(parent.ID, name, false); err != nil {
+			if ch, err = s.state.AddChannel(at, name, false); err != nil {
 				slog.Error("text channel mirror", "name", name, "err", err)
 				continue
 			}
@@ -97,33 +176,30 @@ func (s *Server) SyncTextChannels(want []TextMirror) ([]uint32, error) {
 			if w.Private {
 				makePrivate(ch, nil)
 			}
+		} else if ch.Parent != at {
+			move(ch.ID, at)
 		}
-		desc := html.EscapeString(w.Topic)
-		if ch.Name != name || ch.Position != pos || ch.Description != desc {
-			if err := s.state.EditChannel(ch.ID, ChannelEdit{Name: &name, Position: &pos, Description: &desc}); err != nil {
-				slog.Error("text channel mirror", "name", name, "err", err)
-			}
-			touched[ch.ID] = true
-		}
+		edit(ch, name, html.EscapeString(w.Topic), position(ch.Parent))
 		ids[i] = ch.ID
 	}
-	for _, id := range slices.Sorted(maps.Keys(touched)) {
-		ch := s.state.Channels[id]
-		save = append(save, cloneChannel(ch))
-		s.showChannelLocked(ch)
+	for _, ch := range s.state.Tree() { // parents first, for clients
+		if touched[ch.ID] {
+			save = append(save, cloneChannel(ch))
+			s.showChannelLocked(ch)
+		}
 	}
-	if touched[parent.ID] {
-		s.permissionsChangedLocked(parent) // suppress states follow Speak
+	if touched[parent.ID] || moved {
+		s.permissionsChangedLocked(parent) // suppress states follow Speak; moved mirrors inherit anew
 	}
 	lastID := s.state.LastChannelID()
 	s.mu.Unlock()
 	s.save(save, removed, lastID)
 	if parent.ID != saved {
 		if err := s.storeTextParent(parent.ID); err != nil {
-			return ids, err
+			return catIDs, ids, err
 		}
 	}
-	return ids, nil
+	return catIDs, ids, nil
 }
 
 // mirrorACL: in the parent and the mirrors nobody speaks, edits or builds;
@@ -135,10 +211,23 @@ func mirrorACL() []ACL {
 	}
 }
 
-// isMirrorLocked: a text channel mirror or their parent.
+// categoryACL: no texts in a category itself (its other entries, such as
+// its moderators', stay).
+var categoryACL = ACL{ApplyHere: true, ApplySubs: false, Group: "all", Deny: TextMessage}
+
+// isMirrorLocked: a text channel mirror, a category or their parent.
 func (s *Server) isMirrorLocked(id uint32) bool {
-	ch := s.state.Channels[id]
-	return s.textParent != 0 && ch != nil && (ch.ID == s.textParent || ch.Parent == s.textParent)
+	for range 3 { // the parent, a category, a mirror in a category
+		ch := s.state.Channels[id]
+		if s.textParent == 0 || ch == nil {
+			return false
+		}
+		if id == s.textParent {
+			return true
+		}
+		id = ch.Parent
+	}
+	return false
 }
 
 func (s *Server) loadTextParent() (uint32, error) {
