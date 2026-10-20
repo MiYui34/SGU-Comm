@@ -1,6 +1,6 @@
 import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
-import { canCreateSubchannel, canManageMembers, canManageText, canModerate, menuRights, moderatorsChannel, voiceSiblings } from "./channelManagement";
+import { canCreateSubchannel, canListenOnly, canManageMembers, canManageText, canModerate, menuRights, moderatorsChannel, voiceSiblings } from "./channelManagement";
 import { channelModActions } from "./roles";
 import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOnly";
 import { accessChannel, membersAction, privateAction, type Member } from "./privateChannels";
@@ -117,7 +117,7 @@ export const createChannelManagement = (current: () => Connection) => {
           name: nameOf(kind, id),
           // Text channels: the topic (plain text).
           description: kind === "voice" ? (server.channels[id]?.description ?? "") : (text.channels.find((c) => c.id === id)?.topic ?? ""),
-          ...(kind === "voice" && id !== 0 && text.voiceChats
+          ...(kind === "voice" && canListenOnly(server, text, id)
             ? { listenOnly: { on: id in text.listenOnly, speakers: text.listenOnly[id] ?? [], users: speakerCandidates(server) } }
             : {}),
           ...privateField(kind, id),

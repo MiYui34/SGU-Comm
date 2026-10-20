@@ -30,6 +30,12 @@ export const moderatorsChannel = (server: ServerState, text: TextState, kind: Ch
   return canManageText(server, text) && access !== null && access !== 0 && server.channels[access] ? access : null;
 };
 
+// The listen-only switch on edit (built-in server, not root). It needs
+// Write from the ACLs: not for channel moderators in their channels (their
+// Write there only manages subchannels).
+export const canListenOnly = (server: ServerState, text: TextState, id: number): boolean =>
+  text.voiceChats && id !== 0 && (canManageText(server, text) || !channelModIn(server, text.roles, id, myUserId(server)));
+
 // "Create subchannel" in a voice channel's menu: MakeChannel there (staff,
 // and channel moderators in their channels and below). Not root (the "+"
 // makes those), temporary channels (they have none) nor text channel
