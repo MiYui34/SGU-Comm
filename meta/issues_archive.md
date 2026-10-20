@@ -225,3 +225,4 @@
 - [x] [Previews with optional ffmpeg](issues/media-previews-ffmpeg.md)
 - [x] [Mention pills](issues/mention-pills.md)
 - [x] [Feedback on save and apply actions](issues/save-feedback.md)
+- [x] [The same user on several devices](issues/multiple-sessions.md)
