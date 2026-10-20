@@ -465,6 +465,10 @@ type wireUpload struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
+	// Pixels, milliseconds: unknown if missing.
+	Width    int   `json:"width,omitempty"`
+	Height   int   `json:"height,omitempty"`
+	Duration int64 `json:"duration,omitempty"`
 }
 
 // FileURL is where the server serves an upload (relative to the server).
@@ -484,7 +488,7 @@ func toWire(m store.Message) wireMessage {
 		w.Reply = &wireQuote{ID: r.ID, Author: r.Author, Text: shorten(r.Text, quoteLength)}
 	}
 	if u := m.Upload; u != nil {
-		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size}
+		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size, Width: u.Width, Height: u.Height, Duration: u.Duration}
 	}
 	if len(m.Reactions) > 0 {
 		w.Reactions = toWireReactions(m.Reactions)
