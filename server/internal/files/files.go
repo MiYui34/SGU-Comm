@@ -278,7 +278,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	u, err := h.Store.UploadByKey(key)
 	// ?preview: its preview (see previews.go), if it has one.
 	preview := r.URL.Query().Has("preview")
-	if err != nil || !plainKey(u.Key) || preview && !strings.HasPrefix(u.Preview, "image/") {
+	if err != nil || !plainKey(u.Key) || preview && !u.HasPreview() {
 		http.NotFound(w, r)
 		return
 	}

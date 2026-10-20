@@ -2,6 +2,7 @@ package files
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/png"
 	"io"
@@ -34,6 +35,8 @@ func TestPreviewJob(t *testing.T) {
 		{"heavy webp", store.Upload{Type: "image/webp", Size: 2 << 20, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, true, 1000, false},
 		{"small png", store.Upload{Type: "image/png", Size: 1000, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, false, 0, false},
 		{"gif keeps its animation", store.Upload{Type: "image/gif", Size: 5 << 20, Media: big}, thumbs.WebP, false, 0, false},
+		{"too many pixels", store.Upload{Type: "image/jpeg", Size: 5 << 20, Media: store.Media{Width: 9000, Height: 9000}}, thumbs.WebP, false, 0, false},
+		{"video with too many pixels", store.Upload{Type: "video/mp4", Media: store.Media{Width: 16000, Height: 9000}}, thumbs.WebP, false, 0, false},
 		{"picture of unknown size", store.Upload{Type: "image/png", Size: 5 << 20}, thumbs.WebP, false, 0, false},
 		{"audio", store.Upload{Type: "audio/mp4", Media: store.Media{Duration: 5000}}, thumbs.WebP, false, 0, false},
 		{"download", store.Upload{Type: "application/octet-stream", Size: 5 << 20}, thumbs.WebP, false, 0, false},
@@ -188,6 +191,16 @@ func TestFailedPreviewIsRefused(t *testing.T) {
 		if len(ready) != 0 {
 			t.Errorf("%s: announced", name)
 		}
+	}
+}
+
+func TestPassingErrorsAreTriedAgain(t *testing.T) {
+	_, s, h := setupHandler(t, 1<<20)
+	ready := withPreviews(t, h, `printf thumb > "$out"`)
+	u, _ := s.AddUpload(store.Upload{Key: "k0000000000000000000000000000000", Type: "video/mp4", Size: 1, Author: "a"}, time.Now())
+	h.previewDone(u, "", errors.New("disk full"))
+	if u, _ := s.UploadByKey(u.Key); u.Preview != "" || len(ready) != 0 {
+		t.Fatalf("stored %+v", u)
 	}
 }
 

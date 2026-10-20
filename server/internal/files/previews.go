@@ -3,11 +3,13 @@ package files
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"kallisti.chat/server/internal/imagesize"
 	"kallisti.chat/server/internal/mediasize"
 	"kallisti.chat/server/internal/store"
 	"kallisti.chat/server/internal/thumbs"
@@ -32,10 +34,12 @@ func previewPath(dir, key string) string { return filepath.Join(dir, key+".previ
 
 // previewJob is the job for an upload's preview, if it gets one. GIFs keep
 // their animation (none); PNG and WebP only in a format with transparency.
+// Nothing with more pixels than inline pictures may have (ffmpeg's memory).
 func previewJob(u store.Upload, dir string, f thumbs.Format) (thumbs.Job, bool) {
 	j := thumbs.Job{Src: filepath.Join(dir, u.Key), Dst: previewPath(dir, u.Key), Type: u.Type}
+	pixels := u.Width * u.Height
 	switch {
-	case !thumbs.Supported(u.Type):
+	case !thumbs.Supported(u.Type) || pixels > imagesize.MaxPixels:
 		return j, false
 	case strings.HasPrefix(u.Type, "video/"):
 		j.Max, j.Seek = thumbSide, u.Duration >= 2000
@@ -43,7 +47,7 @@ func previewJob(u store.Upload, dir string, f thumbs.Format) (thumbs.Job, bool) 
 	}
 	big := max(u.Width, u.Height) > bigSide || u.Size > bigBytes
 	j.Max = previewSide
-	return j, u.Width > 0 && u.Height > 0 && big && (f.Alpha || u.Type == "image/jpeg")
+	return j, pixels > 0 && big && (f.Alpha || u.Type == "image/jpeg")
 }
 
 // job is an upload's preview job (with a JPEG's Exif orientation).
@@ -71,17 +75,22 @@ func (h *Handler) preview(u store.Upload) {
 	}
 }
 
-// previewDone keeps a preview's type, or NoPreview. A picture's preview
-// must be smaller than the picture; one of an upload deleted meanwhile
-// is removed.
+// previewDone keeps a preview's type, or NoPreview if the file gives none
+// (thumbs.ErrFailed; other errors leave it to the next start). A
+// picture's preview must be smaller than the picture; one of an upload
+// deleted meanwhile is removed.
 func (h *Handler) previewDone(u store.Upload, ctype string, err error) {
 	path := previewPath(h.Dir, u.Key)
 	if st, serr := os.Stat(path); err == nil && strings.HasPrefix(u.Type, "image/") && (serr != nil || st.Size() >= u.Size) {
-		err = errors.New("not smaller than the picture")
+		err = fmt.Errorf("%w: not smaller than the picture", thumbs.ErrFailed)
 	}
 	if err != nil {
-		slog.Info("no preview", "key", u.Key, "type", u.Type, "err", err)
 		os.Remove(path)
+		if !errors.Is(err, thumbs.ErrFailed) {
+			slog.Warn("preview not made, tried again at the next start", "key", u.Key, "err", err)
+			return
+		}
+		slog.Info("no preview", "key", u.Key, "type", u.Type, "err", err)
 		ctype = store.NoPreview
 	}
 	found, err := h.Store.SetUploadPreview(u.Key, ctype)

@@ -314,7 +314,11 @@ func startPreviews(ctx context.Context, cfg config.Config, h *files.Handler) {
 	}
 	tool, err := thumbs.Find(cfg.FFmpegPath)
 	if err != nil {
-		slog.Info("media previews off: no usable ffmpeg", "err", err)
+		log := slog.Info
+		if cfg.FFmpegPath != "" { // asked for
+			log = slog.Warn
+		}
+		log("media previews off: no usable ffmpeg", "err", err)
 		return
 	}
 	slog.Info("media previews on", "ffmpeg", tool.Command[len(tool.Command)-1], "format", tool.Format.Type)

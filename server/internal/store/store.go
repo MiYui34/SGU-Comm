@@ -89,6 +89,9 @@ type Upload struct {
 
 const NoPreview = "-"
 
+// HasPreview: a preview was made.
+func (u Upload) HasPreview() bool { return strings.HasPrefix(u.Preview, "image/") }
+
 // Media: a picture's or video's size in pixels, a video's or audio's
 // length in milliseconds (zero: unknown; see mediasize).
 type Media struct {

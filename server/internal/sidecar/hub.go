@@ -481,7 +481,7 @@ func FileURL(u store.Upload) string {
 
 // previewURL is where its preview is ("": none).
 func previewURL(u store.Upload) string {
-	if !strings.HasPrefix(u.Preview, "image/") {
+	if !u.HasPreview() {
 		return ""
 	}
 	return FileURL(u) + "?preview"
