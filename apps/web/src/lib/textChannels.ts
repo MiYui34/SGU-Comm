@@ -1111,6 +1111,17 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
   return chat;
 };
 
+// The open chats whose new messages count as seen, with their newest
+// message: only in a visible tab. A hidden one would mark them read for
+// the whole account while the user reads elsewhere.
+export const autoSeen = (state: TextState, open: readonly number[], read: Record<number, number>, visible: boolean): [number, number][] =>
+  visible
+    ? open.flatMap((id): [number, number][] => {
+        const newest = state.messages[id]?.at(-1)?.id ?? 0;
+        return newest > (read[id] ?? 0) ? [[id, newest]] : [];
+      })
+    : [];
+
 // Channels (and active threads we follow) with a message newer than the
 // newest one seen there (loaded, or known from the server's summary).
 export const unreadTextIds = (state: TextState, seen: Record<number, number>): Set<number> =>

@@ -684,7 +684,15 @@
     connection.typing(id);
   };
   const onTyping = $derived(typingTo(chatId));
-  const textView = createTextView(() => connection, () => (phone && threadId !== null ? [threadId] : [chatId, threadId]), () => me?.name ?? "", blockedUsers.has);
+  // Only a visible tab marks new messages read (see createTextView).
+  let pageVisible = $state(document.visibilityState === "visible");
+  const textView = createTextView(
+    () => connection,
+    () => (phone && threadId !== null ? [threadId] : [chatId, threadId]),
+    () => me?.name ?? "",
+    blockedUsers.has,
+    () => pageVisible,
+  );
   const unreadText = $derived(withoutMuted(textView.unread, mutedText));
   // Unread counts as shown (muted direct chats count none).
   const mentions = $derived(quietDirects(textView.mentions, text.directs, mutedText));
@@ -1316,7 +1324,7 @@
 {/if}
 
 <svelte:window onkeydown={onKey} onkeyup={onKey} onblur={() => capture?.setPttDown(false)} />
-<svelte:document ontouchstart={touchStart} ontouchend={touchEnd} />
+<svelte:document ontouchstart={touchStart} ontouchend={touchEnd} onvisibilitychange={() => (pageVisible = document.visibilityState === "visible")} />
 
 {#if channels.menu}
   {@const m = channels.menu}

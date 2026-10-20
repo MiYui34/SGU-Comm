@@ -14,6 +14,7 @@ import {
   sendRequest,
   toChatMessage,
   unreadTextIds,
+  autoSeen,
   uploadTokenRequest,
   voiceChatRequest,
   httpBase,
@@ -203,6 +204,19 @@ describe("unreadTextIds", () => {
     s = reduceText(s, { type: "message", message: msg(5, 1) });
     s = reduceText(s, { type: "message", message: msg(6, 2) });
     expect(unreadTextIds(s, { 1: 5 })).toEqual(new Set([2]));
+  });
+});
+
+describe("autoSeen", () => {
+  let s = reduceText(initialTextState, { type: "message", message: msg(5, 1) });
+  s = reduceText(s, { type: "message", message: msg(6, 2) });
+
+  it("marks new messages in the open chats seen", () => {
+    expect(autoSeen(s, [1, 2], { 1: 5 }, true)).toEqual([[2, 6]]);
+  });
+
+  it("marks nothing in a hidden tab (another tab may be the one the user reads)", () => {
+    expect(autoSeen(s, [1, 2], {}, false)).toEqual([]);
   });
 });
 
