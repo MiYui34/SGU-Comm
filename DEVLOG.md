@@ -1918,3 +1918,41 @@ From `meta/research/discord-comparison.md`.
   background::no_app_nap (NSProcessInfo activity, user initiated, idle
   system sleep allowed) for the app's lifetime. Compiled and unit-tested
   on macOS and Linux (podman); not run on the dev Mac.
+
+## Desktop links and video (2026-10-20)
+
+- Links: wry answers no new-window request unless the app sets a
+  handler. So target="_blank" did nothing in WKWebView (macOS) and
+  WebKitGTK (Linux); WebView2 (Windows) opened its own bare browser
+  window. Links without a target (the file card) navigated the app
+  window itself (an MP4 that WebKitGTK could not play: nothing visible).
+- Fix: lib/externalLinks.ts. In the app, a click or middle click on an
+  http(s) link to another origin opens the system browser
+  (tauri-plugin-opener, capability: open-url for http and https only).
+  The listener is on the document and runs after the app's handlers, so
+  plain clicks on channel links, message links to this server and images
+  (lightbox) stay in the app (they call preventDefault); modifier and
+  middle clicks open the browser, like a new tab. The players' download
+  buttons now open the file in the browser too (cross-origin: the
+  download attribute does not count; media is served inline). The plugin's own click script is
+  off (it also takes mailto: and tel:). The recording download link goes
+  into the document for its click, so it is caught too.
+- Linux video: WebKitGTK plays media with GStreamer. The AppImage had
+  plugins-base and -good only: H.264 and AAC gave MEDIA_ERR_SRC_NOT_SUPPORTED
+  (canPlayType ""), the client showed the file card. VP9/Opus WebM
+  played already. Tauri's linuxdeploy GStreamer plugin copies the whole
+  system plugin directory, so CI now also installs gstreamer1.0-libav.
+  plugins-bad is not necessary (no h264parse needed for progressive MP4).
+- Checked in podman (Ubuntu 22.04 arm64, WebKitGTK 2.50.4, Xvfb), the
+  real AppImage with a probe page as its frontend (same binary, other
+  frontendDist): before, H.264/AAC MP4 and M4A error 4; after, canplay,
+  currentTime 2.9 s after 3 s, ended at 5 s (a 5 s H.264+AAC clip and the
+  mediasize fixtures). xdotool clicks on a target="_blank" link, a plain
+  link to another origin and a middle click reached a fake xdg-open.
+- Size (arm64 AppImage): 108.1 MB before, 150.3 MB after (+42 MB:
+  libavcodec, libavfilter and their codec libraries). Ubuntu's FFmpeg is
+  built with GPL parts (x264, x265), so the AppImage now carries GPL
+  libraries; H.264/AAC decoding can need patent licenses in some
+  countries, as for the Linux distributions that ship it.
+- Not done: the .deb and .rpm use the system GStreamer; they do not
+  depend on gst-libav. macOS and Windows not run (same wry code paths).

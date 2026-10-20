@@ -74,6 +74,9 @@ pub fn run() {
         // System notifications (the web view's own: none on macOS, refused
         // on Linux).
         .plugin(tauri_plugin_notification::init())
+        // External links in the system browser. The web client decides
+        // which (lib/externalLinks.ts), not the plugin's own click script.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             background::no_app_nap();

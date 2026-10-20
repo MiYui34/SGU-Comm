@@ -34,6 +34,12 @@ export const linuxAgent = (ua: string) => /Linux/.test(ua) && !/Android/.test(ua
 // The desktop app on Linux (WebKitGTK).
 export const linuxApp = () => isDesktop() && linuxAgent(navigator.userAgent);
 
+// Opens a URL (http or https) in the system browser.
+export const openInBrowser = async (url: string) => {
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
+};
+
 export const getBridge = async (): Promise<BridgeInfo> => {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<BridgeInfo>("bridge_info");
