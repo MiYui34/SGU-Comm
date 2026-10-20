@@ -1,4 +1,5 @@
-import type { ManageAction, ServerEvent } from "./textChannels";
+import type { TextCategory } from "./categories";
+import type { ManageAction, ServerEvent, TextChannel } from "./textChannels";
 
 // Feedback on a control that saves or applies something on the server:
 // pending while it works, saved for a moment once it confirms, or its
@@ -31,7 +32,35 @@ export const answer = <W extends { via: Via }>(waiters: readonly W[], via: Via, 
   return { refused: no, confirmed, rest: waiters.filter((w) => w !== no && !confirmed.includes(w)) };
 };
 
-const channelChanges = ["create", "createCategory", "rename", "renameCategory", "remove", "removeCategory", "order", "orderCategories", "setCategory", "topic", "slowMode"];
+// Names as the server writes them (see textChannelName, categoryName).
+const channelName = (name: string) => name.trim().split(/\s+/).join("-").toLowerCase();
+const categoryName = (name: string) => name.trim().split(/\s+/).join(" ");
+
+// ids in this order among the listed ones.
+const inOrder = (listed: readonly { id: number }[], ids: readonly number[]) => {
+  const got = listed.map((x) => x.id).filter((id) => ids.includes(id));
+  return got.length === ids.length && got.every((id, i) => id === ids[i]);
+};
+
+// A channel list confirms a change only with the change in it: other
+// changes send lists too (a privacy change in the same save does).
+type Lists = { channels: TextChannel[]; categories: TextCategory[] };
+const channelCheck = (a: ManageAction): ((l: Lists) => boolean) | null => {
+  const channel = (l: Lists, id: number) => l.channels.find((c) => c.id === id);
+  const category = (l: Lists, id: number) => l.categories.find((c) => c.id === id);
+  if ("create" in a) return (l) => l.channels.some((c) => c.name === channelName(a.create));
+  if ("rename" in a) return (l) => channel(l, a.rename)?.name === channelName(a.name);
+  if ("remove" in a) return (l) => !channel(l, a.remove);
+  if ("order" in a) return (l) => inOrder(l.channels, a.order);
+  if ("topic" in a) return (l) => (channel(l, a.topic)?.topic ?? "") === a.text.trim();
+  if ("slowMode" in a) return (l) => (channel(l, a.slowMode)?.slowMode ?? 0) === a.seconds;
+  if ("setCategory" in a) return (l) => !!channel(l, a.setCategory) && (channel(l, a.setCategory)?.category ?? 0) === a.category;
+  if ("createCategory" in a) return (l) => l.categories.some((c) => c.name === categoryName(a.createCategory));
+  if ("renameCategory" in a) return (l) => category(l, a.renameCategory)?.name === categoryName(a.name);
+  if ("removeCategory" in a) return (l) => !category(l, a.removeCategory);
+  if ("orderCategories" in a) return (l) => inOrder(l.categories, a.orderCategories);
+  return null;
+};
 
 // The event that confirms a management request; null: the server sends
 // none of its own (a ban ends the connection, deleting no messages says
@@ -41,7 +70,8 @@ export const confirmsManage = (a: ManageAction): ((ev: ServerEvent) => boolean) 
   if ("guestsReadOnly" in a) return (ev) => ev.type === "guests-read-only" && ev.on === a.guestsReadOnly;
   if ("captcha" in a) return (ev) => ev.type === "captcha" && ev.level === a.captcha;
   if ("setMessageRules" in a || "messageRules" in a) return is("message-rules");
-  if ("setPrivate" in a || "createPrivateVoice" in a) return is("private");
+  if ("setPrivate" in a) return (ev) => ev.type === "private" && ev.channels.some((c) => c.channel === a.setPrivate) === a.on;
+  if ("createPrivateVoice" in a) return is("private");
   if ("invites" in a || "deleteInvite" in a) return is("invites");
   if ("createInvite" in a) return is("invite-created");
   if ("redeemInvite" in a) return is("invite-joined");
@@ -51,6 +81,7 @@ export const confirmsManage = (a: ManageAction): ((ev: ServerEvent) => boolean) 
   if ("connections" in a) return is("connections");
   if ("recordings" in a) return is("recordings");
   if ("record" in a) return is("recording");
-  if (channelChanges.some((k) => k in a)) return is("channels");
+  const check = channelCheck(a);
+  if (check) return (ev) => ev.type === "channels" && check({ channels: ev.channels, categories: ev.categories ?? [] });
   return null;
 };

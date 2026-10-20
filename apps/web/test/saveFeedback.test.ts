@@ -69,10 +69,31 @@ describe("confirmsManage", () => {
     const rules = { newMinutes: 0, words: [], domains: [], replacements: [] };
     expect(confirmsManage({ setMessageRules: rules })!(ev({ type: "message-rules", rules }))).toBe(true);
   });
+  it("waits for the changed channel, not any channel list", () => {
+    const channels = (...cs: { id: number; name: string; topic?: string; slowMode?: number; category?: number }[]) => ev({ type: "channels", channels: cs });
+    const rename = confirmsManage({ rename: 1, name: "News Room" })!;
+    expect(rename(channels({ id: 1, name: "general" }))).toBe(false); // the privacy change's list, before the rename
+    expect(rename(channels({ id: 1, name: "news-room" }))).toBe(true); // as the server writes it
+    expect(confirmsManage({ slowMode: 1, seconds: 5 })!(channels({ id: 1, name: "a" }))).toBe(false);
+    expect(confirmsManage({ slowMode: 1, seconds: 5 })!(channels({ id: 1, name: "a", slowMode: 5 }))).toBe(true);
+    expect(confirmsManage({ topic: 1, text: "" })!(channels({ id: 1, name: "a" }))).toBe(true);
+    expect(confirmsManage({ setCategory: 1, category: 0 })!(channels({ id: 1, name: "a", category: 2 }))).toBe(false);
+    expect(confirmsManage({ create: "Hi There" })!(channels({ id: 4, name: "hi-there" }))).toBe(true);
+    expect(confirmsManage({ remove: 1 })!(channels({ id: 1, name: "a" }))).toBe(false);
+    expect(confirmsManage({ order: [2, 1] })!(channels({ id: 1, name: "a" }, { id: 2, name: "b" }))).toBe(false);
+    expect(confirmsManage({ order: [2, 1] })!(channels({ id: 3, name: "c" }, { id: 2, name: "b" }, { id: 1, name: "a" }))).toBe(true);
+    const category = (name: string) => ev({ type: "channels", channels: [], categories: [{ id: 3, name }] });
+    expect(confirmsManage({ renameCategory: 3, name: " Fun  Stuff " })!(category("Games"))).toBe(false);
+    expect(confirmsManage({ renameCategory: 3, name: " Fun  Stuff " })!(category("Fun Stuff"))).toBe(true);
+    expect(confirmsManage({ removeCategory: 3 })!(category("Games"))).toBe(false);
+  });
+  it("waits for the channel's new privacy", () => {
+    const priv = confirmsManage({ setPrivate: 1, on: true, users: [] })!;
+    expect(priv(ev({ type: "private", channels: [] }))).toBe(false);
+    expect(priv(ev({ type: "private", channels: [{ channel: 1 }] }))).toBe(true);
+    expect(confirmsManage({ setPrivate: 1, on: false, users: [] })!(ev({ type: "private", channels: [] }))).toBe(true);
+  });
   it("waits for the changed lists", () => {
-    expect(confirmsManage({ rename: 1, name: "a" })!(ev({ type: "channels", channels: [] }))).toBe(true);
-    expect(confirmsManage({ slowMode: 1, seconds: 5 })!(ev({ type: "channels", channels: [] }))).toBe(true);
-    expect(confirmsManage({ setPrivate: 1, on: true, users: [] })!(ev({ type: "private", channels: [] }))).toBe(true);
     expect(confirmsManage({ channelModerator: 1, channel: 2, on: true })!(ev({ type: "roles", moderators: [], admins: [] }))).toBe(true);
     expect(confirmsManage({ deleteInvite: 1 })!(ev({ type: "invites", voice: 2, invites: [] }))).toBe(true);
     expect(confirmsManage({ rename: 1, name: "a" })!(ev({ type: "private", channels: [] }))).toBe(false);
