@@ -122,5 +122,5 @@ func (t *track) finish(end int64) error {
 	return errors.Join(t.err, t.f.Close())
 }
 
-// bytes: the file's size so far.
-func (t *track) bytes() int64 { return t.ogg.bytes }
+// bytes: the file's size so far, with what is buffered.
+func (t *track) bytes() int64 { return t.ogg.size() }

@@ -298,3 +298,26 @@ func TestAWriteErrorStopsTheRecording(t *testing.T) {
 		t.Fatalf("reason %q", r.info.Reason)
 	}
 }
+
+// The silence that ends the tracks counts too: a long quiet recording
+// ends early instead of going over the size limit; the tracks stay valid
+// and end together.
+func TestFinalSilenceStaysWithinTheSizeLimit(t *testing.T) {
+	lib, c := testLibrary(t, Limits{MaxBytes: 20_000})
+	r, _ := lib.Start(5, "Lounge", "mod", nil)
+	talk(r, "alice", 0, 1, speech20)
+	talk(r, "bob", 0, 1, speech20)
+	time.Sleep(10 * time.Millisecond)
+	c.set(t0.Add(time.Hour))
+	info := r.Stop("stopped")
+	if info.Size > lib.Limits.MaxBytes || info.Reason != "size limit" {
+		t.Fatalf("%d bytes over %d, reason %q", info.Size, lib.Limits.MaxBytes, info.Reason)
+	}
+	var ends []int64
+	for _, tr := range info.Tracks {
+		ends = append(ends, parseTrack(t, filepath.Join(lib.Dir, info.ID, tr.File)).end)
+	}
+	if len(ends) != 2 || ends[0] != ends[1] || ends[0] < 10*sampleRate {
+		t.Fatalf("the tracks end at %v", ends)
+	}
+}

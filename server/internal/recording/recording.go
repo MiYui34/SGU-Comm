@@ -260,14 +260,35 @@ func safeName(s string) string {
 	return s
 }
 
-// finish closes the tracks at the same end and writes the info.
+// padBytes: a second of silence on a track and its last page, at most.
+const padBytes = 512
+
+// finish closes the tracks at the same end and writes the info. Silence
+// fills them up to the end a second at a time, within the size limit: at
+// it they end earlier.
 func (r *Recording) finish(reason string) {
 	r.info.Stopped = r.lib.Now()
 	r.info.Expires = r.info.Stopped.Add(r.lib.Keep)
 	r.info.Reason, r.info.Dropped = reason, r.dropped.Load()
 	end := max(0, r.info.Stopped.Sub(r.info.Started).Microseconds()*sampleRate/1e6)
+	reached := end
 	for _, t := range r.order {
-		if err := t.finish(end); err != nil {
+		reached = min(reached, t.pos)
+	}
+	for reached < end {
+		if r.size()+int64(len(r.order))*padBytes > r.lib.Limits.MaxBytes {
+			if reason != "write error" {
+				r.info.Reason = "size limit"
+			}
+			break
+		}
+		reached = min(end, reached+sampleRate)
+		for _, t := range r.order {
+			t.fill(reached)
+		}
+	}
+	for _, t := range r.order {
+		if err := t.finish(reached); err != nil {
 			slog.Error("recording: closing a track", "track", t.name, "err", err)
 			r.info.Reason = "write error"
 		}
