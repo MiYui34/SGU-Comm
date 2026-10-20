@@ -10,6 +10,7 @@ The follow-up review (2026-10-20) found mostly rare timing races. Fix only the o
 - A password change and "log out everywhere" also disconnect the account's Mumble client sessions that logged in with the password.
 - Combined channel save matches names as the server stores them (case-insensitive only), without accent folding.
 - Native history catch-up for a text mirror checks current channel access before delivery, if this is a single check.
+- Endpoints with small request bodies (login, account, WHIP offer) have a body-read deadline; uploads keep none.
 
 ## Acceptance Criteria
 
@@ -17,4 +18,4 @@ The follow-up review (2026-10-20) found mostly rare timing races. Fix only the o
 
 ## Notes
 
-- Not fixed on purpose (rare, harmless or self-correcting): screen share started during a move, cross-tab push timing, resync ordering, queued moderator actions after demotion, invite id reuse, concurrent login during a password change, HTTP body timeouts, the Low items.
+- Not fixed on purpose (rare, harmless or self-correcting): screen share started during a move, cross-tab push timing, resync ordering, queued moderator actions after demotion, invite id reuse, concurrent login during a password change, the Low items.
