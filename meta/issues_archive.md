@@ -220,3 +220,4 @@
 - [x] [Channel moderators create voice subchannels](issues/channel-mod-voice-subchannels.md)
 - [x] [Text channel categories](issues/text-categories.md)
 - [x] [Limits for moderators' voice subchannels](issues/subchannel-limits.md)
+- [x] [Threads](issues/threads.md)
