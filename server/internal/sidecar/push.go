@@ -52,8 +52,8 @@ func (h *Hub) userMay(user uint32, c chat) bool {
 	case c.isVoice:
 		return h.voice.UserMayRead(user, c.voice)
 	}
-	mirror := h.mirrorOf(c.id)
-	return mirror == 0 || h.voice.UserSees(user, mirror)
+	mirror, ok := h.textMirror(c.id)
+	return ok && (mirror == 0 || h.voice.UserSees(user, mirror))
 }
 
 // where a chat is, for the push text.

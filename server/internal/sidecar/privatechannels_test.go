@@ -254,6 +254,32 @@ func TestAPrivateChannelWithoutAMirrorGoes(t *testing.T) {
 	}
 }
 
+// A chat found before its private channel was deleted reaches nobody
+// after: a missing channel has no mirror, but it is not public.
+func TestADeletedPrivateChannelIsNotPublic(t *testing.T) {
+	h, _, secret := privateHub(t)
+	id := mumble.Identity{Session: 3, Name: "carol", Registered: true, UserID: 30}
+	carol := joinAs(t, h, id)
+	ch, ok := h.chatOf(secret)
+	if !ok {
+		t.Fatal("no chat for secret")
+	}
+	if err := h.store.HideChannel(secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.reloadChannels(); err != nil {
+		t.Fatal(err)
+	}
+	if h.may(id, ch, false) || h.may(id, ch, true) {
+		t.Error("carol may use the deleted private chat")
+	}
+	if h.userMay(30, ch) {
+		t.Error("carol's pushes may read the deleted private chat")
+	}
+	h.sendTo(ch, map[string]any{"type": "message"})
+	empty(t, carol)
+}
+
 // Without the built-in server there are no private channels.
 func TestPrivateChannelsNeedTheBuiltInServer(t *testing.T) {
 	h := newHub(t, "general")

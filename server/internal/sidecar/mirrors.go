@@ -93,14 +93,21 @@ func (h *Hub) textOf(mumble uint32) (wireChannel, bool) {
 
 // mirrorOf is the Mumble channel of a text channel (0: none).
 func (h *Hub) mirrorOf(text int64) uint32 {
+	mirror, _ := h.textMirror(text)
+	return mirror
+}
+
+// textMirror is mirrorOf, with ok false when the text channel is gone: a
+// deleted channel has no mirror, but it is not public either.
+func (h *Hub) textMirror(text int64) (mirror uint32, ok bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, c := range h.channels {
 		if c.ID == text {
-			return c.Mumble
+			return c.Mumble, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // UserMoved hears the voice server's users change channels (see

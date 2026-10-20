@@ -45,9 +45,9 @@ func (h *Hub) chatOf(channel int64) (chat, bool) {
 }
 
 // may: the user may read (or write) the chat. Text channels are for all
-// who see their mirror (private ones for members and staff); writing
-// needs TextMessage there (no channel time-out). Threads are their
-// channel's.
+// who see their mirror (private ones for members and staff, deleted ones
+// for nobody); writing needs TextMessage there (no channel time-out).
+// Threads are their channel's.
 func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
 	c, ok := h.parentOf(c)
 	if !ok {
@@ -57,8 +57,8 @@ func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
 		return id.Registered && (id.UserID == c.peers[0] || id.UserID == c.peers[1])
 	}
 	if !c.isVoice {
-		mirror := h.mirrorOf(c.id)
-		return h.voice == nil || mirror == 0 || h.voice.Sees(id.Session, mirror) && (!write || h.voice.MayWrite(id.Session, mirror))
+		mirror, ok := h.textMirror(c.id)
+		return ok && (h.voice == nil || mirror == 0 || h.voice.Sees(id.Session, mirror) && (!write || h.voice.MayWrite(id.Session, mirror)))
 	}
 	if write {
 		return h.voice.MayWrite(id.Session, c.voice)
