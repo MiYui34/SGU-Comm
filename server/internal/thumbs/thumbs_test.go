@@ -25,8 +25,8 @@ import (
 
 func TestArgs(t *testing.T) {
 	video := Args(WebP, Job{Src: "/up/k", Type: "video/mp4", Max: 480, Seek: true}, "/tmp/o")
-	want := "-nostdin -hide_banner -loglevel error -protocol_whitelist file -ss 1 -f mov -i file:/up/k -frames:v 1 -an -sn -dn " +
-		"-vf scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease -c:v libwebp -pix_fmt yuv420p -f webp -y file:/tmp/o"
+	want := "-nostdin -hide_banner -loglevel error -protocol_whitelist file -threads 1 -ss 1 -f mov -i file:/up/k -frames:v 1 -an -sn -dn " +
+		"-vf scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease -c:v libwebp -threads 1 -pix_fmt yuv420p -f webp -y file:/tmp/o"
 	if got := strings.Join(video, " "); got != want {
 		t.Errorf("video:\n%s\nwant\n%s", got, want)
 	}
@@ -39,7 +39,7 @@ func TestArgs(t *testing.T) {
 	}{
 		{"first frame", WebP, Job{Type: "video/webm", Max: 480}, []string{"-f matroska"}, []string{"-ss", "-noautorotate"}},
 		{"png keeps alpha", WebP, Job{Type: "image/png", Max: 1000}, []string{"-noautorotate -f png_pipe", "-pix_fmt yuva420p", "min(1000,iw)"}, nil},
-		{"jpeg turned by exif", JPEG, Job{Type: "image/jpeg", Max: 1000, Orientation: 6}, []string{"-f jpeg_pipe", "-vf transpose=1,scale=", "-c:v mjpeg -pix_fmt yuvj420p -q:v 4 -f mjpeg"}, nil},
+		{"jpeg turned by exif", JPEG, Job{Type: "image/jpeg", Max: 1000, Orientation: 6}, []string{"-f jpeg_pipe", "-vf transpose=1,scale=", "-c:v mjpeg -threads 1 -pix_fmt yuvj420p -q:v 4 -f mjpeg"}, nil},
 		{"jpeg mirrored", JPEG, Job{Type: "image/jpeg", Max: 1000, Orientation: 2}, []string{"-vf hflip,scale="}, nil},
 		{"webp", WebP, Job{Type: "image/webp", Max: 1000}, []string{"-f webp_pipe"}, nil},
 	} {
@@ -166,7 +166,7 @@ func TestFailuresLeaveNoFile(t *testing.T) {
 	} {
 		dir, tmp, job := setup(t)
 		m := New(t.Context(), fakeFFmpeg(t, body), 1, 1)
-		if _, err := m.Make(t.Context(), job); err == nil {
+		if _, err := m.Make(t.Context(), job); !errors.Is(err, ErrFailed) {
 			t.Errorf("%s: no error", name)
 		}
 		if got := names(t, dir); !slices.Equal(got, []string{"key"}) {
@@ -181,10 +181,10 @@ func TestFailuresLeaveNoFile(t *testing.T) {
 func TestTimeoutKills(t *testing.T) {
 	dir, tmp, job := setup(t)
 	m := New(t.Context(), fakeFFmpeg(t, `printf partial > "$out"; exec sleep 30`), 1, 1)
-	m.Timeout = 200 * time.Millisecond
+	m.timeout = 200 * time.Millisecond
 	start := time.Now()
 	_, err := m.Make(t.Context(), job)
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrFailed) || time.Since(start) > 5*time.Second {
 		t.Fatalf("after %v: %v", time.Since(start), err)
 	}
 	if got := names(t, dir); !slices.Equal(got, []string{"key"}) {
@@ -260,6 +260,27 @@ func TestQueueBounded(t *testing.T) {
 		t.Error("failure not reported")
 	}
 	<-done
+}
+
+func TestShutdownReportsNothing(t *testing.T) {
+	_, _, job := setup(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	m := New(ctx, Tool{Command: []string{"ffmpeg"}, Format: WebP}, 1, 1)
+	started := make(chan struct{})
+	m.run = func(ctx context.Context, _ []string) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	reported := make(chan error, 1)
+	m.Enqueue(job, func(_ string, err error) { reported <- err })
+	<-started
+	cancel()
+	select {
+	case err := <-reported:
+		t.Fatalf("reported %v: the job is not failed, it ran into the shutdown", err)
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 // With a real ffmpeg (skipped without one): a video thumbnail and a

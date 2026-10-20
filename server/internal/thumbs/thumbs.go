@@ -66,7 +66,8 @@ var exifFilters = map[uint16]string{2: "hflip", 3: "hflip,vflip", 4: "vflip", 5:
 
 // Args are ffmpeg's arguments for a job, writing to out.
 func Args(f Format, j Job, out string) []string {
-	a := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file"}
+	// One thread each for decoding and encoding: less memory and CPU.
+	a := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file", "-threads", "1"}
 	if j.Seek {
 		a = append(a, "-ss", "1")
 	}
@@ -78,7 +79,7 @@ func Args(f Format, j Job, out string) []string {
 	if t, ok := exifFilters[j.Orientation]; ok {
 		vf = t + "," + vf
 	}
-	a = append(a, "-f", demuxers[j.Type], "-i", "file:"+j.Src, "-frames:v", "1", "-an", "-sn", "-dn", "-vf", vf, "-c:v", f.Codec)
+	a = append(a, "-f", demuxers[j.Type], "-i", "file:"+j.Src, "-frames:v", "1", "-an", "-sn", "-dn", "-vf", vf, "-c:v", f.Codec, "-threads", "1")
 	if f.Args != nil {
 		a = append(a, f.Args...)
 	} else if f.Alpha && j.Type != "image/jpeg" && strings.HasPrefix(j.Type, "image/") {
@@ -154,7 +155,7 @@ const (
 // queue (Enqueue) or directly (Make).
 type Maker struct {
 	tool    Tool
-	Timeout time.Duration
+	timeout time.Duration // per job
 	run     func(ctx context.Context, args []string) error
 	slots   chan struct{}
 	queue   chan task
@@ -166,9 +167,9 @@ type task struct {
 }
 
 // New starts workers that take jobs from a queue of queued at most, until
-// ctx ends.
+// ctx ends (jobs stopped by that are not reported).
 func New(ctx context.Context, tool Tool, workers, queued int) *Maker {
-	m := &Maker{tool: tool, Timeout: 20 * time.Second, slots: make(chan struct{}, workers), queue: make(chan task, queued)}
+	m := &Maker{tool: tool, timeout: 20 * time.Second, slots: make(chan struct{}, workers), queue: make(chan task, queued)}
 	m.run = m.exec
 	for range workers {
 		go func() {
@@ -177,7 +178,9 @@ func New(ctx context.Context, tool Tool, workers, queued int) *Maker {
 				case <-ctx.Done():
 					return
 				case t := <-m.queue:
-					t.done(m.Make(ctx, t.job))
+					if ctype, err := m.Make(ctx, t.job); ctx.Err() == nil {
+						t.done(ctype, err)
+					}
 				}
 			}
 		}()
@@ -199,16 +202,21 @@ func (m *Maker) Enqueue(j Job, done func(ctype string, err error)) bool {
 	}
 }
 
+// ErrFailed: ffmpeg failed on the file, took too long, or wrote nothing
+// usable; trying again will not help. Other errors (files, shutdown) may
+// pass.
+var ErrFailed = errors.New("no preview from this file")
+
 // Make makes a picture now (waiting for a free slot) and returns its type.
 func (m *Maker) Make(ctx context.Context, j Job) (string, error) {
+	if !Supported(j.Type) {
+		return "", fmt.Errorf("%w: cannot read %s", ErrFailed, j.Type)
+	}
 	select {
 	case m.slots <- struct{}{}:
 		defer func() { <-m.slots }()
 	case <-ctx.Done():
 		return "", ctx.Err()
-	}
-	if !Supported(j.Type) {
-		return "", fmt.Errorf("cannot read %s", j.Type)
 	}
 	tmp, err := os.CreateTemp("", "kallisti-preview-*")
 	if err != nil {
@@ -216,13 +224,16 @@ func (m *Maker) Make(ctx context.Context, j Job) (string, error) {
 	}
 	tmp.Close()
 	defer os.Remove(tmp.Name())
-	ctx, cancel := context.WithTimeout(ctx, m.Timeout)
+	limit, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
-	if err := m.run(ctx, Args(m.tool.Format, j, tmp.Name())); err != nil {
-		if ctx.Err() != nil {
-			return "", fmt.Errorf("ffmpeg: %w", ctx.Err())
-		}
-		return "", err
+	err = m.run(limit, Args(m.tool.Format, j, tmp.Name()))
+	switch {
+	case ctx.Err() != nil:
+		return "", ctx.Err()
+	case limit.Err() != nil:
+		return "", fmt.Errorf("%w: ffmpeg: %w", ErrFailed, limit.Err())
+	case err != nil:
+		return "", fmt.Errorf("%w: %w", ErrFailed, err)
 	}
 	if err := place(tmp.Name(), j.Dst); err != nil {
 		return "", err
@@ -253,7 +264,7 @@ func place(src, dst string) error {
 	}
 	defer in.Close()
 	if st, err := in.Stat(); err != nil || st.Size() == 0 || st.Size() > maxOutput {
-		return cmp.Or(err, errors.New("ffmpeg wrote no picture or a huge one"))
+		return cmp.Or(err, fmt.Errorf("%w: ffmpeg wrote no picture, or a huge one", ErrFailed))
 	}
 	out, err := os.CreateTemp(filepath.Dir(dst), ".preview-*")
 	if err != nil {
