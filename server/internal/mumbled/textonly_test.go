@@ -255,7 +255,7 @@ func TestABanCoversTheAddressesOfAllSessions(t *testing.T) {
 	for _, c := range []*testClient{first, second, third} {
 		c.waitForRemove(c.session)
 	}
-	var prefixes []string
+	var prefixes, hashes []string
 	for _, b := range s.currentBans() {
 		if b.Reason != "spam" || b.Duration != time.Hour {
 			t.Errorf("ban %+v", b)
@@ -263,6 +263,12 @@ func TestABanCoversTheAddressesOfAllSessions(t *testing.T) {
 		if b.Prefix.IsValid() {
 			prefixes = append(prefixes, b.Prefix.String())
 		}
+		if b.Hash != "" {
+			hashes = append(hashes, b.Hash)
+		}
+	}
+	if len(hashes) != 1 { // the tabs share the account's certificate
+		t.Errorf("certificate bans %v", hashes)
 	}
 	if len(prefixes) != 2 || !slices.Contains(prefixes, "203.0.113.1/32") || !slices.Contains(prefixes, "2001:db8::2/128") {
 		t.Fatalf("address bans %v", prefixes)
