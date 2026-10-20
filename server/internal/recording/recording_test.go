@@ -299,6 +299,25 @@ func TestAWriteErrorStopsTheRecording(t *testing.T) {
 	}
 }
 
+// The silence before a late first word counts before it is written: a
+// speaker who first speaks two hours in does not take the recording over
+// the size limit.
+func TestALateSpeakersSilenceStaysWithinTheSizeLimit(t *testing.T) {
+	lib, _ := testLibrary(t, Limits{MaxBytes: 20_000})
+	ended := make(chan Info, 1)
+	r, _ := lib.Start(5, "Lounge", "mod", func(i Info) { ended <- i })
+	talk(r, "alice", 0, 1, speech20)
+	talk(r, "bob", 2*time.Hour, 1, speech20)
+	select {
+	case info := <-ended:
+		if info.Size > lib.Limits.MaxBytes || info.Reason != "size limit" {
+			t.Fatalf("%d bytes over %d, reason %q", info.Size, lib.Limits.MaxBytes, info.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still recording")
+	}
+}
+
 // The silence that ends the tracks counts too: a long quiet recording
 // ends early instead of going over the size limit; the tracks stay valid
 // and end together.

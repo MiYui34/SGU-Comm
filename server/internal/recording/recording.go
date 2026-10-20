@@ -212,7 +212,9 @@ func (r *Recording) add(p Packet) string {
 		r.tracks[p.Speaker], r.order = t, append(r.order, t)
 	}
 	at := max(0, p.At.Sub(r.info.Started).Microseconds()*sampleRate/1e6)
-	if err := t.add(p.Opus, p.Seq, p.Terminator, at); err != nil {
+	if err := t.add(p.Opus, p.Seq, p.Terminator, at, r.lib.Limits.MaxBytes-r.size()); errors.Is(err, errSizeLimit) {
+		return "size limit"
+	} else if err != nil {
 		slog.Error("recording: writing a track", "track", t.name, "err", err)
 		return "write error"
 	}
@@ -260,7 +262,8 @@ func safeName(s string) string {
 	return s
 }
 
-// padBytes: a second of silence on a track and its last page, at most.
+// padBytes: a second of silence on a track and its last page, at most
+// (see silenceBytes).
 const padBytes = 512
 
 // finish closes the tracks and writes the info. Silence fills them up to

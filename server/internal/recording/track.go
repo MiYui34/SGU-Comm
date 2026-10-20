@@ -69,21 +69,32 @@ func createTrack(path, name string, serial uint32) (*track, error) {
 	return t, nil
 }
 
-// add writes a packet that arrived at "at", with silence before it. It
-// returns the first write error (the track writes nothing after it).
-func (t *track) add(opus []byte, seq uint64, terminator bool, at int64) error {
+// errSizeLimit: the silence before a packet would take more bytes than
+// are left.
+var errSizeLimit = errors.New("size limit")
+
+// add writes a packet that arrived at "at", with silence before it, if
+// that silence takes at most room bytes (else errSizeLimit, nothing
+// written). It returns the first write error (the track writes nothing
+// after it).
+func (t *track) add(opus []byte, seq uint64, terminator bool, at, room int64) error {
 	samples, stereo, ok := packetSamples(opus)
 	if !ok || t.err != nil {
 		return t.err
 	}
-	pos := t.base + int64(seq-t.baseSeq)*frameSamples
+	base, baseSeq := t.base, t.baseSeq
+	pos := base + int64(seq-baseSeq)*frameSamples
 	switch {
 	case t.talking && seq <= t.lastSeq && t.lastSeq-seq < 50 && at-t.lastAt <= burstGap:
 		return nil // a repeat or a late packet
 	case !t.talking || seq <= t.lastSeq || at-t.lastAt > burstGap || pos > at+burstDrift || pos < at-burstDrift:
-		t.base, t.baseSeq = at/grid*grid, seq
-		pos = t.base
+		base, baseSeq = at/grid*grid, seq
+		pos = base
 	}
+	if silenceBytes(pos-t.pos) > room {
+		return errSizeLimit
+	}
+	t.base, t.baseSeq = base, baseSeq
 	t.talking, t.lastSeq, t.lastAt = !terminator, seq, at
 	if stereo && !t.stereo {
 		t.stereo = true
@@ -102,6 +113,14 @@ func (t *track) write(p []byte, samples int) {
 		t.pos += int64(samples)
 		t.err = t.ogg.packet(p, t.pos)
 	}
+}
+
+// silenceBytes: what n samples of silence take, at most.
+func silenceBytes(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	return (n + sampleRate - 1) / sampleRate * padBytes
 }
 
 // fill writes silence up to pos.
