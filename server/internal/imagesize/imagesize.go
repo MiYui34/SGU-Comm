@@ -27,11 +27,18 @@ var ErrTooLarge = errors.New("image too large")
 // a side and maxPixels in all (else ErrTooLarge, or the decode error).
 // Only the header is read.
 func Check(r io.Reader, maxSide, maxPixels int) error {
+	_, _, err := Size(r, maxSide, maxPixels)
+	return err
+}
+
+// Size is Check that also gives the width and height (as stored: JPEGs
+// can be turned by their Exif orientation, see mediasize).
+func Size(r io.Reader, maxSide, maxPixels int) (w, h int, err error) {
 	c, _, err := image.DecodeConfig(r)
 	if err == nil && (c.Width > maxSide || c.Height > maxSide || c.Width*c.Height > maxPixels) {
 		err = ErrTooLarge
 	}
-	return err
+	return c.Width, c.Height, err
 }
 
 func Fits(r io.Reader, maxSide, maxPixels int) bool { return Check(r, maxSide, maxPixels) == nil }
