@@ -827,11 +827,11 @@ func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
 	if db == nil || len(m.Ids)+len(m.Names) > 100 {
 		return
 	}
-	// As Murmur: for ACL editors, who have Write somewhere.
+	// As Murmur: for ACL editors, who have Write somewhere (from the ACLs).
 	s.mu.Lock()
 	u := s.state.Users[c.session]
 	editor := u != nil && slices.ContainsFunc(slices.Collect(maps.Keys(s.state.Channels)), func(id uint32) bool {
-		return s.state.Has(u, id, Write)
+		return s.state.aclPermissions(u, id)&Write != 0
 	})
 	s.mu.Unlock()
 	if !editor {

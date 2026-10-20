@@ -27,17 +27,21 @@ func (s *State) modPermissions(u *User, channel uint32) Perm {
 func (s *State) mirror(channel uint32) bool { return s.Mirror != nil && s.Mirror(channel) }
 
 // mayMove: Write in the channel and MakeChannel in the new parent, both
-// from the ACLs or both a channel moderator's: nothing leaves or enters
-// the moderated subtree.
+// from the ACLs or both a channel moderator's (see modWritesAll): nothing
+// leaves or enters the moderated subtree.
 func (s *State) mayMove(u *User, channel, parent uint32) bool {
 	acl := s.aclPermissions(u, channel)&Write != 0 && s.aclPermissions(u, parent)&MakeChannel != 0
-	mod := s.modPermissions(u, channel)&Write != 0 && s.modPermissions(u, parent)&MakeChannel != 0
-	return acl || mod
+	return acl || s.modWritesAll(u, channel) && s.modPermissions(u, parent)&MakeChannel != 0
 }
 
-// mayRemove: Write in the channel; a channel moderator's only with it in
-// every channel below too (a private one it does not see stays).
+// mayRemove: Write in the channel from the ACLs, or a channel moderator's
+// (see modWritesAll).
 func (s *State) mayRemove(u *User, channel uint32) bool {
-	return s.aclPermissions(u, channel)&Write != 0 ||
-		!slices.ContainsFunc(s.Subtree(channel), func(id uint32) bool { return s.modPermissions(u, id)&Write == 0 })
+	return s.aclPermissions(u, channel)&Write != 0 || s.modWritesAll(u, channel)
+}
+
+// modWritesAll: a channel moderator's Write in the channel and in every
+// channel below (a private one it does not see stays where it is).
+func (s *State) modWritesAll(u *User, channel uint32) bool {
+	return !slices.ContainsFunc(s.Subtree(channel), func(id uint32) bool { return s.modPermissions(u, id)&Write == 0 })
 }

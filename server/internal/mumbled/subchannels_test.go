@@ -209,3 +209,23 @@ func TestChannelModeratorsOfTextChannelsMakeNoSubchannels(t *testing.T) {
 		t.Fatal("a private channel below a mirror")
 	}
 }
+
+func TestChannelModeratorsGetNoACLEditorRightsInSubchannels(t *testing.T) {
+	c := newClubServer(t)
+	if err := c.s.SetListenOnly(c.alice.session, c.sub, true, nil); err == nil {
+		t.Error("a channel moderator made a subchannel listen-only")
+	}
+	// Mumble's user lookup is for ACL editors.
+	c.alice.refused(mumble.TypeQueryUsers, &pb.QueryUsers{Ids: []uint32{c.aliceID}}, Write, 0)
+}
+
+func TestChannelModeratorsMoveNoHiddenPrivateSubchannels(t *testing.T) {
+	c := newClubServer(t)
+	lounge := c.alice.createChannel(c.club, "Lounge", false)
+	hidden := c.su.createChannel(c.sub, "Hidden", false)
+	c.s.SetPrivate(c.su.session, hidden, true, nil)
+	c.alice.refused(mumble.TypeChannelState, reparent(c.sub, lounge), MakeChannel, lounge)
+	if c.channel(c.sub).Parent != c.club {
+		t.Fatal("moved")
+	}
+}
