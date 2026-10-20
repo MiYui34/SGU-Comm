@@ -30,6 +30,13 @@ export const moderatorsChannel = (server: ServerState, text: TextState, kind: Ch
   return canManageText(server, text) && access !== null && access !== 0 && server.channels[access] ? access : null;
 };
 
+// "Create subchannel" in a voice channel's menu: MakeChannel there (staff,
+// and channel moderators in their channels and below). Not root (the "+"
+// makes those), temporary channels (they have none) nor text channel
+// mirrors.
+export const canCreateSubchannel = (server: ServerState, text: TextState, id: number): boolean =>
+  id !== 0 && server.channels[id]?.temporary === false && !mirrorIds(server, text.channels).has(id) && may(server, id, Perm.MakeChannel);
+
 // A voice channel and its siblings, without text channel mirrors (they
 // keep their place; nobody but SuperUser may edit them).
 export const voiceSiblings = (server: ServerState, text: TextState, id: number) => {
