@@ -393,8 +393,17 @@
   $effect(() => {
     if (rejoining !== null && me?.channelId === rejoining) rejoining = null;
   });
+  // The session that holds our voice: the old one until we are back in it.
+  const placeSession = $derived(rejoining !== null ? (back?.session ?? null) : server.session);
   $effect(() =>
-    onPlace?.({ view, voice: voiceHere, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+    onPlace?.({
+      session: placeSession,
+      view,
+      voice: voiceHere,
+      thread: threadId,
+      selfMute: me?.selfMute ?? false,
+      selfDeaf: me?.selfDeaf ?? false,
+    }),
   );
   // In voice: keeps phones from freezing the page (see lib/mediaSession).
   const session = $derived(voiceHere === null ? null : voiceSession({ channel: server.channels[voiceHere]?.name ?? "", server: serverName, lobby }));
@@ -415,7 +424,7 @@
     lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
     if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
-    const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id]);
+    const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id], elsewhere?.session ?? null);
     if (target === null) return void (rejoining = null);
     connection.send(joinChannel(me.session, target));
     setTimeout(() => (rejoining = null), REJOIN_MS); // refused: not in voice after all
