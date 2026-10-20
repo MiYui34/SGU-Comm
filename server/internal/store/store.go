@@ -82,7 +82,12 @@ type Upload struct {
 	// Used: attached to a message. An upload can be attached once.
 	Used bool
 	Media
+	// Preview: the type of a smaller picture made from it (see files),
+	// "" if none was made yet, NoPreview if none can be.
+	Preview string
 }
+
+const NoPreview = "-"
 
 // Media: a picture's or video's size in pixels, a video's or audio's
 // length in milliseconds (zero: unknown; see mediasize).
@@ -354,6 +359,7 @@ func migrate(db *sql.DB) error {
 		{"width", "INTEGER NOT NULL DEFAULT 0"},
 		{"height", "INTEGER NOT NULL DEFAULT 0"},
 		{"duration", "INTEGER NOT NULL DEFAULT 0"},
+		{"preview", "TEXT NOT NULL DEFAULT ''"},
 	}); err != nil {
 		return err
 	}
@@ -752,18 +758,62 @@ func (s *Store) UploadByKey(key string) (Upload, error) {
 	return scanUpload(s.db.QueryRow(`SELECT `+uploadColumns+` FROM uploads WHERE key = ?`, key))
 }
 
-const uploadColumns = `id, key, name, type, size, author, created_at, used, width, height, duration`
+// SetUploadPreview keeps an upload's preview type (see Upload.Preview);
+// found is false if the upload is gone.
+func (s *Store) SetUploadPreview(key, ctype string) (found bool, err error) {
+	res, err := s.db.Exec(`UPDATE uploads SET preview = ? WHERE key = ?`, ctype, key)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// UploadsWithoutPreview: attached pictures and videos without a preview
+// (made or refused), the newest first.
+func (s *Store) UploadsWithoutPreview() ([]Upload, error) {
+	rows, err := s.db.Query(`SELECT ` + uploadColumns + ` FROM uploads
+		WHERE used = 1 AND preview = '' AND (type LIKE 'image/%' OR type LIKE 'video/%') ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Upload
+	for rows.Next() {
+		u, err := scanUpload(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// MessageByUpload is the message an upload is attached to.
+func (s *Store) MessageByUpload(key string) (Message, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT m.id FROM messages m JOIN uploads u ON u.id = m.upload_id WHERE u.key = ?`, key).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Message{}, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, err
+	}
+	return s.MessageByID(id)
+}
+
+const uploadColumns = `id, key, name, type, size, author, created_at, used, width, height, duration, preview`
 
 func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 	var u Upload
 	var at int64
-	err := row.Scan(&u.ID, &u.Key, &u.Name, &u.Type, &u.Size, &u.Author, &at, &u.Used, &u.Width, &u.Height, &u.Duration)
+	err := row.Scan(&u.ID, &u.Key, &u.Name, &u.Type, &u.Size, &u.Author, &at, &u.Used, &u.Width, &u.Height, &u.Duration, &u.Preview)
 	u.CreatedAt = time.UnixMilli(at).UTC()
 	return u, err
 }
 
 const messageSelect = `SELECT m.id, m.channel_id, m.author, m.verified, m.author_id, m.text, m.created_at, m.edited_at, m.pinned_at,
-		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used, u.width, u.height, u.duration,
+		u.id, u.key, u.name, u.type, u.size, u.author, u.created_at, u.used, u.width, u.height, u.duration, u.preview,
 		m.reply_to, r.author, r.text, m.mention_all, m.no_ping
 	FROM messages m LEFT JOIN uploads u ON u.id = m.upload_id LEFT JOIN messages r ON r.id = m.reply_to `
 
@@ -772,15 +822,15 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var at int64
 	var edited, pinned sql.NullInt64
 	var u struct {
-		id, size, at        sql.NullInt64
-		w, h, d             sql.NullInt64
-		key, name, typ, who sql.NullString
-		used                sql.NullBool
+		id, size, at              sql.NullInt64
+		w, h, d                   sql.NullInt64
+		key, name, typ, who, prev sql.NullString
+		used                      sql.NullBool
 	}
 	var replyTo, authorID sql.NullInt64
 	var replyAuthor, replyText sql.NullString
 	if err := row.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Verified, &authorID, &m.Text, &at, &edited, &pinned,
-		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used, &u.w, &u.h, &u.d,
+		&u.id, &u.key, &u.name, &u.typ, &u.size, &u.who, &u.at, &u.used, &u.w, &u.h, &u.d, &u.prev,
 		&replyTo, &replyAuthor, &replyText, &m.MentionAll, &m.NoPing); err != nil {
 		return Message{}, err
 	}
@@ -801,7 +851,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	if u.id.Valid {
 		m.Upload = &Upload{ID: u.id.Int64, Key: u.key.String, Name: u.name.String, Type: u.typ.String,
 			Size: u.size.Int64, Author: u.who.String, CreatedAt: time.UnixMilli(u.at.Int64).UTC(), Used: u.used.Bool,
-			Media: Media{int(u.w.Int64), int(u.h.Int64), u.d.Int64}}
+			Media: Media{int(u.w.Int64), int(u.h.Int64), u.d.Int64}, Preview: u.prev.String}
 	}
 	return m, nil
 }
