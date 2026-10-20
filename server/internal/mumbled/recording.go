@@ -117,11 +117,13 @@ func (s *Server) StopRecording(actor, channel uint32) error {
 }
 
 // endRecording stops a recording taken out of s.recordings (not under
-// s.mu) and tells everyone.
+// s.mu) and tells everyone, unless a new one started meanwhile.
 func (s *Server) endRecording(channel uint32, rec *recording.Recording, reason string) {
 	info := rec.Stop(reason)
 	s.mu.Lock()
-	s.channelTextLocked(channel, recordingStopped(info.Reason))
+	if s.recordings[channel] == nil {
+		s.channelTextLocked(channel, recordingStopped(info.Reason))
+	}
 	s.mu.Unlock()
 	s.recordingChanged()
 }

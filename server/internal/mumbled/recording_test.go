@@ -203,3 +203,33 @@ func TestClosingTheServerFinishesRecordings(t *testing.T) {
 		t.Fatalf("finished %v", reasons)
 	}
 }
+
+// A stop that finishes while a new recording already runs tells nobody
+// it stopped: the channel is still being recorded.
+func TestAnOldStopDoesNotAnnounceOverANewRecording(t *testing.T) {
+	s, addr, _, _ := recordingServer(t, recording.Limits{})
+	su := superUser(t, addr)
+	lounge := su.createChannel(0, "Lounge", false)
+	su.move(su.session, lounge)
+	su.waitForMove(su.session, lounge)
+	s.StartRecording(su.session, lounge)
+	s.mu.Lock() // StopRecording, up to its finishing
+	old := s.recordings[lounge]
+	delete(s.recordings, lounge)
+	s.mu.Unlock()
+	if err := s.StartRecording(su.session, lounge); err != nil {
+		t.Fatal(err)
+	}
+	s.endRecording(lounge, old, "stopped")
+	var m pb.TextMessage
+	for range 2 {
+		proto.Unmarshal(su.expect(mumble.TypeTextMessage), &m)
+		if !strings.Contains(m.GetMessage(), "Recording started") {
+			t.Fatalf("text %v", &m)
+		}
+	}
+	su.expectNone(mumble.TypeTextMessage)
+	if len(s.Recording()) != 1 {
+		t.Fatal("the new recording ended")
+	}
+}
