@@ -36,6 +36,15 @@ export const imageBox = ({ width, height }: Sized, max = { width: 400, height: 3
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 };
 
+// The server's smaller picture (made with ffmpeg, if it has it): a large
+// picture's in the chat (the original opens in the lightbox), a video's
+// poster.
+export const chatSrc = (u: { url: string; preview?: string }) => u.preview ?? u.url;
+
+// A video with a poster loads nothing until played; without one its
+// metadata and first frame.
+export const videoPreload = (poster: string | undefined) => (poster ? "none" : "metadata");
+
 // CSS aspect-ratio of a video (its box width is fixed).
 export const mediaRatio = ({ width, height }: Sized) => (width && height ? `${width} / ${height}` : undefined);
 

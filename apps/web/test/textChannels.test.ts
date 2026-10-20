@@ -245,6 +245,18 @@ describe("uploads", () => {
     );
     expect(m.upload).toEqual({ url: "http://srv:8080/files/k/cat.png", name: "cat.png", type: "image/png", size: 3 });
   });
+
+  it("keeps a preview on our server", () => {
+    const upload = { url: "/files/k/a.mp4", name: "a.mp4", type: "video/mp4", size: 3, preview: "/files/k/a.mp4?preview" };
+    const ev = parseServerEvent(JSON.stringify({ type: "message-edited", message: { ...msg(1), upload } }));
+    expect(ev?.type === "message-edited" && ev.message.upload?.preview).toBe("/files/k/a.mp4?preview");
+    expect(toChatMessage({ ...msg(3), upload }, "http://srv").upload?.preview).toBe("http://srv/files/k/a.mp4?preview");
+    // Elsewhere: dropped, the attachment stays.
+    const away = toChatMessage({ ...msg(4), upload: { ...upload, preview: "https://evil.example/files/x" } }, "http://srv").upload;
+    expect(away?.url).toBe("http://srv/files/k/a.mp4");
+    expect(away && "preview" in away).toBe(false);
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), upload: { ...upload, preview: 1 } } }))).toBeNull();
+  });
 });
 
 describe("httpBase", () => {

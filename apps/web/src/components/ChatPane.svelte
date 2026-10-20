@@ -1,6 +1,6 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
-  import { asSpoiler, imageBox, mediaKind } from "../lib/media";
+  import { asSpoiler, chatSrc, imageBox, mediaKind } from "../lib/media";
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -1240,16 +1240,21 @@
 {/snippet}
 
 <!-- The picture's box before it loads (see imageBox); the loaded picture's
-     own ratio wins ("auto"). -->
+     own ratio wins ("auto"). A large picture shows its preview, else the
+     picture itself (also when the preview fails). -->
 {#snippet picture(u: Attachment, alt: string)}
   {@const box = imageBox(u)}
   <img
-    src={u.url}
+    src={chatSrc(u)}
     {alt}
     loading="lazy"
     style:width={box && `${box.width}px`}
     style:aspect-ratio={box && `auto ${u.width} / ${u.height}`}
     onload={keepBottom}
+    onerror={(e) => {
+      const img = e.currentTarget as HTMLImageElement;
+      if (img.src !== u.url) img.src = u.url;
+    }}
   />
 {/snippet}
 
@@ -1283,7 +1288,7 @@
       {#if mediaKind(u) === "audio"}
         <AudioPlayer url={u.url} name={u.name} size={u.size} length={u.duration} onError={failed} />
       {:else}
-        <VideoPlayer url={u.url} name={u.name} size={u.size} width={u.width} height={u.height} length={u.duration} onLoad={keepBottom} onError={failed} />
+        <VideoPlayer url={u.url} poster={u.preview} name={u.name} size={u.size} width={u.width} height={u.height} length={u.duration} onLoad={keepBottom} onError={failed} />
       {/if}
     {:else}
       <a class="file" href={m.upload.url} rel="noopener noreferrer">
