@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { AccountActions, StreamKey } from "../lib/accounts";
+  import { busyLabel } from "../lib/saveFeedback";
+  import { createSave } from "../lib/saveFeedback.svelte";
+  import SaveStatus from "./SaveStatus.svelte";
 
   // Streaming from OBS (WHIP): the steps, the address and the stream key. A
   // new key is shown once (the server keeps only its hash). live: our
@@ -22,15 +25,21 @@
       key = await account.streamKey();
     })();
   });
-  const makeKey = run(async () => {
-    newKey = await account.newStreamKey();
-    key = { enabled: true, exists: true };
-  });
-  const removeKey = run(async () => {
-    await account.removeStreamKey();
-    key = { enabled: true, exists: false };
-    newKey = null;
-  });
+  // The key changes: pending, then the new key (or "Removed"), or the error.
+  const making = createSave();
+  const removing = createSave();
+  const busy = $derived(making.state.phase === "pending" || removing.state.phase === "pending");
+  const makeKey = () =>
+    making.run(async () => {
+      newKey = await account.newStreamKey();
+      key = { enabled: true, exists: true };
+    });
+  const removeKey = () =>
+    removing.run(async () => {
+      await account.removeStreamKey();
+      key = { enabled: true, exists: false };
+      newKey = null;
+    });
   const copy = (text: string) => void navigator.clipboard?.writeText(text).then(() => (copied = text));
 </script>
 
@@ -60,9 +69,15 @@
   {#if note}<p class="warn" role="status">{note}</p>{/if}
   {#if key}
     <div class="buttons">
-      <button class="secondary" onclick={makeKey}>{key.exists ? "Make a new key" : "Make a stream key"}</button>
-      {#if key.exists}<button class="secondary danger" onclick={removeKey}>Remove the key</button>{/if}
+      <button class="secondary" disabled={busy} onclick={makeKey}>
+        {busyLabel(making.state, key.exists ? "Make a new key" : "Make a stream key", "Making…")}
+      </button>
+      {#if key.exists}
+        <button class="secondary danger" disabled={busy} onclick={removeKey}>{busyLabel(removing.state, "Remove the key", "Removing…")}</button>
+      {/if}
     </div>
+    <SaveStatus save={making.state} done="" />
+    <SaveStatus save={removing.state} done="Removed" />
     {#if key.exists}<p>A new key, removing it, a new password or "log out everywhere" stop the old key (and a stream that uses it).</p>{/if}
   {/if}
 </dialog>
