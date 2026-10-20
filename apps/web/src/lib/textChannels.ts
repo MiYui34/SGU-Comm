@@ -711,9 +711,9 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         statuses: statusMap(event.statuses ?? []),
         ownStatus: event.ownStatus ?? initialTextState.ownStatus,
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
-        // Ready lists the active threads; archived ones we know stay (a
-        // ready after a resync must not close an open one).
-        threads: withThreads(Object.fromEntries(Object.entries(state.threads).filter(([, t]) => t.archived)), event.threads ?? []),
+        // As a channel list (a ready after a resync must not close an open
+        // archived thread).
+        threads: keptThreads(state.threads, event.channels, event.threads ?? []),
         follows: new Set(event.follows ?? []),
         archived: {},
         threadArchive: event.threadArchive ?? initialTextState.threadArchive,

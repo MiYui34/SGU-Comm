@@ -329,12 +329,14 @@ describe("robustness", () => {
   });
 
   it("takes the state sent again after a resync, and keeps the archived threads it knows", () => {
-    const thread = (id: number, archived = false) => ({ id, channel: 1, start: id, name: "t", author: "a", at: 0, last: 0, replies: 0, archived });
-    let s = reduceText(initialTextState, { type: "ready", channels: [], threads: [thread(1), thread(2)], follows: [1], reads: { 1: 3 } });
+    const thread = (id: number, archived = false, channel = 1) => ({ id, channel, start: id, name: "t", author: "a", at: 0, last: 0, replies: 0, archived });
+    const channels = [{ id: 1, name: "a" }];
+    let s = reduceText(initialTextState, { type: "ready", channels, threads: [thread(1), thread(2)], follows: [1], reads: { 1: 3 } });
     s = reduceText(s, { type: "thread", thread: thread(3, true) });
+    s = reduceText(s, { type: "thread", thread: thread(4, true, 2) }); // of a channel we no longer see
     s = reduceText(s, { type: "resync" });
     // Missed meanwhile: thread 2 was deleted, thread 1 unfollowed, chat 1 read further.
-    s = reduceText(s, { type: "ready", channels: [], threads: [thread(1)], follows: [], reads: { 1: 8 } });
+    s = reduceText(s, { type: "ready", channels, threads: [thread(1)], follows: [], reads: { 1: 8 } });
     expect(Object.keys(s.threads).map(Number)).toEqual([1, 3]);
     expect(s.follows).toEqual(new Set());
     expect(s.reads).toEqual({ 1: 8 });
