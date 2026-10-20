@@ -284,10 +284,32 @@ func TestSendWithUpload(t *testing.T) {
 		t.Fatalf("got %v", m)
 	}
 	next(t, bob)
+	if _, ok := up["preview"]; ok {
+		t.Fatalf("preview before it was made: %v", up)
+	}
 	alice.Handle([]byte(`{"type":"send","channel":1,"text":"","upload":"missing"}`))
 	if m := next(t, alice); m["type"] != "error" {
 		t.Fatalf("missing upload: %v", m)
 	}
+	// Its preview is made: the message again, with it.
+	h.store.SetUploadPreview("abc", "image/webp")
+	h.UploadPreview("abc")
+	for _, c := range []*Conn{alice, bob} {
+		m := next(t, c)
+		up, _ := m["message"].(map[string]any)["upload"].(map[string]any)
+		if m["type"] != "message-edited" || up["preview"] != "/files/abc/cat.png?preview" || m["message"].(map[string]any)["edited"] != nil {
+			t.Fatalf("preview: %v", m)
+		}
+	}
+	// None for a refused one, nothing sent for an upload not attached.
+	h.store.SetUploadPreview("abc", store.NoPreview)
+	h.UploadPreview("abc")
+	if up := next(t, alice)["message"].(map[string]any)["upload"].(map[string]any); up["preview"] != nil {
+		t.Fatalf("refused preview: %v", up)
+	}
+	next(t, bob)
+	h.UploadPreview("missing")
+	empty(t, alice)
 }
 
 func TestNoReadyWithoutAName(t *testing.T) {

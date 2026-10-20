@@ -469,11 +469,35 @@ type wireUpload struct {
 	Width    int   `json:"width,omitempty"`
 	Height   int   `json:"height,omitempty"`
 	Duration int64 `json:"duration,omitempty"`
+	// A smaller picture (see files' previews): a video's poster, a large
+	// picture for the chat.
+	Preview string `json:"preview,omitempty"`
 }
 
 // FileURL is where the server serves an upload (relative to the server).
 func FileURL(u store.Upload) string {
 	return "/files/" + u.Key + "/" + url.PathEscape(u.Name)
+}
+
+// previewURL is where its preview is ("": none).
+func previewURL(u store.Upload) string {
+	if !strings.HasPrefix(u.Preview, "image/") {
+		return ""
+	}
+	return FileURL(u) + "?preview"
+}
+
+// UploadPreview: an upload got its preview. If it is attached already,
+// its message goes out again with it (as an edit, but not marked edited);
+// otherwise the message will carry it when sent.
+func (h *Hub) UploadPreview(key string) {
+	m, err := h.store.MessageByUpload(key)
+	if err != nil {
+		return
+	}
+	if ch, ok := h.chatOf(m.ChannelID); ok {
+		h.sendTo(ch, map[string]any{"type": "message-edited", "message": toWire(m)})
+	}
 }
 
 func toWire(m store.Message) wireMessage {
@@ -488,7 +512,7 @@ func toWire(m store.Message) wireMessage {
 		w.Reply = &wireQuote{ID: r.ID, Author: r.Author, Text: shorten(r.Text, quoteLength)}
 	}
 	if u := m.Upload; u != nil {
-		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size, Width: u.Width, Height: u.Height, Duration: u.Duration}
+		w.Upload = &wireUpload{URL: FileURL(*u), Name: u.Name, Type: u.Type, Size: u.Size, Width: u.Width, Height: u.Height, Duration: u.Duration, Preview: previewURL(*u)}
 	}
 	if len(m.Reactions) > 0 {
 		w.Reactions = toWireReactions(m.Reactions)
