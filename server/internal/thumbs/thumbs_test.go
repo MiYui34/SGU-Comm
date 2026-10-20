@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"kallisti.chat/server/internal/mediasize"
 )
@@ -297,5 +300,13 @@ func TestRealFFmpeg(t *testing.T) {
 		if got := mediasize.Probe(bytes.NewReader(f), int64(len(f)), ctype); got != c.want {
 			t.Errorf("%s: %s %+v, want %+v", c.job.Src, ctype, got, c.want)
 		}
+		// WebP keeps the PNG's transparency.
+		if c.job.Type == "image/png" && ctype == "image/webp" {
+			if img, _, err := image.Decode(bytes.NewReader(f)); err != nil || alpha(img.At(0, 0)) != 0 {
+				t.Errorf("transparency lost: %v", err)
+			}
+		}
 	}
 }
+
+func alpha(c color.Color) uint32 { _, _, _, a := c.RGBA(); return a }
