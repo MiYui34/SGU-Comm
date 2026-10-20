@@ -359,14 +359,17 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     sendAwait: (messages: Bytes[], holds: (s: ServerState) => boolean) => wait({ via: "mumble", holds }, () => messages.forEach(send)),
     // Downloads a finished recording (staff): a link with a one-time token.
     // On another origin "download" does not count: a new tab, so an error
-    // page does not replace the app.
+    // page does not replace the app. In the document for the click, so the
+    // desktop app opens it in the browser (lib/externalLinks).
     downloadRecording: async (id: string) => {
       const a = document.createElement("a");
       a.href = recordingUrl(base, id, await askToken("recording-token"));
       a.download = "";
       a.target = "_blank";
       a.rel = "noopener";
+      document.body.append(a);
       a.click();
+      a.remove();
     },
     requestHistory: (channel: number, before?: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(historyRequest(channel, before));
