@@ -3,6 +3,7 @@
 package imagesize
 
 import (
+	"errors"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -20,12 +21,20 @@ const (
 	MaxPixels = 50_000_000
 )
 
-// Fits: r is an image (PNG, JPEG, GIF or WebP) of at most maxSide pixels a
-// side and maxPixels in all. Only the header is read.
-func Fits(r io.Reader, maxSide, maxPixels int) bool {
+var ErrTooLarge = errors.New("image too large")
+
+// Check: r is an image (PNG, JPEG, GIF or WebP) of at most maxSide pixels
+// a side and maxPixels in all (else ErrTooLarge, or the decode error).
+// Only the header is read.
+func Check(r io.Reader, maxSide, maxPixels int) error {
 	c, _, err := image.DecodeConfig(r)
-	return err == nil && c.Width <= maxSide && c.Height <= maxSide && c.Width*c.Height <= maxPixels
+	if err == nil && (c.Width > maxSide || c.Height > maxSide || c.Width*c.Height > maxPixels) {
+		err = ErrTooLarge
+	}
+	return err
 }
+
+func Fits(r io.Reader, maxSide, maxPixels int) bool { return Check(r, maxSide, maxPixels) == nil }
 
 // Inline: r is an image within the limits for inline images.
 func Inline(r io.Reader) bool { return Fits(r, MaxSide, MaxPixels) }

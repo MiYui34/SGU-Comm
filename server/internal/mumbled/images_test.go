@@ -1,7 +1,10 @@
 package mumbled
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/png"
 	"strings"
 	"sync"
 	"testing"
@@ -13,8 +16,12 @@ import (
 	"kallisti.chat/server/internal/mumble/pb"
 )
 
-// A PNG header: enough for the type check.
-var tinyPNG = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00")
+// A 1x1 PNG.
+var tinyPNG = func() []byte {
+	var b bytes.Buffer
+	png.Encode(&b, image.NewGray(image.Rect(0, 0, 1, 1)))
+	return b.Bytes()
+}()
 
 func dataImage(typ string, data []byte) string {
 	return `<img src="data:` + typ + `;base64,` + base64.StdEncoding.EncodeToString(data) + `" />`
@@ -30,6 +37,20 @@ func TestExtractImages(t *testing.T) {
 	}
 	if strings.Contains(rest, "<img") || plainText(rest) != "Now playing x" {
 		t.Fatalf("rest %q", rest)
+	}
+}
+
+// Images too large to show (by their header) are dropped with a note;
+// broken ones are dropped.
+func TestExtractImagesDropsOversizedOnes(t *testing.T) {
+	huge := pngOf(t, 20000, 1)
+	broken := append([]byte{}, tinyPNG[:20]...)
+	rest, imgs := extractImages("look " + dataImage("image/png", huge) + dataImage("image/png", broken) + dataImage("image/png", tinyPNG))
+	if len(imgs) != 1 || string(imgs[0].Data) != string(tinyPNG) {
+		t.Fatalf("images %d", len(imgs))
+	}
+	if got := plainText(rest); got != "look [image too large]" {
+		t.Fatalf("rest %q", got)
 	}
 }
 
