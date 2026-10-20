@@ -76,9 +76,9 @@ const serverKey = async (base: string): Promise<string> => {
 
 const registration = async () => navigator.serviceWorker?.getRegistration("/");
 
-// Subscribing runs one at a time. Turning off does not wait: it counts
-// up offs, and subscribing asked for before it stops, or undoes what it
-// did (a sync from the start must not turn push on again).
+// Subscribing runs one at a time. Turning off does not wait: it counts up
+// offs, and subscribing asked for before that does not start, or undoes
+// what it did (a sync from the start must not turn push on again).
 let queue: Promise<unknown> = Promise.resolve();
 let offs = 0;
 
@@ -123,7 +123,9 @@ export const turnOnPush = async (base: string, name: string, prefs: PushPrefs): 
 // Also on logout. The server forgets it with the session anyway.
 export const turnOffPush = (base: string) => {
   offs++;
-  return stopPush(base);
+  const run = stopPush(base);
+  queue = Promise.all([queue, run]).catch(() => {}); // later subscribing waits for it
+  return run;
 };
 
 const stopPush = async (base: string, reg?: ServiceWorkerRegistration, sub?: PushSubscription | null) => {
