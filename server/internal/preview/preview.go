@@ -27,7 +27,7 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 
-	"kallisti.chat/server/internal/imagesize"
+	"kallisti.chat/server/internal/mediasize"
 )
 
 const (
@@ -47,14 +47,16 @@ const (
 )
 
 // Preview is what a card shows. Image is the key of the fetched image (see
-// ServeHTTP), empty without one.
+// ServeHTTP), empty without one; its size in pixels as shown.
 type Preview struct {
 	URL, Title, Description, Site, Image string
+	ImageWidth, ImageHeight              int
 }
 
 type picture struct {
 	data []byte
 	typ  string
+	size mediasize.Info
 }
 
 type entry struct {
@@ -196,7 +198,7 @@ func (f *Fetcher) fill(raw string, e *entry) {
 		return
 	}
 	if image.data != nil {
-		p.Image = randomKey()
+		p.Image, p.ImageWidth, p.ImageHeight = randomKey(), image.size.Width, image.size.Height
 		f.keepImage(p.Image, image)
 	}
 	e.preview = &p
@@ -283,7 +285,7 @@ func (f *Fetcher) get(ctx context.Context, u, accept string) (*http.Response, er
 var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 // image fetches a preview picture: only real images (by their bytes), and
-// small ones (also in pixels: see imagesize).
+// small ones (also in pixels: see imagesize; mediasize knows no others).
 func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if u == "" {
 		return picture{}
@@ -297,8 +299,10 @@ func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if err != nil || len(data) > maxImage {
 		return picture{}
 	}
-	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) && imagesize.Inline(bytes.NewReader(data)) == nil {
-		return picture{data, typ}
+	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) {
+		if size := mediasize.Probe(bytes.NewReader(data), int64(len(data)), typ); size.Width > 0 {
+			return picture{data, typ, size}
+		}
 	}
 	return picture{}
 }

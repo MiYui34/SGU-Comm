@@ -26,6 +26,23 @@ export const formatDuration = (seconds: number) => {
 // MediaRecorder) report Infinity.
 export const finite = (seconds: number) => (Number.isFinite(seconds) ? seconds : 0);
 
+type Sized = { width?: number; height?: number };
+
+// The box a picture fills before it loads (no jump when it does): its size
+// in CSS pixels, scaled down into max as the chat's CSS does. null: unknown.
+export const imageBox = ({ width, height }: Sized, max = { width: 400, height: 300 }) => {
+  if (!width || !height) return null;
+  const scale = Math.min(1, max.width / width, max.height / height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+};
+
+// CSS aspect-ratio of a video (its box width is fixed).
+export const mediaRatio = ({ width, height }: Sized) => (width && height ? `${width} / ${height}` : undefined);
+
+// Seconds to show: the player's, else the server's (milliseconds, known
+// before the metadata loads).
+export const shownLength = (seconds: number, knownMs = 0) => finite(seconds) || knownMs / 1000;
+
 // One plays at a time: starting one pauses the one before.
 let playing: HTMLMediaElement | null = null;
 export const onlyOne = (el: HTMLMediaElement) => {

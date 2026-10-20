@@ -110,6 +110,10 @@ func run() error {
 		RedeemEmoji:    hub.RedeemEmojiToken,
 		OnEmoji:        hub.EmojiChanged,
 	}
+	// Once: uploads from before sizes were kept.
+	if err := db.MeasureUploads(fileHandler.Measure); err != nil {
+		return fmt.Errorf("measure uploads: %w", err)
+	}
 	var linkImages http.Handler = http.NotFoundHandler()
 	if !cfg.NoLinkPreviews {
 		previews := preview.New()

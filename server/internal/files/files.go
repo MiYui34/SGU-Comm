@@ -24,7 +24,7 @@ import (
 	"unicode"
 
 	"kallisti.chat/server/internal/config"
-	"kallisti.chat/server/internal/imagesize"
+	"kallisti.chat/server/internal/mediasize"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 )
@@ -146,11 +146,14 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	name, _ := url.QueryUnescape(r.Header.Get("X-Filename"))
 	// The stored type comes from the content, not from the client.
+	// Images too large to show (see imagesize; the header can come after
+	// the first 512 bytes) have no size: downloads.
 	ctype := storedType(head, name)
-	if slices.Contains(inlineTypes, ctype) && !fitsInline(dst) {
-		ctype = "application/octet-stream" // too large to show: a download
+	media := measure(dst, ctype)
+	if slices.Contains(inlineTypes, ctype) && media.Width == 0 {
+		ctype = "application/octet-stream"
 	}
-	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: size, Author: author}, h.Now())
+	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: size, Author: author, Media: media}, h.Now())
 	if err != nil {
 		os.Remove(dst)
 		jsonError(w, "cannot store file", http.StatusInternalServerError)
@@ -225,15 +228,43 @@ func storedType(head []byte, name string) string {
 	return cmp.Or(mediaType(head, name), "application/octet-stream")
 }
 
-// fitsInline: the stored image is small enough to show (see imagesize;
-// the header can come after the first 512 bytes).
-func fitsInline(path string) bool {
+// measure reads a stored file's size and length (see mediasize).
+func measure(path, ctype string) store.Media {
+	return measureFile(path, func(io.ReaderAt) string { return ctype })
+}
+
+// Measure reads an upload's size and length from its file, for uploads
+// from before they were kept (see store.MeasureUploads).
+func (h *Handler) Measure(u store.Upload) store.Media {
+	if !plainKey(u.Key) {
+		return store.Media{}
+	}
+	return measureFile(filepath.Join(h.Dir, u.Key), func(f io.ReaderAt) string { return servedType(u, f) })
+}
+
+func measureFile(path string, ctype func(io.ReaderAt) string) store.Media {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return store.Media{}
 	}
 	defer f.Close()
-	return imagesize.Inline(f) == nil
+	st, err := f.Stat()
+	if err != nil {
+		return store.Media{}
+	}
+	return store.Media(mediasize.Probe(f, st.Size(), ctype(f)))
+}
+
+// servedType is an upload's type as served: uploads from before media
+// types were kept get theirs from the file's start.
+func servedType(u store.Upload, f io.ReaderAt) string {
+	const download = "application/octet-stream"
+	if u.Type != download || !mediaName(u.Name) {
+		return u.Type
+	}
+	head := make([]byte, 512)
+	n, _ := f.ReadAt(head, 0)
+	return cmp.Or(mediaType(head[:n], u.Name), download)
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
@@ -251,11 +282,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	disposition := "attachment"
 	ctype := "application/octet-stream"
-	if u.Type == ctype && mediaName(u.Name) { // uploads from before media types were kept
-		head := make([]byte, 512)
-		n, _ := io.ReadFull(f, head) // ServeContent seeks back to the start
-		u.Type = cmp.Or(mediaType(head[:n], u.Name), ctype)
-	}
+	u.Type = servedType(u, f)
 	if isInline(u.Type) {
 		disposition, ctype = "inline", u.Type
 	}
@@ -323,12 +350,16 @@ func (h *Handler) DeleteUnused() {
 // Remove deletes an upload's file (its message was deleted). Keys are
 // plain names: anything with a path is ignored.
 func (h *Handler) Remove(key string) {
-	if key == "" || key != filepath.Base(key) || strings.HasPrefix(key, ".") {
+	if !plainKey(key) {
 		return
 	}
 	if err := os.Remove(filepath.Join(h.Dir, key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn("delete upload file", "key", key, "err", err)
 	}
+}
+
+func plainKey(key string) bool {
+	return key != "" && key == filepath.Base(key) && !strings.HasPrefix(key, ".")
 }
 
 // Save stores bytes as an upload (for example a picture from a Mumble
@@ -346,7 +377,8 @@ func (h *Handler) Save(author, name, ctype string, data []byte) (store.Upload, e
 	if err := os.WriteFile(dst, data, 0o600); err != nil {
 		return store.Upload{}, err
 	}
-	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: int64(len(data)), Author: author}, h.Now())
+	media := store.Media(mediasize.Probe(bytes.NewReader(data), n, ctype))
+	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: n, Author: author, Media: media}, h.Now())
 	if err != nil {
 		os.Remove(dst)
 	}

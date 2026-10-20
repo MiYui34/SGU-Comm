@@ -216,6 +216,15 @@ describe("uploads", () => {
     expect(ev?.type === "message" && ev.message.upload?.name).toBe("cat.png");
   });
 
+  it("keeps an attachment's size and length", () => {
+    const upload = { url: "/files/k/a.mp4", name: "a.mp4", type: "video/mp4", size: 3, width: 1280, height: 720, duration: 2500 };
+    const ev = parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), upload } }));
+    expect(ev?.type === "message" && ev.message.upload).toEqual(upload);
+    expect(toChatMessage({ ...msg(2), upload }, "http://srv").upload).toMatchObject({ width: 1280, height: 720, duration: 2500 });
+    const broken = { ...upload, width: "wide" };
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), upload: broken } }))).toBeNull();
+  });
+
   it("drops a broken attachment", () => {
     expect(parseServerEvent(JSON.stringify({ type: "message", message: { ...msg(1), upload: { url: 1 } } }))).toBeNull();
   });

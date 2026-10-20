@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { finite, formatDuration, onlyOne } from "../lib/media";
+  import { finite, formatDuration, onlyOne, shownLength } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // An audio attachment: the file card with a player row.
   // onError: it cannot play (the caller shows the file instead).
-  let { url, name, size, onError }: { url: string; name: string; size: number; onError?: () => void } = $props();
+  // length: milliseconds, from the server if it knows it.
+  let { url, name, size, length, onError }: { url: string; name: string; size: number; length?: number; onError?: () => void } = $props();
   let audio: HTMLAudioElement | undefined = $state();
   let paused = $state(true);
   let time = $state(0);
@@ -32,7 +33,7 @@
         >{#if paused}<path d="M7 4v16l13-8z" />{:else}<path d="M6 4h4v16H6zM14 4h4v16h-4z" />{/if}</svg
       >
     </button>
-    <span class="time">{formatDuration(time)} / {formatDuration(finite(duration))}</span>
+    <span class="time">{formatDuration(time)} / {formatDuration(shownLength(duration, length))}</span>
     <input
       type="range"
       min="0"

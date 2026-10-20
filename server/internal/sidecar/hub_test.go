@@ -265,7 +265,8 @@ func TestUploadTokensExpire(t *testing.T) {
 func TestSendWithUpload(t *testing.T) {
 	h := newHub(t, "general")
 	alice, bob := ready(t, h, "alice"), ready(t, h, "bob")
-	if _, err := h.store.AddUpload(store.Upload{Key: "abc", Name: "cat.png", Type: "image/png", Size: 3, Author: "alice"}, clock); err != nil {
+	if _, err := h.store.AddUpload(store.Upload{Key: "abc", Name: "cat.png", Type: "image/png", Size: 3, Author: "alice",
+		Media: store.Media{Width: 640, Height: 480, Duration: 7}}, clock); err != nil {
 		t.Fatal(err)
 	}
 	// Someone else's upload is refused.
@@ -278,7 +279,8 @@ func TestSendWithUpload(t *testing.T) {
 	m := next(t, alice)
 	msg := m["message"].(map[string]any)
 	up, _ := msg["upload"].(map[string]any)
-	if m["type"] != "message" || up["name"] != "cat.png" || up["type"] != "image/png" || up["url"] != "/files/abc/cat.png" {
+	if m["type"] != "message" || up["name"] != "cat.png" || up["type"] != "image/png" || up["url"] != "/files/abc/cat.png" ||
+		up["width"] != 640.0 || up["height"] != 480.0 || up["duration"] != 7.0 {
 		t.Fatalf("got %v", m)
 	}
 	next(t, bob)

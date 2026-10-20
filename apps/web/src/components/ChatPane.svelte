@@ -1,6 +1,6 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
-  import { asSpoiler, mediaKind } from "../lib/media";
+  import { asSpoiler, imageBox, mediaKind } from "../lib/media";
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -28,7 +28,7 @@
   import Lightbox from "./Lightbox.svelte";
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
-  import { formatSize, type DisplayMessage } from "../lib/textChannels";
+  import { formatSize, type Attachment, type DisplayMessage } from "../lib/textChannels";
   import { replyBoxText, type Thread } from "../lib/threads";
   import { afterUpload, canAttach, clipboardImage, emptyPaste, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
   import { linuxApp } from "../lib/desktop";
@@ -1239,12 +1239,26 @@
   {/if}
 {/snippet}
 
+<!-- The picture's box before it loads (see imageBox); the loaded picture's
+     own ratio wins ("auto"). -->
+{#snippet picture(u: Attachment, alt: string)}
+  {@const box = imageBox(u)}
+  <img
+    src={u.url}
+    {alt}
+    loading="lazy"
+    style:width={box && `${box.width}px`}
+    style:aspect-ratio={box && `auto ${u.width} / ${u.height}`}
+    onload={keepBottom}
+  />
+{/snippet}
+
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
     {#if m.upload.spoiler && !shownFiles.has(m.upload.url)}
       {@const upload = m.upload}
       <button type="button" class="spoiler-file" aria-label="Spoiler, show the attachment" onclick={() => (shownFiles = new Set([...shownFiles, upload.url]))}>
-        {#if upload.type.startsWith("image/")}<img src={upload.url} alt="" loading="lazy" onload={keepBottom} />{/if}
+        {#if upload.type.startsWith("image/")}{@render picture(upload, "")}{/if}
         <span>Spoiler</span>
       </button>
     {:else if m.upload.type.startsWith("image/")}
@@ -1261,15 +1275,15 @@
           lightbox = { url: upload.url, name: upload.name };
         }}
       >
-        <img src={upload.url} alt={upload.name} loading="lazy" onload={keepBottom} />
+        {@render picture(upload, upload.name)}
       </a>
     {:else if mediaKind(m.upload) && !unplayable.has(m.upload.url)}
       {@const u = m.upload}
       {@const failed = () => (unplayable = new Set([...unplayable, u.url]))}
       {#if mediaKind(u) === "audio"}
-        <AudioPlayer url={u.url} name={u.name} size={u.size} onError={failed} />
+        <AudioPlayer url={u.url} name={u.name} size={u.size} length={u.duration} onError={failed} />
       {:else}
-        <VideoPlayer url={u.url} name={u.name} size={u.size} onLoad={keepBottom} onError={failed} />
+        <VideoPlayer url={u.url} name={u.name} size={u.size} width={u.width} height={u.height} length={u.duration} onLoad={keepBottom} onError={failed} />
       {/if}
     {:else}
       <a class="file" href={m.upload.url} rel="noopener noreferrer">
@@ -1621,6 +1635,7 @@
     grid-area: 1 / 1;
     max-width: 100%;
     max-height: 300px;
+    object-fit: contain;
     filter: blur(32px);
   }
   .spoiler-file span {
@@ -1970,11 +1985,14 @@
     display: inline-block;
     margin-top: 4px;
   }
+  /* The largest box: in step with imageBox (lib/media). contain: a
+     picture whose ratio differs from the server's is not squashed. */
   .image img {
     display: block;
     max-width: min(400px, 100%);
     max-height: 300px;
     border-radius: 8px;
+    object-fit: contain;
   }
   .file {
     display: inline-flex;

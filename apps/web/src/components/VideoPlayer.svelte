@@ -1,17 +1,31 @@
 <script lang="ts">
-  import { finite, formatDuration, onlyOne } from "../lib/media";
+  import { formatDuration, mediaRatio, onlyOne, shownLength } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // A video attachment: a play button and the length until it starts, then
   // the browser's controls; the file below.
   // onError: it cannot play (the caller shows the file instead).
+  // width, height, length (ms): from the server if it knows them, so the
+  // box and the length are right before the metadata loads.
   let {
     url,
     name,
     size,
+    width,
+    height,
+    length,
     onLoad,
     onError,
-  }: { url: string; name: string; size: number; onLoad?: () => void; onError?: () => void } = $props();
+  }: {
+    url: string;
+    name: string;
+    size: number;
+    width?: number;
+    height?: number;
+    length?: number;
+    onLoad?: () => void;
+    onError?: () => void;
+  } = $props();
   let video: HTMLVideoElement | undefined = $state();
   let started = $state(false);
   let duration = $state(0);
@@ -30,6 +44,7 @@
     src="{url}#t=0.1"
     preload="metadata"
     playsinline
+    style:aspect-ratio={mediaRatio({ width, height })}
     controls={started}
     bind:duration
     onloadedmetadata={onLoad}
@@ -43,7 +58,7 @@
     <button class="play" aria-label="Play {name}" onclick={start}>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z" /></svg>
     </button>
-    {#if finite(duration)}<span class="length">{formatDuration(duration)}</span>{/if}
+    {#if shownLength(duration, length)}<span class="length">{formatDuration(shownLength(duration, length))}</span>{/if}
   {/if}
   <div class="file">
     <a class="name ellipsis" href={url} target="_blank" rel="noopener noreferrer">{name}</a>

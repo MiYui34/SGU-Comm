@@ -25,7 +25,9 @@ import { followedThreads, isThread, isThreads, withThreads, type Thread, type Th
 // slowMode: seconds between a user's posts (see lib/slowMode); category:
 // see lib/categories (none: at the top).
 export type TextChannel = { id: number; name: string; mumble?: number; topic?: string; slowMode?: number; category?: number };
-export type Attachment = { url: string; name: string; type: string; size: number };
+// width, height: pixels (as shown); duration: milliseconds. Missing when
+// the server does not know them.
+export type Attachment = { url: string; name: string; type: string; size: number; width?: number; height?: number; duration?: number };
 export type TextMessage = {
   id: number;
   channel: number;
@@ -422,9 +424,10 @@ const isCategories = (v: unknown): v is TextCategory[] =>
   Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.id) && isStr(c.name) && (c.mumble === undefined || isNum(c.mumble)));
 // Categories, if the event has valid ones (older servers: none).
 const withCategories = (v: Record<string, unknown>) => (isCategories(v.categories) ? { categories: v.categories } : {});
-const isAttachment = (v: unknown): v is Attachment =>
-  isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
 const optStr = (v: unknown) => v === undefined || isStr(v);
+const optSize = (v: unknown) => v === undefined || (isNum(v) && v > 0);
+const isAttachment = (v: unknown): v is Attachment =>
+  isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size) && optSize(v.width) && optSize(v.height) && optSize(v.duration);
 const isPreview = (v: unknown): v is LinkPreview =>
   isObj(v) &&
   isStr(v.url) &&
@@ -432,7 +435,9 @@ const isPreview = (v: unknown): v is LinkPreview =>
   isStr(v.title) &&
   optStr(v.description) &&
   optStr(v.site) &&
-  (v.image === undefined || (isStr(v.image) && v.image.startsWith("/api/link-image/")));
+  (v.image === undefined || (isStr(v.image) && v.image.startsWith("/api/link-image/"))) &&
+  optSize(v.imageWidth) &&
+  optSize(v.imageHeight);
 
 const isReactions = (v: unknown): v is Reaction[] =>
   Array.isArray(v) &&
