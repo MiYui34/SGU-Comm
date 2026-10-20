@@ -11,3 +11,5 @@
 - [ ] [Moderators for single channels](issues/channel-moderators.md)
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
+- [ ] [Avatar flags recomputed; size limit for chat images](issues/avatar-flags-and-image-limits.md)
+- [ ] [Streams: temporal layers for slow viewers](issues/stream-temporal-layers.md)

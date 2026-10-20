@@ -18,3 +18,15 @@ rules.
 - Server tests for each right inside and outside the channel; they
   cannot act on server staff.
 - Web: the setting and the badge.
+
+## Decisions (2026-10-20)
+
+- Rights in their channel: delete and pin messages, set the topic and slow
+  mode; mute, move out of and kick from the voice channel; add and remove
+  members and make invite links if the channel is private; time-out in
+  that channel only (new: a channel time-out stops writing and speaking
+  there, server-wide time-outs stay as they are).
+- Appointed by admins and server moderators.
+- Scope: the channel and its subchannels (as Mumble ACLs inherit).
+- Shown: a badge next to the name only in that channel's member list.
+- Never over server staff; nobody acts on SuperUser.
