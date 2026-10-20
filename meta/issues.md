@@ -16,3 +16,4 @@
 - [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
 - [ ] [Desktop app: links do nothing, videos don't play (Linux)](issues/desktop-links-and-video.md)
 - [ ] [Fixes from the follow-up review](issues/review-4-fixes.md)
+- [ ] [Old media plays again; stream audio piles up while audio is frozen](issues/stale-media-playback.md)
