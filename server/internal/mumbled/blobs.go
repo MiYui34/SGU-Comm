@@ -114,7 +114,7 @@ func (s *Server) saveContent(c content) {
 		return
 	}
 	if f := s.cfg.OnPictureChanged; f != nil && c.newTexture {
-		picture := imageType(c.texture) != ""
+		picture := avatarType(c.texture) != ""
 		s.events.add(func() { f(c.userID, picture) })
 	}
 }

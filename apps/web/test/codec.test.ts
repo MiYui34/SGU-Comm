@@ -158,6 +158,54 @@ describe("whenReady", () => {
   });
 });
 
+describe("a failed codec", () => {
+  const later = <T,>() => {
+    let resolve!: (t: T) => void, reject!: (e: unknown) => void;
+    const p = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+    return { p, resolve, reject };
+  };
+  const fake = () => ({ calls: [] as number[], closed: false, close() { this.closed = true; } });
+
+  it("takes no more calls after a failed load, drops the queued ones and reports once", async () => {
+    const errors: string[] = [];
+    const { p, reject } = later<ReturnType<typeof fake>>();
+    const r = whenReady(p, (e) => errors.push(e.message));
+    const queued = vi.fn();
+    r.run(queued);
+    reject(new Error("load"));
+    await p.catch(() => {});
+    expect(r.failed()).toBe(true);
+    r.run(queued);
+    expect(queued).not.toHaveBeenCalled();
+    expect(errors).toEqual(["load"]);
+  });
+  it("stops at a failed call: closes the codec, runs nothing after it, reports once", async () => {
+    const errors: string[] = [];
+    const c = fake();
+    const r = whenReady(Promise.resolve(c), (e) => errors.push(e.message));
+    await Promise.resolve();
+    r.run(() => {
+      throw new Error("call");
+    });
+    r.run((c) => c.calls.push(1));
+    expect(c).toMatchObject({ calls: [], closed: true });
+    expect(errors).toEqual(["call"]);
+  });
+  it("fails on the codec's own error, also while calls wait", async () => {
+    const errors: string[] = [];
+    const { p, resolve } = later<ReturnType<typeof fake>>();
+    const r = whenReady(p, (e) => errors.push(e.message));
+    r.run((c) => c.calls.push(1));
+    r.fail(new Error("encoder"));
+    r.fail(new Error("again"));
+    const c = fake();
+    resolve(c);
+    await p;
+    expect(c).toMatchObject({ calls: [], closed: true });
+    expect(errors).toEqual(["encoder"]);
+  });
+});
+
 // Node has no WebCodecs: the real WebAssembly path, end to end.
 describe("the WebAssembly codec", () => {
   it("encodes a frame and decodes it to two channels of 20 ms", async () => {

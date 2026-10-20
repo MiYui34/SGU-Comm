@@ -180,8 +180,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   const routeAudio = (msg: MumbleMessage) => {
     if (msg.type === "Ping") info.pong(Number(msg.message.timestamp), performance.now());
     if (!playback) return;
-    // Not before the sync (the server may send voice first): local mutes
-    // and volumes are not set yet.
+    // Not before the sync (the server may send voice first). Playback
+    // also waits for each speaker's local mute and volume (setUserGain).
     if (msg.type === "UDPTunnel" && state.status === "synced") {
       const packet = decodeAudio(audioFormat(state), msg.packet);
       if (packet) playback.handle(packet);

@@ -684,7 +684,7 @@ func (d *DB) textureByName(name string) ([]byte, error) {
 // whether the avatar is a picture (see Pictures).
 func (d *DB) SetUserContent(id uint32, comment string, texture []byte) error {
 	_, err := d.db.Exec(`UPDATE mumble_users SET comment = ?, texture = ?, picture = ? WHERE id = ?`,
-		comment, texture, imageType(texture) != "", id)
+		comment, texture, avatarType(texture) != "", id)
 	return err
 }
 
@@ -721,7 +721,7 @@ func flagPictures(tx *sql.Tx) error {
 			rows.Close()
 			return err
 		}
-		if imageType(texture) != "" {
+		if avatarType(texture) != "" {
 			ids = append(ids, id)
 		}
 	}

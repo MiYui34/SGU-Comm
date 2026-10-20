@@ -367,7 +367,8 @@
   const updateSelf = (s: SelfState) => {
     if (me) connection.send(setSelfState(me.session, s));
   };
-  // Per-user volume and local mute, by user name.
+  // Per-user volume and local mute, by user name. Playback drops a
+  // speaker's voice until this set it.
   const audioOf = (name: string) => userAudioFor(userAudio.value, name);
   $effect(() => {
     for (const u of users) connection.playback?.setUserGain(u.session, gainOf(audioOf(u.name)));

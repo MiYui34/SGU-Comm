@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCapture } from "../src/lib/voice/capture.svelte";
+import type { EncoderSink } from "../src/lib/voice/codec";
+
+// Encoders that only count: a test fails them through their sink.
+const encoders = vi.hoisted(() => [] as { encode: ReturnType<typeof vi.fn>; flush: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; sink: EncoderSink }[]);
+vi.mock("../src/lib/voice/codec", () => ({
+  voiceEncoder: (_config: unknown, sink: EncoderSink) => {
+    const e = { encode: vi.fn(), flush: vi.fn(), close: vi.fn(), sink };
+    encoders.push(e);
+    return e;
+  },
+}));
 
 // Just enough of the browser's media APIs for start().
 const fakeNode = () => ({ connect: vi.fn((n: unknown) => n), disconnect: vi.fn(), port: { postMessage: vi.fn() } });
@@ -72,5 +83,31 @@ describe("capture start", () => {
     await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(2));
     expect(getUserMedia.mock.lastCall).toMatchObject([{ audio: { autoGainControl: false } }]);
     await vi.waitFor(() => expect(tracks.map((t) => t.stop.mock.calls.length)).toEqual([1, 0]));
+  });
+});
+
+describe("capture with a failed encoder", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stops feeding it and tries a fresh one at the next talk spurt", async () => {
+    encoders.length = 0;
+    const { capture } = setup();
+    capture.setMode("ptt");
+    capture.setPttDown(true);
+    await capture.start();
+    const node = vi.mocked(AudioWorkletNode).mock.results[0]!.value as ReturnType<typeof fakeNode> & { port: { onmessage: (e: unknown) => void } };
+    const frame = () => node.port.onmessage({ data: { samples: new Float32Array(960) } });
+    frame();
+    expect(encoders[0]!.encode).toHaveBeenCalledTimes(1);
+    encoders[0]!.sink.error(new Error("no wasm"));
+    expect(capture.micError).toBe("Voice encoder failed: no wasm");
+    frame();
+    capture.setPttDown(false);
+    frame();
+    expect(encoders[0]!.encode).toHaveBeenCalledTimes(1);
+    expect(encoders).toHaveLength(1);
+    capture.setPttDown(true);
+    frame();
+    expect(encoders[1]!.encode).toHaveBeenCalledTimes(1);
   });
 });

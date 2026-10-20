@@ -76,4 +76,23 @@ describe("encoder rotation", () => {
     expect(rot.output(e)).toBe(20);
     expect(rot.output(e)).toBeUndefined(); // e.g. Chrome's packet after flush()
   });
+
+  it("drops a failed encoder's inputs and replaces it at the next talk spurt", () => {
+    const { rot, made } = setup();
+    const first = rot.current();
+    rot.encoded(first, 1);
+    rot.fail(first);
+    expect(rot.failed()).toBe(true);
+    expect(rot.output(first)).toBeUndefined();
+    rot.startSpurt();
+    expect(rot.current()).toBe(made[1]);
+    expect(rot.failed()).toBe(false);
+  });
+
+  it("replaces a failed encoder that was never used", () => {
+    const { rot, made } = setup();
+    rot.fail(rot.current());
+    rot.startSpurt();
+    expect(rot.current()).toBe(made[1]);
+  });
 });

@@ -109,6 +109,14 @@ describe("createPlayout", () => {
     expect(p.at(s(t + 0.6), t)! - t).toBeCloseTo(MIN_LEAD, 2);
   });
 
+  it("keeps showing a sparse share's pictures after a late one (time alone moves nothing)", () => {
+    const p = createPlayout();
+    expect(p.at(0, 0)).toBeCloseTo(0.5);
+    expect(p.at(125000, 0.75)).toBeCloseTo(0.875); // late: lead 0.75
+    expect(p.at(300125000, 300.75)).toBeCloseTo(300.875); // 5 minutes of a still screen, same clocks
+    for (let t = 330; t < 900; t += 30) expect(p.at(s(t - 0.625), t)).not.toBeNull(); // one change every 30 s
+  });
+
   it("forgets everything on reset", () => {
     const p = createPlayout();
     p.at(s(0), 0);

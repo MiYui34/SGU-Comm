@@ -4,10 +4,16 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"kallisti.chat/server/internal/names"
 )
@@ -15,7 +21,7 @@ import (
 // Avatars serves registered users' avatars at /api/avatars/<name>, so web
 // clients can show them for users who are offline, and for online ones
 // instead of a RequestBlob on the voice connection (with ?v=<SHA-1> from
-// UserState: cached for good). Only real images (by their bytes) go out;
+// UserState: cached for good). Only real images (see avatarType) go out;
 // anything else is 404.
 func (s *Server) Avatars() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +38,7 @@ func (s *Server) Avatars() http.Handler {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		typ := imageType(texture)
+		typ := avatarType(texture)
 		if typ == "" {
 			NoAvatars.ServeHTTP(w, r)
 			return
@@ -48,6 +54,24 @@ func (s *Server) Avatars() http.Handler {
 		h.Set("Content-Type", typ)
 		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(texture))
 	})
+}
+
+// maxAvatarSide is the most pixels a side of an avatar has, as web clients
+// show them: a few KB of PNG can hold a picture that takes a GB to decode.
+const maxAvatarSide = 1024
+
+// avatarType is the type of an avatar that is an allowed image of at most
+// maxAvatarSide a side ("": none). Only the header is read.
+func avatarType(data []byte) string {
+	typ := imageType(data)
+	if typ == "" {
+		return ""
+	}
+	c, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || c.Width > maxAvatarSide || c.Height > maxAvatarSide {
+		return ""
+	}
+	return typ
 }
 
 // avatarOf is a registered user's avatar: the live one while online (it

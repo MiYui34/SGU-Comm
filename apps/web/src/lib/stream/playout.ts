@@ -8,7 +8,9 @@
 // once: a short pause, not a skip (what was already scheduled stays). After
 // a calm minute the lead goes down slowly again (sound plays 0.5 % faster
 // meanwhile, see rate; nobody hears that), while the slowest item since
-// then still had more than MIN_LEAD to spare.
+// then still had more than MIN_LEAD to spare. Only items move it: at most
+// IDLE seconds of drift per item, so a still screen share that sends one
+// picture a minute still shows it.
 export const MIN_LEAD = 0.5;
 export const MAX_LEAD = 1.5;
 const STEP = 0.25;
@@ -16,12 +18,13 @@ const CALM = 60; // seconds without a late item before the lead goes down
 const DRIFT = 0.005; // seconds less lead per second
 const STUCK = 1; // late this long at the most lead: a delay that stays, start over
 const FAR_AHEAD = 1; // seconds beyond the lead: the clock jumped, start over
+const IDLE = 1; // seconds between items that count for lowering, at the most
 
 export const createPlayout = () => {
   let offset: number | null = null; // stream time (s) + offset = play time
   let lead = MIN_LEAD;
   let calmSince = 0;
-  let slack = Infinity; // the least time to spare of an item since calmSince
+  let slack = Infinity; // the least time to spare of an item since calmSince (none yet: Infinity)
   let last = 0;
   let lateSince: number | null = null;
   let lowering = false;
@@ -37,9 +40,10 @@ export const createPlayout = () => {
     at: (timestamp: number, now: number): number | null => {
       const t = timestamp / 1e6;
       if (offset === null || t + offset > now + lead + FAR_AHEAD) anchor(t, now);
-      lowering = now - calmSince >= CALM && slack > MIN_LEAD;
+      // Without an item since the late one nothing is known: no lowering.
+      lowering = now - calmSince >= CALM && slack > MIN_LEAD && slack < Infinity;
       if (lowering) {
-        const d = Math.min(DRIFT * Math.max(0, now - last), slack - MIN_LEAD);
+        const d = Math.min(DRIFT * Math.min(IDLE, Math.max(0, now - last)), slack - MIN_LEAD);
         offset! -= d;
         slack -= d;
         lead = Math.max(MIN_LEAD, lead - d);
