@@ -65,6 +65,9 @@ func (c *Conn) timeOut(id mumble.Identity, req request) {
 	}
 }
 
+// chatWrites are the requests a time-out refuses.
+var chatWrites = map[string]bool{"send": true, "react": true, "edit-message": true, "typing": true, "create-thread": true, "rename-thread": true, "archive-thread": true}
+
 // timedOut refuses chat requests of a timed out user (typing quietly), and
 // those in a channel where it is timed out.
 func (c *Conn) timedOut(id mumble.Identity, req request) bool {

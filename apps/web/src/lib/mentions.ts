@@ -1,5 +1,6 @@
 import { escapeHtml } from "@kallisti/protocol";
 import type { TextState } from "./textChannels";
+import { followedThreads } from "./threads";
 
 // Mentions: "@" plus a user's whole name, any case, after a space or an
 // opening mark (not in an address, a URL or right after an entity).
@@ -68,7 +69,12 @@ export const mentionCounts = (
   const out: Record<number, number> = {};
   // Only chats that still exist: text channels, known voice chats and
   // direct chats (there every message from the other user counts).
-  const ids = new Set([...state.channels.map((c) => c.id), ...Object.values(state.voiceChannels), ...Object.keys(state.directs).map(Number)]);
+  const ids = new Set([
+    ...state.channels.map((c) => c.id),
+    ...Object.values(state.voiceChannels),
+    ...Object.keys(state.directs).map(Number),
+    ...followedThreads(state.follows, state.threads),
+  ]);
   for (const channel of ids) {
     const direct = channel in state.directs;
     const read = seen[channel] ?? 0;

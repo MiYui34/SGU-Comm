@@ -190,6 +190,7 @@ func run() error {
 	go func() {
 		for range time.Tick(time.Minute) {
 			fileHandler.DeleteUnused()
+			hub.ArchiveIdleThreads()
 			cleanup(time.Now())
 			if err := accounts.DeleteExpiredSessions(); err != nil {
 				slog.Error("delete expired sessions", "err", err)

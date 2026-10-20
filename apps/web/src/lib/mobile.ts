@@ -19,8 +19,10 @@ export const nextPanel = (panel: Panel, swipe: "left" | "right" | null): Panel =
 };
 
 // What the right column (the right drawer on phones) shows: the members, or
-// search results or the open chat's pins in their place.
-export type Side = "members" | "search" | "pins";
+// search results, the open chat's pins or a text channel's threads in
+// their place.
+export type Side = "members" | "search" | "pins" | "threads";
 
-// The pins button. shown: the column is on screen (not a closed drawer).
-export const togglePins = (side: Side, shown: boolean): Side => (side === "pins" && shown ? "members" : "pins");
+// The pins (or threads) button. shown: the column is on screen (not a
+// closed drawer).
+export const toggleSide = (side: Side, shown: boolean, which: Side): Side => (side === which && shown ? "members" : which);

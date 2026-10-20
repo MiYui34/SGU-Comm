@@ -29,6 +29,7 @@
   import Toast from "./Toast.svelte";
   import { escapeHtml, type ChatMessage } from "@kallisti/protocol";
   import { formatSize, type DisplayMessage } from "../lib/textChannels";
+  import { replyBoxText, type Thread } from "../lib/threads";
   import { afterUpload, canAttach, clipboardImage, emptyPaste, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle } from "../lib/composer";
   import { linuxApp } from "../lib/desktop";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
@@ -92,6 +93,14 @@
     slow = null,
     loginToWrite = null,
     chatKey,
+    compact = false,
+    intro,
+    tools,
+    threadOf,
+    onOpenThread,
+    onCreateThread,
+    onThreads,
+    threadsOpen = false,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -166,6 +175,18 @@
     loginToWrite?: { note: string; action: string; onAction?: () => void } | null;
     // Tells the chats apart (see chatKeyOf); else the title.
     chatKey?: string;
+    // A thread's pane (see lib/threads): no member list button; intro: in
+    // place of the channel's welcome; tools: more header buttons.
+    compact?: boolean;
+    intro?: Snippet;
+    tools?: Snippet;
+    // Threads started from messages (a box under them that opens them),
+    // starting one from a message, and the channel's thread list.
+    threadOf?: (message: number) => Thread | undefined;
+    onOpenThread?: (thread: Thread) => void;
+    onCreateThread?: (message: number, text: string) => void;
+    onThreads?: () => void;
+    threadsOpen?: boolean;
     // Text channels: attach a file (button, paste or drop), with a caption.
     // ok: the upload worked (false: busy or failed; the file stays).
     onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
@@ -472,6 +493,8 @@
     onReact?.(id, emoji, !mineOf(m, emoji));
     void closePicker();
   };
+  // A thread from a message that has none (stored chats we write in).
+  const canThread = (id: number) => canReply && !!onCreateThread && !threadOf?.(id);
   // What we may do with a stored message (the server checks again).
   const allowed = (m: ChatMessage | DisplayMessage) => {
     if (!("source" in m) || !m.source || editing?.id === m.source.id) return null;
@@ -531,6 +554,7 @@
     const text = "source" in m && m.source ? m.source.text : htmlToText(m.text);
     return [
       ...(may && canReply ? [{ label: "Reply", icon: "reply" as const, run: done(() => startReply(m)) }] : []),
+      ...(may && canThread(may.id) ? [{ label: "Create thread", icon: "thread" as const, run: done(() => onCreateThread?.(may.id, text)) }] : []),
       ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(text, "Text copied")) }] : []),
       ...(may && linkTo ? [{ label: "Copy link", icon: "copy" as const, run: done(() => copy(linkTo(may.id), "Link copied")) }] : []),
       ...(may?.canPin
@@ -676,7 +700,7 @@
     {#if kind === "dm"}
       <span class="at" aria-hidden="true">@</span>
     {:else}
-      <Icon name={kind === "text" ? "hash" : "speaker"} size={22} />
+      <Icon name={compact ? "thread" : kind === "text" ? "hash" : "speaker"} size={22} />
     {/if}
     <h1 class="ellipsis">{title}</h1>
     {#if topic}
@@ -718,12 +742,18 @@
           {/if}
         </form>
       {/if}
+      {#if onThreads}
+        <button class:on={threadsOpen} onclick={onThreads} aria-pressed={threadsOpen} title="Threads" aria-label="Threads">
+          <Icon name="thread" size={20} />
+        </button>
+      {/if}
       {#if onPins}
         <button class:on={pinsOpen} onclick={onPins} aria-pressed={pinsOpen} title="Pinned messages" aria-label="Pinned messages">
           <Icon name="pin" size={20} />
         </button>
       {/if}
-      {#if kind !== "dm"}
+      {@render tools?.()}
+      {#if kind !== "dm" && !compact}
         <button
           class:on={membersOpen}
           onclick={onToggleMembers}
@@ -775,6 +805,8 @@
           {loadingOlder ? "Loading…" : "Load older messages"}
         </button>
       </div>
+    {:else if intro}
+      <div class="intro">{@render intro()}</div>
     {:else}
     <div class="intro">
       <div class="intro-icon" aria-hidden="true">
@@ -1130,6 +1162,14 @@
       {/each}
     </div>
   {/if}
+  {#if "source" in m && m.source && threadOf?.(m.source.id)}
+    {@const t = threadOf(m.source.id)!}
+    <button type="button" class="thread-box" onclick={() => onOpenThread?.(t)}>
+      <Icon name="thread" size={16} />
+      <strong class="ellipsis">{t.name}</strong>
+      <span class="ellipsis">{t.archived ? "Archived · " : ""}{replyBoxText(t, now)}</span>
+    </button>
+  {/if}
 {/snippet}
 
 {#snippet actions(m: ChatMessage | DisplayMessage)}
@@ -1173,6 +1213,11 @@
           {/if}
           {#if canReply}
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
+          {/if}
+          {#if canThread(id)}
+            <button type="button" aria-label="Create thread" title="Create thread" onclick={() => onCreateThread?.(id, "source" in m && m.source ? m.source.text : "")}
+              >Thread</button
+            >
           {/if}
           {#if canPin}
             <button type="button" aria-label={pinned ? "Unpin message" : "Pin message"} title={pinned ? "Unpin" : "Pin"} onclick={() => onPin?.(id, !pinned)}
@@ -1772,6 +1817,28 @@
     height: 80px;
     border-radius: 4px;
     object-fit: cover;
+  }
+  .thread-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(480px, 100%);
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--bg-sidebar);
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: left;
+  }
+  .thread-box strong {
+    color: var(--text);
+    flex-shrink: 0;
+    max-width: 50%;
+  }
+  .thread-box:hover {
+    background: var(--bg-active);
+    color: var(--text);
   }
   .reactions {
     display: flex;

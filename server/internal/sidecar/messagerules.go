@@ -17,6 +17,7 @@ import (
 // why. Else req has the text to post.
 func (c *Conn) refused(id mumble.Identity, req *request) bool {
 	var m msgrules.Message
+	field := &req.Text
 	switch req.Type {
 	case "send":
 		m = msgrules.Message{Text: req.Text, Upload: req.Upload != "", MentionAll: mentionAllOf(req.Text) != "", Post: true}
@@ -24,6 +25,8 @@ func (c *Conn) refused(id mumble.Identity, req *request) bool {
 		m = msgrules.Message{Text: req.Text, MentionAll: mentionAllOf(req.Text) != ""}
 	case "upload-token":
 		m = msgrules.Message{Upload: true}
+	case "create-thread", "rename-thread": // thread names; a new thread is a post
+		m, field = msgrules.Message{Text: req.Name, Post: req.Type == "create-thread"}, &req.Name
 	default:
 		return false
 	}
@@ -31,7 +34,7 @@ func (c *Conn) refused(id mumble.Identity, req *request) bool {
 		return false
 	}
 	text, err := c.hub.voice.CheckMessage(id.Session, m)
-	if err == nil && text != req.Text && utf8.RuneCountInString(strings.TrimSpace(text)) > MaxTextLength {
+	if err == nil && text != *field && utf8.RuneCountInString(strings.TrimSpace(text)) > MaxTextLength {
 		err = errors.New("This message is too long with the word replacements")
 	}
 	if err != nil {
@@ -42,7 +45,7 @@ func (c *Conn) refused(id mumble.Identity, req *request) bool {
 		}
 		return true
 	}
-	req.Text = text
+	*field = text
 	return false
 }
 

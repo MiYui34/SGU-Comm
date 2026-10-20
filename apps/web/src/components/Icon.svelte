@@ -10,6 +10,7 @@
     hangup: "M3 15c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a10 10 0 0 0-7 0V16l-3 1.5z",
     hash: "M9 4 7 20M17 4l-2 16M4 9h16M3 15h16",
     pin: "M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z",
+    thread: "M4 5h16v11H9l-5 4zM8 9h8M8 12h5",
     lock: "M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11",
     screen: "M3 4h18v12H3zM8 20h8M12 16v4",
     camera: "M3 7h12v10H3zM15 10.5 21 7v10l-6-3.5",

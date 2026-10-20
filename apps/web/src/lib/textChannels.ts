@@ -16,6 +16,7 @@ import { isCaptchaLevel, type CaptchaLevel } from "./captcha";
 import { parseMessageRules, type MessageRules } from "./messageRules";
 import { parseRecordings, type FinishedRecording } from "./recording";
 import type { TextCategory } from "./categories";
+import { followedThreads, isThread, isThreads, withThreads, type Thread, type Threads } from "./threads";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
@@ -43,6 +44,7 @@ export type TextMessage = {
   reactions?: Reaction[];
   mentionAll?: MentionAll;
   noPing?: boolean; // a reply that does not ping
+  thread?: Thread; // the thread started from it (see lib/threads)
 };
 export type Quote = { id: number; author: string; text: string };
 // A chat line for display: a text channel message can carry an attachment
@@ -78,7 +80,8 @@ export type Timeout = { user?: number; session?: number; until: number };
 // speaking there.
 export type ChannelTimeout = Timeout & { channel: number };
 
-export type SummaryEntry = { channel: number; voice?: number; latest: number; mentions: number };
+// parent: a thread's text channel.
+export type SummaryEntry = { channel: number; voice?: number; parent?: number; latest: number; mentions: number };
 
 export type ServerEvent =
   // voiceChats: voice channels have stored chats (the built-in server).
@@ -117,6 +120,11 @@ export type ServerEvent =
       // saved one at /api/avatars/<name>.
       members?: (Peer & { picture?: boolean })[];
       online?: Online;
+      // Active threads of the channels we read, those we follow, and how
+      // long threads stay active without messages (seconds).
+      threads?: Thread[];
+      follows?: number[];
+      threadArchive?: number;
     }
   // A registered user was added or renamed (name), or removed (gone).
   | { type: "member"; id: number; name?: string }
@@ -168,7 +176,15 @@ export type ServerEvent =
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
-  | { type: "channels"; channels: TextChannel[]; categories?: TextCategory[] }
+  | { type: "channels"; channels: TextChannel[]; categories?: TextCategory[]; threads?: Thread[] }
+  // A thread was made or changed (replies, name, archived); deleted; the
+  // threads we follow; a page of a channel's archived threads (asked for);
+  // the archive time changed.
+  | { type: "thread"; thread: Thread }
+  | { type: "thread-deleted"; channel: number; id: number }
+  | { type: "follows"; threads: number[] }
+  | { type: "archived-threads"; channel: number; threads: Thread[]; more: boolean }
+  | { type: "thread-archive"; seconds: number }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "message-edited"; message: TextMessage }
@@ -179,7 +195,7 @@ export type ServerEvent =
   // Messages of a channel were deleted (the server sends one as
   // "message-deleted").
   | { type: "messages-deleted"; channel: number; ids: number[] }
-  | { type: "search-results"; text: string; messages: TextMessage[] }
+  | { type: "search-results"; text: string; messages: TextMessage[]; threads?: Thread[] }
   // about "manage": the answer to a channel or role change; slow: a post
   // refused by slow mode, and when the wait ends.
   // returned: a refused send's text, for the composer of its chat.
@@ -272,6 +288,13 @@ export type TextState = {
   pictures: ReadonlySet<number>;
   // Members online, whether or not we see them (see lib/members).
   online: Online;
+  // Threads we know (the active ones of the channels we read, and others
+  // seen since), those we follow, a channel's archived threads once asked
+  // for (pages so far), and the archive time (seconds).
+  threads: Threads;
+  follows: ReadonlySet<number>;
+  archived: Readonly<Record<number, { threads: Thread[]; more: boolean }>>;
+  threadArchive: number;
 };
 
 export const initialTextState: TextState = {
@@ -315,6 +338,10 @@ export const initialTextState: TextState = {
   pictures: new Set(),
   online: {},
   bios: {},
+  threads: {},
+  follows: new Set(),
+  archived: {},
+  threadArchive: 3 * 24 * 3600,
 };
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -434,7 +461,8 @@ const isMessage = (v: unknown): v is TextMessage =>
   (v.upload === undefined || isAttachment(v.upload)) &&
   (v.reactions === undefined || isReactions(v.reactions)) &&
   (v.mentionAll === undefined || isMentionAll(v.mentionAll)) &&
-  (v.noPing === undefined || typeof v.noPing === "boolean");
+  (v.noPing === undefined || typeof v.noPing === "boolean") &&
+  (v.thread === undefined || isThread(v.thread));
 
 // Network input: anything unexpected is dropped.
 export const parseServerEvent = (raw: string): ServerEvent | null => {
@@ -478,6 +506,9 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(emoji ? { emoji } : {}),
         ...(Array.isArray(v.members) && v.members.every(isSpeaker) ? { members: v.members } : {}),
         ...(isObj(v.online) && Object.values(v.online).every(isNum) ? { online: v.online as Online } : {}),
+        ...(isThreads(v.threads) ? { threads: v.threads } : {}),
+        ...(isIds(v.follows) ? { follows: v.follows } : {}),
+        ...(isNum(v.threadArchive) ? { threadArchive: v.threadArchive } : {}),
       };
     }
     case "member":
@@ -551,7 +582,19 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "channels":
       if (v.categories !== undefined && !isCategories(v.categories)) return null;
-      return Array.isArray(v.channels) && v.channels.every(isChannel) ? { type: "channels", channels: v.channels, ...withCategories(v) } : null;
+      return Array.isArray(v.channels) && v.channels.every(isChannel)
+        ? { type: "channels", channels: v.channels, ...withCategories(v), ...(isThreads(v.threads) ? { threads: v.threads } : {}) }
+        : null;
+    case "thread":
+      return isThread(v.thread) ? { type: "thread", thread: v.thread } : null;
+    case "thread-deleted":
+      return isNum(v.channel) && isNum(v.id) ? { type: "thread-deleted", channel: v.channel, id: v.id } : null;
+    case "follows":
+      return isIds(v.threads) ? { type: "follows", threads: v.threads } : null;
+    case "archived-threads":
+      return isNum(v.channel) && isThreads(v.threads) ? { type: "archived-threads", channel: v.channel, threads: v.threads, more: v.more === true } : null;
+    case "thread-archive":
+      return isNum(v.seconds) ? { type: "thread-archive", seconds: v.seconds } : null;
     case "history":
       return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
@@ -570,7 +613,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return isNum(v.channel) && Array.isArray(v.ids) && v.ids.every(isNum) ? { type: "messages-deleted", channel: v.channel, ids: v.ids } : null;
     case "search-results":
       return isStr(v.text) && Array.isArray(v.messages) && v.messages.every(isMessage)
-        ? { type: "search-results", text: v.text, messages: v.messages }
+        ? { type: "search-results", text: v.text, messages: v.messages, ...(isThreads(v.threads) ? { threads: v.threads } : {}) }
         : null;
     case "error":
       if (!isStr(v.message)) return null;
@@ -609,6 +652,15 @@ const withPin = (list: readonly TextMessage[], m: TextMessage) =>
 const merge = (a: readonly TextMessage[] = [], b: readonly TextMessage[]) =>
   [...new Map([...a, ...b].map((m) => [m.id, m])).values()].sort((x, y) => x.id - y.id);
 
+// The threads messages started (their quote: the message).
+const threadsIn = (ms: readonly TextMessage[]) =>
+  ms.flatMap((m) => (m.thread ? [{ ...m.thread, quote: m.thread.quote ?? { id: m.id, author: m.author, text: m.text } }] : []));
+
+// Threads after a channel list came: its active ones, and the archived
+// ones we knew of channels in it.
+const keptThreads = (threads: Threads, channels: readonly TextChannel[], active: readonly Thread[]) =>
+  withThreads(Object.fromEntries(Object.entries(threads).filter(([, t]) => t.archived && channels.some((c) => c.id === t.channel))), active);
+
 const patchSearch = (search: TextState["search"], f: (ms: TextMessage[]) => TextMessage[]) =>
   search && { ...search, messages: f(search.messages) };
 
@@ -646,6 +698,10 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         statuses: statusMap(event.statuses ?? []),
         ownStatus: event.ownStatus ?? initialTextState.ownStatus,
         summary: Object.fromEntries((event.summary ?? []).map((e) => [e.channel, { latest: e.latest, mentions: e.mentions }])),
+        threads: withThreads({}, event.threads ?? []),
+        follows: new Set(event.follows ?? []),
+        archived: {},
+        threadArchive: event.threadArchive ?? initialTextState.threadArchive,
         voiceChannels: {
           ...state.voiceChannels,
           ...Object.fromEntries((event.summary ?? []).flatMap((e) => (e.voice === undefined ? [] : [[e.voice, e.channel]]))),
@@ -715,12 +771,48 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "channels":
-      return { ...state, channels: event.channels, categories: event.categories ?? [] };
+      return { ...state, channels: event.channels, categories: event.categories ?? [], threads: keptThreads(state.threads, event.channels, event.threads ?? []) };
+    case "thread": {
+      const t = event.thread;
+      const list = state.archived[t.channel];
+      return {
+        ...state,
+        threads: withThreads(state.threads, [t]),
+        // A newly archived one is the newest there.
+        ...(list && { archived: { ...state.archived, [t.channel]: { ...list, threads: [...(t.archived && !list.threads.some((x) => x.id === t.id) ? [t] : []), ...list.threads.map((x) => (x.id === t.id ? t : x))] } } }),
+      };
+    }
+    case "thread-deleted": {
+      const { [event.id]: _, ...threads } = state.threads;
+      const { [event.id]: __, ...messages } = state.messages;
+      const list = state.archived[event.channel];
+      return {
+        ...state,
+        threads,
+        messages,
+        follows: new Set([...state.follows].filter((id) => id !== event.id)),
+        ...(list && { archived: { ...state.archived, [event.channel]: { ...list, threads: list.threads.filter((t) => t.id !== event.id) } } }),
+      };
+    }
+    case "follows":
+      return { ...state, follows: new Set(event.threads) };
+    case "archived-threads": {
+      // Pages come in order: a page's threads go after those we have.
+      const known = (state.archived[event.channel]?.threads ?? []).filter((t) => !event.threads.some((x) => x.id === t.id));
+      return {
+        ...state,
+        threads: withThreads(state.threads, event.threads),
+        archived: { ...state.archived, [event.channel]: { threads: [...known, ...event.threads], more: event.more } },
+      };
+    }
+    case "thread-archive":
+      return { ...state, threadArchive: event.seconds };
     case "history":
       return {
         ...state,
         lastError: null,
         messages: { ...state.messages, [event.channel]: merge(state.messages[event.channel], event.messages) },
+        threads: withThreads(state.threads, threadsIn(event.messages)),
         loaded: { ...state.loaded, [event.channel]: true },
         more: { ...state.more, [event.channel]: event.more },
       };
@@ -734,7 +826,14 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       if (event.type === "message-edited" && !state.messages[ch]?.some((m) => m.id === event.message.id)) return { ...state, search, pins };
       // An edit may change the link: its preview is asked again.
       const { [event.message.id]: _, ...previews } = state.previews;
-      return { ...state, search, pins, previews, messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) } };
+      return {
+        ...state,
+        search,
+        pins,
+        previews,
+        threads: withThreads(state.threads, threadsIn([event.message])),
+        messages: { ...state.messages, [ch]: merge(state.messages[ch], [event.message]) },
+      };
     }
     case "message-pinned": {
       const m = event.message;
@@ -749,7 +848,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "pins":
       return { ...state, pins: { ...state.pins, [event.channel]: event.messages } };
     case "search-results":
-      return { ...state, search: { text: event.text, messages: event.messages } };
+      return { ...state, search: { text: event.text, messages: event.messages }, threads: withThreads(state.threads, event.threads ?? []) };
     case "preview":
       return { ...state, previews: { ...state.previews, [event.message]: event.preview } };
     case "reactions": {
@@ -987,11 +1086,11 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
   return chat;
 };
 
-// Channels with a message newer than the newest one seen there (loaded,
-// or known from the server's summary).
+// Channels (and active threads we follow) with a message newer than the
+// newest one seen there (loaded, or known from the server's summary).
 export const unreadTextIds = (state: TextState, seen: Record<number, number>): Set<number> =>
   new Set(
-    state.channels
-      .filter((c) => Math.max(state.messages[c.id]?.at(-1)?.id ?? 0, state.summary[c.id]?.latest ?? 0) > (seen[c.id] ?? 0))
-      .map((c) => c.id),
+    [...state.channels.map((c) => c.id), ...followedThreads(state.follows, state.threads).filter((id) => !state.threads[id]!.archived)].filter(
+      (id) => Math.max(state.messages[id]?.at(-1)?.id ?? 0, state.summary[id]?.latest ?? 0) > (seen[id] ?? 0),
+    ),
   );

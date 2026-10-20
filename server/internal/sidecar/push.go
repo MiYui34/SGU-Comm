@@ -43,7 +43,10 @@ func pushBody(m store.Message, direct bool, where string) string {
 
 // userMay: a registered user may read the chat, connected or not.
 func (h *Hub) userMay(user uint32, c chat) bool {
+	c, ok := h.parentOf(c)
 	switch {
+	case !ok:
+		return false
 	case c.direct:
 		return user == c.peers[0] || user == c.peers[1]
 	case c.isVoice:
@@ -55,6 +58,10 @@ func (h *Hub) userMay(user uint32, c chat) bool {
 
 // where a chat is, for the push text.
 func (h *Hub) where(c chat) string {
+	if c.parent != 0 {
+		t, _ := h.store.Thread(c.id)
+		return h.where(chat{id: c.parent}) + " › " + t.Name
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, ch := range h.channels {

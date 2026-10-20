@@ -1,6 +1,7 @@
 package sidecar
 
 import (
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -81,6 +82,9 @@ func (c *Conn) changeMessage(id mumble.Identity, req request) {
 				return
 			}
 			send(map[string]any{"type": "message-edited", "message": toWire(m)})
+			if m.Thread != nil { // its quote
+				h.threadChanged(m.Thread.ID)
+			}
 		}
 		return
 	}
@@ -170,6 +174,21 @@ func (h *Hub) removed(gone []store.Message) {
 		default:
 			h.sendTo(ch, map[string]any{"type": "messages-deleted", "channel": channel, "ids": ids})
 		}
+		if ok && ch.parent != 0 { // fewer replies
+			h.threadChanged(channel)
+		}
+	}
+	// Threads stay without their start messages.
+	starts := make([]int64, len(gone))
+	for i, m := range gone {
+		starts[i] = m.ID
+	}
+	threads, err := h.store.ThreadsFrom(starts)
+	if err != nil {
+		slog.Error("threads of deleted messages", "err", err)
+	}
+	for _, t := range threads {
+		h.threadChanged(t.ID)
 	}
 }
 

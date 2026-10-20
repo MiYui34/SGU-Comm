@@ -5,19 +5,21 @@ import { pageAnswered, unreadTextIds } from "./textChannels";
 
 // Text channel behaviour of the client view: load history once per channel,
 // page back, track what was seen. Call during component setup (it uses
-// effects). `currentId` is the open text channel, or null.
+// effects). `currentIds` are the open chats (the main one and an open
+// thread; null: none).
 // `me` is our name, for mentions.
 const MARK_DELAY_MS = 2000;
 
 // blocked: users whose messages do not count as mentions.
 export const createTextView = (
   connection: () => Connection,
-  currentId: () => number | null,
+  currentIds: () => readonly (number | null)[],
   me: () => string,
   blocked: (name: string) => boolean,
 ) => {
   const text = $derived(connection().text);
   const requested = new Set<number>();
+  const open = () => currentIds().filter((id) => id !== null);
   let seen = $state<Record<number, number>>({});
   // The page of older messages asked for, until its answer (or an error).
   let page = $state<{ channel: number; before: number } | null>(null);
@@ -30,8 +32,8 @@ export const createTextView = (
       seenResyncs = text.resyncs;
       requested.clear();
     }
-    const id = currentId();
-    if (id !== null && !text.loaded[id] && !requested.has(id)) {
+    for (const id of open()) {
+      if (text.loaded[id] || requested.has(id)) continue;
       requested.add(id);
       connection().requestHistory(id);
     }
@@ -52,17 +54,16 @@ export const createTextView = (
     if (page && pageAnswered(text, page)) page = null;
   });
 
-  // New messages in the open channel count as seen.
+  // New messages in the open chats count as seen.
   $effect(() => {
-    const id = currentId();
-    if (id === null) return;
-    const newest = text.messages[id]?.at(-1)?.id ?? 0;
-    void text.messages[id]?.length;
-    untrack(() => {
-      if ((read[id] ?? 0) >= newest) return;
-      seen = { ...seen, [id]: newest };
-      queueMark(id, newest);
-    });
+    for (const id of open()) {
+      const newest = text.messages[id]?.at(-1)?.id ?? 0;
+      untrack(() => {
+        if ((read[id] ?? 0) >= newest) return;
+        seen = { ...seen, [id]: newest };
+        queueMark(id, newest);
+      });
+    }
   });
 
   // Read marks go to the server (registered users keep them), at most every
@@ -101,9 +102,7 @@ export const createTextView = (
     get mentions() {
       return mentions;
     },
-    get loadingOlder() {
-      return page !== null && page.channel === currentId();
-    },
+    loadingOlder: (id: number | null) => page !== null && page.channel === id,
     // Read up to the newest message, as opening the chat would.
     markRead: (id: number) => {
       const newest = Math.max(text.messages[id]?.at(-1)?.id ?? 0, text.summary[id]?.latest ?? 0);
@@ -111,8 +110,7 @@ export const createTextView = (
       seen = { ...seen, [id]: newest };
       queueMark(id, newest);
     },
-    loadOlder: () => {
-      const id = currentId();
+    loadOlder: (id: number | null) => {
       const oldest = id === null ? undefined : text.messages[id]?.[0];
       if (id === null || !oldest || page?.channel === id) return;
       page = { channel: id, before: oldest.id };

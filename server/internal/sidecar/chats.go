@@ -10,6 +10,18 @@ type chat struct {
 	isVoice bool
 	direct  bool
 	peers   [2]uint32 // with direct: the two users' ids
+	parent  int64     // a thread: its text channel (see threads.go)
+}
+
+// text: a text channel (no voice chat, direct chat or thread).
+func (c chat) text() bool { return !c.isVoice && !c.direct && c.parent == 0 }
+
+// parentOf: a thread's text channel, if it exists (else the chat as it is).
+func (h *Hub) parentOf(c chat) (chat, bool) {
+	if c.parent == 0 {
+		return c, true
+	}
+	return chat{id: c.parent}, h.channelExists(c.parent)
 }
 
 // chatOf finds a chat by its store channel.
@@ -17,20 +29,30 @@ func (h *Hub) chatOf(channel int64) (chat, bool) {
 	if h.channelExists(channel) {
 		return chat{id: channel}, true
 	}
-	if h.voice == nil {
+	if h.voice != nil {
+		if voice, isVoice, err := h.store.VoiceOf(channel); err != nil || isVoice {
+			return chat{id: channel, voice: voice, isVoice: true}, err == nil
+		}
+		if a, b, direct, err := h.store.DirectPeers(channel); err != nil || direct {
+			return chat{id: channel, direct: true, peers: [2]uint32{a, b}}, err == nil
+		}
+	}
+	t, err := h.store.Thread(channel)
+	if err != nil {
 		return chat{}, false
 	}
-	if voice, isVoice, err := h.store.VoiceOf(channel); err != nil || isVoice {
-		return chat{id: channel, voice: voice, isVoice: true}, err == nil
-	}
-	a, b, direct, err := h.store.DirectPeers(channel)
-	return chat{id: channel, direct: true, peers: [2]uint32{a, b}}, err == nil && direct
+	return h.threadChat(t)
 }
 
 // may: the user may read (or write) the chat. Text channels are for all
 // who see their mirror (private ones for members and staff); writing
-// needs TextMessage there (no channel time-out).
+// needs TextMessage there (no channel time-out). Threads are their
+// channel's.
 func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
+	c, ok := h.parentOf(c)
+	if !ok {
+		return false
+	}
 	if c.direct {
 		return id.Registered && (id.UserID == c.peers[0] || id.UserID == c.peers[1])
 	}

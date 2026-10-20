@@ -70,5 +70,5 @@ func (s *Store) Pinned(channelID int64) ([]Message, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return out, s.withReactions(out)
+	return out, s.withExtras(out)
 }

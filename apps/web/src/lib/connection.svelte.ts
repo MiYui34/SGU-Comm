@@ -1,3 +1,4 @@
+import { threadRequest, type ThreadAction } from "./threads";
 import {
   addOwnMessage,
   audioFormat,
@@ -355,6 +356,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     requestBio: (user: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(bioRequest(user));
+    },
+    // Threads (see lib/threads).
+    thread: (action: ThreadAction) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(threadRequest(action));
     },
     requestPins: (channel: number) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(pinsRequest(channel));

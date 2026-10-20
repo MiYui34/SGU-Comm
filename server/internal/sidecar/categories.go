@@ -101,5 +101,5 @@ func (h *Hub) categoriesFor(id mumble.Identity, channels []wireChannel) []wireCa
 // channelsEvent: the text channels the user reads, and their categories.
 func (h *Hub) channelsEvent(id mumble.Identity) map[string]any {
 	channels := h.channelsFor(id)
-	return map[string]any{"type": "channels", "channels": channels, "categories": h.categoriesFor(id, channels)}
+	return map[string]any{"type": "channels", "channels": channels, "categories": h.categoriesFor(id, channels), "threads": h.threadsFor(id)}
 }

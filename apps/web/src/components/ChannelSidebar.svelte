@@ -6,6 +6,7 @@
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
   import type { Peer, TextChannel } from "../lib/textChannels";
+  import type { Thread } from "../lib/threads";
   import { isCamera, streamId } from "../lib/stream/protocol";
   import Avatar from "./Avatar.svelte";
   import Badge from "./Badge.svelte";
@@ -44,6 +45,11 @@
     canCreate = { text: false, voice: false, category: false },
     onChannelMenu,
     onDirectMenu,
+    threadsOf = () => [],
+    follows = new Set(),
+    currentThread = null,
+    onOpenThread,
+    onThreadMenu,
   }: {
     server: ServerState;
     currentChannel: number | null;
@@ -94,6 +100,13 @@
     onChannelMenu?: (kind: ChannelKind, id: number, event: MouseEvent) => void;
     // Right-click on a direct chat.
     onDirectMenu?: (channel: number, event: MouseEvent) => void;
+    // A text channel's active threads, indented under it (those we follow
+    // show unread; see lib/threads), the open one, and right-click.
+    threadsOf?: (channel: number) => readonly Thread[];
+    follows?: ReadonlySet<number>;
+    currentThread?: number | null;
+    onOpenThread?: (t: Thread) => void;
+    onThreadMenu?: (id: number, event: MouseEvent) => void;
   } = $props();
 
   // Text channel mirrors (for Mumble clients) are not voice channels here.
@@ -258,6 +271,34 @@
           {/if}
           {#if ch.id !== currentText}<Badge count={mentionText[ch.id]} label="mentions" />{/if}
         </button>
+        {#if threadsOf(ch.id).length}
+          <ul class="threads">
+            {#each threadsOf(ch.id) as t (t.id)}
+              {@const here = t.id === currentThread}
+              <li>
+                <button
+                  use:longPress
+                  class="channel thread hover-row"
+                  class:current={here}
+                  class:unread={unreadText.has(t.id) && !here}
+                  class:muted={mutedText.has(t.id) || !follows.has(t.id)}
+                  aria-current={here ? "page" : undefined}
+                  onclick={() => onOpenThread?.(t)}
+                  oncontextmenu={(e) => {
+                    if (!onThreadMenu) return;
+                    e.preventDefault();
+                    onThreadMenu(t.id, e);
+                  }}
+                >
+                  <Icon name="thread" size={16} />
+                  <span class="name ellipsis">{t.name}</span>
+                  {#if unreadText.has(t.id) && !here}<span class="sr-only">unread</span>{/if}
+                  {#if !here}<Badge count={mentionText[t.id]} label="mentions" />{/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -398,6 +439,14 @@
   }
   .channel.muted:not(.current) {
     opacity: 0.5;
+  }
+  .threads {
+    margin: 0;
+    padding: 0 0 0 20px;
+    list-style: none;
+  }
+  .channel.thread {
+    font-size: 14px;
   }
   .text-channels {
     margin-bottom: 16px;

@@ -2,7 +2,7 @@
   // kind: how it shows (and what "open" means, run).
   // unread: for Alt+Shift+Up/Down. locked: a private channel. category: a
   // text channel's (shown after the name).
-  export type Place = { key: string; name: string; kind: "text" | "voice" | "dm"; unread?: boolean; locked?: boolean; category?: string; run: () => void };
+  export type Place = { key: string; name: string; kind: "text" | "voice" | "dm" | "thread"; unread?: boolean; locked?: boolean; category?: string; run: () => void };
 </script>
 
 <script lang="ts">
@@ -63,7 +63,7 @@
     {#each found as p, i (p.key)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <li id="switcher-{p.key}" role="option" aria-selected={i === active} onclick={() => open(p)} onmousemove={() => (chosen = i)}>
-        {#if p.kind === "dm"}<Avatar name={p.name} size={20} />{:else}<Icon name={p.kind === "text" ? "hash" : "speaker"} size={20} />{/if}
+        {#if p.kind === "dm"}<Avatar name={p.name} size={20} />{:else}<Icon name={p.kind === "text" ? "hash" : p.kind === "thread" ? "thread" : "speaker"} size={20} />{/if}
         <span class="ellipsis">{p.name}</span>
         {#if p.locked}<span class="lock"><Icon name="lock" size={14} /><span class="sr-only">(private)</span></span>{/if}
         {#if p.category}<span class="hint">{p.category}</span>{/if}

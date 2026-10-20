@@ -6,7 +6,8 @@ import "kallisti.chat/server/internal/mumble"
 // Voice.SetGuestsReadOnly), which also refuses their Mumble texts. Here
 // read-only guests may not send, edit, react, pin, upload or open direct
 // chats.
-var writes = map[string]bool{"send": true, "edit-message": true, "react": true, "pin": true, "typing": true, "upload-token": true, "dm": true}
+var writes = map[string]bool{"send": true, "edit-message": true, "react": true, "pin": true, "typing": true, "upload-token": true, "dm": true,
+	"create-thread": true, "rename-thread": true, "archive-thread": true}
 
 // readOnly refuses a writing request of a read-only guest (typing quietly).
 func (c *Conn) readOnly(id mumble.Identity, req request) bool {
