@@ -128,11 +128,11 @@ func (s *Server) permissionsChangedLocked(changed *Channel) {
 	}
 }
 
-// keepWrite gives a user Write in a channel if it would not have it: for
+// keepWrite gives a user Write in a channel if the ACLs would not: for
 // channel creators and ACL editors (as Murmur). Guests are named by their
 // certificate.
 func (s *State) keepWrite(ch *Channel, u *User) {
-	if s.Has(u, ch.ID, Write) || (!u.Registered && u.Hash == "") {
+	if s.aclPermissions(u, ch.ID)&Write != 0 || (!u.Registered && u.Hash == "") {
 		return
 	}
 	a := ACL{ApplyHere: true, Allow: Write | Traverse}
@@ -157,9 +157,10 @@ func (s *State) grantCreator(ch *Channel, u *User) {
 	s.keepWrite(ch, u)
 }
 
-// mayEditACL: Write in the channel or in root. Needs Server.mu.
+// mayEditACL: Write from the ACLs in the channel or in root (not a channel
+// moderator's, see modPermissions). Needs Server.mu.
 func (s *Server) mayEditACL(u *User, ch *Channel) bool {
-	return s.state.Has(u, ch.ID, Write) || s.state.Has(u, 0, Write)
+	return s.state.aclPermissions(u, ch.ID)&Write != 0 || s.state.aclPermissions(u, 0)&Write != 0
 }
 
 // mayChangeACL: as mayEditACL, but root's ACL holds the roles, so only

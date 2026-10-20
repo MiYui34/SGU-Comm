@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, Perm, type Channel, type ServerState } from "@kallisti/protocol";
-import { canManageMembers, menuRights } from "../src/lib/channelManagement";
+import { canCreateSubchannel, canManageMembers, menuRights } from "../src/lib/channelManagement";
 import { initialTextState, type TextState } from "../src/lib/textChannels";
 
 const ch = (id: number, parent: number | null, position = 0): Channel => ({
@@ -75,5 +75,24 @@ describe("canManageMembers", () => {
     expect(canManageMembers(staff, priv, "text", 10)).toBe(false);
     expect(canManageMembers(staff, priv, "voice", 1)).toBe(false);
     expect(canManageMembers(server({}, 0), priv, "text", 11)).toBe(false);
+  });
+});
+
+describe("canCreateSubchannel", () => {
+  const M = Perm.MakeChannel;
+  it("needs MakeChannel in the voice channel (staff, and channel moderators in theirs)", () => {
+    expect(canCreateSubchannel(server({ 1: M }), text, 1)).toBe(true);
+    expect(canCreateSubchannel(server({ 1: M }), text, 2)).toBe(false);
+    expect(canCreateSubchannel(server({ 1: M }), text, 99)).toBe(false);
+  });
+  it("is not for root (the + makes those), temporary channels nor text channel mirrors", () => {
+    expect(canCreateSubchannel(server({ 0: M }), text, 0)).toBe(false);
+    const temp = server({ 1: M });
+    expect(canCreateSubchannel({ ...temp, channels: { ...temp.channels, 1: { ...ch(1, 0), temporary: true } } }, text, 1)).toBe(false);
+    const base = server({ 5: M, 6: M });
+    const s: ServerState = { ...base, channels: { ...base.channels, 5: ch(5, 0, 1000), 6: ch(6, 5) } };
+    const t: TextState = { ...text, channels: [...text.channels, { id: 12, name: "x", mumble: 6 }] };
+    expect(canCreateSubchannel(s, t, 5)).toBe(false);
+    expect(canCreateSubchannel(s, t, 6)).toBe(false);
   });
 });

@@ -189,24 +189,34 @@ func (s *Server) AddMember(channel, user uint32) (added bool, err error) {
 	return true, nil
 }
 
-// CreatePrivateChannel makes a private voice channel below root, with no
-// members yet: only staff see it. Only admins and moderators may.
-func (s *Server) CreatePrivateChannel(actor uint32, name string) (uint32, error) {
+// CreatePrivateChannel makes a private voice channel below a voice
+// channel (or root), with no members yet: only staff see it. Admins and
+// moderators may, and channel moderators in their channels (see
+// modPermissions): they become its first member, to see it.
+func (s *Server) CreatePrivateChannel(actor, parent uint32, name string) (uint32, error) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	u := s.state.Users[actor]
-	if u == nil || !s.state.isStaff(u) {
+	switch {
+	case u == nil || !s.state.isStaff(u) && s.state.modPermissions(u, parent)&MakeChannel == 0:
 		s.mu.Unlock()
 		return 0, errors.New("only admins and moderators make private channels")
+	case s.state.Channels[parent] == nil || s.state.mirror(parent):
+		s.mu.Unlock()
+		return 0, errors.New("no such voice channel")
 	}
-	ch, err := s.state.AddChannel(0, strings.TrimSpace(name), false)
+	ch, err := s.state.AddChannel(parent, strings.TrimSpace(name), false)
 	if err != nil {
 		s.mu.Unlock()
 		return 0, err
 	}
-	makePrivate(ch, nil)
-	s.state.grantCreator(ch, u)
+	if s.state.isStaff(u) {
+		makePrivate(ch, nil)
+		s.state.grantCreator(ch, u)
+	} else {
+		makePrivate(ch, []uint32{u.UserID})
+	}
 	s.showChannelLocked(ch)
 	save, lastID := cloneChannel(ch), s.state.LastChannelID()
 	s.mu.Unlock()

@@ -16,14 +16,15 @@ import (
 // keeps the channels it was told about (client.seen); after changes of
 // access syncViewLocked sends the difference.
 
-// Sees: the user may see the channel.
+// Sees: the user may see the channel. Traverse is the ACLs' (Permissions
+// asks Sees for channel moderators, and adds no Traverse).
 func (s *State) Sees(u *User, id uint32) bool {
 	chain := s.chain(id)
 	if len(chain) == 0 {
 		return false
 	}
 	for _, ch := range chain[1:] { // root is always seen
-		if !s.Has(u, ch.ID, Traverse) {
+		if s.aclPermissions(u, ch.ID)&Traverse == 0 {
 			return false
 		}
 	}
@@ -34,7 +35,7 @@ func (s *State) Sees(u *User, id uint32) bool {
 func (s *State) Visible(u *User) map[uint32]bool {
 	out := map[uint32]bool{}
 	for _, ch := range s.Tree() {
-		if ch.ID == 0 || out[ch.Parent] && s.Has(u, ch.ID, Traverse) {
+		if ch.ID == 0 || out[ch.Parent] && s.aclPermissions(u, ch.ID)&Traverse != 0 {
 			out[ch.ID] = true
 		}
 	}

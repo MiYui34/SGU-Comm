@@ -51,7 +51,7 @@
   $effect(() => dialog?.showModal());
 
   const title = $derived(
-    form.mode === "create" ? "Create channel" : form.mode === "edit" ? "Edit channel" : "Delete channel",
+    form.mode === "create" ? (form.parent ? "Create subchannel" : "Create channel") : form.mode === "edit" ? "Edit channel" : "Delete channel",
   );
   const submit = (event: SubmitEvent) => {
     event.preventDefault();

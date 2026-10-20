@@ -14,11 +14,13 @@
     canMoveDown = false,
     canMembers = false,
     canModerators = false,
+    canCreateSub = false,
     recording,
     onRecord,
     notify,
     onNotify,
     onEdit,
+    onCreateSub,
     onMove,
     onDelete,
     onMembers,
@@ -37,6 +39,8 @@
     // channel's moderators (staff).
     canMembers?: boolean;
     canModerators?: boolean;
+    // Voice channels: a subchannel in it (MakeChannel there).
+    canCreateSub?: boolean;
     // Voice channels (staff): being recorded or not; undefined: may not
     // record.
     recording?: boolean;
@@ -47,6 +51,7 @@
     notify?: { pref: ChannelPref; desktop: boolean };
     onNotify?: (patch: ChannelPref) => void;
     onEdit?: () => void;
+    onCreateSub?: () => void;
     onMove?: (step: -1 | 1) => void;
     onDelete?: () => void;
     onMembers?: () => void;
@@ -70,7 +75,7 @@
   const id = $props.id();
   const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
   const noun = $derived(direct ? "conversation" : "channel");
-  const changes = $derived(canEdit || canMoveUp || canMoveDown || canMembers || canModerators);
+  const changes = $derived(canEdit || canCreateSub || canMoveUp || canMoveDown || canMembers || canModerators);
 </script>
 
 <ContextMenu {x} {y} label="Actions for {name}" {onClose}>
@@ -118,6 +123,7 @@
   {/if}
   {#if changes}
     {#if canEdit && onEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
+    {#if canCreateSub && onCreateSub}<button onclick={act(onCreateSub)}>Create subchannel</button>{/if}
     {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
     {#if canModerators && onModerators}<button onclick={act(onModerators)}>Moderators…</button>{/if}
     {#if canMoveUp}<button onclick={act(() => onMove?.(-1))}>Move up</button>{/if}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyUser, initialState, Perm, type Channel, type ServerState, type User } from "@kallisti/protocol";
 import { badgeOf, channelModActions, channelModIn } from "../src/lib/roles";
-import { canManageMembers, canModerate, menuRights } from "../src/lib/channelManagement";
+import { canListenOnly, canManageMembers, canModerate, menuRights } from "../src/lib/channelManagement";
 import { channelTimedOutUntil, moderationRequest, userModeration } from "../src/lib/moderation";
 import { initialTextState, manageRequest, parseServerEvent, reduceText, type TextState } from "../src/lib/textChannels";
 
@@ -109,5 +109,15 @@ describe("channel time-outs", () => {
     expect(channelTimedOutUntil(server(), s.channelTimeouts, user(1, 5), 3)).toBeNull();
     expect(channelTimedOutUntil(server(), t, user(2, null), 3)).toBe(6000);
     expect(channelTimedOutUntil(server(), t, user(2, null), null)).toBeNull();
+  });
+});
+
+describe("canListenOnly", () => {
+  it("is not for channel moderators in their channels (only Write from the ACLs may)", () => {
+    expect(canListenOnly(server(), text, 2)).toBe(false);
+    expect(canListenOnly(server(), text, 3)).toBe(true);
+    expect(canListenOnly(server(Perm.Write | Perm.MakeChannel), text, 2)).toBe(true);
+    expect(canListenOnly(server(), text, 0)).toBe(false);
+    expect(canListenOnly(server(), { ...text, voiceChats: false }, 3)).toBe(false);
   });
 });

@@ -79,7 +79,8 @@ type Voice interface {
 	// a private text channel is its mirror's access). Private lists the
 	// private channels; SetPrivate makes one private with these members
 	// (registered user ids), or public; CreatePrivateChannel makes a
-	// private voice channel. Only admins and moderators change them.
+	// private voice channel (below parent; channel moderators in their
+	// channels). Only admins and moderators change them.
 	Sees(session, channel uint32) bool
 	// UserSees and UserMayRead are Sees and MayRead for a registered user
 	// by id, also when it is not connected (push notifications).
@@ -89,7 +90,7 @@ type Voice interface {
 	UserBanned(user uint32) bool
 	Private() []PrivateChannel
 	SetPrivate(session, channel uint32, on bool, members []uint32) error
-	CreatePrivateChannel(session uint32, name string) (uint32, error)
+	CreatePrivateChannel(session, parent uint32, name string) (uint32, error)
 	// AddMember adds a registered user to a private channel's members (by
 	// an invite link, see invites.go); false: it already was.
 	AddMember(channel, user uint32) (bool, error)
@@ -490,7 +491,7 @@ type request struct {
 	Type      string          `json:"type"`
 	Name      string          `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
 	Channels  []int64         `json:"channels"` // order-channels
-	Voice     uint32          `json:"voice"`    // voice-chat, start-recording, stop-recording: the Mumble channel
+	Voice     uint32          `json:"voice"`    // voice-chat, start-recording, stop-recording: the Mumble channel; create-private-voice: the parent
 	Channel   int64           `json:"channel"`
 	Before    int64           `json:"before"`
 	Text      string          `json:"text"`
@@ -654,7 +655,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.recordings(*id, req)
 		return
 	case "create-private-voice":
-		c.createPrivateVoice(*id, req.Name)
+		c.createPrivateVoice(*id, req.Voice, req.Name)
 		return
 	case "invites":
 		c.invites(*id, req)

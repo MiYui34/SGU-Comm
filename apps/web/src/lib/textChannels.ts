@@ -805,7 +805,8 @@ export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice
 // Text channel management (admins; the server checks).
 export type ManageAction =
   | { create: string; private?: boolean }
-  | { createPrivateVoice: string }
+  // A private voice channel below parent (root if not given).
+  | { createPrivateVoice: string; parent?: number }
   // A Mumble channel (see TextState.private) private with these members,
   // or public.
   | { setPrivate: number; on: boolean; users: number[] }
@@ -850,7 +851,7 @@ export type UserTarget = { session: number } | { user: number };
 
 const manageBody = (a: ManageAction) => {
   if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
-  if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice };
+  if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice, ...(a.parent ? { voice: a.parent } : {}) };
   if ("setPrivate" in a) return { type: "set-private", voice: a.setPrivate, on: a.on, users: a.users };
   if ("invites" in a) return { type: "invites", voice: a.invites };
   if ("createInvite" in a) return { type: "create-invite", voice: a.createInvite, seconds: a.seconds, uses: a.uses };
