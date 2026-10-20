@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { applicationServerKey, keyMatches, pushOwner, pushSupport, subscriptionBody } from "../src/lib/push";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { applicationServerKey, keyMatches, pushOwner, pushSupport, subscriptionBody, syncPush, turnOffPush } from "../src/lib/push";
 import { clickTarget, noticeOf, windowFor } from "../src/lib/pushNotice";
 
 const env = { desktop: false, dev: false, serviceWorker: true, pushManager: true, notification: true, ios: false, standalone: false };
@@ -89,5 +89,66 @@ describe("windowFor", () => {
     expect(windowFor([a, b, other], ORIGIN)).toBe(b);
     expect(windowFor([other, a], ORIGIN)).toBe(a);
     expect(windowFor([other], ORIGIN)).toBeNull();
+  });
+});
+
+// A browser with a service worker and the Push API. The server's key, or
+// the push service's subscription, waits until released.
+const fakeBrowser = (pauseAt: "key" | "subscribe") => {
+  const KEY = "AQL_-w";
+  const ENDPOINT = "https://fcm.googleapis.com/x";
+  const storage = new Map<string, string>();
+  const requests: string[] = [];
+  let release = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  let registered = false;
+  type Sub = { endpoint: string; options: { applicationServerKey: ArrayBuffer }; toJSON(): PushSubscriptionJSON; unsubscribe(): Promise<boolean> };
+  let sub: Sub | null = null;
+  const pushManager = {
+    getSubscription: async () => sub,
+    subscribe: async () => {
+      if (pauseAt === "subscribe") await gate;
+      return (sub = {
+        endpoint: ENDPOINT,
+        options: { applicationServerKey: applicationServerKey(KEY).buffer },
+        toJSON: () => ({ endpoint: ENDPOINT, keys: {} }),
+        unsubscribe: async () => ((sub = null), true),
+      });
+    },
+  };
+  const reg = { pushManager, unregister: async () => ((registered = false), true) };
+  vi.stubGlobal("localStorage", { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v) });
+  vi.stubGlobal("Notification", { permission: "granted" });
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      register: async () => ((registered = true), reg),
+      ready: Promise.resolve(reg),
+      getRegistration: async () => (registered ? reg : undefined),
+    },
+  });
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    requests.push(`${init?.method ?? "GET"} ${url}`);
+    if (!url.endsWith("/api/push")) return new Response(null, { status: 204 });
+    if (pauseAt === "key") await gate;
+    return new Response(JSON.stringify({ publicKey: KEY }));
+  });
+  return { storage, requests, release: () => release(), state: () => ({ registered, subscribed: !!sub }) };
+};
+
+describe("push lifecycle", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["key", "subscribe"] as const)("stays off when turned off during a sync (waiting for the %s)", async (pauseAt) => {
+    const b = fakeBrowser(pauseAt);
+    const base = "https://chat.example";
+    b.storage.set("pushOwner", pushOwner(base, "alice"));
+    const sync = syncPush(base, "alice", { quiet: [], blocked: [] });
+    await new Promise((r) => setTimeout(r));
+    const off = turnOffPush(base);
+    b.release();
+    await Promise.all([sync, off]);
+    expect(b.state()).toEqual({ registered: false, subscribed: false });
+    expect(b.storage.get("pushOwner")).toBe("");
+    expect(b.requests).not.toContain(`POST ${base}/api/push/subscriptions`);
   });
 });

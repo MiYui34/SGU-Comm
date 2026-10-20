@@ -47,6 +47,8 @@ type fakeVoice struct {
 	// Bans by Ban; time-outs by session.
 	bans     []string
 	timeouts map[uint32]time.Time
+	// Registered users banned (UserBanned).
+	banned map[uint32]bool
 	// Private channels: hidden to all but session 1 and members (by
 	// session); private voice channels made.
 	hidden  map[uint32]bool

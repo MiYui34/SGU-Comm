@@ -1412,3 +1412,24 @@ From `meta/research/discord-comparison.md`.
   (image.DecodeConfig; WebP from golang.org/x/image). Gap: databases that
   flagged a larger picture before keep the flag until the next save; the
   client then gets a 404 (cached 5 min).
+
+## Review fixes: push (2026-10-20)
+
+- Sending: 16 workers and a queue of 1024 pushes (was a goroutine per
+  push that waited for one of 16 slots, so a slow push service piled
+  them up). The one-per-minute collapse comes before the queue; a full
+  queue drops the push (counted, logged on the first and every 100th).
+  On stop, sends on their way are cancelled and the queue is dropped.
+- Banned users get no pushes: offline access (`UserSees`, `UserMayRead`)
+  and the new `UserBanned` check the user's certificate against the ban
+  list. Direct messages need no access check, so the hub asks
+  `UserBanned` itself. An address ban cannot count for a user who is not
+  connected (no address); a registration without a certificate is only
+  banned by address, so it still gets pushes.
+- Client: subscribing (start sync, prefs, the switch) runs one at a
+  time. Turning off does not wait in that line (a stuck
+  `serviceWorker.ready` must not keep it from the logout): it counts up,
+  and subscribing asked for before it stops, or unsubscribes, sends the
+  DELETE and unregisters what it made. Subscribing asked for later waits
+  for the turning off. A `ready` that never comes now holds all later
+  subscribing in that tab (before: only that one call).

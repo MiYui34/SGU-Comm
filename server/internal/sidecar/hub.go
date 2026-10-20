@@ -78,6 +78,8 @@ type Voice interface {
 	// by id, also when it is not connected (push notifications).
 	UserSees(user, channel uint32) bool
 	UserMayRead(user, channel uint32) bool
+	// UserBanned: a registered user is banned (it gets no pushes).
+	UserBanned(user uint32) bool
 	Private() []PrivateChannel
 	SetPrivate(session, channel uint32, on bool, members []uint32) error
 	CreatePrivateChannel(session uint32, name string) (uint32, error)

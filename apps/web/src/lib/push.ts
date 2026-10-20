@@ -76,20 +76,34 @@ const serverKey = async (base: string): Promise<string> => {
 
 const registration = async () => navigator.serviceWorker?.getRegistration("/");
 
+// Subscribing runs one at a time. Turning off does not wait: it counts up
+// offs, and subscribing asked for before that does not start, or undoes
+// what it did (a sync from the start must not turn push on again).
+let queue: Promise<unknown> = Promise.resolve();
+let offs = 0;
+
 // Subscribes (again, if the server's key changed) and tells the server,
 // for the session now.
-const subscribe = async (base: string, owner: string, prefs: PushPrefs) => {
-  const key = await serverKey(base);
-  await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (sub && !keyMatches(sub.options.applicationServerKey, key)) {
-    await sub.unsubscribe();
-    sub = null;
-  }
-  sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationServerKey(key) });
-  await send(base, "POST", subscriptionBody(sub.toJSON(), prefs));
-  safeSet(localStorage, OWNER_KEY, owner);
+const subscribe = (base: string, owner: string, prefs: PushPrefs) => {
+  const asked = offs;
+  const run = queue.then(async () => {
+    if (asked !== offs) return;
+    const key = await serverKey(base);
+    if (asked !== offs) return;
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !keyMatches(sub.options.applicationServerKey, key)) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationServerKey(key) });
+    if (asked === offs) await send(base, "POST", subscriptionBody(sub.toJSON(), prefs));
+    if (asked !== offs) return stopPush(base, reg, sub);
+    safeSet(localStorage, OWNER_KEY, owner);
+  });
+  queue = run.catch(() => {});
+  return run;
 };
 
 export const pushIsOn = async (base: string, name: string) =>
@@ -107,10 +121,17 @@ export const turnOnPush = async (base: string, name: string, prefs: PushPrefs): 
 };
 
 // Also on logout. The server forgets it with the session anyway.
-export const turnOffPush = async (base: string) => {
+export const turnOffPush = (base: string) => {
+  offs++;
+  const run = stopPush(base);
+  queue = Promise.all([queue, run]).catch(() => {}); // later subscribing waits for it
+  return run;
+};
+
+const stopPush = async (base: string, reg?: ServiceWorkerRegistration, sub?: PushSubscription | null) => {
   safeSet(localStorage, OWNER_KEY, "");
-  const reg = await registration().catch(() => undefined);
-  const sub = await reg?.pushManager.getSubscription().catch(() => null);
+  reg ??= await registration().catch(() => undefined);
+  sub ??= await reg?.pushManager.getSubscription().catch(() => null);
   if (sub) await send(base, "DELETE", { endpoint: sub.endpoint }).catch(() => {});
   await sub?.unsubscribe().catch(() => {});
   await reg?.unregister().catch(() => {});

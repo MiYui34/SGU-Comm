@@ -27,11 +27,11 @@ func pings(m store.Message, direct bool, name string, user uint32) bool {
 	return direct || m.MentionAll == "everyone" || repliesTo || mentionsName(m.Text, name)
 }
 
-// pushTarget is a pinged user: connected, in do not disturb, and whether
-// it may read the chat.
-type pushTarget struct{ online, dnd, mayRead bool }
+// pushTarget is a pinged user: connected, in do not disturb, banned, and
+// whether it may read the chat.
+type pushTarget struct{ online, dnd, banned, mayRead bool }
 
-func wantsPush(t pushTarget) bool { return t.mayRead && !t.online && !t.dnd }
+func wantsPush(t pushTarget) bool { return t.mayRead && !t.online && !t.dnd && !t.banned }
 
 // pushBody is the push text: who, and where; never the message.
 func pushBody(m store.Message, direct bool, where string) string {
@@ -91,7 +91,9 @@ func (h *Hub) pushFor(c chat, m store.Message) {
 			continue
 		}
 		_, on := online[user]
-		t := pushTarget{online: on, mayRead: !on && h.userMay(user, c)}
+		t := pushTarget{online: on}
+		t.banned = !on && h.voice.UserBanned(user)
+		t.mayRead = !on && !t.banned && h.userMay(user, c)
 		if t.mayRead {
 			st, err := h.store.UserStatus(user)
 			if err != nil {

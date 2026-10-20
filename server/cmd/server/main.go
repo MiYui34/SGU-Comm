@@ -125,6 +125,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		defer svc.Stop()
 		pushes = svc
 	}
 	dial, upstream := murmurDialer(cfg)
@@ -261,8 +262,11 @@ func run() error {
 	return nil
 }
 
-// Pushes on their way at once, at most (more wait).
-const pushSenders = 16
+// Push workers, and pushes that may wait for one (more are dropped).
+const (
+	pushWorkers = 16
+	pushQueue   = 1024
+)
 
 // startPush turns on Web Push notifications: the hub decides who gets one,
 // the service sends them.
@@ -279,14 +283,8 @@ func startPush(cfg config.Config, db *store.Store, accounts *auth.Service, hub *
 			return acc, auth.SessionKey(r), ok
 		},
 	}
-	senders := make(chan struct{}, pushSenders)
-	hub.Push = func(name string, n push.Note) {
-		go func() {
-			senders <- struct{}{}
-			defer func() { <-senders }()
-			svc.Notify(name, n)
-		}()
-	}
+	svc.Start(pushWorkers, pushQueue)
+	hub.Push = svc.Notify
 	return svc, nil
 }
 
