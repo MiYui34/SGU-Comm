@@ -1573,8 +1573,10 @@ From `meta/research/discord-comparison.md`.
   topmost of the moderator's above the parent, the one it may not edit;
   with nested moderated channels the outer one counts. Mumble clients
   get ChannelCountLimit / NestingLimit with the reason, the web the same
-  text as a manage error. Staff are not limited. Only creation checks
-  them: a move within the subtree may go deeper.
+  text as a manage error. Staff are not limited. A moderator's move
+  within the subtree is refused (NestingLimit) if the moved channel's
+  deepest one would be more than 5 levels below; the count does not
+  change, as nothing enters the subtree. The web has no channel moves.
 - Known gaps: two mirror checks (isMirrorLocked: the parent and its children,
   State.Mirror: any depth).
 

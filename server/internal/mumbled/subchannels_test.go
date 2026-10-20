@@ -284,3 +284,26 @@ func TestChannelModeratorsMakeSubchannelsAtMostFiveLevelsDeep(t *testing.T) {
 	}
 	c.su.createChannel(fifth, "Staff", false)
 }
+
+func TestChannelModeratorsMoveChannelsAtMostFiveLevelsDeep(t *testing.T) {
+	c := newClubServer(t)
+	c.unlimited(c.alice)
+	third := c.fill(c.sub, 2, true)
+	second := c.channel(third).Parent
+	z := c.alice.createChannel(c.club, "Z", false)
+	c.fill(z, 2, true)                                         // two levels below Z
+	c.alice.send(mumble.TypeChannelState, reparent(z, second)) // its deepest at level 5
+	c.alice.send(mumble.TypeChannelState, reparent(z, third))
+	if d := c.alice.expectDenied(pb.PermissionDenied_NestingLimit); d.GetReason() != "Subchannels may be at most 5 levels deep" {
+		t.Fatalf("reason %q", d.GetReason())
+	}
+	if c.channel(z).Parent != second {
+		t.Fatalf("z %+v", c.channel(z))
+	}
+	// Staff are not limited.
+	c.su.send(mumble.TypeChannelState, reparent(z, third))
+	c.su.createChannel(0, "Sync", false)
+	if c.channel(z).Parent != third {
+		t.Fatalf("staff: z %+v", c.channel(z))
+	}
+}

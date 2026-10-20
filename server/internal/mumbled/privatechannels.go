@@ -206,7 +206,7 @@ func (s *Server) CreatePrivateChannel(actor, parent uint32, name string) (uint32
 		s.mu.Unlock()
 		return 0, errors.New("no such voice channel")
 	}
-	if err := s.state.modLimit(u, parent); err != nil {
+	if err := s.state.modLimit(u, parent, 0); err != nil {
 		s.mu.Unlock()
 		return 0, err
 	}

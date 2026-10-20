@@ -456,7 +456,7 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 		return
 	}
 	if s.state.aclPermissions(actor, m.GetParent())&need == 0 { // a channel moderator's
-		if err := s.state.modLimit(actor, m.GetParent()); err != nil {
+		if err := s.state.modLimit(actor, m.GetParent(), 0); err != nil {
 			s.mu.Unlock()
 			c.deny(err)
 			return
@@ -514,6 +514,13 @@ func (s *Server) editChannel(c *client, m *pb.ChannelState) {
 		s.mu.Unlock()
 		c.denyPerm(missing, where)
 		return
+	}
+	if m.Parent != nil && s.state.aclPermissions(actor, m.GetParent())&MakeChannel == 0 { // a channel moderator's
+		if err := s.state.modLimit(actor, m.GetParent(), id); err != nil {
+			s.mu.Unlock()
+			c.deny(err)
+			return
+		}
 	}
 	edit := ChannelEdit{Name: m.Name, Description: m.Description, Position: m.Position, Parent: m.Parent}
 	if err := s.state.EditChannel(id, edit); err != nil {
