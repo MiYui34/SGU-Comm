@@ -5,6 +5,7 @@
 package whip
 
 import (
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -39,18 +40,22 @@ type Handler struct {
 	// sessions at the same time.
 	BytesPerSecond int
 	MaxSessions    int
-	// Until the peer connects, then until its first keyframe, and then
-	// between pictures (0: the defaults).
-	ConnectTimeout, KeyTimeout, MediaTimeout time.Duration
-	Closer                                   io.Closer // the UDP port (see Listen), closed by Close; nil: none
+	// For the offer's body, until the peer connects, then until its first
+	// keyframe, and then between pictures (0: the defaults).
+	OfferTimeout, ConnectTimeout, KeyTimeout, MediaTimeout time.Duration
+	Closer                                                 io.Closer // the UDP port (see Listen), closed by Close; nil: none
 
 	mu       sync.Mutex
 	sessions map[string]*session
-	closed   bool
+	// Offers still coming (at most MaxSessions), by account: a new key
+	// stops reading them.
+	pending map[*http.ResponseController]string
+	closed  bool
 }
 
 const (
 	maxOffer       = 64 << 10
+	offerTimeout   = 10 * time.Second
 	connectTimeout = 15 * time.Second
 	keyTimeout     = 15 * time.Second
 	mediaTimeout   = 10 * time.Second
@@ -90,9 +95,16 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "send an SDP offer (application/sdp)", http.StatusUnsupportedMediaType)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxOffer))
+	body, status, err := h.readOffer(w, r, name)
 	if err != nil {
-		http.Error(w, "the offer is too large", http.StatusRequestEntityTooLarge)
+		// Else net/http reads the rest of the body (of a Content-Length)
+		// before the answer, without a deadline.
+		w.Header().Set("Connection", "close")
+		if now, ok := h.Account(key); !ok || now != name { // EndAccount stopped the read
+			unauthorized(w)
+		} else {
+			http.Error(w, err.Error(), status)
+		}
 		return
 	}
 	voice, ok := h.Session(name)
@@ -147,6 +159,42 @@ func unauthorized(w http.ResponseWriter) {
 
 var errKeyChanged = errors.New("the stream key changed")
 
+// readOffer reads the offer within OfferTimeout, if fewer than MaxSessions
+// are coming; EndAccount (a new key) stops it. The error goes to the
+// encoder with the status.
+func (h *Handler) readOffer(w http.ResponseWriter, r *http.Request, account string) ([]byte, int, error) {
+	rc := http.NewResponseController(w)
+	h.mu.Lock()
+	if h.closed || len(h.pending) >= h.MaxSessions {
+		h.mu.Unlock()
+		return nil, http.StatusServiceUnavailable, errBusy
+	}
+	if h.pending == nil {
+		h.pending = map[*http.ResponseController]string{}
+	}
+	h.pending[rc] = account
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.pending, rc)
+		h.mu.Unlock()
+	}()
+	if err := rc.SetReadDeadline(time.Now().Add(cmp.Or(h.OfferTimeout, offerTimeout))); err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxOffer))
+	if err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			return nil, http.StatusRequestEntityTooLarge, errors.New("the offer is too large")
+		}
+		return nil, http.StatusRequestTimeout, errors.New("the offer did not come in time")
+	}
+	rc.SetReadDeadline(time.Time{})
+	return body, 0, nil
+}
+
+var errBusy = errors.New("too many streams from OBS at once, try again later")
+
 // reserve makes a session (not yet open) if there is room and the key is
 // still valid. It replaces the account's old ones (OBS reconnecting),
 // returned to be closed.
@@ -161,7 +209,7 @@ func (h *Handler) reserve(account, key string) (*session, []*session, error) {
 		h.sessions = map[string]*session{}
 	}
 	if h.closed || len(h.sessions) >= h.MaxSessions {
-		return nil, old, errors.New("too many streams from OBS at once, try again later")
+		return nil, old, errBusy
 	}
 	b := make([]byte, 16)
 	rand.Read(b)
@@ -196,8 +244,16 @@ func (h *Handler) takeAccountLocked(name string) []*session {
 	return out
 }
 
-// EndAccount ends an account's stream (its key changed).
+// EndAccount ends an account's stream and stops reading its offers (its
+// key changed).
 func (h *Handler) EndAccount(name string) {
+	h.mu.Lock()
+	for rc, account := range h.pending {
+		if account == name {
+			rc.SetReadDeadline(time.Now())
+		}
+	}
+	h.mu.Unlock()
 	for _, s := range h.takeAccount(name) {
 		s.close()
 	}
