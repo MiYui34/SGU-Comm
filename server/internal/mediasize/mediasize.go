@@ -54,35 +54,40 @@ func picture(r io.ReaderAt, size int64, jpeg bool) Info {
 	if err != nil {
 		return Info{}
 	}
-	if jpeg && exifTurned(r, size) {
+	if jpeg && Turned(ExifOrientation(r, size)) {
 		w, h = h, w
 	}
 	return Info{Width: w, Height: h}
 }
 
-// exifTurned: a JPEG's Exif orientation turns it by 90 or 270 degrees
-// (5 to 8), as browsers show it.
-func exifTurned(r io.ReaderAt, size int64) bool {
-	off := int64(2) // after SOI
+// Turned: an Exif orientation turns a picture by 90 or 270 degrees.
+func Turned(orientation uint16) bool { return orientation >= 5 && orientation <= 8 }
+
+// ExifOrientation is a JPEG's Exif orientation (1 to 8, browsers turn the
+// picture by it; 0: none).
+func ExifOrientation(r io.ReaderAt, size int64) uint16 {
 	var h [4]byte
+	if _, err := r.ReadAt(h[:2], 0); err != nil || h[0] != 0xff || h[1] != 0xd8 {
+		return 0
+	}
+	off := int64(2) // after SOI
 	for range 64 {
 		if _, err := r.ReadAt(h[:], off); err != nil || h[0] != 0xff {
-			return false
+			return 0
 		}
 		marker, n := h[1], int64(binary.BigEndian.Uint16(h[2:]))
 		switch {
 		case marker == 0xda || marker == 0xd9 || n < 2: // image data: no Exif before it
-			return false
+			return 0
 		case marker == 0xe1:
 			seg := read(r, off+4, min(off+2+n, size), 1<<16)
 			if len(seg) > 6 && string(seg[:6]) == "Exif\x00\x00" {
-				o := orientation(seg[6:])
-				return o >= 5 && o <= 8
+				return orientation(seg[6:])
 			}
 		}
 		off += 2 + n
 	}
-	return false
+	return 0
 }
 
 // orientation reads tag 0x0112 from the first IFD of TIFF data (0: none).

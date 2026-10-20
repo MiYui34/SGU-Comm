@@ -108,6 +108,22 @@ func TestImages(t *testing.T) {
 	}
 }
 
+func TestExifOrientation(t *testing.T) {
+	for _, c := range []struct {
+		data []byte
+		want uint16
+	}{
+		{jpegOf(t, 4, 3), 0},
+		{withExif(jpegOf(t, 4, 3), 6, false), 6},
+		{withExif(jpegOf(t, 4, 3), 3, true), 3},
+		{pngOf(t, 4, 3), 0},
+	} {
+		if got := ExifOrientation(bytes.NewReader(c.data), int64(len(c.data))); got != c.want {
+			t.Errorf("got %d, want %d", got, c.want)
+		}
+	}
+}
+
 func TestFixtures(t *testing.T) {
 	for _, c := range []struct {
 		name, ctype string
@@ -321,7 +337,7 @@ func FuzzJPEG(f *testing.F) {
 	f.Add(withExif([]byte("\xff\xd8\xff\xd9"), 6, false))
 	f.Add(withExif([]byte("\xff\xd8\xff\xd9"), 8, true))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		exifTurned(bytes.NewReader(data), int64(len(data)))
+		ExifOrientation(bytes.NewReader(data), int64(len(data)))
 	})
 }
 
