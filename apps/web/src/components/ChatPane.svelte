@@ -1635,6 +1635,7 @@
     grid-area: 1 / 1;
     max-width: 100%;
     max-height: 300px;
+    object-fit: contain;
     filter: blur(32px);
   }
   .spoiler-file span {
@@ -1984,11 +1985,14 @@
     display: inline-block;
     margin-top: 4px;
   }
+  /* The largest box: in step with imageBox (lib/media). contain: a
+     picture whose ratio differs from the server's is not squashed. */
   .image img {
     display: block;
     max-width: min(400px, 100%);
     max-height: 300px;
     border-radius: 8px;
+    object-fit: contain;
   }
   .file {
     display: inline-flex;
