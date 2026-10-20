@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Role } from "../lib/roles";
+  import type { Badge as Tag } from "../lib/roles";
   import type { UserStatus } from "../lib/presence";
   import type { User } from "@kallisti/protocol";
   import type { Peer } from "../lib/textChannels";
@@ -41,14 +41,14 @@
     // A voice channel's view: who is in it stays on top of the readers.
     voiceFirst?: boolean;
     onMemberMenu?: (userId: number, event: MouseEvent) => void;
-    roleOf?: (user: Pick<User, "userId">) => Role | null;
+    roleOf?: (user: Pick<User, "userId">) => Tag | null;
     statusOf?: (session: number) => UserStatus;
     inert?: boolean;
   } = $props();
 </script>
 
 <!-- Offline users: faded, no status (Discord hides their custom one). -->
-{#snippet row(name: string, role: Role | null, status: UserStatus | null, speaking: boolean, onMenu: (e: MouseEvent) => void)}
+{#snippet row(name: string, role: Tag | null, status: UserStatus | null, speaking: boolean, onMenu: (e: MouseEvent) => void)}
   <li>
     <button class="hover-row" class:offline={!status} onclick={onMenu} oncontextmenu={onMenu}>
       <Avatar {name} size={32} status={status?.presence} {speaking} registered={!status} />

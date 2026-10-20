@@ -1,6 +1,7 @@
 import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
-import { canManageMembers, canManageText, menuRights, voiceSiblings } from "./channelManagement";
+import { canManageMembers, canManageText, canModerate, menuRights, moderatorsChannel, voiceSiblings } from "./channelManagement";
+import { channelModActions } from "./roles";
 import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOnly";
 import { accessChannel, membersAction, privateAction, type Member } from "./privateChannels";
 import { moveInList, moveVoiceChannel } from "./channelOrder";
@@ -21,8 +22,10 @@ export type ChannelValues = {
 export const createChannelManagement = (current: () => Connection) => {
   let opened = $state<{ kind: ChannelKind; id: number; x: number; y: number } | null>(null);
   let form = $state<{ form: ChannelForm; id: number } | null>(null);
-  // The members dialog of a private channel (by its Mumble channel).
+  // The members dialog of a private channel, and the moderators dialog
+  // (by the Mumble channel).
   let members = $state<{ kind: ChannelKind; id: number; access: number } | null>(null);
+  let moderators = $state<{ kind: ChannelKind; id: number; access: number } | null>(null);
   const connection = $derived(current());
   const server = $derived(connection.state);
   const text = $derived(connection.text);
@@ -32,9 +35,25 @@ export const createChannelManagement = (current: () => Connection) => {
   const menu = $derived.by(() => {
     const rights = opened && menuRights(server, text, opened.kind, opened.id);
     return opened && rights
-      ? { ...opened, ...rights, canMembers: canManageMembers(server, text, opened.kind, opened.id), name: nameOf(opened.kind, opened.id) }
+      ? {
+          ...opened,
+          ...rights,
+          canMembers: canManageMembers(server, text, opened.kind, opened.id),
+          canModerators: moderatorsChannel(server, text, opened.kind, opened.id) !== null,
+          name: nameOf(opened.kind, opened.id),
+        }
       : null;
   });
+  // The moderators dialog: their names from the registered users we know.
+  const moderatorsForm = $derived.by(() =>
+    moderators && server.channels[moderators.access]
+      ? {
+          ...moderators,
+          name: nameOf(moderators.kind, moderators.id),
+          members: (text.roles.channelMods?.[moderators.access] ?? []).map((id) => ({ id, name: text.members[id] ?? `#${id}` })),
+        }
+      : null,
+  );
   // A members dialog whose channel stopped being private is closed.
   const membersForm = $derived.by(() =>
     members && members.access in text.private
@@ -66,6 +85,9 @@ export const createChannelManagement = (current: () => Connection) => {
     get members() {
       return membersForm;
     },
+    get moderators() {
+      return moderatorsForm;
+    },
     open: (kind: ChannelKind, id: number, event: MouseEvent) => {
       event.preventDefault();
       // Ask what we may do here and with the siblings (for moves). Root
@@ -94,7 +116,10 @@ export const createChannelManagement = (current: () => Connection) => {
             ? { listenOnly: { on: id in text.listenOnly, speakers: text.listenOnly[id] ?? [], users: speakerCandidates(server) } }
             : {}),
           ...privateField(kind, id),
-          ...(kind === "text" && canManageText(server, text) ? { slowMode: text.channels.find((c) => c.id === id)?.slowMode ?? 0 } : {}),
+          ...(kind === "text" && canModerate(server, text, accessChannel(kind, id, text.channels))
+            ? { slowMode: text.channels.find((c) => c.id === id)?.slowMode ?? 0 }
+            : {}),
+          ...(kind === "text" && !canManageText(server, text) ? { topicOnly: true } : {}),
         },
         id,
       }),
@@ -103,6 +128,16 @@ export const createChannelManagement = (current: () => Connection) => {
       if (access !== null) members = { kind, id, access };
     },
     closeMembers: () => (members = null),
+    startModerators: (kind: ChannelKind, id: number) => {
+      const access = moderatorsChannel(server, text, kind, id);
+      if (access !== null) moderators = { kind, id, access };
+    },
+    closeModerators: () => (moderators = null),
+    submitModerators: (after: Member[]) => {
+      const f = moderatorsForm;
+      if (!f) return;
+      for (const a of channelModActions(f.access, f.members.map((m) => m.id), after.map((m) => m.id))) connection.manage(a);
+    },
     submitMembers: (after: Member[]) => {
       const action = membersForm && membersAction(membersForm.access, membersForm.members, after);
       if (action) connection.manage(action);
