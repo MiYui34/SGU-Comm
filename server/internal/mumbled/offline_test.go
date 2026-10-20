@@ -1,6 +1,9 @@
 package mumbled
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // Push notifications ask about registered users who are not connected.
 func TestOfflineAccess(t *testing.T) {
@@ -28,6 +31,26 @@ func TestOfflineAccess(t *testing.T) {
 		}
 		if got := s.UserMayRead(c.user, c.channel); got != c.want {
 			t.Errorf("UserMayRead(%d, %d) = %v", c.user, c.channel, got)
+		}
+	}
+}
+
+// A banned user gets no pushes: by its certificate (an address ban cannot
+// apply to a user who is not connected).
+func TestUserBanned(t *testing.T) {
+	s, _ := rolesServer(t)
+	alice, _, aliceID := webUser(t, s, "alice")
+	_, _, bobID := webUser(t, s, "bob")
+	_, _, carolID := webUser(t, s, "carol")
+	alice.conn.Close()
+	old := time.Now().Add(-2 * time.Hour)
+	s.bans.Store(&[]BanEntry{{Hash: "alice-hash"}, {Hash: "carol-hash", Start: old, Duration: time.Hour}})
+	for id, want := range map[uint32]bool{aliceID: true, bobID: false, carolID: false, 12345: false} {
+		if got := s.UserBanned(id); got != want {
+			t.Errorf("UserBanned(%d) = %v", id, got)
+		}
+		if got := s.UserMayRead(id, 0); got == want && id != 12345 {
+			t.Errorf("UserMayRead(%d, root) = %v", id, got)
 		}
 	}
 }

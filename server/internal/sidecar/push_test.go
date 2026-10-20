@@ -21,6 +21,11 @@ func (f *fakeVoice) UserSees(user, channel uint32) bool {
 	return !f.hidden[channel] || user == 20
 }
 func (f *fakeVoice) UserMayRead(user, channel uint32) bool { return channel != 9 }
+func (f *fakeVoice) UserBanned(user uint32) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.banned[user]
+}
 
 func TestPings(t *testing.T) {
 	alice := uint32(40)
@@ -60,6 +65,7 @@ func TestWantsPush(t *testing.T) {
 		{pushTarget{mayRead: true}, true},
 		{pushTarget{mayRead: true, online: true}, false}, // the app tells it
 		{pushTarget{mayRead: true, dnd: true}, false},
+		{pushTarget{mayRead: true, banned: true}, false},
 		{pushTarget{}, false},
 	} {
 		if got := wantsPush(c.t); got != c.want {
@@ -163,6 +169,16 @@ func TestPushes(t *testing.T) {
 	dm, _ := strconv.ParseInt(openDirect(t, carol, 40), 10, 64)
 	url = post(t, h, carol, dm, `"text":"psst"`)
 	check("direct message", "alice: Message from carol "+url)
+
+	v.mu.Lock()
+	v.banned = map[uint32]bool{40: true}
+	v.mu.Unlock()
+	post(t, h, carol, dm, `"text":"still there?"`)
+	url = post(t, h, mod, general, `"text":"@alice @bob banned?"`)
+	check("banned users get none", "bob: Mention in #general from mod "+url)
+	v.mu.Lock()
+	v.banned = nil
+	v.mu.Unlock()
 
 	h.MumblePrivateText(mumble.Identity{Session: 7, Name: "carol", Registered: true, UserID: 30}, 40, "from Mumble", nil, false)
 	if got := pushes(); len(got) != 1 || got[0][:25] != "alice: Message from carol" {

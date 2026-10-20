@@ -425,6 +425,10 @@ func (d *DB) CheckPassword(name, pw string) (string, bool) {
 	return r.Name, checkPassword(r.PasswordHash, pw)
 }
 
+func (d *DB) UserByID(id uint32) (*Registered, error) {
+	return d.userWhere(`id = ?`, id)
+}
+
 func (d *DB) UserByHash(hash string) (*Registered, error) {
 	if hash == "" {
 		return nil, nil
