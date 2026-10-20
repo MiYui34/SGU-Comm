@@ -15,13 +15,15 @@ import { parseConnections, type Connection } from "./connections";
 import { isCaptchaLevel, type CaptchaLevel } from "./captcha";
 import { parseMessageRules, type MessageRules } from "./messageRules";
 import { parseRecordings, type FinishedRecording } from "./recording";
+import type { TextCategory } from "./categories";
 
 // Text channels come from the Kallisti server (JSON over WebSocket text
 // frames). Against a plain Mumble server, the state stays unavailable.
 
 // mumble: the Mumble channel that mirrors it for Mumble clients;
-// slowMode: seconds between a user's posts (see lib/slowMode).
-export type TextChannel = { id: number; name: string; mumble?: number; topic?: string; slowMode?: number };
+// slowMode: seconds between a user's posts (see lib/slowMode); category:
+// see lib/categories (none: at the top).
+export type TextChannel = { id: number; name: string; mumble?: number; topic?: string; slowMode?: number; category?: number };
 export type Attachment = { url: string; name: string; type: string; size: number };
 export type TextMessage = {
   id: number;
@@ -83,6 +85,7 @@ export type ServerEvent =
   | {
       type: "ready";
       channels: TextChannel[];
+      categories?: TextCategory[];
       voiceChats?: boolean;
       uploadMax?: number; // bytes per upload
       // Online users' pictures are at /api/avatars/<name> too (see
@@ -165,7 +168,7 @@ export type ServerEvent =
   // The channel that holds a voice channel's chat.
   | { type: "voice-chat"; voice: number; channel: number }
   // The text channels changed (an admin managed them).
-  | { type: "channels"; channels: TextChannel[] }
+  | { type: "channels"; channels: TextChannel[]; categories?: TextCategory[] }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
   | { type: "message"; message: TextMessage }
   | { type: "message-edited"; message: TextMessage }
@@ -196,6 +199,8 @@ export type ServerEvent =
 export type TextState = {
   available: boolean;
   channels: TextChannel[];
+  // The categories with a channel we read, and those we manage.
+  categories: readonly TextCategory[];
   voiceChats: boolean;
   uploadMax?: number; // the server's size limit per upload
   avatars: boolean; // see ready
@@ -272,6 +277,7 @@ export type TextState = {
 export const initialTextState: TextState = {
   available: false,
   channels: [],
+  categories: [],
   voiceChats: false,
   avatars: false,
   roles: { admins: [], moderators: [] },
@@ -382,7 +388,12 @@ const isChannel = (v: unknown): v is TextChannel =>
   isStr(v.name) &&
   (v.mumble === undefined || isNum(v.mumble)) &&
   (v.topic === undefined || typeof v.topic === "string") &&
-  (v.slowMode === undefined || isNum(v.slowMode));
+  (v.slowMode === undefined || isNum(v.slowMode)) &&
+  (v.category === undefined || isNum(v.category));
+const isCategories = (v: unknown): v is TextCategory[] =>
+  Array.isArray(v) && v.every((c) => isObj(c) && isNum(c.id) && isStr(c.name) && (c.mumble === undefined || isNum(c.mumble)));
+// Categories, if the event has valid ones (older servers: none).
+const withCategories = (v: Record<string, unknown>) => (isCategories(v.categories) ? { categories: v.categories } : {});
 const isAttachment = (v: unknown): v is Attachment =>
   isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size);
 const optStr = (v: unknown) => v === undefined || isStr(v);
@@ -446,6 +457,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       return {
         type: "ready",
         channels: v.channels,
+        ...withCategories(v),
         ...(v.voiceChats === true ? { voiceChats: true } : {}),
         ...(isNum(v.uploadMax) && v.uploadMax > 0 ? { uploadMax: v.uploadMax } : {}),
         ...(v.avatars === true ? { avatars: true } : {}),
@@ -538,7 +550,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     case "voice-chat":
       return isNum(v.voice) && isNum(v.channel) ? { type: "voice-chat", voice: v.voice, channel: v.channel } : null;
     case "channels":
-      return Array.isArray(v.channels) && v.channels.every(isChannel) ? { type: "channels", channels: v.channels } : null;
+      if (v.categories !== undefined && !isCategories(v.categories)) return null;
+      return Array.isArray(v.channels) && v.channels.every(isChannel) ? { type: "channels", channels: v.channels, ...withCategories(v) } : null;
     case "history":
       return isNum(v.channel) && Array.isArray(v.messages) && v.messages.every(isMessage)
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
@@ -609,6 +622,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         ...state,
         available: true,
         channels: event.channels,
+        categories: event.categories ?? [],
         voiceChats: event.voiceChats === true,
         uploadMax: event.uploadMax,
         avatars: event.avatars === true,
@@ -701,7 +715,7 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
     case "voice-chat":
       return { ...state, voiceChannels: { ...state.voiceChannels, [event.voice]: event.channel } };
     case "channels":
-      return { ...state, channels: event.channels };
+      return { ...state, channels: event.channels, categories: event.categories ?? [] };
     case "history":
       return {
         ...state,
@@ -804,7 +818,13 @@ export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice
 
 // Text channel management (admins; the server checks).
 export type ManageAction =
-  | { create: string; private?: boolean }
+  | { create: string; private?: boolean; category?: number }
+  // Categories (staff); a text channel into a category (0: none).
+  | { createCategory: string }
+  | { renameCategory: number; name: string }
+  | { removeCategory: number }
+  | { orderCategories: number[] }
+  | { setCategory: number; category: number }
   | { createPrivateVoice: string }
   // A Mumble channel (see TextState.private) private with these members,
   // or public.
@@ -849,7 +869,12 @@ export type ManageAction =
 export type UserTarget = { session: number } | { user: number };
 
 const manageBody = (a: ManageAction) => {
-  if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}) };
+  if ("create" in a) return { type: "create-channel", name: a.create, ...(a.private ? { private: true } : {}), ...(a.category ? { category: a.category } : {}) };
+  if ("createCategory" in a) return { type: "create-category", name: a.createCategory };
+  if ("renameCategory" in a) return { type: "rename-category", category: a.renameCategory, name: a.name };
+  if ("removeCategory" in a) return { type: "delete-category", category: a.removeCategory };
+  if ("orderCategories" in a) return { type: "order-categories", categories: a.orderCategories };
+  if ("setCategory" in a) return { type: "set-category", channel: a.setCategory, category: a.category };
   if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice };
   if ("setPrivate" in a) return { type: "set-private", voice: a.setPrivate, on: a.on, users: a.users };
   if ("invites" in a) return { type: "invites", voice: a.invites };

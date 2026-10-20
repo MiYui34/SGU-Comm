@@ -12,7 +12,7 @@ export type Member = Speaker;
 // The Mumble channel that holds a channel's access (null: none, a text
 // channel without a mirror).
 export const accessChannel = (kind: ChannelKind, id: number, textChannels: readonly { id: number; mumble?: number }[]) =>
-  kind === "voice" ? id : (textChannels.find((c) => c.id === id)?.mumble ?? null);
+  kind === "voice" ? id : kind === "text" ? (textChannels.find((c) => c.id === id)?.mumble ?? null) : null;
 
 const byName = (a: Member, b: Member) => a.name.localeCompare(b.name);
 const ids = (ms: readonly Member[]) => ms.map((m) => m.id).sort((a, b) => a - b);

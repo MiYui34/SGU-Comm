@@ -1,4 +1,5 @@
 import { isBlocked, parseBlocked, toggleBlocked } from "./blocked";
+import { collapsedIn, parseCollapsed, toggleCollapsed } from "./categories";
 import { parseChannelPrefs, setChannelPref, type ChannelPref } from "./channelPrefs";
 import { directPrefsOf, parseDirectPrefs, setDirectPrefs, type DirectPrefs } from "./directList";
 import { persisted } from "./persisted.svelte";
@@ -32,6 +33,14 @@ export const channelPrefs = {
     return channelStore.value;
   },
   set: (server: string, id: number, patch: ChannelPref) => channelStore.set(setChannelPref(channelStore.value, server, id, patch)),
+};
+
+// Collapsed text categories, per server (see lib/categories).
+const collapsedStore = persisted("collapsedCategories", parseCollapsed);
+
+export const collapsedCategories = {
+  of: (server: string) => collapsedIn(collapsedStore.value, server),
+  toggle: (server: string, id: number) => collapsedStore.set(toggleCollapsed(collapsedStore.value, server, id)),
 };
 
 const directStore = persisted("directChats", parseDirectPrefs);
