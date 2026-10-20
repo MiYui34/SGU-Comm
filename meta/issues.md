@@ -15,3 +15,4 @@
 - [ ] [The same user on several devices](issues/multiple-sessions.md) (design)
 - [ ] [Request ids for manage requests](issues/request-ids.md)
 - [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
+- [ ] [Desktop app: links do nothing, videos don't play (Linux)](issues/desktop-links-and-video.md)
