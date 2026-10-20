@@ -21,6 +21,14 @@ type Mirror struct {
 	Name    string
 	Topic   string
 	Private bool // a new mirror is private (an existing one keeps its access)
+	// Its category: an index into the categories, plus one (0: none).
+	Category int
+}
+
+// MirrorCategory is a category's Mumble channel (0: none yet) and name.
+type MirrorCategory struct {
+	Channel uint32
+	Name    string
 }
 
 // noChannel is the voice server's "not on the server" (mumbled.NoChannel).
@@ -29,21 +37,37 @@ const noChannel = ^uint32(0)
 // historySize: what a Mumble user gets on entering a mirror, at most.
 const historySize = 20
 
-// syncMirrors makes the mirrors match the text channels, saves their
-// Mumble channels and reloads the list. A new mirror for the text channel
-// private (0: none) is private. Call it with manageMu held.
+// syncMirrors makes the mirrors match the text channels and categories,
+// saves their Mumble channels and reloads the lists. A new mirror for the
+// text channel private (0: none) is private. Call it with manageMu held.
 func (h *Hub) syncMirrors(private int64) error {
 	channels, err := h.store.Channels()
 	if err != nil {
 		return err
 	}
-	want := make([]Mirror, len(channels))
-	for i, c := range channels {
-		want[i] = Mirror{Channel: c.Mumble, Name: c.Name, Topic: c.Topic, Private: private != 0 && c.ID == private}
-	}
-	ids, err := h.voice.SyncTextChannels(want)
+	cats, err := h.store.Categories()
 	if err != nil {
 		return err
+	}
+	wantCats := make([]MirrorCategory, len(cats))
+	index := map[int64]int{}
+	for i, c := range cats {
+		wantCats[i], index[c.ID] = MirrorCategory{Channel: c.Mumble, Name: c.Name}, i+1
+	}
+	want := make([]Mirror, len(channels))
+	for i, c := range channels {
+		want[i] = Mirror{Channel: c.Mumble, Name: c.Name, Topic: c.Topic, Private: private != 0 && c.ID == private, Category: index[c.Category]}
+	}
+	catIDs, ids, err := h.voice.SyncTextTree(wantCats, want)
+	if err != nil {
+		return err
+	}
+	for i, c := range cats {
+		if i < len(catIDs) && catIDs[i] != 0 && catIDs[i] != c.Mumble {
+			if err := h.store.SetCategoryMumble(c.ID, catIDs[i]); err != nil {
+				return err
+			}
+		}
 	}
 	for i, c := range channels {
 		if i < len(ids) && ids[i] != 0 && ids[i] != c.Mumble {

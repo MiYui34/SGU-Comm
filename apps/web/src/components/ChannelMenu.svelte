@@ -26,6 +26,7 @@
     onMembers,
     onModerators,
     direct,
+    category = false,
     onClose,
   }: {
     name: string;
@@ -58,6 +59,8 @@
     onModerators?: () => void;
     // A direct chat (see lib/directList).
     direct?: { pinned: boolean; onProfile: () => void; onRead?: () => void; onPin: () => void; onHide: () => void };
+    // A text category (see lib/categories).
+    category?: boolean;
     onClose: () => void;
   } = $props();
 
@@ -74,7 +77,7 @@
   ];
   const id = $props.id();
   const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
-  const noun = $derived(direct ? "conversation" : "channel");
+  const noun = $derived(direct ? "conversation" : category ? "category" : "channel");
   const changes = $derived(canEdit || canCreateSub || canMoveUp || canMoveDown || canMembers || canModerators);
 </script>
 
@@ -122,7 +125,7 @@
     {#if changes}<div class="sep"></div>{/if}
   {/if}
   {#if changes}
-    {#if canEdit && onEdit}<button onclick={act(onEdit)}>Edit channel</button>{/if}
+    {#if canEdit && onEdit}<button onclick={act(onEdit)}>Edit {noun}</button>{/if}
     {#if canCreateSub && onCreateSub}<button onclick={act(onCreateSub)}>Create subchannel</button>{/if}
     {#if canMembers && onMembers}<button onclick={act(onMembers)}>Members…</button>{/if}
     {#if canModerators && onModerators}<button onclick={act(onModerators)}>Moderators…</button>{/if}
@@ -130,7 +133,7 @@
     {#if canMoveDown}<button onclick={act(() => onMove?.(1))}>Move down</button>{/if}
     {#if canDelete && onDelete}
       <div class="sep"></div>
-      <button class="danger" onclick={act(onDelete)}>Delete channel</button>
+      <button class="danger" onclick={act(onDelete)}>Delete {noun}</button>
     {/if}
   {:else if !notify && recording === undefined && !direct}
     <p class="none">You may not change this channel.</p>

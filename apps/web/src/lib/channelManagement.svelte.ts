@@ -1,6 +1,18 @@
 import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
-import { canCreateSubchannel, canListenOnly, canManageMembers, canManageText, canModerate, menuRights, moderatorsChannel, voiceSiblings } from "./channelManagement";
+import { textGroups } from "./categories";
+import {
+  canCreateSubchannel,
+  canCreateText,
+  canListenOnly,
+  canManageMembers,
+  canManageText,
+  canModerate,
+  managesCategory,
+  menuRights,
+  moderatorsChannel,
+  voiceSiblings,
+} from "./channelManagement";
 import { channelModActions } from "./roles";
 import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOnly";
 import { accessChannel, membersAction, privateAction, type Member } from "./privateChannels";
@@ -16,6 +28,7 @@ export type ChannelValues = {
   listenOnly?: ListenOnly;
   private?: boolean;
   slowMode?: number;
+  category?: number; // a text channel's (0: none)
 };
 
 // The channel menu and dialog: what they show and what they send.
@@ -30,7 +43,14 @@ export const createChannelManagement = (current: () => Connection) => {
   const server = $derived(connection.state);
   const text = $derived(connection.text);
   const canMakeVoice = $derived(may(server, 0, Perm.MakeChannel));
-  const canCreate = $derived({ text: canManageText(server, text), voice: canMakeVoice || may(server, 0, Perm.MakeTempChannel) });
+  const canCreate = $derived({
+    text: canManageText(server, text),
+    voice: canMakeVoice || may(server, 0, Perm.MakeTempChannel),
+    category: canManageText(server, text),
+  });
+  // Staff choose a text channel's category in the dialog.
+  const categoryChoice = () => (canManageText(server, text) ? { categories: text.categories.map(({ id, name }) => ({ id, name })) } : {});
+  const textChannel = (id: number) => text.channels.find((c) => c.id === id);
   // A menu whose channel went away is closed.
   const menu = $derived.by(() => {
     const rights = opened && menuRights(server, text, opened.kind, opened.id);
@@ -71,7 +91,7 @@ export const createChannelManagement = (current: () => Connection) => {
   };
 
   const nameOf = (kind: ChannelKind, id: number) =>
-    kind === "text" ? (text.channels.find((c) => c.id === id)?.name ?? "") : (server.channels[id]?.name ?? "");
+    (kind === "text" ? textChannel(id) : kind === "category" ? text.categories.find((c) => c.id === id) : server.channels[id])?.name ?? "";
 
   return {
     get menu() {
@@ -83,6 +103,8 @@ export const createChannelManagement = (current: () => Connection) => {
     get canCreate() {
       return canCreate;
     },
+    // A "+" on a category: staff, and its moderators.
+    canCreateIn: (category: number) => canCreateText(server, text, category),
     get members() {
       return membersForm;
     },
@@ -100,18 +122,25 @@ export const createChannelManagement = (current: () => Connection) => {
       opened = { kind, id, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
     },
     closeMenu: () => (opened = null),
-    // parent: a voice subchannel there (its moderators may make private
-    // ones too).
-    startCreate: (kind: ChannelKind, parent?: number) =>
+    // in: a text channel's category, or a voice subchannel's parent (its
+    // moderators may make private ones too).
+    startCreate: (kind: ChannelKind, inside = 0) =>
       (form = {
-        form: parent
-          ? { mode: "create", kind, temporaryOnly: false, canPrivate: canModerate(server, text, parent), parent }
-          : { mode: "create", kind, temporaryOnly: kind === "voice" && !canMakeVoice, canPrivate: canManageText(server, text) },
+        form:
+          kind === "voice" && inside
+            ? { mode: "create", kind, temporaryOnly: false, canPrivate: canModerate(server, text, inside), parent: inside }
+            : {
+                mode: "create",
+                kind,
+                temporaryOnly: kind === "voice" && !canMakeVoice,
+                canPrivate: canManageText(server, text),
+                ...(kind === "text" ? { canCategory: canManageText(server, text) && !inside, category: inside, ...categoryChoice() } : {}),
+              },
         id: 0,
       }),
     startEdit: (kind: ChannelKind, id: number) =>
       (form = {
-        form: {
+        form: kind === "category" ? { mode: "edit", kind, name: nameOf(kind, id), description: "" } : {
           mode: "edit",
           kind,
           name: nameOf(kind, id),
@@ -124,7 +153,9 @@ export const createChannelManagement = (current: () => Connection) => {
           ...(kind === "text" && canModerate(server, text, accessChannel(kind, id, text.channels))
             ? { slowMode: text.channels.find((c) => c.id === id)?.slowMode ?? 0 }
             : {}),
-          ...(kind === "text" && !canManageText(server, text) ? { topicOnly: true } : {}),
+          ...(kind === "text" && canManageText(server, text) ? { category: textChannel(id)?.category ?? 0, ...categoryChoice() } : {}),
+          // A category's moderators rename its channels too.
+          ...(kind === "text" && !canManageText(server, text) && !managesCategory(server, text, textChannel(id)?.category) ? { topicOnly: true } : {}),
         },
         id,
       }),
@@ -150,24 +181,32 @@ export const createChannelManagement = (current: () => Connection) => {
     startDelete: (kind: ChannelKind, id: number) => (form = { form: { mode: "delete", kind, name: nameOf(kind, id) }, id }),
     closeForm: () => (form = null),
     move: (kind: ChannelKind, id: number, step: -1 | 1) => {
-      if (kind === "text") connection.manage({ order: moveInList(text.channels.map((c) => c.id), id, step) });
-      else for (const c of moveVoiceChannel(voiceSiblings(server, text, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
+      if (kind === "category") connection.manage({ orderCategories: moveInList(text.categories.map((c) => c.id), id, step) });
+      else if (kind === "text") {
+        // Within its category (or among those without one).
+        const group = textGroups(text.channels, text.categories).find((g) => g.channels.some((c) => c.id === id));
+        if (group) connection.manage({ order: moveInList(group.channels.map((c) => c.id), id, step) });
+      } else for (const c of moveVoiceChannel(voiceSiblings(server, text, id), id, step)) connection.send(editChannel(c.id, { position: c.position }));
     },
     submit: (v: ChannelValues) => {
       if (!form) return;
       const { form: f, id } = form;
       if (f.mode === "create") {
-        if (v.kind === "text") connection.manage({ create: v.name, private: v.private });
+        if (v.kind === "category") connection.manage({ createCategory: v.name });
+        else if (v.kind === "text") connection.manage({ create: v.name, private: v.private, ...(v.category ? { category: v.category } : {}) });
         else if (v.private) connection.manage({ createPrivateVoice: v.name, parent: f.parent });
         else connection.send(createChannel(f.parent ?? 0, v.name, { temporary: v.temporary }));
       } else if (f.mode === "edit") {
         const access = accessChannel(v.kind, id, text.channels);
         const priv = f.private && access !== null && privateAction(access, f.private.on, v.private ?? false, f.private.members);
         if (priv) connection.manage(priv);
-        if (v.kind === "text") {
+        if (v.kind === "category") {
+          if (v.name !== f.name) connection.manage({ renameCategory: id, name: v.name });
+        } else if (v.kind === "text") {
           if (v.name !== f.name) connection.manage({ rename: id, name: v.name });
           if (v.description.trim() !== f.description) connection.manage({ topic: id, text: v.description.trim() });
           if (v.slowMode !== undefined && v.slowMode !== f.slowMode) connection.manage({ slowMode: id, seconds: v.slowMode });
+          if (v.category !== undefined && f.categories && v.category !== f.category) connection.manage({ setCategory: id, category: v.category });
         } else {
           const changes = {
             ...(v.name !== f.name ? { name: v.name } : {}),
@@ -177,7 +216,8 @@ export const createChannelManagement = (current: () => Connection) => {
           const listenOnly = f.listenOnly && v.listenOnly && listenOnlyAction(id, f.listenOnly, v.listenOnly);
           if (listenOnly) connection.manage(listenOnly);
         }
-      } else if (v.kind === "text") connection.manage({ remove: id });
+      } else if (v.kind === "category") connection.manage({ removeCategory: id });
+      else if (v.kind === "text") connection.manage({ remove: id });
       else connection.send(removeChannel(id));
     },
   };

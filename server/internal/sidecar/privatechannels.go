@@ -56,7 +56,7 @@ func (h *Hub) isPrivate(channel uint32) bool {
 // text channels, the private channels, listen-only channels and streams.
 func (c *Conn) sendAccess(id mumble.Identity) {
 	h := c.hub
-	c.send(map[string]any{"type": "channels", "channels": h.channelsFor(id)})
+	c.send(h.channelsEvent(id))
 	if h.voice == nil {
 		return
 	}

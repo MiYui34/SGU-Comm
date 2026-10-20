@@ -74,7 +74,7 @@ func (s *Server) ListenOnly() []ListenOnlyChannel {
 	var out []ListenOnlyChannel
 	ids := map[uint32]bool{}
 	for _, id := range slices.Sorted(maps.Keys(s.state.Channels)) {
-		if speakers, on := listenOnlySpeakers(s.state.Channels[id]); on && id != 0 && !s.isMirrorLocked(id) {
+		if speakers, on := listenOnlySpeakers(s.state.Channels[id]); on && id != 0 && !s.state.mirror(id) {
 			c := ListenOnlyChannel{Channel: id}
 			for _, u := range speakers {
 				c.Speakers = append(c.Speakers, Speaker{ID: u})
@@ -132,7 +132,7 @@ func (s *Server) SetListenOnly(actor, channel uint32, on bool, speakers []uint32
 	case ch == nil || u == nil:
 		s.mu.Unlock()
 		return errors.New("no such channel")
-	case channel == 0 || s.isMirrorLocked(channel):
+	case channel == 0 || s.state.mirror(channel):
 		s.mu.Unlock()
 		return errors.New("only voice channels can be listen-only")
 	case s.state.aclPermissions(u, channel)&Write == 0: // not a channel moderator's (see modPermissions)

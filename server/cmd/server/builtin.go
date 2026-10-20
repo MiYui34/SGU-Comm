@@ -257,12 +257,16 @@ func sidecarImages(images []mumbled.Image) []sidecar.Image {
 // voiceServer is the built-in server as the sidecar's Voice.
 type voiceServer struct{ *mumbled.Server }
 
-func (v voiceServer) SyncTextChannels(want []sidecar.Mirror) ([]uint32, error) {
+func (v voiceServer) SyncTextTree(cats []sidecar.MirrorCategory, want []sidecar.Mirror) ([]uint32, []uint32, error) {
+	categories := make([]mumbled.TextCategory, len(cats))
+	for i, c := range cats {
+		categories[i] = mumbled.TextCategory{Channel: c.Channel, Name: c.Name}
+	}
 	mirrors := make([]mumbled.TextMirror, len(want))
 	for i, w := range want {
-		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name, Topic: w.Topic, Private: w.Private}
+		mirrors[i] = mumbled.TextMirror{Channel: w.Channel, Name: w.Name, Topic: w.Topic, Private: w.Private, Category: w.Category}
 	}
-	return v.Server.SyncTextChannels(mirrors)
+	return v.Server.SyncTextTree(categories, mirrors)
 }
 
 func (v voiceServer) MumbleClient(session uint32) (sidecar.MumbleUser, bool) {

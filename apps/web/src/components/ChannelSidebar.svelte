@@ -2,6 +2,7 @@
   import { channelTree, usersIn, type ChannelNode, type ServerState } from "@kallisti/protocol";
   import { longPress } from "../lib/longPress";
   import { mirrorIds, withoutMirrors } from "../lib/mirrors";
+  import { shownCollapsed, textGroups, type TextCategory } from "../lib/categories";
   import { htmlToText } from "../lib/htmlText";
   import type { ChannelKind } from "../lib/channelForm";
   import type { Peer, TextChannel } from "../lib/textChannels";
@@ -18,6 +19,10 @@
     localMuted,
     unread,
     textChannels,
+    categories = [],
+    collapsedCategories = new Set(),
+    onToggleCategory,
+    canCreateIn = () => false,
     currentText,
     unreadText,
     mutedText = new Set(),
@@ -36,7 +41,7 @@
     onJoin,
     onUserMenu,
     onCreate,
-    canCreate = { text: false, voice: false },
+    canCreate = { text: false, voice: false, category: false },
     onChannelMenu,
     onDirectMenu,
   }: {
@@ -50,6 +55,12 @@
     // Unread private messages per user name.
     unread: Record<string, number>;
     textChannels: TextChannel[];
+    // Text categories (see lib/categories), those collapsed on this device,
+    // and where we may create a text channel.
+    categories?: readonly TextCategory[];
+    collapsedCategories?: ReadonlySet<number>;
+    onToggleCategory?: (id: number) => void;
+    canCreateIn?: (category: number) => boolean;
     currentText: number | null;
     unreadText: ReadonlySet<number>;
     mutedText?: ReadonlySet<number>;
@@ -77,7 +88,7 @@
     onJoin: (id: number) => void;
     onUserMenu: (session: number, event: MouseEvent) => void;
     // A "+" in a category (undefined: the user may not create there).
-    onCreate?: (kind: ChannelKind) => void;
+    onCreate?: (kind: ChannelKind, category?: number) => void;
     canCreate?: Record<ChannelKind, boolean>;
     // Right-click on a channel.
     onChannelMenu?: (kind: ChannelKind, id: number, event: MouseEvent) => void;
@@ -86,10 +97,18 @@
   } = $props();
 
   // Text channel mirrors (for Mumble clients) are not voice channels here.
-  const tree = $derived(withoutMirrors(channelTree(server), mirrorIds(server, textChannels)));
+  const tree = $derived(withoutMirrors(channelTree(server), mirrorIds(server, textChannels, categories)));
+  const groups = $derived(textGroups(textChannels, categories));
+  // A collapsed category still shows these (see lib/categories).
+  const loud = $derived(new Set([...unreadText].filter((id) => !mutedText.has(id))));
   let collapsed = $state(false);
   let directCollapsed = $state(false);
   let textCollapsed = $state(false);
+  // A heading's "+" (staff; a category's moderators in it).
+  const createIn = (kind: ChannelKind, id?: number, name?: string) =>
+    onCreate && (id !== undefined || canCreate[kind])
+      ? { label: name ? `Create text channel in ${name}` : `Create ${kind} channel`, run: () => onCreate(kind, id) }
+      : undefined;
   const INDENT = 16;
 </script>
 
@@ -187,57 +206,81 @@
   <span class="lock" title="Private channel"><Icon name="lock" size={14} /><span class="sr-only">(private)</span></span>
 {/snippet}
 
-{#snippet category(label: string, isCollapsed: boolean, toggle: () => void, kind?: ChannelKind)}
+{#snippet category(label: string, isCollapsed: boolean, toggle: () => void, create?: { label: string; run: () => void }, menu?: (e: MouseEvent) => void)}
   <div class="category-row">
-    <button class="category" aria-expanded={!isCollapsed} onclick={toggle}>
+    <button
+      use:longPress
+      class="category"
+      aria-expanded={!isCollapsed}
+      onclick={toggle}
+      oncontextmenu={(e) => {
+        if (!menu) return;
+        e.preventDefault();
+        menu(e);
+      }}
+    >
       <svg class="chevron" class:collapsed={isCollapsed} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" />
       </svg>
       {label}
     </button>
-    {#if kind && onCreate && canCreate[kind]}
-      <button class="add" title="Create channel" aria-label="Create {kind} channel" onclick={() => onCreate(kind)}>
+    {#if create}
+      <button class="add" title="Create channel" aria-label={create.label} onclick={create.run}>
         <Icon name="plus" size={16} />
       </button>
     {/if}
   </div>
 {/snippet}
 
+{#snippet textList(channels: TextChannel[])}
+  <ul class="text-channels">
+    {#each channels as ch (ch.id)}
+      <li>
+        <button
+          use:longPress
+          class="channel hover-row"
+          class:current={ch.id === currentText}
+          class:unread={unreadText.has(ch.id) && ch.id !== currentText}
+          class:muted={mutedText.has(ch.id)}
+          aria-current={ch.id === currentText ? "page" : undefined}
+          onclick={() => onOpenText(ch.id)}
+          oncontextmenu={(e) => {
+            if (!onChannelMenu) return;
+            e.preventDefault();
+            onChannelMenu("text", ch.id, e);
+          }}
+        >
+          <Icon name="hash" size={20} />
+          <span class="name ellipsis">{ch.name}</span>
+          {#if ch.mumble !== undefined && ch.mumble in privateChannels}{@render lock()}{/if}
+          {#if unreadText.has(ch.id) && ch.id !== currentText}
+            <span class="sr-only">unread</span>
+          {/if}
+          {#if ch.id !== currentText}<Badge count={mentionText[ch.id]} label="mentions" />{/if}
+        </button>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
 <nav aria-label="Channels">
-  {#if textChannels.length || canCreate.text}
-    {@render category("Text channels", textCollapsed, () => (textCollapsed = !textCollapsed), "text")}
-    {#if !textCollapsed}
-      <ul class="text-channels">
-        {#each textChannels as ch (ch.id)}
-          <li>
-            <button
-              use:longPress
-              class="channel hover-row"
-              class:current={ch.id === currentText}
-              class:unread={unreadText.has(ch.id) && ch.id !== currentText}
-              class:muted={mutedText.has(ch.id)}
-              aria-current={ch.id === currentText ? "page" : undefined}
-              onclick={() => onOpenText(ch.id)}
-              oncontextmenu={(e) => {
-                if (!onChannelMenu) return;
-                e.preventDefault();
-                onChannelMenu("text", ch.id, e);
-              }}
-            >
-              <Icon name="hash" size={20} />
-              <span class="name ellipsis">{ch.name}</span>
-              {#if ch.mumble !== undefined && ch.mumble in privateChannels}{@render lock()}{/if}
-              {#if unreadText.has(ch.id) && ch.id !== currentText}
-                <span class="sr-only">unread</span>
-              {/if}
-              {#if ch.id !== currentText}<Badge count={mentionText[ch.id]} label="mentions" />{/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+  {#if groups[0]!.channels.length || canCreate.text}
+    {@render category("Text channels", textCollapsed, () => (textCollapsed = !textCollapsed), createIn("text"))}
+    {#if !textCollapsed}{@render textList(groups[0]!.channels)}{/if}
   {/if}
-  {@render category("Voice channels", collapsed, () => (collapsed = !collapsed), "voice")}
+  {#each groups.slice(1) as g (g.category!.id)}
+    {@const id = g.category!.id}
+    {@const shut = collapsedCategories.has(id)}
+    {@render category(
+      g.category!.name,
+      shut,
+      () => onToggleCategory?.(id),
+      canCreateIn(id) ? createIn("text", id, g.category!.name) : undefined,
+      onChannelMenu && ((e) => onChannelMenu("category", id, e)),
+    )}
+    {@render textList(shut ? shownCollapsed(g.channels, currentText, loud) : g.channels)}
+  {/each}
+  {@render category("Voice channels", collapsed, () => (collapsed = !collapsed), createIn("voice"))}
   {#if tree && !collapsed}
     {#if lobby}
       <ul>

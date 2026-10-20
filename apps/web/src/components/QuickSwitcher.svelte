@@ -1,7 +1,8 @@
 <script lang="ts" module>
   // kind: how it shows (and what "open" means, run).
-  // unread: for Alt+Shift+Up/Down. locked: a private channel.
-  export type Place = { key: string; name: string; kind: "text" | "voice" | "dm"; unread?: boolean; locked?: boolean; run: () => void };
+  // unread: for Alt+Shift+Up/Down. locked: a private channel. category: a
+  // text channel's (shown after the name).
+  export type Place = { key: string; name: string; kind: "text" | "voice" | "dm"; unread?: boolean; locked?: boolean; category?: string; run: () => void };
 </script>
 
 <script lang="ts">
@@ -65,6 +66,7 @@
         {#if p.kind === "dm"}<Avatar name={p.name} size={20} />{:else}<Icon name={p.kind === "text" ? "hash" : "speaker"} size={20} />{/if}
         <span class="ellipsis">{p.name}</span>
         {#if p.locked}<span class="lock"><Icon name="lock" size={14} /><span class="sr-only">(private)</span></span>{/if}
+        {#if p.category}<span class="hint">{p.category}</span>{/if}
         {#if p.kind === "voice"}<span class="hint">join</span>{/if}
       </li>
     {/each}

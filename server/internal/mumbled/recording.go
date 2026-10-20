@@ -43,7 +43,7 @@ func (s *Server) recordableLocked(actor, channel uint32) error {
 		return errors.New("recording is not set up on this server")
 	case u == nil || !s.state.isStaff(u):
 		return errors.New("only admins and moderators record channels")
-	case ch == nil || channel == 0 || s.isMirrorLocked(channel):
+	case ch == nil || channel == 0 || s.state.mirror(channel):
 		return errors.New("only voice channels can be recorded")
 	}
 	return nil

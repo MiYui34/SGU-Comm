@@ -61,7 +61,8 @@
   } from "../lib/moderation";
   import { chatSeen, notificationBody, notifier, shouldNotify } from "../lib/notify";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
-  import { blockedUsers, channelPrefs, directPrefs, settings, userAudio } from "../lib/settings.svelte";
+  import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
+  import { textOrder } from "../lib/categories";
   import { isMuted, mutedIds, nothingIds, notifies, prefOf, withoutMuted } from "../lib/channelPrefs";
   import { closeDirect, quietDirects, reopenDirect, togglePin, visibleDirects } from "../lib/directList";
   import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
@@ -1062,12 +1063,15 @@
       .map(([id, peer]) => ({ channel: Number(id), peer }));
     const directs = [...directList, ...closed];
     const withChat = new Set(directs.map((d) => d.peer.id));
-    const mirrors = mirrorIds(server, text.channels); // hidden, as in the sidebar
+    const mirrors = mirrorIds(server, text.channels, text.categories); // hidden, as in the sidebar
+    const categoryName = (id?: number) => text.categories.find((c) => c.id === id)?.name;
     return [
-      ...text.channels.map((c) => ({
+      // In the sidebar's order (Alt+Up/Down follows it).
+      ...textOrder(text.channels, text.categories).map((c) => ({
         key: `t${c.id}`,
         name: c.name,
         kind: "text" as const,
+        category: categoryName(c.category),
         unread: unreadText.has(c.id),
         locked: c.mumble !== undefined && c.mumble in text.private,
         run: () => show({ kind: "text", id: c.id }),
@@ -1120,6 +1124,7 @@
     canMoveDown={m.canMoveDown}
     canMembers={m.canMembers}
     canModerators={m.canModerators}
+    category={m.kind === "category"}
     canCreateSub={m.canCreateSub}
     recording={m.kind === "voice" && staffRecords ? recorded.has(m.id) : undefined}
     onRecord={(on) => connection.manage({ record: m.id, on })}
@@ -1385,6 +1390,10 @@
       {localMuted}
       {unread}
       textChannels={text.channels}
+      categories={text.categories}
+      collapsedCategories={collapsedCategories.of(connection.httpBase)}
+      onToggleCategory={(id) => collapsedCategories.toggle(connection.httpBase, id)}
+      canCreateIn={channels.canCreateIn}
       currentText={textId}
       {unreadText}
       {mutedText}

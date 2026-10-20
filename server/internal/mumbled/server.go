@@ -12,7 +12,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/netip"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -290,9 +289,7 @@ func New(cfg Config) (*Server, error) {
 		_, ok := srv.timedOutInLocked(u, channel)
 		return ok
 	}
-	state.Mirror = func(channel uint32) bool {
-		return srv.textParent != 0 && slices.ContainsFunc(state.chain(channel), func(c *Channel) bool { return c.ID == srv.textParent })
-	}
+	state.Mirror = srv.inTextTree
 	state.OnMove = func(session, from, to uint32) {
 		if from != NoChannel { // a join is told after ServerSync (see join)
 			srv.tellRecordingLocked(session, to)

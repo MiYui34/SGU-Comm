@@ -25,6 +25,7 @@ type Channel struct {
 	Topic  string
 	// SlowMode: each user may post once per so many seconds (0: off).
 	SlowMode int64
+	Category int64 // 0: none
 }
 
 type Message struct {
@@ -166,7 +167,7 @@ func Open(path string) (*Store, error) {
 	// One writer at a time is all SQLite allows anyway, and an in-memory
 	// database exists only for one connection.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable); err != nil {
+	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable + ";" + categoriesTable); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -415,7 +416,7 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	if err := addColumns(db, "channels", [][2]string{{"slow_mode", "INTEGER NOT NULL DEFAULT 0"}}); err != nil {
+	if err := addColumns(db, "channels", [][2]string{{"slow_mode", "INTEGER NOT NULL DEFAULT 0"}, {"category_id", "INTEGER"}}); err != nil {
 		return err
 	}
 	// Message ids counted from before the counter: the newest there is.
@@ -527,37 +528,30 @@ func (s *Store) SeedChannels(names []string) error {
 	return s.EnsureChannels(names)
 }
 
-// CreateChannel adds a text channel at the end. A deleted channel of that
-// name comes back, with its history.
-func (s *Store) CreateChannel(name string) (Channel, error) {
+// CreateChannel adds a text channel at the end, in a category (0: none).
+// With revive, a deleted channel of that name comes back, with its history.
+func (s *Store) CreateChannel(name string, category int64, revive bool) (Channel, error) {
 	if strings.Contains(name, ":") {
 		return Channel{}, ErrInvalidName
 	}
-	c := Channel{Name: name}
-	err := s.db.QueryRow(`INSERT INTO channels (name, position)
-		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0))
-		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position
-		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL
-		RETURNING id, position`, name).Scan(&c.ID, &c.Position)
+	if err := s.categoryExists(category); err != nil {
+		return Channel{}, err
+	}
+	c := Channel{Name: name, Category: category}
+	err := s.db.QueryRow(`INSERT INTO channels (name, position, category_id)
+		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0), NULLIF(?, 0))
+		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position, category_id = excluded.category_id
+		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL AND ?
+		RETURNING id, position`, name, category, revive).Scan(&c.ID, &c.Position)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Channel{}, ErrNameTaken // a visible channel has the name
+		return Channel{}, ErrNameTaken // a visible channel has the name (or a deleted one)
 	}
 	return c, err
 }
 
 // textChannel runs a change on a text channel (not a voice channel chat).
 func (s *Store) textChannel(query string, args ...any) error {
-	res, err := s.db.Exec(query, args...)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
-			return ErrNameTaken
-		}
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowChanged(s.db.Exec(query, args...))
 }
 
 func (s *Store) RenameChannel(id int64, name string) error {
@@ -605,7 +599,7 @@ func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
 
 // Channels returns the visible channels in order.
 func (s *Store) Channels() ([]Channel, error) {
-	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0), topic, slow_mode FROM channels WHERE hidden = 0 ORDER BY position`)
+	rows, err := s.db.Query(`SELECT id, name, position, COALESCE(mumble_channel, 0), topic, slow_mode, COALESCE(category_id, 0) FROM channels WHERE hidden = 0 ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +607,7 @@ func (s *Store) Channels() ([]Channel, error) {
 	var out []Channel
 	for rows.Next() {
 		var c Channel
-		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble, &c.Topic, &c.SlowMode); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.Mumble, &c.Topic, &c.SlowMode, &c.Category); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
