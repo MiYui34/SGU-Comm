@@ -32,10 +32,16 @@ func (h *Hub) mumbleOf(c chat) uint32 {
 	return h.mirrorOf(c.id)
 }
 
-// mayModerate: the user moderates the chat (staff everywhere but in
-// direct chats; a channel's moderators there).
+// mayModerate: the user moderates the chat (staff everywhere, a
+// channel's moderators there).
 func (h *Hub) mayModerate(id mumble.Identity, c chat) bool {
-	return !c.direct && h.voice != nil && h.voice.ModeratesIn(id.Session, h.mumbleOf(c))
+	if h.voice == nil {
+		return false
+	}
+	if c.direct {
+		return h.voice.MayManage(id.Session)
+	}
+	return h.voice.ModeratesIn(id.Session, h.mumbleOf(c))
 }
 
 // setChannelModerator: the voice server checks the right and reports the
