@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -87,6 +91,47 @@ func startServerAndListen(t *testing.T, host string, cfg Config, setup func(*Ser
 		s.Close()
 	})
 	return s, ln.Addr().String()
+}
+
+// flakyListener fails its first Accept, as when the process is out of
+// file descriptors.
+type flakyListener struct {
+	net.Listener
+	failed atomic.Bool
+}
+
+func (l *flakyListener) Accept() (net.Conn, error) {
+	if !l.failed.Swap(true) {
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	}
+	return l.Listener.Accept()
+}
+
+// Serve goes on after a failed Accept; it ends when the listener closes.
+func TestServeSurvivesAcceptErrors(t *testing.T) {
+	certPEM, keyPEM, _ := certs.GenerateServer("test")
+	cert, _ := certs.Load(certPEM, keyPEM)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", TLSConfig(cert))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(&flakyListener{Listener: ln}) }()
+	dial(t, ln.Addr().String(), "alice")
+	ln.Close()
+	select {
+	case err := <-served:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve goes on after the listener closed")
+	}
 }
 
 type frame struct {
