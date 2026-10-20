@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asSpoiler, chatSrc, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload, videoPreload } from "../src/lib/media";
+import { asSpoiler, chatSrc, downloadUrl, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload, videoPreload } from "../src/lib/media";
 
 describe("previews", () => {
   it("show a picture's preview in the chat, else the picture", () => {
@@ -76,5 +76,12 @@ describe("media boxes", () => {
 
   it("give videos their aspect ratio", () => {
     expect(mediaRatio({ width: 1280, height: 720 })).toBe("1280 / 720");
+  });
+});
+
+describe("downloadUrl", () => {
+  it("asks the server for an attachment", () => {
+    expect(downloadUrl("https://x.example/files/abc/clip.mp4")).toBe("https://x.example/files/abc/clip.mp4?download");
+    expect(downloadUrl("/files/abc/a.mp4?x=1")).toBe("/files/abc/a.mp4?x=1&download");
   });
 });

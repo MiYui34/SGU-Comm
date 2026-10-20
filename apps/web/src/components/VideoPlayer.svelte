@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatDuration, mediaRatio, onlyOne, shownLength, videoPreload } from "../lib/media";
+  import { downloadUrl, formatDuration, mediaRatio, onlyOne, shownLength, videoPreload } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // A video attachment: a play button and the length until it starts, then
@@ -68,7 +68,7 @@
   <div class="file">
     <a class="name ellipsis" href={url} target="_blank" rel="noopener noreferrer">{name}</a>
     <span class="size">{formatSize(size)}</span>
-    <a class="download" href={url} download={name} aria-label="Download {name}" title="Download">
+    <a class="download" href={downloadUrl(url)} download={name} aria-label="Download {name}" title="Download">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
         ><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg
       >

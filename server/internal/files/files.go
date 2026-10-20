@@ -276,7 +276,8 @@ func servedType(u store.Upload, f io.ReaderAt) string {
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	key, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/files/"), "/")
 	u, err := h.Store.UploadByKey(key)
-	// ?preview: its preview (see previews.go), if it has one.
+	// ?preview: its preview (see previews.go), if it has one; ?download:
+	// the file as an attachment.
 	preview := r.URL.Query().Has("preview")
 	if err != nil || !plainKey(u.Key) || preview && !u.HasPreview() {
 		http.NotFound(w, r)
@@ -301,6 +302,9 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 		u.Type = servedType(u, f)
 		if isInline(u.Type) {
 			disposition, ctype = "inline", u.Type
+		}
+		if r.URL.Query().Has("download") { // a download button: save, don't show
+			disposition = "attachment"
 		}
 		hd.Set("Content-Type", ctype)
 		hd.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": u.Name}))

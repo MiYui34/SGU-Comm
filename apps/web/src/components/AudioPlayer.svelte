@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { finite, formatDuration, onlyOne, shownLength } from "../lib/media";
+  import { downloadUrl, finite, formatDuration, onlyOne, shownLength } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // An audio attachment: the file card with a player row.
@@ -21,7 +21,7 @@
       <a class="name ellipsis" href={url} target="_blank" rel="noopener noreferrer">{name}</a>
       <span class="size">{formatSize(size)}</span>
     </span>
-    <a class="icon" href={url} download={name} aria-label="Download {name}" title="Download">
+    <a class="icon" href={downloadUrl(url)} download={name} aria-label="Download {name}" title="Download">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
         ><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg
       >

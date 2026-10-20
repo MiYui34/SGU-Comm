@@ -68,3 +68,7 @@ export const asSpoiler = (file: File, on: boolean): File =>
 
 export const spoilerUpload = <T extends { name: string }>(u: T): T & { spoiler?: true } =>
   u.name.startsWith(SPOILER_PREFIX) ? { ...u, name: u.name.slice(SPOILER_PREFIX.length), spoiler: true } : u;
+
+// A download button's link: the server sends the file as an attachment
+// (media are served inline, so a plain link would play it).
+export const downloadUrl = (url: string) => `${url}${url.includes("?") ? "&" : "?"}download`;

@@ -107,6 +107,15 @@ func TestUploadAndServeAnImage(t *testing.T) {
 		h.Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(h.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("headers: %v", h)
 	}
+	// ?download: the same file as an attachment (a download button).
+	dl, err := http.Get(srv.URL + v["url"].(string) + "?download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl.Body.Close()
+	if d := dl.Header.Get("Content-Disposition"); !strings.HasPrefix(d, "attachment") || !strings.Contains(d, "my cat.png") {
+		t.Fatalf("download disposition %q", d)
+	}
 }
 
 func TestNonImagesAreDownloadsEvenIfTheyClaimOtherwise(t *testing.T) {
