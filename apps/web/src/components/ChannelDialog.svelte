@@ -4,7 +4,7 @@
   import type { ListenOnly, Speaker } from "../lib/listenOnly";
   import { SLOW_MODES, slowModeLabel } from "../lib/slowMode";
 
-  // Create, edit or delete a channel.
+  // Create, edit or delete a channel or a text category.
 
   let {
     form,
@@ -20,6 +20,7 @@
       listenOnly?: ListenOnly;
       private?: boolean;
       slowMode?: number;
+      category?: number;
     }) => void;
     onClose: () => void;
   } = $props();
@@ -27,7 +28,13 @@
   let dialog: HTMLDialogElement | undefined = $state();
   // The fields start from the form; the dialog is made anew for each one.
   const start = untrack(() => form);
-  const kind = start.kind;
+  // Staff making a text channel may make a category instead.
+  let kind = $state(start.kind);
+  const noun = $derived(kind === "category" ? "category" : "channel");
+  // A text channel's category (0: none); the choice is for staff.
+  const categories = start.mode === "delete" ? undefined : start.categories;
+  const startCategory = start.mode === "delete" ? undefined : start.category;
+  let category = $state(startCategory ?? 0);
   let name = $state(start.mode === "create" ? "" : start.name);
   let description = $state(start.mode === "edit" ? start.description : "");
   // Voice channels with the built-in server.
@@ -50,9 +57,7 @@
   const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice" && !isPrivate);
   $effect(() => dialog?.showModal());
 
-  const title = $derived(
-    form.mode === "create" ? "Create channel" : form.mode === "edit" ? "Edit channel" : "Delete channel",
-  );
+  const title = $derived(`${form.mode === "create" ? "Create" : form.mode === "edit" ? "Edit" : "Delete"} ${noun}`);
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (form.mode !== "delete" && !name.trim()) return;
@@ -62,8 +67,9 @@
       description,
       temporary,
       ...(startListenOnly ? { listenOnly: { on: listenOnly, speakers } } : {}),
-      ...(canPrivate ? { private: isPrivate } : {}),
+      ...(canPrivate && kind !== "category" ? { private: isPrivate } : {}),
       ...(startSlowMode !== undefined ? { slowMode } : {}),
+      ...(startCategory !== undefined && kind === "text" ? { category } : {}),
     });
     dialog?.close();
   };
@@ -80,16 +86,33 @@
         Delete <strong>{form.kind === "text" ? `#${form.name}` : form.name}</strong>?
         {form.kind === "voice"
           ? "Its subchannels go too; people in them move up."
-          : "Its messages are kept and come back if a channel of this name is made again."}
+          : form.kind === "category"
+            ? "Its channels stay, without a category."
+            : "Its messages are kept and come back if a channel of this name is made again."}
       </p>
     {:else}
+      {#if start.mode === "create" && start.canCategory}
+        <div class="kinds" role="radiogroup" aria-label="What to create">
+          <label class="check"><input type="radio" bind:group={kind} value="text" /> Text channel</label>
+          <label class="check"><input type="radio" bind:group={kind} value="category" /> Category</label>
+        </div>
+      {/if}
       <label>
-        Channel name
+        {kind === "category" ? "Category" : "Channel"} name
         <!-- svelte-ignore a11y_autofocus -->
-        <input bind:value={name} maxlength={kind === "text" ? 32 : 100} required autofocus readonly={start.mode === "edit" && start.topicOnly}
-          placeholder={kind === "text" ? "new-channel" : "New channel"} />
+        <input bind:value={name} maxlength={kind === "voice" ? 100 : 32} required autofocus readonly={start.mode === "edit" && start.topicOnly}
+          placeholder={kind === "text" ? "new-channel" : kind === "category" ? "New category" : "New channel"} />
       </label>
-      {#if form.mode === "edit"}
+      {#if categories?.length && kind === "text"}
+        <label>
+          Category
+          <select bind:value={category}>
+            <option value={0}>No category</option>
+            {#each categories as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+      {#if form.mode === "edit" && kind !== "category"}
         <label>
           {kind === "text" ? "Topic" : "Description"}
           <textarea bind:value={description} rows="3" maxlength={kind === "text" ? 200 : undefined}></textarea>
@@ -104,7 +127,7 @@
           <span class="note hint">How often each member may post here. Admins and moderators (also this channel's) are exempt.</span>
         </label>
       {/if}
-      {#if canPrivate}
+      {#if canPrivate && kind !== "category"}
         <label class="check">
           <input type="checkbox" bind:checked={isPrivate} />
           <span>
@@ -224,6 +247,10 @@
   }
   .check input {
     margin-top: 3px;
+  }
+  .kinds {
+    display: flex;
+    gap: 24px;
   }
   .check .note {
     display: block;
