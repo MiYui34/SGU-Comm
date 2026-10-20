@@ -324,14 +324,26 @@ func TestPasswordAndSessionsOfAnAccount(t *testing.T) {
 	a, _ := s.CreateAccount(Account{Name: "alice", PasswordHash: "h", CertPEM: []byte("c"), KeyPEM: []byte("k")}, now)
 	s.CreateSession("one", a.ID, now.Add(time.Hour))
 	s.CreateSession("two", a.ID, now.Add(time.Hour))
-	if err := s.SetPassword(a.ID, "h2"); err != nil {
+	if err := s.ChangePassword(a.ID, "two", "stale", "h2", now); err != ErrNotFound {
+		t.Fatalf("change from a stale hash: %v", err)
+	}
+	if err := s.ChangePassword(a.ID, "gone", "h", "h2", now); err != ErrNotFound {
+		t.Fatalf("change from an ended session: %v", err)
+	}
+	if err := s.ChangePassword(a.ID, "two", "h", "h2", now.Add(2*time.Hour)); err != ErrNotFound {
+		t.Fatalf("change from an expired session: %v", err)
+	}
+	if got, _ := s.AccountByName("alice"); got.PasswordHash != "h" {
+		t.Fatalf("refused changes kept hash %q", got.PasswordHash)
+	}
+	if _, err := s.AccountBySession("one", now); err != nil {
+		t.Fatal("a refused change ended session one")
+	}
+	if err := s.ChangePassword(a.ID, "two", "h", "h2", now); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.AccountByName("alice"); got.PasswordHash != "h2" {
 		t.Fatalf("hash %q", got.PasswordHash)
-	}
-	if err := s.DeleteSessionsExcept(a.ID, "two"); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := s.AccountBySession("one", now); err != ErrNotFound {
 		t.Error("session one still valid")

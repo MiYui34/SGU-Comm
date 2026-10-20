@@ -189,6 +189,60 @@ func TestPasswordChangeEndsOtherSessions(t *testing.T) {
 	}
 }
 
+// stalledBody tells when the handler starts to read it, then waits for
+// the body text.
+type stalledBody struct {
+	reading chan struct{}
+	text    chan string
+	rest    *strings.Reader
+}
+
+func (b *stalledBody) Read(p []byte) (int, error) {
+	if b.rest == nil {
+		close(b.reading)
+		b.rest = strings.NewReader(<-b.text)
+	}
+	return b.rest.Read(p)
+}
+
+// A password change checks the password and session when it saves, not
+// when the request starts: an owner's change in between wins.
+func TestStalledPasswordChangeLosesToTheOwner(t *testing.T) {
+	a, srv := setup(t)
+	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "ivan", "password": "old password"}, nil)
+	owner := sessionCookie(resp)
+	resp, _ = post(t, srv, "/api/login", map[string]string{"name": "ivan", "password": "old password"}, nil)
+	attacker := sessionCookie(resp)
+
+	body := &stalledBody{reading: make(chan struct{}), text: make(chan string)}
+	r := httptest.NewRequest("POST", "/api/password", body)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://app.example")
+	r.AddCookie(attacker)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { a.ServeHTTP(rec, r); close(done) }()
+	<-body.reading
+
+	if resp, v := post(t, srv, "/api/password", map[string]string{"old": "old password", "new": "owner password"}, owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("owner change: %d %v", resp.StatusCode, v)
+	}
+	body.text <- `{"old":"old password","new":"attacker password"}`
+	<-done
+	if rec.Code == http.StatusNoContent {
+		t.Errorf("stalled change: %d, want a refusal", rec.Code)
+	}
+	if _, ok := a.AccountFor(requestWith(owner)); !ok {
+		t.Error("the owner's session was ended")
+	}
+	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "ivan", "password": "attacker password"}, nil); resp.StatusCode == http.StatusOK {
+		t.Error("login with the attacker's password")
+	}
+	if resp, _ := post(t, srv, "/api/login", map[string]string{"name": "ivan", "password": "owner password"}, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("login with the owner's password: %d", resp.StatusCode)
+	}
+}
+
 func TestLogoutEverywhere(t *testing.T) {
 	a, srv := setup(t)
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "frank", "password": "longpassword"}, nil)

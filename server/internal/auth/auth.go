@@ -451,12 +451,17 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "the current password is wrong"})
 		return
 	}
-	save := a.Store.SetPassword
-	if acc.Temporary {
-		save = a.Store.MakePermanent
-	}
+	// acc is from before the body was read: the store checks again that
+	// the session and the old password are still current.
 	keep := SessionKey(r)
-	if err != nil || save(acc.ID, hash) != nil || a.Store.DeleteSessionsExcept(acc.ID, keep) != nil {
+	if err == nil {
+		err = a.Store.ChangePassword(acc.ID, keep, acc.PasswordHash, hash, a.Now())
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "the password or session changed meanwhile"})
+		return
+	}
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot change the password"})
 		return
 	}

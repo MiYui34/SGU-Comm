@@ -1343,9 +1343,31 @@ func (s *Store) DeleteAccount(id int64) error {
 	return err
 }
 
-func (s *Store) SetPassword(accountID int64, hash string) error {
-	_, err := s.db.Exec(`UPDATE accounts SET password_hash = ? WHERE id = ?`, hash, accountID)
-	return err
+// ChangePassword gives the account a new password hash (a temporary account
+// becomes permanent) and ends all its sessions but keep, in one transaction.
+// ErrNotFound if keep is no longer a live session of the account or the hash
+// is no longer oldHash: a change checked against an old snapshot.
+func (s *Store) ChangePassword(accountID int64, keep, oldHash, newHash string, now time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE accounts SET password_hash = ?, temporary = 0 WHERE id = ? AND password_hash = ?
+		AND EXISTS (SELECT 1 FROM sessions WHERE token_hash = ? AND account_id = accounts.id AND expires_at > ?)`,
+		newHash, accountID, oldHash, keep, now.UnixMilli())
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE account_id = ? AND token_hash != ?`, accountID, keep); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteSessionsExcept ends all sessions of an account but one ("" ends all).
