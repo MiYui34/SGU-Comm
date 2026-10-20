@@ -1854,3 +1854,46 @@ From `meta/research/discord-comparison.md`.
   without waiting (list loads) can go to a waiting control; a broadcast
   from another admin can confirm early; an answer after the dialog closed
   is lost; a plain (non-manage) error makes the control wait 5 s.
+
+## Background disconnects (2026-10-20)
+
+### Android and web (part 3)
+
+- On Android, in voice, the voice mix plays through an `<audio>` element
+  (MediaStreamAudioDestinationNode → srcObject) with a Media Session
+  ("Voice: <channel>", the server name, the app icons). Pages that play
+  media are not frozen in the background. lib/voice/output.ts: one output
+  bus per AudioContext (it outlives reconnects); lib/mediaSession.ts:
+  the pure session data.
+- Only on Android (user agent): desktops do not freeze pages, the element
+  path adds a little latency there, and with a Media Session the media
+  keys (play/pause meant for another player) would leave voice. iOS has
+  known trouble with stream-fed `<audio>` while the microphone is open,
+  and suspends PWAs anyway.
+- No double output, no silence: the bus goes to the speakers until the
+  element fires `playing`, and back on `pause`. A refused play() keeps the
+  direct path; it is tried again on the next touch. Output device:
+  setSinkId on the context and the element. Per-user volume, deafen, the
+  music buffer and the limiter sit before the bus; the echo test, stream
+  audio and the sounds keep their own direct paths.
+- Actions: pause, stop and hangup leave voice (Kallisti servers); plain
+  Mumble servers have no place outside voice, so they deafen there.
+  playbackState stays "playing" (a "paused" notification could be swiped
+  away, and that pauses the element).
+- Rejoin: Client already restored mute/deafen first and then the channel.
+  Gap fixed: until the server confirms the rejoin (or 5 s pass), the old
+  channel counts as ours. Before, the new client reported "not in voice"
+  at once, so a second drop during the rejoin forgot the channel. The
+  media session stays across the client swap: the old client's teardown
+  releases it after 1 s, and the new one takes it over before that.
+- No wake lock: the goal is calls with the screen off.
+- Checked headless (Chromium, Android user agent stubbed, a warmload
+  speaker in General): joining plays the element (live audio track),
+  sources keep starting, the bus is off the speakers, metadata and
+  "playing" set; leaving pauses it and clears the session. A server
+  restart: rejoined General muted, the element never paused. Desktop user
+  agent: no element, the direct path as before.
+- Not tested: output.ts has no unit tests (DOM and Web Audio glue; the
+  decisions are in the tested pure parts). Not checked on a phone: the
+  media notification and keep-alive with the screen off, echo
+  cancellation on speakerphone, and the latency of the element path.

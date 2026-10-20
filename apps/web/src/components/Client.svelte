@@ -47,6 +47,8 @@
   import { lastTurnAt } from "../lib/slowMode";
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
+  import { rejoinTarget } from "../lib/reconnect";
+  import { voiceSession } from "../lib/mediaSession";
   import {
     channelTimedOutUntil,
     mayDeleteMessages,
@@ -376,11 +378,27 @@
   const back = untrack(() => resume);
   let view = $state<View>(back?.view ?? { kind: "voice" });
   let navigated = back !== null;
+  // The voice channel we come back to counts as ours until we are in it
+  // (or it failed): a second drop meanwhile keeps it, and so does the
+  // media session.
+  let rejoining = $state(back?.voice ?? null);
+  const voiceHere = $derived(rejoining ?? (voiceOn ? channelId : null));
+  $effect(() => {
+    if (rejoining !== null && me?.channelId === rejoining) rejoining = null;
+  });
   $effect(() =>
-    onPlace?.({ view, voice: voiceOn ? channelId : null, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
+    onPlace?.({ view, voice: voiceHere, thread: threadId, selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false }),
   );
+  // In voice: keeps phones from freezing the page (see lib/mediaSession).
+  const session = $derived(voiceHere === null ? null : voiceSession({ channel: server.channels[voiceHere]?.name ?? "", server: serverName, lobby }));
+  $effect(() =>
+    connection.playback?.setVoice(session, (action) => (action === "leave" ? leaveVoice() : updateSelf({ selfMute: true, selfDeaf: true }))),
+  );
+  $effect(() => () => connection.playback?.releaseVoice());
   // Mute and deafen sounds (see sounds.ts), not for about 3 s after a
-  // reconnect: we restore our mute and deafen then.
+  // reconnect: we restore our mute and deafen then. REJOIN_MS: how long
+  // the rejoin may take.
+  const REJOIN_MS = 5000;
   let soundState: VoiceSnapshot | null = null;
   let lastSound = -Infinity;
   let restored = false;
@@ -390,8 +408,10 @@
     lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
     if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
-    if (back.voice !== null && server.channels[back.voice] && me.channelId !== back.voice)
-      connection.send(joinChannel(me.session, back.voice));
+    const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id]);
+    if (target === null) return void (rejoining = null);
+    connection.send(joinChannel(me.session, target));
+    setTimeout(() => (rejoining = null), REJOIN_MS); // refused: not in voice after all
   });
   $effect(() => {
     const next = snapshotOf(server);

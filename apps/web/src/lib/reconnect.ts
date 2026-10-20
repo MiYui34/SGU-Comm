@@ -1,5 +1,6 @@
 import { proto, type ServerState } from "@kallisti/protocol";
 import { certificateProblem } from "./desktop";
+import type { Place } from "./place";
 
 // The server closed the connection because its session ended (a logout,
 // also on another device, or a password change there). Same reason text as
@@ -29,3 +30,8 @@ export const reconnectDelay = (attempt: number) => DELAYS_MS[Math.min(attempt, D
 // own old session, which the server has not let go yet. Worth a few tries.
 export const busyName = (s: Pick<ServerState, "status" | "rejectType">) =>
   s.status === "rejected" && s.rejectType === proto.Reject_RejectType.UsernameInUse;
+
+// After a reconnect: the voice channel to join again (null: none, already
+// there, or the channel is gone).
+export const rejoinTarget = (back: Place | null, here: number, exists: (id: number) => boolean): number | null =>
+  back?.voice != null && back.voice !== here && exists(back.voice) ? back.voice : null;

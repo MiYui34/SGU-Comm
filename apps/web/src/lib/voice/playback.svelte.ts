@@ -6,6 +6,7 @@ import { createMusicDetector, trackMusic, type MusicDetector } from "./music";
 import { chunkOutcome, nextStart, startsAnew, type PlayoutConfig } from "./schedule";
 import type { Counters } from "../connectionQuality";
 import { voiceDecoder, type VoiceDecoder } from "./codec";
+import { voiceOutput } from "./output";
 
 const SAMPLE_RATE = 48_000;
 // Mumble counts frames in 10 ms steps.
@@ -43,7 +44,8 @@ export const createPlayback = (ctx: AudioContext) => {
   const output = ctx.createGain();
   const limiter = createLimiter(ctx);
   output.connect(limiter.input);
-  limiter.output.connect(ctx.destination);
+  const out = voiceOutput(ctx);
+  limiter.output.connect(out.input);
   let deaf = false;
   let delaySetting: PlaybackBuffer = "low";
   // Who is in a listen-only channel: they get the music buffer.
@@ -169,10 +171,10 @@ export const createPlayback = (ctx: AudioContext) => {
       speaker?.gain.gain.setTargetAtTime(value, ctx.currentTime, 0.02);
     },
     // Does nothing where outputDeviceSupported() is false.
-    setOutputDevice: (deviceId: string | null) => {
-      const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
-      void sink.setSinkId?.(deviceId ?? "").catch((err) => console.warn("output device", err));
-    },
+    setOutputDevice: out.setSinkId,
+    // The background media session (see voice/output.ts).
+    setVoice: out.setVoice,
+    releaseVoice: out.release,
     setBuffer: (value: PlaybackBuffer) => {
       delaySetting = value;
     },

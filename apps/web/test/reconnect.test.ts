@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { proto } from "@kallisti/protocol";
-import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "../src/lib/reconnect";
+import { busyName, loggedOut, reconnectDelay, rejoinTarget, shouldReconnect } from "../src/lib/reconnect";
+import type { Place } from "../src/lib/place";
 
 const lost = { status: "synced" as const, closed: true, closeReason: "", wasSynced: true };
 
@@ -42,5 +43,21 @@ describe("busyName", () => {
     expect(busyName({ status: "rejected", rejectType: proto.Reject_RejectType.UsernameInUse })).toBe(true);
     expect(busyName({ status: "rejected", rejectType: proto.Reject_RejectType.WrongUserPW })).toBe(false);
     expect(busyName({ status: "synced", rejectType: null })).toBe(false);
+  });
+});
+
+describe("rejoinTarget", () => {
+  const back: Place = { view: { kind: "voice" }, voice: 5, thread: null, selfMute: true, selfDeaf: false };
+  const exists = (id: number) => id !== 9;
+
+  it("the voice channel the user was in", () => {
+    expect(rejoinTarget(back, 0, exists)).toBe(5);
+  });
+
+  it("none when not in voice before, already there, or the channel is gone", () => {
+    expect(rejoinTarget(null, 0, exists)).toBe(null);
+    expect(rejoinTarget({ ...back, voice: null }, 0, exists)).toBe(null);
+    expect(rejoinTarget(back, 5, exists)).toBe(null);
+    expect(rejoinTarget({ ...back, voice: 9 }, 0, exists)).toBe(null);
   });
 });
