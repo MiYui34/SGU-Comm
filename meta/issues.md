@@ -12,4 +12,3 @@
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
 - [ ] [Streams: temporal layers for slow viewers](issues/stream-temporal-layers.md)
 - [ ] [Threads](issues/threads.md)
-- [ ] [Limits for moderators' voice subchannels](issues/subchannel-limits.md)
