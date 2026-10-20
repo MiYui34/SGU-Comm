@@ -37,5 +37,9 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 # Notifications over D-Bus (see notify.rs). The version the plugin uses.
 zbus = "5"
 
+# macOS: no App Nap (see background.rs). The version tauri uses.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+
 [dev-dependencies]
 rcgen = "0.14"

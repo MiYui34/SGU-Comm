@@ -1,3 +1,4 @@
+pub mod background;
 pub mod bridge;
 pub mod crypt;
 pub mod frames;
@@ -74,6 +75,8 @@ pub fn run() {
         // on Linux).
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            background::no_app_nap();
             let pins = Arc::new(pins::PinStore::load(app.path().app_data_dir()?.join("pins.json")));
             let b = tauri::async_runtime::block_on(bridge::start(origins(), pins.clone()))?;
             app.manage(BridgeInfo { port: b.port, secret: b.secret });
