@@ -32,8 +32,19 @@ describe("mentions", () => {
     expect(mentions("@a&amp;b hi", "a&b")).toBe(true);
   });
 
+  it("marks other known names as pills, mine more strongly, unknown ones not", () => {
+    const known = ["pwm", "lain soy", "a&b"];
+    expect(highlightMentions("btw @pwm and @Lain soy, @nobody", "lain", undefined, known)).toBe(
+      'btw <span class="mention">@pwm</span> and <span class="mention">@Lain soy</span>, @nobody',
+    );
+    expect(highlightMentions("@a&amp;b and @lain", "lain", undefined, known)).toBe(
+      '<span class="mention">@a&amp;b</span> and <span class="mention me">@lain</span>',
+    );
+    expect(highlightMentions("@pwmx hi", "lain", undefined, known)).toBe("@pwmx hi");
+  });
+
   it("highlights @name outside tags only", () => {
-    expect(highlightMentions("hi @Lain!", "lain")).toBe('hi <span class="mention">@Lain</span>!');
+    expect(highlightMentions("hi @Lain!", "lain")).toBe('hi <span class="mention me">@Lain</span>!');
     const link = '<a href="https://x.example/@lain">https://x.example/@lain</a>';
     expect(highlightMentions(link, "lain")).toBe(link);
   });

@@ -827,6 +827,17 @@
   });
   // A primitive: the bio is asked for once per menu, not on every event.
   const memberMenuId = $derived(memberUser?.id ?? null);
+  // @mention pills: the names that become pills (online users and members),
+  // and a click on one opens that user's menu (online first, else the member).
+  const knownNames = $derived([...new Set([...users.map((u) => u.name), ...Object.values(text.members)])]);
+  const openMentionMenu = (name: string, pill: HTMLElement, event: MouseEvent) => {
+    const key = name.toLowerCase();
+    const at = menuAnchor(event, pill.getBoundingClientRect());
+    const user = users.find((u) => u.name.toLowerCase() === key);
+    if (user) return userMenuAt(user.session, at);
+    const member = Object.entries(text.members).find(([, n]) => n.toLowerCase() === key);
+    if (member) menu = { userId: Number(member[0]), ...at };
+  };
   const openMemberMenu = (userId: number, event: MouseEvent) => {
     event.preventDefault();
     menu = { userId, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
@@ -836,7 +847,10 @@
   });
   const openMenu = (session: number, event: MouseEvent) => {
     event.preventDefault();
-    menu = { session, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
+    userMenuAt(session, menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()));
+  };
+  const userMenuAt = (session: number, at: { x: number; y: number }) => {
+    menu = { session, ...at };
     // Moderation needs our permissions in their channel and where to move them.
     const user = server.users[session];
     if (user && session !== server.session) for (const id of permissionsToAsk(server, text, user)) connection.send(queryPermissions(id));
@@ -930,6 +944,8 @@
     loginToWrite,
     me: me?.name ?? "",
     people,
+    knownNames,
+    onMention: openMentionMenu,
     cannotWrite:
       myTimeout !== null
         ? `You are timed out until ${untilText(myTimeout)}.`

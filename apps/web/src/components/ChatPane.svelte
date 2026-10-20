@@ -65,6 +65,8 @@
     onSend,
     onClose,
     me = "",
+    knownNames = [],
+    onMention,
     people = [],
     channelNames = [],
     searchPlaces = [],
@@ -128,6 +130,9 @@
     talking?: boolean;
     // Our name: messages that mention us stand out.
     me?: string;
+    // Names that @mentions turn into pills; a click on one opens its menu.
+    knownNames?: readonly string[];
+    onMention?: (name: string, pill: HTMLElement, event: MouseEvent) => void;
     // Names "@" suggests (online users, recent authors).
     people?: readonly string[];
     // Text channel names, for "#" suggestions; chats for "in:" in the search.
@@ -1107,6 +1112,9 @@
     {@const key = messageKey(m)}
     {@const long = isLong(m)}
     {@const open = expanded.has(key)}
+    <!-- A click on a mention pill opens that user's menu: a mouse shortcut
+         (keyboard users have the member list). -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="text"
       class:jumbo={jumboEmoji(m.text, custom.urls)}
@@ -1114,8 +1122,13 @@
       id={long ? `${listId}-${key}` : undefined}
       use:measure={"source" in m && m.source ? null : key}
       onfocusin={(e) => long && !open && toggleLong(key, e.currentTarget.closest("li"), true)}
+      onclick={(e) => {
+        const pill = (e.target as Element).closest?.(".mention");
+        const name = pill?.textContent?.slice(1) ?? "";
+        if (pill instanceof HTMLElement && onMention && name !== "everyone" && name !== "here") onMention(name, pill, e);
+      }}
     >
-      {@html safe(highlightMentions(m.text, me, allOf(m)), emojiImages.ok, custom.urls)}
+      {@html safe(highlightMentions(m.text, me, allOf(m), knownNames), emojiImages.ok, custom.urls)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
@@ -1980,11 +1993,18 @@
     background: rgb(240 178 50 / 0.1);
     box-shadow: inset 2px 0 0 rgb(240 178 50);
   }
+  /* Mentions as pills (as in Discord): blue, mine yellow. */
   .text :global(.mention) {
     padding: 0 2px;
     border-radius: 3px;
-    background: rgb(240 178 50 / 0.25);
+    background: rgb(88 101 242 / 0.22);
+    color: var(--link);
     font-weight: 600;
+    cursor: pointer;
+  }
+  .text :global(.mention.me) {
+    background: rgb(240 178 50 / 0.25);
+    color: inherit;
   }
   .image {
     display: inline-block;

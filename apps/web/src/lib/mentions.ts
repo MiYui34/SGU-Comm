@@ -48,12 +48,35 @@ export const pingsMe = (html: string, author: string | null, replyTo: string | u
 // without a ping.
 export const replyPing = (m: { reply?: { author: string }; noPing?: boolean }) => (m.noPing ? undefined : m.reply?.author);
 
-export const highlightMentions = (html: string, name: string, all?: MentionAll): string => {
-  const names = [name, all ?? ""].filter((n) => n !== "");
+// One pattern for many names (longest first, so "lain soy" wins over
+// "lain"), cached for the last list.
+let anyCache: { key: string; re: RegExp } | null = null;
+const anyOf = (names: readonly string[]) => {
+  const sorted = [...new Set(names.map((n) => n.toLowerCase()))].sort((a, b) => b.length - a.length);
+  const key = sorted.join("\n");
+  if (anyCache?.key !== key) {
+    const alts = sorted.map((n) => escapeHtml(n).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    anyCache = { key, re: new RegExp(`(?<=^|[\\s(\\[{,:])@(?:${alts})(?!${NAME_CHAR})`, "giu") };
+  }
+  anyCache.re.lastIndex = 0;
+  return anyCache.re;
+};
+
+// Mentions as pills: me (class "mention me"), all (when the server
+// flagged it) and other known names; unknown names stay text.
+export const highlightMentions = (html: string, name: string, all?: MentionAll, known: readonly string[] = []): string => {
+  const names = [name, all ?? "", ...known].filter((n) => n !== "");
+  if (names.length === 0) return html;
+  const re = anyOf(names);
   return parts(html)
-    .map((p, i) => (i % 2 === 0 ? names.reduce((s, n) => s.replace(pattern(n), (m) => `<span class="mention">${m}</span>`), p) : p))
+    .map((p, i) =>
+      i % 2 === 0
+        ? p.replace(re, (m) => `<span class="${name !== "" && sameName(unescape(m.slice(1)), name) ? "mention me" : "mention"}">${m}</span>`)
+        : p,
+    )
     .join("");
 };
+const unescape = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
 // Unseen messages per channel that mention me (not my own), for badges:
 // the server's count up to its summary (if not read that far), plus
