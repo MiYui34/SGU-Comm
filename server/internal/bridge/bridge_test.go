@@ -351,7 +351,7 @@ func TestSuspendedBrowsersSurviveAFullSocket(t *testing.T) {
 		}()
 		return ours, nil
 	}
-	b, url := startBridgeWith(t, Options{Dial: flood, KeepAlive: 20 * time.Millisecond, PingGrace: time.Second})
+	b, url := startBridgeWith(t, Options{Dial: flood, KeepAlive: 50 * time.Millisecond, PingGrace: time.Second})
 	c, _, err := connect(t, url, "")
 	if err != nil {
 		t.Fatal(err)

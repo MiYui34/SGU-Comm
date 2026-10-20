@@ -58,9 +58,9 @@ type Options struct {
 	// background tabs, so the client's own pings may come too late. 0: 10
 	// seconds.
 	KeepAlive time.Duration
-	// PingGrace: a browser without a pong for this long is closed. Long, so
-	// a page the system suspends for a while (a macOS app in the
-	// background, Android) keeps its session. 0: 2 minutes.
+	// PingGrace: a browser without a pong for this long is closed (at the
+	// next failed ping). Long, so a page the system suspends for a while (a
+	// macOS app in the background, Android) keeps its session. 0: 2 minutes.
 	PingGrace time.Duration
 }
 

@@ -96,8 +96,8 @@ const (
 	writeTimeout = 10 * time.Second
 	// The web bridge keeps a suspended page up to two minutes
 	// (bridge.Options.PingGrace) and stops reading from us meanwhile. It
-	// closes the pipe when it gives up; meanwhile voice is dropped and
-	// other frames queue (a full queue still disconnects).
+	// closes the pipe when it gives up. Voice is dropped and other frames
+	// queue (a full queue still disconnects).
 	webWriteTimeout = 3 * time.Minute
 	// When a connection ends, queued frames (a kick reason) still go out.
 	flushTimeout = 2 * time.Second
