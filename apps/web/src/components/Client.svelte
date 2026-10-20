@@ -118,6 +118,7 @@
     onPlace,
     onLogIn,
     site = location.origin,
+    drafts = { value: new Map() },
   }: {
     connection: Connection;
     account?: AccountActions;
@@ -129,6 +130,9 @@
     // The server's address, for message and invite links (the desktop app's
     // own address is not it).
     site?: string;
+    // Unsent texts of the chats not open (see chatCommon): kept by the
+    // caller, so that they outlive a reconnect.
+    drafts?: Drafts;
   } = $props();
 
   const server = $derived(connection.state);
@@ -1010,8 +1014,6 @@
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
   };
 
-  // Unsent texts of the chats not open: here, as the panes come and go.
-  const drafts: Drafts = { value: new Map() };
   // What both chat panes (the open chat and an open thread) share.
   const chatCommon = $derived({
     drafts,
