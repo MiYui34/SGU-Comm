@@ -461,6 +461,26 @@ func TestAMumbleClientTakesVoiceInATemporaryChannel(t *testing.T) {
 	s.mu.Unlock()
 }
 
+func TestMakingATemporaryChannelTakesVoice(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	su := superUser(t, addr)
+	voice := aliceTab(t, s, "203.0.113.1")
+	voice.move(voice.session, general)
+	su.waitForMove(voice.session, general)
+	su.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(voice.session), Mute: proto.Bool(true)})
+	su.waitForState(voice.session, func(m *pb.UserState) bool { return m.GetMute() })
+	text := aliceTab(t, s, "203.0.113.1")
+	tmp := text.createChannel(general, "Tmp", true)
+	voice.waitForState(voice.session, isIn(TextOnly))
+	text.waitForMove(text.session, tmp)
+	s.mu.Lock()
+	muted := s.state.Users[text.session].Mute
+	s.mu.Unlock()
+	if !muted {
+		t.Fatal("the server mute did not go along")
+	}
+}
+
 func TestATabTakesVoiceInTheTemporaryChannelOfAnother(t *testing.T) {
 	s, _, general := lobbyServer(t)
 	first := aliceTab(t, s, "203.0.113.1")
