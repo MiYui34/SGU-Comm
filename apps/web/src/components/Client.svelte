@@ -1222,7 +1222,8 @@
     channelTimeout={menuModeration?.channelTimeout != null
       ? {
           name: mumbleName(menuModeration.channelTimeout),
-          until: channelTimedOutUntil(server, text.channelTimeouts, menuUser, menuModeration.channelTimeout),
+          // That channel's own (the server ends only those).
+          until: timedOutUntil(text.channelTimeouts.filter((t) => t.channel === menuModeration.channelTimeout), menuUser),
         }
       : null}
     onModerate={(a) => moderate({ session: menuUser.session }, a)}
