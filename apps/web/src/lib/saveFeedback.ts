@@ -34,6 +34,10 @@ export const answer = <W extends { via: Via }>(waiters: readonly W[], via: Via, 
 
 // Names as the server writes them (see textChannelName, categoryName).
 const channelName = (name: string) => name.trim().split(/\s+/).join("-").toLowerCase();
+// Go lowers case a little differently (a final sigma, a dotted I): compared
+// without case and marks.
+const fold = (name: string) => name.toUpperCase().normalize("NFD").replace(/\p{M}/gu, "");
+const sameChannel = (stored: string | undefined, asked: string) => stored !== undefined && fold(stored) === fold(channelName(asked));
 const categoryName = (name: string) => name.trim().split(/\s+/).join(" ");
 
 // ids in this order among the listed ones.
@@ -48,8 +52,8 @@ type Lists = { channels: TextChannel[]; categories: TextCategory[] };
 const channelCheck = (a: ManageAction): ((l: Lists) => boolean) | null => {
   const channel = (l: Lists, id: number) => l.channels.find((c) => c.id === id);
   const category = (l: Lists, id: number) => l.categories.find((c) => c.id === id);
-  if ("create" in a) return (l) => l.channels.some((c) => c.name === channelName(a.create));
-  if ("rename" in a) return (l) => channel(l, a.rename)?.name === channelName(a.name);
+  if ("create" in a) return (l) => l.channels.some((c) => sameChannel(c.name, a.create));
+  if ("rename" in a) return (l) => sameChannel(channel(l, a.rename)?.name, a.name);
   if ("remove" in a) return (l) => !channel(l, a.remove);
   if ("order" in a) return (l) => inOrder(l.channels, a.order);
   if ("topic" in a) return (l) => (channel(l, a.topic)?.topic ?? "") === a.text.trim();
