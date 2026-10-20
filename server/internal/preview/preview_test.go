@@ -82,7 +82,7 @@ func TestFetchWithImage(t *testing.T) {
 	f := New()
 	f.allow = local
 	p := f.Get(context.Background(), srv.URL+"/page")
-	if p == nil || p.Title != "Hello" || p.Image == "" || p.URL != srv.URL+"/page" {
+	if p == nil || p.Title != "Hello" || p.Image == "" || p.URL != srv.URL+"/page" || p.ImageWidth != 4 || p.ImageHeight != 4 {
 		t.Fatalf("preview %+v", p)
 	}
 	if again := f.Get(context.Background(), srv.URL+"/page"); again == nil || hits.Load() != 1 {

@@ -16,7 +16,7 @@ func (f fakePreviews) Get(_ context.Context, url string) *preview.Preview { retu
 
 func TestPreviewsOfMessages(t *testing.T) {
 	h := newHub(t, "general")
-	h.Previews = fakePreviews{"https://example.org/a": {URL: "https://example.org/a", Title: "A page", Image: "k1"}}
+	h.Previews = fakePreviews{"https://example.org/a": {URL: "https://example.org/a", Title: "A page", Image: "k1", ImageWidth: 120, ImageHeight: 60}}
 	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 435})
 	withLink := say(t, h, alice, "look (https://example.org/a), nice")
 	noPreview := say(t, h, alice, "https://example.org/none")
@@ -39,7 +39,8 @@ func TestPreviewsOfMessages(t *testing.T) {
 		got[m["message"].(float64)] = m["preview"]
 	}
 	p, ok := got[float64(withLink)].(map[string]any)
-	if !ok || p["title"] != "A page" || p["url"] != "https://example.org/a" || p["image"] != "/api/link-image/k1" {
+	if !ok || p["title"] != "A page" || p["url"] != "https://example.org/a" || p["image"] != "/api/link-image/k1" ||
+		p["imageWidth"] != 120.0 || p["imageHeight"] != 60.0 {
 		t.Fatalf("preview %v", got)
 	}
 	if v, ok := got[float64(noPreview)]; !ok || v != nil {

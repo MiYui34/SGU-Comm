@@ -26,6 +26,8 @@ type wirePreview struct {
 	Description string `json:"description,omitempty"`
 	Site        string `json:"site,omitempty"`
 	Image       string `json:"image,omitempty"` // relative to the server
+	ImageWidth  int    `json:"imageWidth,omitempty"`
+	ImageHeight int    `json:"imageHeight,omitempty"`
 }
 
 // The first http(s) link of a message text, as the web client links it:
@@ -81,7 +83,7 @@ func (c *Conn) previews(id mumble.Identity, req request) {
 			if p != nil {
 				out = &wirePreview{URL: p.URL, Title: p.Title, Description: p.Description, Site: p.Site}
 				if p.Image != "" {
-					out.Image = "/api/link-image/" + p.Image
+					out.Image, out.ImageWidth, out.ImageHeight = "/api/link-image/"+p.Image, p.ImageWidth, p.ImageHeight
 				}
 			}
 			c.send(map[string]any{"type": "preview", "channel": m.ChannelID, "message": m.ID, "preview": out})
