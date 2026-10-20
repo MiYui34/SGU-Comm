@@ -1457,3 +1457,58 @@ From `meta/research/discord-comparison.md`.
 - Mumble port: an Accept error (out of file descriptors) no longer ends
   the accept loop: it waits (5 ms, doubling to 1 s) and tries again;
   only a closed listener ends it.
+
+## Channel moderators (2026-10-20)
+
+- One source of truth: a "channelmod" group in the Mumble channel (a voice
+  channel, or a text channel's mirror) and one ACL entry for it, here and
+  in subchannels: Traverse, Enter (they see a private channel), MuteDeafen
+  and Move. No Write: with it they could edit the ACL and appoint
+  moderators. Kallisti's rights ask the same group (ModeratesIn); Mumble
+  groups inherit, so subchannels count. The entry goes with the last
+  moderator.
+- Rights: delete and pin messages, a text channel's topic and slow mode
+  (they are exempt from it there), server mute, move out, the members and
+  invite links of a private channel (not making it private or public),
+  and channel time-outs. Voice channel chats have no topic or slow mode.
+- The voice "kick" is a disconnect: a move to root (the lobby). A server
+  kick or ban is server-wide, so it stays with staff. Mass delete stays
+  with staff too: it spans all channels.
+- Never over staff, and not over the same channel's other moderators:
+  native Mumble mutes and moves check this too (State.shields), as Mumble's
+  ACLs alone would allow it. Since then, nobody without staff rights
+  (also a temporary channel's maker, who has Write there) mutes or moves
+  staff. Staff act on channel moderators; nobody acts on SuperUser.
+- A moderator must see the channel: a private subchannel stays closed to
+  the parent's moderators (Mumble groups inherit, but the subchannel
+  denies Traverse). Only staff change a "channelmod" group in a Mumble ACL
+  edit (others keep the old one): a temporary channel's maker has Write
+  there and could appoint himself. A user timed out in a channel cannot
+  lift the suppress there.
+- Deletes and pins look at the chat, not at the author: a channel's
+  moderators also delete staff messages there (as Discord's Manage
+  Messages). Their mutes are server mutes (Murmur's), so they stay when
+  the user leaves the channel.
+- Appointed by admins and moderators in the channel menu (Moderators…),
+  with the members dialog (registered users). Changes go out with the
+  roles event (channelModerators: each channel's own moderators, only of
+  channels the user sees); every ACL edit now sends it, as groups of any
+  channel can hold moderators. The member list tags them (an outlined
+  "Mod") only in their channels.
+- Channel time-outs share the time-out map and timers (a key with the
+  channel) and are saved in mumble_channel_timeouts (no foreign key:
+  temporary channels are not saved; time-outs of channels that are gone
+  are skipped at the start). They take Speak, Whisper and TextMessage in
+  the channel and below (State.Permissions), so Mumble clients see the
+  rights, users there are suppressed, and the sidecar's MayWrite and
+  MaySpeak follow. Text channels now also need TextMessage in their mirror
+  to write. They come in the timeouts event as channelTimeouts (older
+  clients ignore them). A new request type (channel-time-out), so an
+  older server refuses it instead of timing out server-wide.
+- Channel moderators of private channels pick new members from the
+  members list (registered users but guest accounts): Mumble's user list
+  needs Register in root.
+- Known gaps: the web walks the channel tree for inherited moderators and
+  ignores a group's Remove entries from Mumble ACL edits. A Mumble client
+  timed out in a channel cannot send private texts to users in that
+  channel either (Murmur checks TextMessage in the recipient's channel).
