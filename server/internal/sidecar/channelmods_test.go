@@ -17,6 +17,9 @@ import (
 func (f *fakeVoice) ModeratesIn(session, channel uint32) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onModeratesIn != nil {
+		f.onModeratesIn(session)
+	}
 	mod := f.moderates[session]
 	inCategory := mod != 0 && f.parents[channel] == mod && (!f.hidden[channel] || f.members[session])
 	return session == 1 || channel != 0 && (mod == channel || inCategory)

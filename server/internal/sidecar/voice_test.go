@@ -73,6 +73,8 @@ type fakeVoice struct {
 	moderates    map[uint32]uint32
 	channelMods  []ChannelModerators
 	chanTimeouts map[[2]uint32]time.Time
+	// Called on each ModeratesIn (with mu held).
+	onModeratesIn func(session uint32)
 }
 
 func (f *fakeVoice) SendPrivateText(from uint32, _ string, toUser uint32, text string) bool {

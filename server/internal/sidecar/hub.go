@@ -1148,12 +1148,14 @@ const maxTopicLength = 200
 // sends everyone the new list.
 func (c *Conn) manage(id mumble.Identity, req request) {
 	h := c.hub
+	// Authorized with the lock held: a channel moved meanwhile is checked
+	// in its new category.
+	h.manageMu.Lock()
+	defer h.manageMu.Unlock()
 	if !h.mayManage(id, req) {
 		c.manageError("you may not manage channels")
 		return
 	}
-	h.manageMu.Lock()
-	defer h.manageMu.Unlock()
 	var err error
 	taken := "a channel with this name exists"
 	var private int64 // a new private text channel

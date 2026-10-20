@@ -3,6 +3,7 @@ package sidecar
 import (
 	"slices"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/time/rate"
@@ -171,6 +172,30 @@ func TestCategoryModeratorsManageChannelsInTheirCategory(t *testing.T) {
 	// A deleted channel (it may have been private) comes back only by
 	// staff, with its history.
 	manageRefused(t, carol, `{"type":"create-channel","name":"valorant","category":`+games+`}`)
+}
+
+// Channel management is authorized inside its serialization: a channel
+// that staff move out of a category meanwhile is no longer the old
+// category moderator's to rename, delete or describe.
+func TestChannelManagementIsAuthorizedWhileSerialized(t *testing.T) {
+	h, v, _, carol := catHub(t)
+	mc := h.channelID("minecraft")
+	var unlocked atomic.Bool
+	v.mu.Lock()
+	v.onModeratesIn = func(session uint32) {
+		if session == 3 && h.manageMu.TryLock() {
+			unlocked.Store(true)
+			h.manageMu.Unlock()
+		}
+	}
+	v.mu.Unlock()
+	manageOK(t, carol, `{"type":"create-channel","name":"valorant","category":`+h.categoryID("Games")+`}`)
+	manageOK(t, carol, `{"type":"rename-channel","channel":`+mc+`,"name":"terraria"}`)
+	manageOK(t, carol, `{"type":"set-topic","channel":`+mc+`,"text":"blocks"}`)
+	manageOK(t, carol, `{"type":"delete-channel","channel":`+mc+`}`)
+	if unlocked.Load() {
+		t.Error("a request was authorized before it waited for the management lock")
+	}
 }
 
 // A private channel in a category: its moderators manage it only as
