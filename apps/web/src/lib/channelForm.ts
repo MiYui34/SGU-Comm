@@ -4,12 +4,12 @@ import type { Member } from "./privateChannels";
 // What the channel dialog does: create, edit or delete a channel or a
 // text category. Private channels (built-in server) for admins and
 // moderators: canPrivate on create; private on edit (with the members,
-// which stay).
+// which stay). A voice channel made in another (parent) is a subchannel.
 export type ChannelKind = "text" | "voice" | "category";
 // A text channel's category (0: none); categories: the choice (staff).
 type CategoryField = { category?: number; categories?: { id: number; name: string }[] };
 export type ChannelForm =
-  | ({ mode: "create"; kind: ChannelKind; temporaryOnly: boolean; canPrivate?: boolean; canCategory?: boolean } & CategoryField)
+  | ({ mode: "create"; kind: ChannelKind; temporaryOnly: boolean; canPrivate?: boolean; canCategory?: boolean; parent?: number } & CategoryField)
   | ({
       mode: "edit";
       kind: ChannelKind;

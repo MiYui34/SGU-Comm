@@ -1125,6 +1125,7 @@
     canMembers={m.canMembers}
     canModerators={m.canModerators}
     category={m.kind === "category"}
+    canCreateSub={m.canCreateSub}
     recording={m.kind === "voice" && staffRecords ? recorded.has(m.id) : undefined}
     onRecord={(on) => connection.manage({ record: m.id, on })}
     onMembers={() => channels.startMembers(m.kind, m.id)}
@@ -1132,6 +1133,7 @@
     notify={m.kind === "text" ? { pref: prefOf(channelPrefs.value, connection.httpBase, m.id), desktop: prefs.notifications } : undefined}
     onNotify={(patch) => channelPrefs.set(connection.httpBase, m.id, patch)}
     onEdit={() => channels.startEdit(m.kind, m.id)}
+    onCreateSub={() => channels.startCreate("voice", m.id)}
     onMove={(step) => channels.move(m.kind, m.id, step)}
     onDelete={() => channels.startDelete(m.kind, m.id)}
     onClose={channels.closeMenu}

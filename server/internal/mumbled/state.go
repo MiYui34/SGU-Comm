@@ -30,6 +30,9 @@ type State struct {
 	// TimedOutIn: the user has a channel time-out in the channel or one
 	// above it (see timeouts.go). It runs under the server lock.
 	TimedOutIn func(u *User, channel uint32) bool
+	// Mirror: the channel is a text channel mirror, their parent or below
+	// them (see mirrors.go). It runs under the server lock.
+	Mirror func(channel uint32) bool
 }
 
 // NoChannel: not on the server (see State.OnMove).

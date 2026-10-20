@@ -1535,6 +1535,42 @@ From `meta/research/discord-comparison.md`.
   timed out in a channel cannot send private texts to users in that
   channel either (Murmur checks TextMessage in the recipient's channel).
 
+## Voice subchannels of channel moderators (2026-10-20)
+
+- Channel moderators make permanent voice channels in the voice channels
+  they moderate, at any depth. Below the moderated channel they rename,
+  reorder, move and delete them (also temporary ones there). The
+  moderated channel itself stays as it is, and nothing leaves or enters
+  the subtree. Their moderator rights cover the new channels, as groups
+  inherit.
+- Not ACL entries: State.Permissions adds the rights (modPermissions):
+  MakeChannel where they moderate, Write where they also moderate the
+  parent. Mumble clients see them in PermissionQuery and use their own
+  menus; the web follows the same bits. Write from the ACLs would let
+  them edit the ACL, so ACL edits (mayEditACL) and keepWrite ask the ACLs
+  only, as do listen-only and Mumble's user lookup (QueryUsers); a
+  channel made with a moderator's MakeChannel gives its maker no admin
+  group or Write entry. Sees asks the ACLs' Traverse (Permissions asks
+  Sees for moderators). Mumble clients show the ACL tab in subchannels;
+  the server refuses it.
+- Moves need Write and the new parent's MakeChannel both from the ACLs or
+  both a moderator's (mayMove): no channel of their temporary channel
+  goes in, none of theirs out. A move or delete with a moderator's Write
+  needs it in every channel below too (modWritesAll): a private
+  subchannel they do not see stays where it is.
+- Private subchannels: yes. create-private-voice takes the parent
+  (voice); a moderator who makes one is its first member, else it would
+  not see it (private channels are closed to a parent's moderators).
+  Making a channel private or public stays with staff.
+- Text channel mirrors and everything below their parent get none of
+  this (State.Mirror).
+- The rights are added to the ACLs' (not filtered by them): an ACL deny
+  for "channelmod" does not take them away.
+- Known gaps: no limit on the number or depth of channels moderators
+  make (Murmur has channelcountlimit and channelnestinglimit); two
+  mirror checks (isMirrorLocked: the parent and its children,
+  State.Mirror: any depth).
+
 ## Text categories (2026-10-20)
 
 - One level, like Discord. A store table (categories: name, a unique
@@ -1577,5 +1613,5 @@ From `meta/research/discord-comparison.md`.
   and deleted the category (its channels moved to the top).
 - Known gaps: no drag and drop (menu and dialog only). No private
   categories in the app (the server does not refuse set-private on a
-  category's channel, but that is untested). A category's moderators can learn that a channel name is
-  taken (also a private or deleted channel's) from the create error.
+  category's channel, but that is untested). A category's moderators
+  can learn that a channel name is taken (also a private or deleted channel's) from the create error.

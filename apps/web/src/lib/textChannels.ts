@@ -825,7 +825,8 @@ export type ManageAction =
   | { removeCategory: number }
   | { orderCategories: number[] }
   | { setCategory: number; category: number }
-  | { createPrivateVoice: string }
+  // A private voice channel below parent (root if not given).
+  | { createPrivateVoice: string; parent?: number }
   // A Mumble channel (see TextState.private) private with these members,
   // or public.
   | { setPrivate: number; on: boolean; users: number[] }
@@ -875,7 +876,7 @@ const manageBody = (a: ManageAction) => {
   if ("removeCategory" in a) return { type: "delete-category", category: a.removeCategory };
   if ("orderCategories" in a) return { type: "order-categories", categories: a.orderCategories };
   if ("setCategory" in a) return { type: "set-category", channel: a.setCategory, category: a.category };
-  if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice };
+  if ("createPrivateVoice" in a) return { type: "create-private-voice", name: a.createPrivateVoice, ...(a.parent ? { voice: a.parent } : {}) };
   if ("setPrivate" in a) return { type: "set-private", voice: a.setPrivate, on: a.on, users: a.users };
   if ("invites" in a) return { type: "invites", voice: a.invites };
   if ("createInvite" in a) return { type: "create-invite", voice: a.createInvite, seconds: a.seconds, uses: a.uses };

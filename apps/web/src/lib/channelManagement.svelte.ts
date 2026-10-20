@@ -1,7 +1,18 @@
 import { createChannel, editChannel, may, Perm, queryPermissions, removeChannel } from "@kallisti/protocol";
 import type { ChannelForm, ChannelKind } from "./channelForm";
 import { textGroups } from "./categories";
-import { canCreateText, canManageMembers, canManageText, canModerate, managesCategory, menuRights, moderatorsChannel, voiceSiblings } from "./channelManagement";
+import {
+  canCreateSubchannel,
+  canCreateText,
+  canListenOnly,
+  canManageMembers,
+  canManageText,
+  canModerate,
+  managesCategory,
+  menuRights,
+  moderatorsChannel,
+  voiceSiblings,
+} from "./channelManagement";
 import { channelModActions } from "./roles";
 import { listenOnlyAction, speakerCandidates, type ListenOnly } from "./listenOnly";
 import { accessChannel, membersAction, privateAction, type Member } from "./privateChannels";
@@ -48,6 +59,7 @@ export const createChannelManagement = (current: () => Connection) => {
           ...opened,
           ...rights,
           canMembers: canManageMembers(server, text, opened.kind, opened.id),
+          canCreateSub: opened.kind === "voice" && canCreateSubchannel(server, text, opened.id),
           canModerators: moderatorsChannel(server, text, opened.kind, opened.id) !== null,
           name: nameOf(opened.kind, opened.id),
         }
@@ -110,15 +122,20 @@ export const createChannelManagement = (current: () => Connection) => {
       opened = { kind, id, ...menuAnchor(event, (event.currentTarget as Element).getBoundingClientRect()) };
     },
     closeMenu: () => (opened = null),
-    startCreate: (kind: ChannelKind, category = 0) =>
+    // in: a text channel's category, or a voice subchannel's parent (its
+    // moderators may make private ones too).
+    startCreate: (kind: ChannelKind, inside = 0) =>
       (form = {
-        form: {
-          mode: "create",
-          kind,
-          temporaryOnly: kind === "voice" && !canMakeVoice,
-          canPrivate: canManageText(server, text),
-          ...(kind === "text" ? { canCategory: canManageText(server, text) && !category, category, ...categoryChoice() } : {}),
-        },
+        form:
+          kind === "voice" && inside
+            ? { mode: "create", kind, temporaryOnly: false, canPrivate: canModerate(server, text, inside), parent: inside }
+            : {
+                mode: "create",
+                kind,
+                temporaryOnly: kind === "voice" && !canMakeVoice,
+                canPrivate: canManageText(server, text),
+                ...(kind === "text" ? { canCategory: canManageText(server, text) && !inside, category: inside, ...categoryChoice() } : {}),
+              },
         id: 0,
       }),
     startEdit: (kind: ChannelKind, id: number) =>
@@ -129,7 +146,7 @@ export const createChannelManagement = (current: () => Connection) => {
           name: nameOf(kind, id),
           // Text channels: the topic (plain text).
           description: kind === "voice" ? (server.channels[id]?.description ?? "") : (text.channels.find((c) => c.id === id)?.topic ?? ""),
-          ...(kind === "voice" && id !== 0 && text.voiceChats
+          ...(kind === "voice" && canListenOnly(server, text, id)
             ? { listenOnly: { on: id in text.listenOnly, speakers: text.listenOnly[id] ?? [], users: speakerCandidates(server) } }
             : {}),
           ...privateField(kind, id),
@@ -177,8 +194,8 @@ export const createChannelManagement = (current: () => Connection) => {
       if (f.mode === "create") {
         if (v.kind === "category") connection.manage({ createCategory: v.name });
         else if (v.kind === "text") connection.manage({ create: v.name, private: v.private, ...(v.category ? { category: v.category } : {}) });
-        else if (v.private) connection.manage({ createPrivateVoice: v.name });
-        else connection.send(createChannel(0, v.name, { temporary: v.temporary }));
+        else if (v.private) connection.manage({ createPrivateVoice: v.name, parent: f.parent });
+        else connection.send(createChannel(f.parent ?? 0, v.name, { temporary: v.temporary }));
       } else if (f.mode === "edit") {
         const access = accessChannel(v.kind, id, text.channels);
         const priv = f.private && access !== null && privateAction(access, f.private.on, v.private ?? false, f.private.members);

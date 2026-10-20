@@ -94,12 +94,13 @@ func (c *Conn) setPrivate(id mumble.Identity, req request) {
 	}
 }
 
-// createPrivateVoice makes a private voice channel (only staff see it,
+// createPrivateVoice makes a private voice channel below parent (only
+// staff see it, and a channel moderator who makes one in its channel,
 // until they add members).
-func (c *Conn) createPrivateVoice(id mumble.Identity, name string) {
+func (c *Conn) createPrivateVoice(id mumble.Identity, parent uint32, name string) {
 	if c.hub.voice == nil {
 		c.manageError("private channels need the built-in Mumble server")
-	} else if _, err := c.hub.voice.CreatePrivateChannel(id.Session, name); err != nil {
+	} else if _, err := c.hub.voice.CreatePrivateChannel(id.Session, parent, name); err != nil {
 		c.manageError(err.Error())
 	}
 }

@@ -135,7 +135,7 @@ func (s *Server) SetListenOnly(actor, channel uint32, on bool, speakers []uint32
 	case channel == 0 || s.isMirrorLocked(channel):
 		s.mu.Unlock()
 		return errors.New("only voice channels can be listen-only")
-	case !s.state.Has(u, channel, Write):
+	case s.state.aclPermissions(u, channel)&Write == 0: // not a channel moderator's (see modPermissions)
 		s.mu.Unlock()
 		return errors.New("only admins and moderators make channels listen-only")
 	}

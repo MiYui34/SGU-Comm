@@ -57,7 +57,9 @@
   const temporary = $derived(form.mode === "create" && form.temporaryOnly && kind === "voice" && !isPrivate);
   $effect(() => dialog?.showModal());
 
-  const title = $derived(`${form.mode === "create" ? "Create" : form.mode === "edit" ? "Edit" : "Delete"} ${noun}`);
+  const title = $derived(
+    form.mode === "create" && form.parent ? "Create subchannel" : `${form.mode === "create" ? "Create" : form.mode === "edit" ? "Edit" : "Delete"} ${noun}`,
+  );
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (form.mode !== "delete" && !name.trim()) return;

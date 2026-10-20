@@ -11,6 +11,5 @@
 - [ ] [Desktop app: native notifications](issues/desktop-native-notifications.md)
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
 - [ ] [Streams: temporal layers for slow viewers](issues/stream-temporal-layers.md)
-- [ ] [Channel moderators create voice subchannels](issues/channel-mod-voice-subchannels.md)
 - [ ] [Text channel categories](issues/text-categories.md)
 - [ ] [Threads](issues/threads.md) (design, not started)

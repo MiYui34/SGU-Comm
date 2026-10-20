@@ -151,10 +151,10 @@ func TestStaffCreatePrivateChannels(t *testing.T) {
 	s, addr := rolesServer(t)
 	su := superUser(t, addr)
 	bob, bv, _ := webUser(t, s, "bob")
-	if _, err := s.CreatePrivateChannel(bob.session, "Nope"); err == nil {
+	if _, err := s.CreatePrivateChannel(bob.session, 0, "Nope"); err == nil {
 		t.Fatal("a user made a private channel")
 	}
-	id, err := s.CreatePrivateChannel(su.session, "Club")
+	id, err := s.CreatePrivateChannel(su.session, 0, "Club")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestStaffCreatePrivateChannels(t *testing.T) {
 	if got := s.Private(); len(got) != 1 || got[0].Channel != id || len(got[0].Members) != 0 {
 		t.Fatalf("private %+v", got)
 	}
-	if _, err := s.CreatePrivateChannel(su.session, "Club"); err == nil {
+	if _, err := s.CreatePrivateChannel(su.session, 0, "Club"); err == nil {
 		t.Fatal("two channels of one name")
 	}
 }
@@ -182,7 +182,7 @@ func TestPrivateChannelsAreSavedAndReported(t *testing.T) {
 	su := superUser(t, addr)
 	club := su.createChannel(0, "Club", false)
 	s.SetPrivate(su.session, club, true, nil)
-	other, _ := s.CreatePrivateChannel(su.session, "Other")
+	other, _ := s.CreatePrivateChannel(su.session, 0, "Other")
 	if calls.Load() != 2 {
 		t.Fatalf("%d calls", calls.Load())
 	}

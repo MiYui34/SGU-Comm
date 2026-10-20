@@ -467,7 +467,9 @@ func (s *Server) createChannel(c *client, m *pb.ChannelState) {
 		c.deny(err)
 		return
 	}
-	s.state.grantCreator(ch, actor)
+	if s.state.aclPermissions(actor, m.GetParent())&need != 0 { // not a channel moderator's
+		s.state.grantCreator(ch, actor)
+	}
 	s.showChannelLocked(ch)
 	var save []*Channel
 	if ch.Temporary {
@@ -555,7 +557,7 @@ func (s *Server) channelRemoveMsg(c *client, m *pb.ChannelRemove) {
 	if ch := s.state.Channels[m.GetChannelId()]; ch == nil || actor == nil {
 		s.mu.Unlock()
 		return
-	} else if !s.state.Has(actor, ch.ID, Write) {
+	} else if !s.state.mayRemove(actor, ch.ID) {
 		s.mu.Unlock()
 		c.denyPerm(Write, ch.ID)
 		return
@@ -825,11 +827,11 @@ func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
 	if db == nil || len(m.Ids)+len(m.Names) > 100 {
 		return
 	}
-	// As Murmur: for ACL editors, who have Write somewhere.
+	// As Murmur: for ACL editors, who have Write somewhere (from the ACLs).
 	s.mu.Lock()
 	u := s.state.Users[c.session]
 	editor := u != nil && slices.ContainsFunc(slices.Collect(maps.Keys(s.state.Channels)), func(id uint32) bool {
-		return s.state.Has(u, id, Write)
+		return s.state.aclPermissions(u, id)&Write != 0
 	})
 	s.mu.Unlock()
 	if !editor {
@@ -855,13 +857,13 @@ func (s *Server) queryUsersMsg(c *client, m *pb.QueryUsers) {
 
 // editPermission checks a channel edit as Murmur does: Write for name,
 // description and position; Write and MakeChannel in the new parent for a
-// move; LinkChannel in both channels for links. It returns the missing
-// permission and where, or 0.
+// move (see mayMove); LinkChannel in both channels for links. It returns
+// the missing permission and where, or 0.
 func (s *Server) editPermission(u *User, ch *Channel, m *pb.ChannelState) (Perm, uint32) {
 	if (m.Name != nil || m.Description != nil || m.Position != nil || m.Parent != nil) && !s.state.Has(u, ch.ID, Write) {
 		return Write, ch.ID
 	}
-	if m.Parent != nil && !s.state.Has(u, m.GetParent(), MakeChannel) {
+	if m.Parent != nil && !s.state.mayMove(u, ch.ID, m.GetParent()) {
 		return MakeChannel, m.GetParent()
 	}
 	for _, l := range slices.Concat(m.LinksAdd, m.LinksRemove) {
