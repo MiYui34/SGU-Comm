@@ -1760,3 +1760,73 @@ From `meta/research/discord-comparison.md`.
   ignored (pixel size used); the first MP4 track with a tkhd size wins
   (no hdlr check); JPEG fill bytes before APP1 end the Exif scan (then
   "not turned").
+
+## Media previews (2026-10-20)
+
+- Optional ffmpeg (internal/thumbs). At start: MEDIA_PREVIEWS=0 → off;
+  else FFMPEG_PATH or `ffmpeg` on PATH, and `ffmpeg -encoders` picks WebP
+  (libwebp) or JPEG (mjpeg). The log says which. No ffmpeg: as before.
+  Homebrew's ffmpeg has no libwebp (JPEG path), Alpine's has it.
+- Videos (MP4, WebM): a frame at 1 s (the first frame if shorter than 2 s
+  or of unknown length; `-ss` past the end makes ffmpeg fail), at most
+  480 px. Pictures (PNG, JPEG, WebP) over 1600 px a side or over 1 MB:
+  1000 px. GIFs: none (they keep their animation). PNG/WebP only with
+  WebP output (yuva420p keeps transparency); JPEG output would lose it. A
+  picture's preview not smaller than the picture is dropped. Nothing
+  above 2^26 pixels (ffmpeg's memory).
+- JPEG Exif orientation: ffmpeg gets `-noautorotate` and the turn as a
+  filter (transpose/flip, from mediasize.ExifOrientation), so the preview
+  looks as browsers show the original. Videos keep ffmpeg's autorotate
+  (display matrix). The real-ffmpeg test checks both.
+- Safety: a separate process (exec.CommandContext, 20 s, killed after,
+  WaitDelay 1 s), behind `nice -n 10` if there is one, env only PATH,
+  `-nostdin -protocol_whitelist file -threads 1`, input `file:<path>`
+  with the demuxer forced by the stored type (mov, matroska, png_pipe,
+  jpeg_pipe, webp_pipe): no HLS/concat playlist can pull in other files.
+  stderr kept to 1 KB, output at most 8 MB. At most 2 processes (one
+  semaphore for the queue workers and the backfill); queue of 64, full →
+  dropped (the backfill gets it at the next start).
+- Files: ffmpeg writes into os.TempDir (the /tmp tmpfs in the read-only
+  container), the result is copied into the upload dir as `.preview-*`
+  and renamed to `<key>.preview` (rename alone fails across file
+  systems). Never in the upload request: queued after the upload is
+  stored (browser uploads and Mumble pictures).
+- Store: uploads.preview: "" not tried, the type when made, "-" when the
+  file gives none (thumbs.ErrFailed: ffmpeg failed, timed out, or wrote
+  nothing usable). Other errors (temp dir, disk, shutdown) leave "" and
+  the next start tries again; jobs stopped by the shutdown are not
+  reported.
+- Serving: `/files/<key>/<name>?preview`, the same lookup as the upload
+  (unguessable key, plainKey), only if preview is an image type; nosniff,
+  sandbox CSP, immutable cache. Deleting an upload (message deleted,
+  unused) deletes the preview; a preview done after the upload was
+  deleted is removed (SetUploadPreview finds no row).
+- Wire: upload objects get `preview` (the URL) once made. When it is made
+  after the message was sent, the hub sends the message again as
+  `message-edited` (no `edited` mark), so clients swap it in. Chosen over
+  clients probing for the URL (404s, and the client would have to know
+  the rules).
+- Old uploads: a background backfill at start (attached pictures and
+  videos with preview "", the newest first, one at a time through the
+  same limit). Chosen over making them on request: no 404-then-retry in
+  the client, and the rate is bounded by the semaphore.
+- Web: lib/media chatSrc (the preview in the chat, the original in the
+  lightbox and links; a failing preview falls back to the original) and
+  videoPreload (poster → preload="none"). The video src stays the same
+  when a poster arrives later, so a playing video is not reloaded. Checked
+  headless against a local server (homebrew ffmpeg, JPEG): a 2400x1200
+  JPEG shows `?preview` in the chat and the original in the lightbox; a
+  3 s MP4 gets a poster, preload none, length 0:03, the same box before
+  and after play.
+- Docker: `apk add ffmpeg` (ffmpeg 6.1 with libwebp): image 60 MB → 169 MB.
+  thumbs tests run in the image read-only with tmpfs /tmp and
+  no-new-privileges, as user kallisti: all pass (WebP, alpha kept).
+- Known gaps: an APNG (and an animated WebP, where ffmpeg decodes it)
+  gets a still preview; the "edited" message can in a narrow window
+  arrive before the "message" (then no preview until reload); the resend
+  makes clients fetch the link preview again; preview files do not count
+  toward the quota; a crash can leave `.preview-*` / `kallisti-preview-*`
+  temp files; refused small pictures are scanned at each start (one
+  query); non-square pixels (SAR) are not corrected in video thumbnails;
+  old octet-stream uploads with media names get none. The systemd unit's
+  MemoryDenyWriteExecute applies to ffmpeg too (not checked).
