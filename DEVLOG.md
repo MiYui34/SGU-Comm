@@ -2036,3 +2036,20 @@ From `meta/research/discord-comparison.md`.
   other forever.
 - Gap: the connections view lists every session but does not mark
   text-only ones.
+
+## Review 3: server races (2026-10-20)
+
+- A password change saves with `store.ChangePassword`: one transaction
+  that updates only while the session is live and the hash is still the
+  one checked. A request stalled before its body loses to the owner's
+  change (401), and it does not end the owner's session.
+- `may` and `userMay` fail closed for a text channel that is gone
+  (`textMirror`): mirror 0 means public only for a channel that exists.
+  A chat found before its channel was deleted reaches nobody.
+- `manage` authorizes with `manageMu` held: a channel moved out of a
+  category meanwhile is checked in its new category.
+- `NewMessage.Thread`: `AddMessage` checks the thread row in its
+  transaction. A thread deleted since the post found it refuses the
+  post, and its upload stays unused (for the cleanup).
+- Gap: a post to a text channel that staff delete at the same time is
+  still stored (hidden channel, comes back if staff restore it).
