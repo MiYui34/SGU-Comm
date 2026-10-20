@@ -3,6 +3,9 @@
   import type { ChannelForm, ChannelKind } from "../lib/channelForm";
   import type { ListenOnly, Speaker } from "../lib/listenOnly";
   import { SLOW_MODES, slowModeLabel } from "../lib/slowMode";
+  import { busyLabel } from "../lib/saveFeedback";
+  import { createSave } from "../lib/saveFeedback.svelte";
+  import SaveStatus from "./SaveStatus.svelte";
 
   // Create, edit or delete a channel or a text category.
 
@@ -21,7 +24,7 @@
       private?: boolean;
       slowMode?: number;
       category?: number;
-    }) => void;
+    }) => Promise<void>;
     onClose: () => void;
   } = $props();
 
@@ -60,10 +63,12 @@
   const title = $derived(
     form.mode === "create" && form.parent ? "Create subchannel" : `${form.mode === "create" ? "Create" : form.mode === "edit" ? "Edit" : "Delete"} ${noun}`,
   );
+  // Closes once the server confirms; a refusal shows here.
+  const save = createSave();
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (form.mode !== "delete" && !name.trim()) return;
-    onSubmit({
+    const values = {
       kind,
       name: name.trim(),
       description,
@@ -72,8 +77,8 @@
       ...(canPrivate && kind !== "category" ? { private: isPrivate } : {}),
       ...(startSlowMode !== undefined ? { slowMode } : {}),
       ...(startCategory !== undefined && kind === "text" ? { category } : {}),
-    });
-    dialog?.close();
+    };
+    save.run(() => onSubmit(values).then(() => dialog?.close()));
   };
 </script>
 
@@ -175,9 +180,14 @@
       {/if}
     {/if}
     <footer>
+      <SaveStatus save={save.state} />
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
-      <button type="submit" class:danger={form.mode === "delete"}>
-        {form.mode === "create" ? "Create" : form.mode === "edit" ? "Save" : "Delete"}
+      <button type="submit" class:danger={form.mode === "delete"} disabled={save.state.phase === "pending"}>
+        {form.mode === "create"
+          ? busyLabel(save.state, "Create", "Creating…")
+          : form.mode === "edit"
+            ? busyLabel(save.state, "Save")
+            : busyLabel(save.state, "Delete", "Deleting…")}
       </button>
     </footer>
   </form>
