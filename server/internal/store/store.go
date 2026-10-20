@@ -45,7 +45,8 @@ type Message struct {
 	Reactions []Reaction
 	// "everyone" or "here": the message mentions all (by a moderator).
 	MentionAll string
-	NoPing     bool // a reply that does not ping the original's author
+	NoPing     bool    // a reply that does not ping the original's author
+	Thread     *Thread // the thread started from it
 }
 
 // Quote is the message a reply answers (Author empty: deleted since).
@@ -167,7 +168,7 @@ func Open(path string) (*Store, error) {
 	// One writer at a time is all SQLite allows anyway, and an in-memory
 	// database exists only for one connection.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable + ";" + categoriesTable); err != nil {
+	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable + ";" + categoriesTable + ";" + threadsTable); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -275,8 +276,10 @@ func userIDs(db *sql.DB, exists bool) (map[string]uint32, error) {
 }
 
 // column reads one column of a query.
-func column[T any](tx *sql.Tx, query string) ([]T, error) {
-	rows, err := tx.Query(query)
+func column[T any](db interface {
+	Query(string, ...any) (*sql.Rows, error)
+}, query string, args ...any) ([]T, error) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +508,7 @@ func (s *Store) EnsureChannels(names []string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE channels SET hidden = 1 WHERE voice_channel IS NULL AND dm_low IS NULL`); err != nil {
+	if _, err := tx.Exec(`UPDATE channels SET hidden = 1 WHERE ` + textOnly); err != nil {
 		return err
 	}
 	for i, name := range names {
@@ -522,7 +525,7 @@ func (s *Store) EnsureChannels(names []string) error {
 // are managed in the client).
 func (s *Store) SeedChannels(names []string) error {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE voice_channel IS NULL AND dm_low IS NULL`).Scan(&n); err != nil || n > 0 {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE ` + textOnly).Scan(&n); err != nil || n > 0 {
 		return err
 	}
 	return s.EnsureChannels(names)
@@ -541,7 +544,7 @@ func (s *Store) CreateChannel(name string, category int64, revive bool) (Channel
 	err := s.db.QueryRow(`INSERT INTO channels (name, position, category_id)
 		VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM channels WHERE hidden = 0), NULLIF(?, 0))
 		ON CONFLICT (name) DO UPDATE SET hidden = 0, position = excluded.position, category_id = excluded.category_id
-		WHERE hidden = 1 AND voice_channel IS NULL AND dm_low IS NULL AND ?
+		WHERE hidden = 1 AND `+textOnly+` AND ?
 		RETURNING id, position`, name, category, revive).Scan(&c.ID, &c.Position)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNameTaken // a visible channel has the name (or a deleted one)
@@ -558,12 +561,12 @@ func (s *Store) RenameChannel(id int64, name string) error {
 	if strings.Contains(name, ":") {
 		return ErrInvalidName
 	}
-	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, name, id)
+	return s.textChannel(`UPDATE channels SET name = ? WHERE id = ? AND `+textOnly, name, id)
 }
 
 // HideChannel removes a text channel from the list; its history stays.
 func (s *Store) HideChannel(id int64) error {
-	return s.textChannel(`UPDATE channels SET hidden = 1 WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, id)
+	return s.textChannel(`UPDATE channels SET hidden = 1 WHERE id = ? AND `+textOnly, id)
 }
 
 // SetPositions puts the given text channels in this order.
@@ -574,7 +577,7 @@ func (s *Store) SetPositions(ids []int64) error {
 	}
 	defer tx.Rollback()
 	for i, id := range ids {
-		if _, err := tx.Exec(`UPDATE channels SET position = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, i, id); err != nil {
+		if _, err := tx.Exec(`UPDATE channels SET position = ? WHERE id = ? AND `+textOnly, i, id); err != nil {
 			return err
 		}
 	}
@@ -583,17 +586,17 @@ func (s *Store) SetPositions(ids []int64) error {
 
 // SetTopic sets a text channel's topic.
 func (s *Store) SetTopic(id int64, topic string) error {
-	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, topic, id)
+	return s.textChannel(`UPDATE channels SET topic = ? WHERE id = ? AND `+textOnly, topic, id)
 }
 
 // SetSlowMode sets a text channel's slow mode (seconds, 0: off).
 func (s *Store) SetSlowMode(id, seconds int64) error {
-	return s.textChannel(`UPDATE channels SET slow_mode = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, seconds, id)
+	return s.textChannel(`UPDATE channels SET slow_mode = ? WHERE id = ? AND `+textOnly, seconds, id)
 }
 
 // SetMumbleChannel remembers the Mumble channel that mirrors a text channel.
 func (s *Store) SetMumbleChannel(id int64, mumble uint32) error {
-	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND voice_channel IS NULL AND dm_low IS NULL`, mumble, id)
+	_, err := s.db.Exec(`UPDATE channels SET mumble_channel = ? WHERE id = ? AND `+textOnly, mumble, id)
 	return err
 }
 
@@ -759,7 +762,7 @@ func (s *Store) History(channelID, beforeID int64, limit int) ([]Message, error)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return out, s.withReactions(out)
+	return out, s.withExtras(out)
 }
 
 func (s *Store) MessageByID(id int64) (Message, error) {
@@ -771,7 +774,7 @@ func (s *Store) MessageByID(id int64) (Message, error) {
 		return Message{}, err
 	}
 	msgs := []Message{m}
-	if err := s.withReactions(msgs); err != nil {
+	if err := s.withExtras(msgs); err != nil {
 		return Message{}, err
 	}
 	return msgs[0], nil
@@ -814,6 +817,17 @@ func (s *Store) DeleteMessages(ids []int64) ([]Message, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
+	gone, err := deleteMessages(tx, ids)
+	if err != nil {
+		return nil, err
+	}
+	return gone, tx.Commit()
+}
+
+func deleteMessages(tx *sql.Tx, ids []int64) ([]Message, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	in, args := inList(ids)
 	rows, err := tx.Query(messageSelect+`WHERE m.id IN (`+in+`) ORDER BY m.id`, args...)
 	if err != nil {
@@ -845,7 +859,7 @@ func (s *Store) DeleteMessages(ids []int64) ([]Message, error) {
 			return nil, err
 		}
 	}
-	return gone, tx.Commit()
+	return gone, nil
 }
 
 // RecentByUser: the newest messages (at most limit) of a registered user
