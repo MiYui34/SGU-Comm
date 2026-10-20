@@ -12,3 +12,5 @@
 - [ ] [Paste an image in the desktop app](issues/desktop-paste-image.md)
 - [ ] [Streams: temporal layers for slow viewers](issues/stream-temporal-layers.md)
 - [ ] [Feedback on save and apply actions](issues/save-feedback.md)
+- [ ] [Disconnects when the app is in the background](issues/background-disconnects.md)
+- [ ] [The same user on several devices](issues/multiple-sessions.md) (design)
