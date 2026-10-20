@@ -701,19 +701,14 @@ func (s *Store) AddUpload(u Upload, at time.Time) (Upload, error) {
 }
 
 // MeasureUploads gives the uploads from before sizes were kept their
-// Media, once (upload_sizes in store_meta). measure must not use the
-// store: the transaction holds its connection.
+// Media, once (upload_sizes in store_meta). The files are read with no
+// connection held; the results are stored in one transaction.
 func (s *Store) MeasureUploads(measure func(Upload) Media) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	var done int
-	if err := tx.QueryRow(`SELECT count(*) FROM store_meta WHERE key = 'upload_sizes'`).Scan(&done); err != nil || done > 0 {
+	if err := s.db.QueryRow(`SELECT count(*) FROM store_meta WHERE key = 'upload_sizes'`).Scan(&done); err != nil || done > 0 {
 		return err
 	}
-	rows, err := tx.Query(`SELECT ` + uploadColumns + ` FROM uploads ORDER BY id`)
+	rows, err := s.db.Query(`SELECT ` + uploadColumns + ` FROM uploads ORDER BY id`)
 	if err != nil {
 		return err
 	}
@@ -730,16 +725,24 @@ func (s *Store) MeasureUploads(measure func(Upload) Media) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, u := range all {
-		m := measure(u)
+	media := make([]Media, len(all))
+	for i, u := range all {
+		media[i] = measure(u)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i, m := range media {
 		if m == (Media{}) {
 			continue
 		}
-		if _, err := tx.Exec(`UPDATE uploads SET width = ?, height = ?, duration = ? WHERE id = ?`, m.Width, m.Height, m.Duration, u.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE uploads SET width = ?, height = ?, duration = ? WHERE id = ?`, m.Width, m.Height, m.Duration, all[i].ID); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO store_meta (key, value) VALUES ('upload_sizes', 1)`); err != nil {
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO store_meta (key, value) VALUES ('upload_sizes', 1)`); err != nil {
 		return err
 	}
 	return tx.Commit()
