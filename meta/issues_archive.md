@@ -216,3 +216,4 @@
 - [x] [Linux desktop app: no audio](issues/linux-desktop-audio.md)
 - [x] [Smoother stream playback](issues/stream-buffer.md)
 - [x] [Avatar flags recomputed; size limit for chat images](issues/avatar-flags-and-image-limits.md)
+- [x] [Moderators for single channels](issues/channel-moderators.md)
