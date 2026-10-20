@@ -82,3 +82,54 @@ func TestAudioAndVideoAreServedForPlaying(t *testing.T) {
 		t.Fatalf("old upload served as %v", old.Header)
 	}
 }
+
+func TestUploadsKeepTheirSizes(t *testing.T) {
+	srv, s, h := setupHandler(t, 1<<20)
+	mp4, err := os.ReadFile("../mediasize/testdata/faststart.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		data []byte
+		want store.Media
+	}{
+		{"cat.png", pngBytes(t), store.Media{Width: 2, Height: 2}},
+		{"clip.mp4", mp4, store.Media{Width: 64, Height: 48, Duration: 500}},
+		{"clip.bin", mp4, store.Media{}}, // a download
+	} {
+		_, v := upload(t, srv, "good", c.name, "", c.data)
+		if u, err := s.UploadByKey(v["key"].(string)); err != nil || u.Media != c.want {
+			t.Errorf("%s: %+v %v", c.name, u, err)
+		}
+	}
+	u, err := h.Save("bob", "a.png", "image/png", pngBytes(t))
+	if err != nil || u.Media != (store.Media{Width: 2, Height: 2}) {
+		t.Fatalf("saved %+v %v", u, err)
+	}
+}
+
+func TestMeasureOldUploads(t *testing.T) {
+	_, s, h := setupHandler(t, 1<<20)
+	mp4, _ := os.ReadFile("../mediasize/testdata/rotated.mp4")
+	key := "oldupload0000000000000000000000000000"
+	// From before media types were kept: measured as served.
+	old := store.Upload{Key: key, Name: "old.mp4", Type: "application/octet-stream", Size: int64(len(mp4))}
+	os.WriteFile(filepath.Join(h.Dir, key), mp4, 0o600)
+	if got := h.Measure(old); got != (store.Media{Width: 48, Height: 64, Duration: 500}) {
+		t.Fatalf("old upload: %+v", got)
+	}
+	if got := h.Measure(store.Upload{Key: "gone", Name: "a.png", Type: "image/png"}); got != (store.Media{}) {
+		t.Fatalf("missing file: %+v", got)
+	}
+	if got := h.Measure(store.Upload{Key: "../" + key, Name: "a.mp4", Type: "video/mp4"}); got != (store.Media{}) {
+		t.Fatalf("path in the key: %+v", got)
+	}
+	s.AddUpload(old, time.Now())
+	if err := s.MeasureUploads(h.Measure); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s.UploadByKey(key); u.Width != 48 {
+		t.Fatalf("stored %+v", u)
+	}
+}
