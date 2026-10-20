@@ -219,25 +219,15 @@ func (c *Conn) setStatus(id mumble.Identity, req request) {
 	}
 	c.hub.statusMu.Lock()
 	defer c.hub.statusMu.Unlock()
-	conns := []*Conn{c}
 	if id.Registered {
 		if err := c.hub.store.SetUserStatus(id.UserID, st); err != nil {
 			c.sendError("cannot store the status")
 			return
 		}
-		conns = conns[:0]
-		for _, other := range c.hub.all() {
-			other.mu.Lock()
-			oid := other.identity
-			other.mu.Unlock()
-			if oid != nil && oid.Registered && oid.UserID == id.UserID && !other.isClosed() {
-				conns = append(conns, other)
-			}
-		}
 	}
 	// Each device hears it first, then everyone the new statuses.
 	own := view(st, c.hub.now())
-	for _, conn := range conns {
+	for _, conn := range c.hub.account(c) {
 		conn.mu.Lock()
 		conn.status = st
 		conn.mu.Unlock()
