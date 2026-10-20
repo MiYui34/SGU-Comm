@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -64,6 +65,17 @@ func TestVoiceOvertakesQueuedFrames(t *testing.T) {
 	got := make([]byte, 3)
 	if _, err := io.ReadFull(peer, got); err != nil || string(got) != "vab" {
 		t.Fatalf("got %q %v", got, err)
+	}
+}
+
+// The bridge keeps a suspended page for two minutes (bridge.Options
+// PingGrace); its writes to us block meanwhile.
+func TestWebClientsMayStallForTheBridgeGrace(t *testing.T) {
+	if got := (&client{web: true}).writeTimeout(); got <= 2*time.Minute {
+		t.Errorf("web: %v", got)
+	}
+	if got := (&client{}).writeTimeout(); got != writeTimeout {
+		t.Errorf("native: %v", got)
 	}
 }
 
