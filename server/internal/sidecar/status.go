@@ -61,12 +61,60 @@ func (c *Conn) isClosed() bool {
 
 func (v statusView) plain() bool { return v == statusView{Status: "online"} }
 
-// shown is the connection's status as others see it.
-func (c *Conn) shown() statusView {
+// account is the connection and the other open ones of its registered
+// user (devices and tabs).
+func (h *Hub) account(c *Conn) []*Conn {
 	c.mu.Lock()
-	st, away := c.status, c.away
+	id := c.identity
+	c.mu.Unlock()
+	out := []*Conn{c}
+	if id == nil || !id.Registered {
+		return out
+	}
+	h.eachReady(func(o *Conn, oid mumble.Identity) {
+		if o != c && oid.Registered && oid.UserID == id.UserID && !o.isClosed() {
+			out = append(out, o)
+		}
+	})
+	return out
+}
+
+// shown is the connection's status as others see it: away only while all
+// sessions of the account are, as on Discord (each session shows the
+// account's status: clients look it up by the session they see).
+func (c *Conn) shown() statusView {
+	away := true
+	for _, o := range c.hub.account(c) {
+		o.mu.Lock()
+		away = away && o.away
+		o.mu.Unlock()
+	}
+	c.mu.Lock()
+	st := c.status
 	c.mu.Unlock()
 	return effective(st, away, c.hub.now())
+}
+
+// syncStatuses tells all but skip the statuses of c's account's sessions
+// that changed since they were told. Under statusMu.
+func (h *Hub) syncStatuses(c *Conn, skip *Conn) {
+	for _, o := range h.account(c) {
+		if o.isClosed() {
+			continue
+		}
+		v := o.shown()
+		o.mu.Lock()
+		changed, session := o.sent != v, o.identity.Session
+		o.sent = v
+		o.mu.Unlock()
+		if changed {
+			for _, other := range h.all() {
+				if other != skip {
+					other.send(sessionStatus{Type: "status", Session: session, statusView: v})
+				}
+			}
+		}
+	}
 }
 
 // statuses of the web clients that are not plainly online (a list, never
@@ -104,7 +152,7 @@ func (c *Conn) sendReady(id mumble.Identity, ready map[string]any) {
 		}
 	}
 	c.mu.Lock()
-	c.status = st
+	c.status, c.sent = st, statusView{Status: "online"} // what others assume
 	closed := c.closed
 	c.mu.Unlock()
 	if closed {
@@ -115,13 +163,7 @@ func (c *Conn) sendReady(id mumble.Identity, ready map[string]any) {
 		ready["online"] = c.hub.syncOnline(c)
 	}
 	c.send(ready)
-	if v := c.shown(); !v.plain() {
-		for _, other := range c.hub.all() {
-			if other != c {
-				other.send(sessionStatus{Type: "status", Session: id.Session, statusView: v})
-			}
-		}
-	}
+	c.hub.syncStatuses(c, c) // also the account's other sessions: no longer all away
 }
 
 // statusGone: a closed connection's status leaves with it.
@@ -129,10 +171,13 @@ func (c *Conn) statusGone() {
 	c.hub.statusMu.Lock()
 	defer c.hub.statusMu.Unlock()
 	c.mu.Lock()
-	id, ready := c.identity, c.ready
+	id, ready, sent := c.identity, c.ready, c.sent
 	c.mu.Unlock()
-	if ready && !c.shown().plain() {
+	if ready && !sent.plain() {
 		c.hub.statusChanged(id.Session, statusView{Status: "online"})
+	}
+	if ready {
+		c.hub.syncStatuses(c, nil) // the others may all be away now
 	}
 }
 
@@ -192,24 +237,16 @@ func (c *Conn) setStatus(id mumble.Identity, req request) {
 	}
 	// Each device hears it first, then everyone the new statuses.
 	own := view(st, c.hub.now())
-	var changed []sessionStatus
 	for _, conn := range conns {
-		before := conn.shown()
 		conn.mu.Lock()
 		conn.status = st
-		session := conn.identity.Session
 		conn.mu.Unlock()
 		conn.send(struct {
 			Type string `json:"type"`
 			statusView
 		}{"own-status", own})
-		if after := conn.shown(); after != before {
-			changed = append(changed, sessionStatus{Session: session, statusView: after})
-		}
 	}
-	for _, s := range changed {
-		c.hub.statusChanged(s.Session, s.statusView)
-	}
+	c.hub.syncStatuses(c, nil)
 }
 
 // setAway: the client had no input for a while (or again). Not kept.
@@ -219,11 +256,8 @@ func (c *Conn) setAway(id mumble.Identity, on bool) {
 	if c.isClosed() {
 		return
 	}
-	before := c.shown()
 	c.mu.Lock()
 	c.away = on
 	c.mu.Unlock()
-	if after := c.shown(); after != before {
-		c.hub.statusChanged(id.Session, after)
-	}
+	c.hub.syncStatuses(c, nil)
 }

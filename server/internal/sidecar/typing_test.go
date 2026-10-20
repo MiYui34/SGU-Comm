@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"kallisti.chat/server/internal/mumble"
 )
 
 func TestTypingGoesToOthersAtMostEveryFewSeconds(t *testing.T) {
@@ -40,4 +42,18 @@ func TestTypingInVoiceChatsOnlyForReaders(t *testing.T) {
 	other.Handle([]byte(`{"type":"typing","channel":` + closed + `}`))
 	empty(t, other)
 	empty(t, mod)
+}
+
+func TestTypingSkipsTheTypistsOtherSessions(t *testing.T) {
+	h := newHub(t, "general")
+	alice := mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4}
+	tab1 := joinAs(t, h, alice)
+	alice.Session = 2
+	tab2 := joinAs(t, h, alice)
+	bob := joinAs(t, h, mumble.Identity{Session: 3, Name: "bob"})
+	tab1.Handle([]byte(`{"type":"typing","channel":` + strconv.FormatInt(h.channels[0].ID, 10) + `}`))
+	if m := next(t, bob); m["type"] != "typing" {
+		t.Fatalf("bob got %v", m)
+	}
+	empty(t, tab2)
 }

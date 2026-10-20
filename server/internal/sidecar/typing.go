@@ -1,6 +1,7 @@
 package sidecar
 
 import (
+	"slices"
 	"time"
 
 	"kallisti.chat/server/internal/mumble"
@@ -26,8 +27,9 @@ func (c *Conn) typing(id mumble.Identity, ch chat) {
 	c.typed[channel] = now
 	c.mu.Unlock()
 	event := map[string]any{"type": "typing", "channel": channel, "name": id.Name}
+	mine := c.hub.account(c) // not to the typist's own tabs either
 	for _, other := range c.hub.readers(ch) {
-		if other != c {
+		if !slices.Contains(mine, other) {
 			other.send(event)
 		}
 	}

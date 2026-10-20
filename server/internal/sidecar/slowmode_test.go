@@ -125,6 +125,24 @@ func TestSlowModeCountsUploads(t *testing.T) {
 	}
 }
 
+func TestSlowModeTurnsArePerAccount(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	h.store.SetSlowMode(1, 60)
+	h.reloadChannels()
+	tab1 := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 7})
+	tab2 := joinAs(t, h, mumble.Identity{Session: 3, Name: "bob", Registered: true, UserID: 7})
+	tab1.Handle([]byte(`{"type":"send","channel":1,"text":"hi"}`))
+	if m := next(t, tab1); m["type"] != "message" {
+		t.Fatalf("first: %v", m)
+	}
+	drain(tab2)
+	tab2.Handle([]byte(`{"type":"send","channel":1,"text":"again"}`))
+	if m := next(t, tab2); m["type"] != "error" || m["about"] != "slow-mode" {
+		t.Fatalf("another tab: %v", m)
+	}
+}
+
 func TestSlowModeHoldsMumbleClientsInMirrors(t *testing.T) {
 	h := newHub(t, "general")
 	v := &fakeVoice{users: map[uint32]MumbleUser{9: {Registered: true, UserID: 504}}}

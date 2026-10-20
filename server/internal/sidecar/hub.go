@@ -321,6 +321,7 @@ type Conn struct {
 	// while (see status.go).
 	status store.UserStatus
 	away   bool
+	sent   statusView // the status others were told (see syncStatuses)
 	// Ends with the connection (work on its behalf stops); previewing:
 	// previews on their way.
 	ctx        context.Context
