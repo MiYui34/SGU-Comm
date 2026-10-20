@@ -1,6 +1,6 @@
 import { shouldFallBack } from "../voice/fallback";
 import { createPlayout, lastDue, type Playout } from "./playout";
-import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, pickCodec } from "./protocol";
+import { cannotPlay, decodeFrame, decodeWatch, encodeFrame, pickCodec, previewSize } from "./protocol";
 import { DEFAULT_LIMITS, DEFAULT_QUALITY, KINDS, cameraConstraints, encoding, nextCamera, parseLimits, sources, type Kind, type Quality } from "./quality";
 import Ticker from "./ticker.worker?worker";
 
@@ -16,7 +16,6 @@ const MAX_DECODE_ERRORS = 5; // decoder errors in a row without a picture: give 
 // Thumbnails for people not watching: small JPEGs, now and then.
 const PREVIEW_EVERY_MS = 15_000;
 const PREVIEW_FIRST_MS = 2_000;
-const PREVIEW_WIDTH = 320;
 const MAX_PREVIEW = 60_000; // characters of the data URL (the server takes 64 KiB)
 
 // Stream sound: Opus, 48 kHz mono, 20 ms frames (what Mumble clients get
@@ -738,8 +737,7 @@ export const resample = (input: Float32Array, from: number, to: number): Float32
 // A frame as a small JPEG data URL.
 const thumbnail = (frame: VideoFrame): string => {
   const canvas = document.createElement("canvas");
-  canvas.width = PREVIEW_WIDTH;
-  canvas.height = Math.round((PREVIEW_WIDTH * frame.displayHeight) / Math.max(1, frame.displayWidth));
+  ({ width: canvas.width, height: canvas.height } = previewSize(frame.displayWidth, frame.displayHeight));
   canvas.getContext("2d")?.drawImage(frame, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.6);
 };

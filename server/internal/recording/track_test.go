@@ -86,12 +86,31 @@ func newTestTrack(t *testing.T) (*track, string) {
 	return tr, path
 }
 
-const ms = sampleRate / 1000
+const (
+	ms      = sampleRate / 1000
+	noLimit = 1 << 40 // bytes of room for silence
+)
+
+// Silence that would take more than the room writes nothing; the track
+// goes on as before.
+func TestSilenceOverTheRoomWritesNothing(t *testing.T) {
+	tr, _ := newTestTrack(t)
+	before := tr.bytes()
+	if err := tr.add(speech20, 0, false, 3600*sampleRate, 10*padBytes); err != errSizeLimit {
+		t.Fatalf("an hour of silence in %d bytes: %v", 10*padBytes, err)
+	}
+	if tr.bytes() != before || tr.pos != 0 || tr.talking || tr.first != -1 {
+		t.Fatalf("written: %d bytes, pos %d", tr.bytes()-before, tr.pos)
+	}
+	if err := tr.add(speech20, 0, false, 5*sampleRate, 10*padBytes); err != nil || tr.first != 5*sampleRate {
+		t.Fatalf("5 s of silence in %d bytes: %v, first %d", 10*padBytes, err, tr.first)
+	}
+}
 
 func TestATrackStartsWithSilenceUntilTheFirstWords(t *testing.T) {
 	tr, path := newTestTrack(t)
-	tr.add(speech20, 100, false, 1500*ms)
-	tr.add(speech20, 102, true, 1520*ms)
+	tr.add(speech20, 100, false, 1500*ms, noLimit)
+	tr.add(speech20, 102, true, 1520*ms, noLimit)
 	if err := tr.finish(3000 * ms); err != nil {
 		t.Fatal(err)
 	}
@@ -112,13 +131,13 @@ func TestATrackStartsWithSilenceUntilTheFirstWords(t *testing.T) {
 // or a long pause) starts where the clock says.
 func TestPacketsLineUpBySequenceAndClock(t *testing.T) {
 	tr, path := newTestTrack(t)
-	tr.add(speech20, 0, false, 0)
-	tr.add(speech60, 2, false, 90*ms)   // 70 ms late
-	tr.add(speech20, 10, false, 120*ms) // 8 and 9 lost: 20 ms gap
-	tr.add(speech20, 10, false, 125*ms) // a repeat: dropped
-	tr.add(stereo20, 12, true, 150*ms)
-	tr.add(speech20, 500, false, 1000*ms)  // new burst after the terminator
-	tr.add(speech20, 9000, false, 3000*ms) // a long pause without terminator
+	tr.add(speech20, 0, false, 0, noLimit)
+	tr.add(speech60, 2, false, 90*ms, noLimit)   // 70 ms late
+	tr.add(speech20, 10, false, 120*ms, noLimit) // 8 and 9 lost: 20 ms gap
+	tr.add(speech20, 10, false, 125*ms, noLimit) // a repeat: dropped
+	tr.add(stereo20, 12, true, 150*ms, noLimit)
+	tr.add(speech20, 500, false, 1000*ms, noLimit)  // new burst after the terminator
+	tr.add(speech20, 9000, false, 3000*ms, noLimit) // a long pause without terminator
 	tr.finish(3020 * ms)
 	p := parseTrack(t, path)
 	want := []struct {
@@ -148,8 +167,8 @@ func TestPacketsLineUpBySequenceAndClock(t *testing.T) {
 // A burst that starts while the last one still plays goes after it.
 func TestOverlappingPacketsMoveLater(t *testing.T) {
 	tr, path := newTestTrack(t)
-	tr.add(speech60, 0, true, 0)
-	tr.add(speech20, 50, false, 30*ms)
+	tr.add(speech60, 0, true, 0, noLimit)
+	tr.add(speech20, 50, false, 30*ms, noLimit)
 	tr.finish(0)
 	p := parseTrack(t, path)
 	if p.startOf(speech20, 0) != 60*ms || p.end != 80*ms {
@@ -159,8 +178,8 @@ func TestOverlappingPacketsMoveLater(t *testing.T) {
 
 func TestBadPacketsAreDropped(t *testing.T) {
 	tr, path := newTestTrack(t)
-	tr.add([]byte{31<<3 | 3}, 0, false, 0)
-	tr.add(speech20, 2, false, 20*ms)
+	tr.add([]byte{31<<3 | 3}, 0, false, 0, noLimit)
+	tr.add(speech20, 2, false, 20*ms, noLimit)
 	tr.finish(0)
 	if p := parseTrack(t, path); len(p.packets) != 2 || !isSilence(p.packets[0]) {
 		t.Fatalf("packets %x", p.packets)
@@ -171,8 +190,8 @@ func TestBadPacketsAreDropped(t *testing.T) {
 // terminator: not repeats, but a new burst.
 func TestLowerSequenceNumbersLaterAreANewBurst(t *testing.T) {
 	tr, path := newTestTrack(t)
-	tr.add(speech20, 100, false, 0)
-	tr.add(speech60, 60, false, 2000*ms)
+	tr.add(speech20, 100, false, 0, noLimit)
+	tr.add(speech60, 60, false, 2000*ms, noLimit)
 	tr.finish(0)
 	if p := parseTrack(t, path); p.startOf(speech60, 0) != 2000*ms {
 		t.Fatalf("starts %v", p.starts)

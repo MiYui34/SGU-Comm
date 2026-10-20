@@ -2095,3 +2095,32 @@ From `meta/research/discord-comparison.md`.
 - Drafts live in `Client` (`Drafts`), so they survive panes that close
   (a thread over the channel on phones, a closed thread pane). Checked
   headless on desktop and phone sizes.
+
+## Review 3: media, streams and CI (2026-10-20)
+
+- WHIP: offers still coming count against MaxSessions on their own and
+  must arrive within 10 s (a read deadline through
+  http.ResponseController); a new stream key ends the reads of that
+  account. An error answer sets "Connection: close": else net/http reads
+  the rest of a Content-Length body before it answers, without any
+  deadline (the tests with io.Pipe send chunked bodies and did not show
+  it).
+- Stream thumbnails: Speak is checked again on each accepted thumbnail
+  (as for frames). The server decodes the JPEG header: JPEG only, at most
+  1024 pixels a side. Clients make them 320 wide and now at most 1024
+  high (a narrow, tall window).
+- Previews: ffmpeg gets `-max_pixels` (imagesize.MaxPixels), so the coded
+  frames are checked, not only the container's display size. A full disk
+  (ffmpeg's stderr) or an ffmpeg that does not start is no longer
+  ErrFailed, so no NoPreview mark; the next start tries again.
+- Recording: the silence before a packet must fit in the bytes left
+  (512 per second, as for the final padding), else the recording stops
+  at the size limit without writing it.
+- RPM: depends on gstreamer1-plugin-libav (Fedora 43 and 44, standard
+  repos). Fedora builds it on ffmpeg-free: AAC decodes, H.264 only through
+  OpenH264 (Cisco repository); full codecs need RPM Fusion's
+  libavcodec-freeworld. Not tested on Fedora with the app.
+- CI: test.yml runs `cargo test --locked` for the desktop app on Ubuntu
+  22.04 (an empty apps/web/dist is enough for generate_context). It
+  passed in a Linux container; the Murmur tests skip without
+  KALLISTI_TEST_MURMUR.

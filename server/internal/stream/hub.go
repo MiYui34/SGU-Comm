@@ -5,8 +5,10 @@
 package stream
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"image/jpeg"
 	"maps"
 	"regexp"
 	"slices"
@@ -67,6 +69,8 @@ type Info struct {
 const (
 	previewPrefix = "data:image/jpeg;base64,"
 	maxPreview    = 64 << 10
+	// Clients make them 320 pixels wide; a portrait camera's is taller.
+	maxPreviewSide = 1024
 )
 
 // A frame from a streamer: flags (bit 0: keyframe, bit 1: sound, bit 2:
@@ -268,7 +272,7 @@ func (h *Hub) viewersLocked(id uint32, st *stream) {
 // one every few seconds) and passes it on; "" clears it (previews turned
 // off). session: the stream's id.
 func (h *Hub) SetPreview(session uint32, image string) error {
-	if image != "" && (!strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview) {
+	if image != "" && !goodPreview(image) {
 		return errors.New("bad preview")
 	}
 	h.mu.Lock()
@@ -282,6 +286,11 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 		h.mu.Unlock()
 		return nil
 	}
+	if image != "" && h.speakGoneLocked(session, st) {
+		h.mu.Unlock()
+		h.changed()
+		return errors.New("no stream")
+	}
 	st.preview, st.previewAt = image, now
 	info := Info{Session: session, Channel: st.channel, Preview: image}
 	h.mu.Unlock()
@@ -289,6 +298,16 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 		h.OnPreview(info)
 	}
 	return nil
+}
+
+// goodPreview: a JPEG data URL of thumbnail size (the header is decoded).
+func goodPreview(image string) bool {
+	data, ok := strings.CutPrefix(image, previewPrefix)
+	if !ok || len(image) > maxPreview {
+		return false
+	}
+	c, err := jpeg.DecodeConfig(base64.NewDecoder(base64.StdEncoding, strings.NewReader(data)))
+	return err == nil && c.Width <= maxPreviewSide && c.Height <= maxPreviewSide
 }
 
 // Frame forwards a streamer's frame to the viewers of its screen share or
@@ -310,11 +329,9 @@ func (h *Hub) forward(session uint32, f []byte, from *Ingest) {
 		h.mu.Unlock()
 		return
 	}
-	// Speak can go (an admin's mute, an ACL change): then so does the stream.
 	if now := h.now(); now.Sub(st.speakAt) >= speakEvery {
 		st.speakAt = now
-		if !h.voice.MaySpeak(session, st.channel) {
-			h.endLocked(streamer)
+		if h.speakGoneLocked(streamer, st) {
 			h.mu.Unlock()
 			h.changed()
 			return
@@ -420,6 +437,16 @@ func (h *Hub) Streams() []Info {
 		out = append(out, Info{Session: s, Channel: st.channel, Preview: st.preview, Audio: st.config.Audio != ""})
 	}
 	return out
+}
+
+// speakGoneLocked ends a stream whose streamer may no longer speak (an
+// admin's mute, an ACL change).
+func (h *Hub) speakGoneLocked(id uint32, st *stream) bool {
+	if h.voice.MaySpeak(owner(id), st.channel) {
+		return false
+	}
+	h.endLocked(id)
+	return true
 }
 
 func (h *Hub) endLocked(id uint32) bool {

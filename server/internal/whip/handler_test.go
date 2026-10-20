@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -274,10 +275,7 @@ func TestAKeyRevokedDuringTheOffer(t *testing.T) {
 		req, _ := http.NewRequest("POST", srv.URL+Path, body)
 		req.Header.Set("Authorization", "Bearer alice-key")
 		req.Header.Set("Content-Type", "application/sdp")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Error(err)
-		}
+		resp, _ := http.DefaultClient.Do(req) // nil: the server stopped reading and closed
 		done <- resp
 	}()
 	offer := newOBS(t).offer(t)
@@ -289,13 +287,14 @@ func TestAKeyRevokedDuringTheOffer(t *testing.T) {
 	h.EndAccount("alice")
 	io.WriteString(pw, offer[10:])
 	pw.Close()
-	resp := <-done
-	if resp == nil {
-		return
+	if resp := <-done; resp != nil {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("got %d", resp.StatusCode)
+		}
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized || h.Sessions() != 0 {
-		t.Fatalf("%d, %d sessions", resp.StatusCode, h.Sessions())
+	if h.Sessions() != 0 {
+		t.Fatalf("%d sessions", h.Sessions())
 	}
 }
 
@@ -359,5 +358,82 @@ func TestATrackEndEndsTheSession(t *testing.T) {
 		if r.reads != 3 {
 			t.Fatalf("%d reads", r.reads)
 		}
+	}
+}
+
+// stalledOffer posts an offer (of 1000 bytes, said its Content-Length)
+// whose body never ends; the response comes on the channel (nil: none).
+func stalledOffer(t *testing.T, url, key string) <-chan *http.Response {
+	body, pw := io.Pipe()
+	t.Cleanup(func() { pw.Close() })
+	done := make(chan *http.Response, 1)
+	go func() {
+		req, _ := http.NewRequest("POST", url+Path, body)
+		req.ContentLength = 1000
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("Content-Type", "application/sdp")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		done <- resp
+	}()
+	io.WriteString(pw, "v=0\r\n")
+	return done
+}
+
+func (h *Handler) pendingOffers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.pending)
+}
+
+// An offer that never ends gets a timeout, not a session.
+func TestStalledOfferTimesOut(t *testing.T) {
+	h, srv, _, _ := setup(t)
+	h.OfferTimeout = 200 * time.Millisecond
+	select {
+	case resp := <-stalledOffer(t, srv.URL, "alice-key"):
+		if resp == nil || resp.StatusCode != http.StatusRequestTimeout {
+			t.Fatalf("got %v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stalled offer is still read")
+	}
+	if h.Sessions() != 0 || h.pendingOffers() != 0 {
+		t.Fatalf("%d sessions, %d pending", h.Sessions(), h.pendingOffers())
+	}
+}
+
+// Offers still coming count against MaxSessions (on their own); a new key
+// stops reading them.
+func TestPendingOffersAreLimited(t *testing.T) {
+	h, srv, _, _ := setup(t)
+	var revoked atomic.Bool
+	account := h.Account
+	h.Account = func(key string) (string, bool) {
+		name, ok := account(key)
+		return name, ok && !(name == "alice" && revoked.Load())
+	}
+	a, b := stalledOffer(t, srv.URL, "alice-key"), stalledOffer(t, srv.URL, "bob-key")
+	eventually(t, "two pending offers", func() bool { return h.pendingOffers() == 2 })
+	if resp, body := request(t, "POST", srv.URL+Path, "alice-key", "application/sdp", newOBS(t).offer(t)); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("over the limit: %d %s", resp.StatusCode, body)
+	}
+	revoked.Store(true)
+	h.EndAccount("alice")
+	select {
+	case resp := <-a:
+		if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("revoked: got %v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a new key does not stop the offer")
+	}
+	eventually(t, "one pending offer", func() bool { return h.pendingOffers() == 1 })
+	select {
+	case <-b:
+		t.Fatal("bob's offer ended too")
+	default:
 	}
 }

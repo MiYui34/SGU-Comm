@@ -1,5 +1,6 @@
 # Unit tests and type checks: the web client and the protocol package
-# (vitest, svelte-check, tsc), the server (go vet, go test with -race).
+# (vitest, svelte-check, tsc), the server (go vet, go test with -race),
+# the desktop app's Rust code (cargo test, on Linux).
 name: test
 
 on:
@@ -39,3 +40,26 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - run: go test -race ./...
+
+  desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      # The same libraries as the Linux build in desktop.yml.
+      - name: Linux libraries (webview, tray, media)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      # The app embeds the web client's build (frontendDist); the tests
+      # do not need its files.
+      - run: mkdir -p ../../web/dist
+      - run: cargo test --locked
