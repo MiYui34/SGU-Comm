@@ -1694,3 +1694,37 @@ From `meta/research/discord-comparison.md`.
   countdown does not know that starting a thread took a turn (the server
   refuses the next post). Both panes share the upload error. Each
   channels event and ready queries the threads per connection.
+
+## Media dimensions (2026-10-20)
+
+- Uploads keep width, height (pixels, as shown) and duration (ms) in
+  three new columns (0: unknown). internal/mediasize reads them from
+  headers only: pictures with image.DecodeConfig (same limits as
+  imagesize; JPEG Exif orientation 5 to 8 swaps them, as browsers do),
+  MP4/M4A from moov (mvhd duration/timescale, the first tkhd with a
+  size; a matrix turned by about 90 or 270 degrees swaps), WebM from
+  Segment → Info (Duration × TimecodeScale) and Tracks (PixelWidth/Height,
+  DisplayWidth/Height in pixels or as aspect ratio). It walks with
+  ReaderAt and one budget of 4096 box/element headers per file, so moov
+  at the end of a large file costs a few reads and hostile input cannot
+  loop. Truncation tests and fuzz targets (FuzzMP4, FuzzWebM) cover it.
+  MP3, Ogg, WAV and FLAC get nothing (yet).
+- Old uploads: measured once at start (store.MeasureUploads, flag
+  upload_sizes in store_meta), with the type as served (old
+  octet-stream uploads with a media name). Files are read with no
+  connection held (SQLite has one); results and flag go in one
+  transaction. A file missing then is not measured again.
+- The upload check for oversized images now uses the same read: an
+  inline image type without a size becomes a download.
+- Wire: upload objects carry width/height/duration, link previews
+  imageWidth/imageHeight (when known; the card stays 80x80).
+- Web: imageBox scales the size into 400x300 (the CSS maximum); the img
+  gets that width and `aspect-ratio: auto w / h`, so the loaded
+  picture's own ratio still wins (object-fit: contain, so a wrong size,
+  say Exif in PNG/WebP, does not squash it). Videos get `aspect-ratio: w / h`;
+  checked headless that the box is the same before and after loading.
+  Players show the server's length until the metadata loads.
+- Known gaps: WebM DisplayUnit 1/2 (cm, inches) and PixelCrop are
+  ignored (pixel size used); the first MP4 track with a tkhd size wins
+  (no hdlr check); JPEG fill bytes before APP1 end the Exif scan (then
+  "not turned").
