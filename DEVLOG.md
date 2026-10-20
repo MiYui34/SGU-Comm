@@ -1534,3 +1534,48 @@ From `meta/research/discord-comparison.md`.
   ignores a group's Remove entries from Mumble ACL edits. A Mumble client
   timed out in a channel cannot send private texts to users in that
   channel either (Murmur checks TextMessage in the recipient's channel).
+
+## Text categories (2026-10-20)
+
+- One level, like Discord. A store table (categories: name, a unique
+  name key as Mumble compares names, position, Mumble channel) and a
+  category column on text channels. Old databases: every channel is
+  uncategorized; the mirrors stay where they are until moved.
+- Mumble side: a channel per category under "Text channels", after the
+  uncategorized mirrors, with its channels' mirrors as children. One
+  sync call (SyncTextTree) places everything: a mirror moves when its
+  category changes. A category denies TextMessage in itself only; the
+  parent's deny of Speak, Write and MakeChannel reaches it and its
+  mirrors. Mumble clients can enter a category channel but not write
+  there.
+- Category moderators are the same "channelmod" group, on the category's
+  channel. Mumble groups inherit, so they moderate all its channels and
+  a channel time-out given there holds in all of them, with no new code.
+  A private channel in a category stays closed to the category's
+  moderators unless they are members (as with private subchannels).
+- Rights: staff create, rename, order and delete categories, and move
+  channels between them (the edit dialog's category field). A category's
+  moderators create (not private) channels in it, and rename, order and
+  delete the channels in it that they see. They may not bring back a
+  deleted channel's history: CreateChannel revives a hidden channel only
+  for staff (it may have been private).
+- Deleting a category moves its channels to the top, without a category
+  (not refused). Mirrors move to the parent before the category channel
+  goes, and clients learn the move first: otherwise a Mumble client drops
+  the mirror with the users in it.
+- Ordering a category's channels puts them into the places they had in
+  the global order; the others keep theirs.
+- Clients get the categories with ready and every channels event, only
+  those with a channel the user reads and those it moderates (staff:
+  all). Collapsed categories are kept per server on the device
+  (localStorage "collapsedCategories"); a collapsed category still shows
+  the open channel and unread ones. Alt+Up/Down and the quick switcher
+  follow the sidebar's order; the switcher shows the category's name.
+- Manual check (headless browser): created a category, a channel in it,
+  moved a channel into it, collapsed it (kept after a reload), appointed
+  a moderator who then created, moved and edited channels only there,
+  and deleted the category (its channels moved to the top).
+- Known gaps: no drag and drop (menu and dialog only). No private
+  categories in the app (the server does not refuse set-private on a
+  category's channel, but that is untested). A category's moderators can learn that a channel name is
+  taken (also a private or deleted channel's) from the create error.
