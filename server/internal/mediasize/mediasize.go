@@ -5,6 +5,7 @@
 package mediasize
 
 import (
+	"cmp"
 	"encoding/binary"
 	"io"
 	"math"
@@ -21,6 +22,8 @@ type Info struct {
 const (
 	// Larger sides are nonsense (or hostile): unknown.
 	maxSide = 1<<16 - 1
+	// Longer is nonsense too (or "unknown" in a field without a marker).
+	maxDuration = 1e12 // milliseconds: 31 years
 	// Box and element headers read per file at most.
 	maxHeaders = 4096
 )
@@ -40,7 +43,9 @@ func Probe(r io.ReaderAt, size int64, ctype string) Info {
 	if i.Width <= 0 || i.Height <= 0 || i.Width > maxSide || i.Height > maxSide {
 		i.Width, i.Height = 0, 0
 	}
-	i.Duration = max(i.Duration, 0)
+	if i.Duration < 0 || i.Duration > maxDuration {
+		i.Duration = 0
+	}
 	return i
 }
 
@@ -356,14 +361,14 @@ func (w *walker) info(start, end int64) int64 {
 	w.elements(start, end, func(id uint32, start, end int64) bool {
 		switch id {
 		case idTimecodeScale:
-			scale = w.uint(start, end)
+			scale = cmp.Or(w.uint(start, end), scale) // empty: the default
 		case idDuration:
 			d = w.float(start, end)
 		}
 		return true
 	})
 	ms := d * float64(scale) / 1e6
-	if !(ms > 0 && ms < 1e15) { // also NaN
+	if !(ms > 0 && ms <= maxDuration) { // also NaN
 		return 0
 	}
 	return int64(math.Round(ms))

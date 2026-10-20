@@ -183,6 +183,7 @@ func TestMP4(t *testing.T) {
 		{"unknown duration", mp4(mvhd(0, 1000, math.MaxUint32), video(identity)), Info{1280, 720, 0}},
 		{"no timescale", mp4(mvhd(0, 0, 10), video(identity)), Info{1280, 720, 0}},
 		{"huge duration", mp4(mvhd(1, 1, math.MaxUint64-1), video(identity)), Info{1280, 720, 0}},
+		{"unknown duration, version 1", mp4(mvhd(1, 90000, math.MaxUint64), video(identity)), Info{1280, 720, 0}},
 		{"no moov", box("ftyp", []byte("isom")), Info{}},
 	} {
 		if got := probe(c.data, "video/mp4"); got != c.want {
@@ -244,6 +245,7 @@ func TestWebM(t *testing.T) {
 		{"audio only", webm(ebml(idInfo, ebmlFloat64(0x4489, 700)), ebml(idTracks, audioTrack)), Info{0, 0, 700}},
 		{"unknown sizes (recorder)", append(ebml(idEBML), unknownSize(idSegment, ebml(idInfo, ebmlFloat64(0x4489, 10)), videoTrack(pixels...), unknownSize(idCluster, make([]byte, 64)))...), Info{640, 480, 10}},
 		{"tracks after a cluster are not looked for", webm(ebml(idCluster, make([]byte, 8)), videoTrack(pixels...)), Info{}},
+		{"empty timecode scale: the default", webm(ebml(idInfo, ebml(0x2ad7b1), ebmlFloat64(0x4489, 1500)), videoTrack(pixels...)), Info{640, 480, 1500}},
 		{"negative duration", webm(ebml(idInfo, ebmlFloat64(0x4489, -5)), videoTrack(pixels...)), Info{640, 480, 0}},
 		{"NaN duration", webm(ebml(idInfo, ebmlFloat64(0x4489, math.NaN())), videoTrack(pixels...)), Info{640, 480, 0}},
 		{"huge duration", webm(ebml(idInfo, ebmlUint(0x2ad7b1, math.MaxUint64), ebmlFloat64(0x4489, 1e300)), videoTrack(pixels...)), Info{640, 480, 0}},
@@ -312,6 +314,14 @@ func FuzzMP4(f *testing.F) {
 		if got := probe(data, "video/mp4"); got.Width < 0 || got.Height < 0 || got.Duration < 0 {
 			t.Fatal(got)
 		}
+	})
+}
+
+func FuzzJPEG(f *testing.F) {
+	f.Add(withExif([]byte("\xff\xd8\xff\xd9"), 6, false))
+	f.Add(withExif([]byte("\xff\xd8\xff\xd9"), 8, true))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		exifTurned(bytes.NewReader(data), int64(len(data)))
 	})
 }
 
