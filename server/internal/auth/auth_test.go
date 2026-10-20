@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -264,6 +265,8 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 	a, srv := setup(t)
 	var match func(int64, string) bool
 	a.Revoke = func(m func(int64, string) bool) { match = m }
+	var ended []string // Mumble clients logged in with the password
+	a.EndPasswordLogins = func(acc store.Account) { ended = append(ended, acc.Name) }
 	resp, _ := post(t, srv, "/api/accounts", map[string]string{"name": "gina", "password": "longpassword"}, nil)
 	first := sessionCookie(resp)
 	acc, _ := a.AccountFor(requestWith(first))
@@ -272,8 +275,12 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 		return sessionCookie(resp)
 	}
 	second, third := login(), login()
-	check := func(what string, want map[*http.Cookie]bool) {
+	check := func(what string, want map[*http.Cookie]bool, mumble []string) {
 		t.Helper()
+		if !slices.Equal(ended, mumble) {
+			t.Errorf("%s: password logins ended %v, want %v", what, ended, mumble)
+		}
+		ended = nil
 		if match == nil {
 			t.Fatalf("%s: nothing revoked", what)
 		}
@@ -288,11 +295,11 @@ func TestEndedSessionsAreRevoked(t *testing.T) {
 		match = nil
 	}
 	post(t, srv, "/api/logout", nil, third)
-	check("logout", map[*http.Cookie]bool{third: true, second: false})
+	check("logout", map[*http.Cookie]bool{third: true, second: false}, nil)
 	post(t, srv, "/api/password", map[string]string{"old": "longpassword", "new": "new password"}, second)
-	check("password change", map[*http.Cookie]bool{first: true, second: false})
+	check("password change", map[*http.Cookie]bool{first: true, second: false}, []string{"gina"})
 	post(t, srv, "/api/logout-all", map[string]string{}, second)
-	check("logout-all", map[*http.Cookie]bool{first: true, second: true})
+	check("logout-all", map[*http.Cookie]bool{first: true, second: true}, []string{"gina"})
 }
 
 func TestExpiredSessionsAreRevoked(t *testing.T) {

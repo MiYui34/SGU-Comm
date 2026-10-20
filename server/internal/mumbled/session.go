@@ -590,6 +590,23 @@ func (s *Server) kickLocked(session, actor uint32, reason string, ban bool) {
 	go s.saveLastChannel(u)
 }
 
+// EndPasswordLogins disconnects the Mumble clients of the web account
+// with this certificate: they logged in with its password (see
+// identifyAccount), which changed or was logged out everywhere. Its web
+// sessions end with their own logins.
+func (s *Server) EndPasswordLogins(certHash string) {
+	if certHash == "" { // none: clients without a certificate are not its
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for session, c := range s.clients {
+		if u := s.state.Users[session]; !c.web && u != nil && u.Hash == certHash {
+			s.kickLocked(session, 0, "You were logged out.", false)
+		}
+	}
+}
+
 // channelState is the full ChannelState of a channel, without links.
 func channelState(ch *Channel) *pb.ChannelState {
 	m := &pb.ChannelState{

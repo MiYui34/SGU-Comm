@@ -154,6 +154,7 @@ func run() error {
 		accounts.MumbleLogin = mumble.srv.CheckPassword
 		accounts.GuestAccounts = true // the built-in server can remove their registrations
 		accounts.Captcha = mumble.srv.Captcha
+		accounts.EndPasswordLogins = func(acc store.Account) { mumble.srv.EndPasswordLogins(accountCertHash(acc)) }
 		accounts.OnPermanent = func(name string) {
 			mumble.srv.AccountPermanent(name) // its users may write again
 			hub.AccountPermanent(name)

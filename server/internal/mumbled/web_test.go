@@ -337,3 +337,30 @@ func TestMumbleClientsLogInWithAnAccountPassword(t *testing.T) {
 		t.Fatalf("banned: %v", r)
 	}
 }
+
+func TestEndingAnAccountsPasswordLoginsKicksItsMumbleClients(t *testing.T) {
+	db := testDB(t)
+	cfg := Config{DB: db, AccountLogin: accountLogin(map[string]string{"alice": "secret", "bob": "bobpw"}, nil)}
+	s, addr := startServerAndListen(t, "127.0.0.1", cfg, nil)
+	alice := dialAs(t, addr, dialOpts{name: "alice", password: "secret", cert: clientCert(t)})
+	bob := dialAs(t, addr, dialOpts{name: "bob", password: "bobpw", cert: clientCert(t)})
+	web := joined(t, webClient(t, s, Origin{Host: netip.MustParseAddr("203.0.113.5"), Account: &WebAccount{Name: "alice", CertHash: "cert-alice"}}, "alice"))
+	guest := dialAs(t, addr, dialOpts{name: "guest"}) // no certificate
+
+	s.EndPasswordLogins("") // an account without a certificate
+	s.EndPasswordLogins("cert-alice")
+	var m pb.UserRemove
+	proto.Unmarshal(alice.expect(mumble.TypeUserRemove), &m)
+	if m.GetSession() != alice.session {
+		t.Fatalf("removed %d, want alice %d", m.GetSession(), alice.session)
+	}
+	online := func(session uint32) bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.state.Users[session] != nil
+	}
+	// The web session ends with its own login (see bridge.Revoke); others stay.
+	if online(alice.session) || !online(bob.session) || !online(web.session) || !online(guest.session) {
+		t.Fatalf("online: alice %v, bob %v, web %v, guest %v", online(alice.session), online(bob.session), online(web.session), online(guest.session))
+	}
+}
