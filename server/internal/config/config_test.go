@@ -53,6 +53,8 @@ func TestAllOptions(t *testing.T) {
 		"BACKUP_DIR":             "/data/backups",
 		"BACKUP_KEEP":            "3",
 		"LINK_PREVIEWS":          "0",
+		"MEDIA_PREVIEWS":         "0",
+		"FFMPEG_PATH":            "/opt/ffmpeg",
 		"PUSH":                   "0",
 		"VAPID_PUBLIC_KEY":       "pub",
 		"VAPID_PRIVATE_KEY":      "priv",
@@ -79,6 +81,8 @@ func TestAllOptions(t *testing.T) {
 		BackupDir:          "/data/backups",
 		BackupKeep:         3,
 		NoLinkPreviews:     true,
+		NoMediaPreviews:    true,
+		FFmpegPath:         "/opt/ffmpeg",
 		Push:               Push{Off: true, PublicKey: "pub", PrivateKey: "priv", Subject: "mailto:admin@a.example"},
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -38,6 +38,10 @@ type Config struct {
 	TrustForwardedFor bool
 	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
 	NoLinkPreviews bool
+	// MEDIA_PREVIEWS=0: no video thumbnails and picture previews, even
+	// with ffmpeg (FFMPEG_PATH, else on PATH).
+	NoMediaPreviews bool
+	FFmpegPath      string
 	// Web Push notifications (built-in server).
 	Push Push
 	// Uploaded files, and the size limit per file.
@@ -196,6 +200,8 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
 	c.NoLinkPreviews = getenv("LINK_PREVIEWS") == "0"
+	c.NoMediaPreviews = getenv("MEDIA_PREVIEWS") == "0"
+	c.FFmpegPath = getenv("FFMPEG_PATH")
 	var err error
 	if c.Push, err = parsePush(getenv); err != nil {
 		return Config{}, err
