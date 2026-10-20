@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -262,5 +263,38 @@ func TestSpeakersBeyondTheTrackLimit(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(lib.Dir, info.ID))
 	if len(info.Tracks) != maxTracks || len(entries) != maxTracks+1 || len(info.Unrecorded) != 10 || info.Unrecorded[0] != "guest"+strconv.Itoa(maxTracks) {
 		t.Fatalf("%d tracks, %d files, unrecorded %v", len(info.Tracks), len(entries), info.Unrecorded)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+// handRecording: a recording without its goroutine, with a track for
+// alice that cannot be written.
+func handRecording(t *testing.T) *Recording {
+	lib, _ := testLibrary(t, Limits{})
+	tr, err := createTrack(filepath.Join(lib.Dir, "alice.opus"), "alice", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.ogg.w = failingWriter{}
+	return &Recording{lib: lib, info: Info{Started: t0}, tracks: map[string]*track{"alice": tr}, order: []*track{tr}}
+}
+
+// A failed write stops the recording (at once, or when it is finished).
+func TestAWriteErrorStopsTheRecording(t *testing.T) {
+	r := handRecording(t)
+	reason := ""
+	for i := 0; i < 200 && reason == ""; i++ {
+		reason = r.add(Packet{Speaker: "alice", Seq: uint64(2 * i), Opus: speech20, At: t0.Add(time.Duration(i) * 20 * time.Millisecond)})
+	}
+	if reason != "write error" {
+		t.Fatalf("reason %q", reason)
+	}
+	r = handRecording(t)
+	r.add(Packet{Speaker: "alice", Opus: speech20, At: t0}) // buffered
+	if r.finish("stopped"); r.info.Reason != "write error" {
+		t.Fatalf("reason %q", r.info.Reason)
 	}
 }

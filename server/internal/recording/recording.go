@@ -212,7 +212,10 @@ func (r *Recording) add(p Packet) string {
 		r.tracks[p.Speaker], r.order = t, append(r.order, t)
 	}
 	at := max(0, p.At.Sub(r.info.Started).Microseconds()*sampleRate/1e6)
-	t.add(p.Opus, p.Seq, p.Terminator, at)
+	if err := t.add(p.Opus, p.Seq, p.Terminator, at); err != nil {
+		slog.Error("recording: writing a track", "track", t.name, "err", err)
+		return "write error"
+	}
 	if r.size() > r.lib.Limits.MaxBytes {
 		return "size limit"
 	}
@@ -266,6 +269,7 @@ func (r *Recording) finish(reason string) {
 	for _, t := range r.order {
 		if err := t.finish(end); err != nil {
 			slog.Error("recording: closing a track", "track", t.name, "err", err)
+			r.info.Reason = "write error"
 		}
 		channels := 1
 		if t.stereo {

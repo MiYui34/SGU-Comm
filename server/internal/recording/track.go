@@ -69,16 +69,17 @@ func createTrack(path, name string, serial uint32) (*track, error) {
 	return t, nil
 }
 
-// add writes a packet that arrived at "at", with silence before it.
-func (t *track) add(opus []byte, seq uint64, terminator bool, at int64) {
+// add writes a packet that arrived at "at", with silence before it. It
+// returns the first write error (the track writes nothing after it).
+func (t *track) add(opus []byte, seq uint64, terminator bool, at int64) error {
 	samples, stereo, ok := packetSamples(opus)
 	if !ok || t.err != nil {
-		return
+		return t.err
 	}
 	pos := t.base + int64(seq-t.baseSeq)*frameSamples
 	switch {
 	case t.talking && seq <= t.lastSeq && t.lastSeq-seq < 50 && at-t.lastAt <= burstGap:
-		return // a repeat or a late packet
+		return nil // a repeat or a late packet
 	case !t.talking || seq <= t.lastSeq || at-t.lastAt > burstGap || pos > at+burstDrift || pos < at-burstDrift:
 		t.base, t.baseSeq = at/grid*grid, seq
 		pos = t.base
@@ -93,6 +94,7 @@ func (t *track) add(opus []byte, seq uint64, terminator bool, at int64) {
 		t.first = t.pos
 	}
 	t.write(opus, samples)
+	return t.err
 }
 
 func (t *track) write(p []byte, samples int) {
