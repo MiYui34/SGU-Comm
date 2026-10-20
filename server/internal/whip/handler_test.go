@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -251,6 +252,48 @@ func TestANewKeyEndsTheStream(t *testing.T) {
 	h.EndAccount("alice")
 	if len(hub.Streams()) != 0 || h.Sessions() != 0 {
 		t.Fatal("the stream goes on")
+	}
+}
+
+// A key revoked while its request's offer comes in (slowly) starts nothing.
+func TestAKeyRevokedDuringTheOffer(t *testing.T) {
+	h, srv, _, _ := setup(t)
+	var mu sync.Mutex
+	revoked, checked := false, make(chan struct{}, 4)
+	h.Account = func(key string) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		checked <- struct{}{}
+		return "alice", key == "alice-key" && !revoked
+	}
+	body, pw := io.Pipe()
+	done := make(chan *http.Response)
+	go func() {
+		req, _ := http.NewRequest("POST", srv.URL+Path, body)
+		req.Header.Set("Authorization", "Bearer alice-key")
+		req.Header.Set("Content-Type", "application/sdp")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- resp
+	}()
+	offer := newOBS(t).offer(t)
+	io.WriteString(pw, offer[:10])
+	<-checked // authenticated, the offer still coming
+	mu.Lock()
+	revoked = true
+	mu.Unlock()
+	h.EndAccount("alice")
+	io.WriteString(pw, offer[10:])
+	pw.Close()
+	resp := <-done
+	if resp == nil {
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || h.Sessions() != 0 {
+		t.Fatalf("%d, %d sessions", resp.StatusCode, h.Sessions())
 	}
 }
 

@@ -79,10 +79,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	name, ok := h.Account(strings.TrimSpace(key))
+	key = strings.TrimSpace(key)
+	name, ok := h.Account(key)
 	if !ok {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		http.Error(w, "unknown stream key (see Settings in Kallisti)", http.StatusUnauthorized)
+		unauthorized(w)
 		return
 	}
 	if ctype, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ctype != "application/sdp" {
@@ -108,9 +108,15 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s, old, err := h.reserve(name)
+	// The key again (it may have changed while the offer came), under the
+	// lock EndAccount takes: a change after this ends the session.
+	s, old, err := h.reserve(name, func() bool { n, ok := h.Account(key); return ok && n == name })
 	for _, o := range old {
 		o.close()
+	}
+	if errors.Is(err, errKeyChanged) {
+		unauthorized(w)
+		return
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -133,11 +139,22 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, answer)
 }
 
-// reserve makes a session (not yet open) if there is room. It replaces
-// the account's old ones (OBS reconnecting), returned to be closed.
-func (h *Handler) reserve(account string) (*session, []*session, error) {
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	http.Error(w, "unknown stream key (see Settings in Kallisti)", http.StatusUnauthorized)
+}
+
+var errKeyChanged = errors.New("the stream key changed")
+
+// reserve makes a session (not yet open) if there is room and the key is
+// still valid. It replaces the account's old ones (OBS reconnecting),
+// returned to be closed.
+func (h *Handler) reserve(account string, valid func() bool) (*session, []*session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !valid() {
+		return nil, nil, errKeyChanged
+	}
 	old := h.takeAccountLocked(account)
 	if h.sessions == nil {
 		h.sessions = map[string]*session{}
