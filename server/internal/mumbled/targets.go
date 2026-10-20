@@ -127,7 +127,7 @@ func (s *State) dropListener(u *User) []uint32 {
 // each gets, as Murmur's processMsg. Results are cached until Changed.
 func (s *State) Receivers(sender, target uint32) map[uint32]AudioContext {
 	u := s.Users[sender]
-	if u == nil || u.SelfMute || u.Mute || u.Suppress {
+	if u == nil || u.SelfMute || u.Mute || u.Suppress || u.textOnly() {
 		return nil
 	}
 	if target == loopbackTarget {
@@ -138,7 +138,7 @@ func (s *State) Receivers(sender, target uint32) map[uint32]AudioContext {
 	}
 	out := map[uint32]AudioContext{}
 	add := func(o *User, ctx AudioContext) {
-		if o.Session == sender || o.Deaf || o.SelfDeaf {
+		if o.Session == sender || o.Deaf || o.SelfDeaf || o.textOnly() {
 			return
 		}
 		if _, ok := out[o.Session]; !ok {

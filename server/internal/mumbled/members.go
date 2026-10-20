@@ -38,17 +38,21 @@ func (s *Server) Pictures() map[uint32]bool {
 // OnlineUser is a connected registered user (see Online).
 type OnlineUser struct {
 	Name    string
-	Session uint32 // one per user: another device replaces it
+	Session uint32 // its voice session, else its oldest (see textonly.go)
 }
 
 // Online: the connected registered users but SuperUser, by id, in any
-// channel (Kallisti lists them online also to users who may not see it).
+// channel or text-only (Kallisti lists them online also to users who may
+// not see it).
 func (s *Server) Online() map[uint32]OnlineUser {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[uint32]OnlineUser{}
 	for _, u := range s.state.Users {
-		if u.Registered && u.UserID != 0 {
+		if !u.Registered || u.UserID == 0 {
+			continue
+		}
+		if o, ok := out[u.UserID]; !ok || s.state.Users[o.Session].textOnly() && (!u.textOnly() || u.Session < o.Session) {
 			out[u.UserID] = OnlineUser{u.Name, u.Session}
 		}
 	}

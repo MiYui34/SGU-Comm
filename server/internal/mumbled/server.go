@@ -76,7 +76,10 @@ type Config struct {
 	// Timeouts).
 	OnTimeoutsChanged func()
 	// OnUserMoved hears users join (from NoChannel), change channels and
-	// leave (to NoChannel), in order, outside the server lock.
+	// leave (to NoChannel), in order, outside the server lock. Text-only
+	// sessions are in no channel (see textonly.go): they join and leave
+	// from NoChannel to NoChannel, and take or leave voice like a join or
+	// a leave.
 	OnUserMoved func(session, from, to uint32)
 	// TextOverflows is the number of sidecar messages each session lost
 	// (see ConnectionStats). Nil: none.
@@ -300,6 +303,7 @@ func New(cfg Config) (*Server, error) {
 			srv.tellRecordingLocked(session, to)
 		}
 		if cfg.OnUserMoved != nil {
+			from, to = outside(from), outside(to)
 			srv.events.add(func() { cfg.OnUserMoved(session, from, to) })
 		}
 	}

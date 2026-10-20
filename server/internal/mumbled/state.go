@@ -25,7 +25,8 @@ type State struct {
 	// Index in CaptchaLevels (see captcha.go).
 	Captcha uint32
 	// OnMove hears every change of a user's channel; NoChannel stands for
-	// joining or leaving the server. It runs under the server lock.
+	// joining or leaving the server, TextOnly for no channel (see
+	// textonly.go). It runs under the server lock.
 	OnMove func(session, from, to uint32)
 	// TimedOutIn: the user has a channel time-out in the channel or one
 	// above it (see timeouts.go). It runs under the server lock.
@@ -303,9 +304,10 @@ func (s *State) RemoveChannel(id uint32) (moved map[uint32]uint32, removed []uin
 }
 
 // Refresh recomputes what a user may say where: suppressed without Speak
-// in its channel (as Murmur), and the channels its voice reaches.
+// in its channel (as Murmur; text-only sessions have no voice anyway),
+// and the channels its voice reaches.
 func (s *State) Refresh(u *User) {
-	u.Suppress = !s.Has(u, u.Channel, Speak)
+	u.Suppress = !u.textOnly() && !s.Has(u, u.Channel, Speak)
 	s.Changed()
 }
 
@@ -382,7 +384,7 @@ func (s *State) RemoveUser(session uint32) []uint32 {
 // MoveUser returns temporary channels that became empty and were removed.
 func (s *State) MoveUser(session, channel uint32) []uint32 {
 	u := s.Users[session]
-	if u == nil || s.Channels[channel] == nil || u.Channel == channel {
+	if u == nil || s.Channels[channel] == nil && channel != TextOnly || u.Channel == channel {
 		return nil
 	}
 	old := u.Channel

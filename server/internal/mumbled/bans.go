@@ -105,6 +105,7 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 		return need, false
 	}
 	var ban *BanEntry
+	var more []BanEntry // the certificates of the account's other sessions
 	if m.GetBan() {
 		// Clients before 1.6 send neither option: both, as Murmur.
 		byCert := (m.BanCertificate == nil || m.GetBanCertificate()) && u.Hash != ""
@@ -120,11 +121,19 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 			s.mu.Unlock()
 			return 0, false // nothing to ban by
 		}
+		for _, o := range s.siblingsLocked(u) {
+			if byCert && o.Hash != "" && o.Hash != u.Hash {
+				more = append(more, BanEntry{Hash: o.Hash, Name: ban.Name, Reason: ban.Reason, Start: ban.Start, Duration: d})
+			}
+		}
 	}
-	s.kickLocked(u.Session, actorSession, m.GetReason(), ban != nil)
+	// Every session of the account goes (see textonly.go).
+	for _, o := range append(s.siblingsLocked(u), u) {
+		s.kickLocked(o.Session, actorSession, m.GetReason(), ban != nil)
+	}
 	s.mu.Unlock()
 	if ban != nil {
-		s.setBans(append(s.currentBans(), *ban))
+		s.setBans(append(append(s.currentBans(), *ban), more...))
 	}
 	return 0, true
 }

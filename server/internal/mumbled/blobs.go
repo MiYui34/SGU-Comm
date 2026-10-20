@@ -131,12 +131,12 @@ func (s *Server) requestBlobMsg(c *client, m *pb.RequestBlob) {
 	}
 	s.mu.Lock()
 	for _, id := range unique(m.SessionTexture) {
-		if u := s.state.Users[id]; u != nil && len(u.Texture) > 0 && c.seen[u.Channel] {
+		if u := s.state.Users[id]; u != nil && len(u.Texture) > 0 && c.sees(u) {
 			reply(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(id), Texture: u.Texture})
 		}
 	}
 	for _, id := range unique(m.SessionComment) {
-		if u := s.state.Users[id]; u != nil && u.Comment != "" && c.seen[u.Channel] {
+		if u := s.state.Users[id]; u != nil && u.Comment != "" && c.sees(u) {
 			reply(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(id), Comment: proto.String(u.Comment)})
 		}
 	}

@@ -246,7 +246,7 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 		target = m.GetSession()
 	}
 	u := s.state.Users[target]
-	if u == nil || actor == nil || !c.seen[u.Channel] { // hidden users are unknown
+	if u == nil || actor == nil || !c.sees(u) { // hidden users are unknown
 		return
 	}
 	// Checks first, as Murmur: nothing changes if one fails.
@@ -349,7 +349,7 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 		changed = true
 	}
 	for _, ch := range m.ListeningChannelAdd {
-		if s.state.Channels[ch] != nil && !s.state.Has(u, ch, Listen) {
+		if u.textOnly() || s.state.Channels[ch] != nil && !s.state.Has(u, ch, Listen) {
 			c.denyPerm(Listen, ch)
 		} else if !u.Listening[ch] && len(u.Listening) >= maxListening {
 			c.deny(deny(pb.PermissionDenied_UserListenerLimit, "you listen to too many channels"))
@@ -367,6 +367,11 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 	if content {
 		applyContent(u, m, out)
 		changed = true
+		for _, o := range s.siblingsLocked(u) { // the account's other sessions
+			other := &pb.UserState{Session: proto.Uint32(o.Session), Actor: proto.Uint32(c.session)}
+			applyContent(o, m, other)
+			s.sendUserLocked(o, other)
+		}
 		saved := contentOf(u, m.Texture != nil)
 		after = func() { s.saveContent(saved) }
 	}
@@ -377,6 +382,9 @@ func (s *Server) userStateLocked(c *client, m *pb.UserState) (after func()) {
 		s.sendUserLocked(u, out)
 	}
 	if move {
+		if u.textOnly() {
+			s.takeVoiceLocked(u)
+		}
 		s.moveLocked(u, dest.ID, c.session)
 	}
 	return after
