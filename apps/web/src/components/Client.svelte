@@ -64,6 +64,7 @@
     type ModerationAction,
   } from "../lib/moderation";
   import { chatSeen, notificationBody, notifier, shouldNotify } from "../lib/notify";
+  import { createNotifyLeader } from "../lib/notifyLeader";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { textOrder } from "../lib/categories";
@@ -680,10 +681,29 @@
   // Desktop notifications (see shouldNotify): mentions in stored chats, and
   // private messages. Made now: the desktop app reads its permission once.
   const notifications = notifier();
+  // Of several tabs of the account in this browser, one notifies (see
+  // lib/notifyLeader).
+  let leader: ReturnType<typeof createNotifyLeader> | null = null;
+  const myName = $derived(me?.name);
+  $effect(() => {
+    if (!myName) return;
+    const tabs = (leader = createNotifyLeader(`kallisti-notify ${connection.httpBase} ${myName.toLowerCase()}`));
+    const used = () => document.visibilityState === "visible" && tabs.touch();
+    window.addEventListener("focus", used);
+    document.addEventListener("visibilitychange", used);
+    window.addEventListener("pagehide", tabs.close);
+    return () => {
+      window.removeEventListener("focus", used);
+      document.removeEventListener("visibilitychange", used);
+      window.removeEventListener("pagehide", tabs.close);
+      tabs.close();
+      leader = null;
+    };
+  });
   const notify = (title: string, body: string, open: boolean, onOpen: () => void) => {
     const visible = chatSeen({ visible: document.visibilityState === "visible", focused: document.hasFocus(), desktop: isDesktop() });
     const enabled = prefs.notifications;
-    if (shouldNotify({ enabled, permission: notifications.permission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
+    if (leader?.leads() !== false && shouldNotify({ enabled, permission: notifications.permission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
       notifications.show(title, body, onOpen);
   };
   $effect(() =>
