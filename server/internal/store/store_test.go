@@ -855,3 +855,40 @@ func TestMessageIDCounterStartsAtTheNewestMessage(t *testing.T) {
 		t.Fatalf("id %d %v", m.ID, err)
 	}
 }
+
+func TestUploadPreviews(t *testing.T) {
+	s := open(t)
+	s.EnsureChannels([]string{"general"})
+	at := time.Now()
+	video, _ := s.AddUpload(Upload{Key: "video", Name: "a.mp4", Type: "video/mp4", Size: 1, Author: "a"}, at)
+	image, _ := s.AddUpload(Upload{Key: "image", Name: "b.png", Type: "image/png", Size: 1, Author: "a"}, at)
+	s.AddUpload(Upload{Key: "unused", Name: "c.png", Type: "image/png", Size: 1, Author: "a"}, at)
+	zip, _ := s.AddUpload(Upload{Key: "zip", Name: "d.zip", Type: "application/zip", Size: 1, Author: "a"}, at)
+	for _, u := range []Upload{video, image, zip} {
+		s.AddMessage(NewMessage{ChannelID: 1, Author: "a", At: at, UploadID: u.ID})
+	}
+	todo, err := s.UploadsWithoutPreview()
+	if err != nil || len(todo) != 2 || todo[0].Key != "image" || todo[1].Key != "video" {
+		t.Fatalf("without preview (newest first, attached pictures and videos): %+v %v", todo, err)
+	}
+	if found, err := s.SetUploadPreview("video", "image/webp"); !found || err != nil {
+		t.Fatalf("set: %v %v", found, err)
+	}
+	s.SetUploadPreview("image", NoPreview)
+	if found, _ := s.SetUploadPreview("gone", "image/webp"); found {
+		t.Fatal("set for a missing upload")
+	}
+	if u, _ := s.UploadByKey("video"); u.Preview != "image/webp" {
+		t.Fatalf("upload: %+v", u)
+	}
+	m, err := s.MessageByUpload("video")
+	if err != nil || m.Upload == nil || m.Upload.Preview != "image/webp" {
+		t.Fatalf("message: %+v %v", m, err)
+	}
+	if _, err := s.MessageByUpload("unused"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unattached: %v", err)
+	}
+	if todo, _ := s.UploadsWithoutPreview(); len(todo) != 0 {
+		t.Fatalf("still without preview: %+v", todo)
+	}
+}

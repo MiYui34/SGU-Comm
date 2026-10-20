@@ -27,6 +27,7 @@ import (
 	"kallisti.chat/server/internal/mediasize"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
+	"kallisti.chat/server/internal/thumbs"
 )
 
 // Only these are shown inline: they cannot carry scripts. SVG can, so it
@@ -55,6 +56,10 @@ type Handler struct {
 	// emoji. OnEmoji: one was added.
 	RedeemEmoji func(token string) (author, name string, ok bool)
 	OnEmoji     func()
+	// Previews makes previews (nil: none, see previews.go); OnPreview: an
+	// upload got one.
+	Previews  *thumbs.Maker
+	OnPreview func(key string)
 
 	mu       sync.Mutex
 	reserved map[string]int64 // by author: bytes of uploads in progress
@@ -159,6 +164,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "cannot store file", http.StatusInternalServerError)
 		return
 	}
+	h.preview(u)
 	writeJSON(w, map[string]any{
 		"key": u.Key, "name": u.Name, "type": u.Type, "size": u.Size, "url": sidecar.FileURL(u),
 	})
@@ -270,25 +276,35 @@ func servedType(u store.Upload, f io.ReaderAt) string {
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	key, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/files/"), "/")
 	u, err := h.Store.UploadByKey(key)
-	if err != nil {
+	// ?preview: its preview (see previews.go), if it has one.
+	preview := r.URL.Query().Has("preview")
+	if err != nil || !plainKey(u.Key) || preview && !u.HasPreview() {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(filepath.Join(h.Dir, u.Key))
+	path := filepath.Join(h.Dir, u.Key)
+	if preview {
+		path = previewPath(h.Dir, u.Key)
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	defer f.Close()
-	disposition := "attachment"
-	ctype := "application/octet-stream"
-	u.Type = servedType(u, f)
-	if isInline(u.Type) {
-		disposition, ctype = "inline", u.Type
-	}
 	hd := w.Header()
-	hd.Set("Content-Type", ctype)
-	hd.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": u.Name}))
+	if preview {
+		hd.Set("Content-Type", u.Preview)
+	} else {
+		disposition := "attachment"
+		ctype := "application/octet-stream"
+		u.Type = servedType(u, f)
+		if isInline(u.Type) {
+			disposition, ctype = "inline", u.Type
+		}
+		hd.Set("Content-Type", ctype)
+		hd.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": u.Name}))
+	}
 	hd.Set("X-Content-Type-Options", "nosniff")
 	hd.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	// The key is random and the content never changes.
@@ -341,20 +357,20 @@ func (h *Handler) DeleteUnused() {
 		return
 	}
 	for _, k := range keys {
-		if err := os.Remove(filepath.Join(h.Dir, k)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("delete upload file", "key", k, "err", err)
-		}
+		h.Remove(k)
 	}
 }
 
-// Remove deletes an upload's file (its message was deleted). Keys are
-// plain names: anything with a path is ignored.
+// Remove deletes an upload's file and preview (its message was deleted).
+// Keys are plain names: anything with a path is ignored.
 func (h *Handler) Remove(key string) {
 	if !plainKey(key) {
 		return
 	}
-	if err := os.Remove(filepath.Join(h.Dir, key)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("delete upload file", "key", key, "err", err)
+	for _, path := range []string{filepath.Join(h.Dir, key), previewPath(h.Dir, key)} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("delete upload file", "key", key, "err", err)
+		}
 	}
 }
 
@@ -381,6 +397,8 @@ func (h *Handler) Save(author, name, ctype string, data []byte) (store.Upload, e
 	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: n, Author: author, Media: media}, h.Now())
 	if err != nil {
 		os.Remove(dst)
+		return u, err
 	}
-	return u, err
+	h.preview(u)
+	return u, nil
 }

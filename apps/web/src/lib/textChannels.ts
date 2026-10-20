@@ -27,7 +27,8 @@ import { followedThreads, isThread, isThreads, withThreads, type Thread, type Th
 export type TextChannel = { id: number; name: string; mumble?: number; topic?: string; slowMode?: number; category?: number };
 // width, height: pixels (as shown); duration: milliseconds. Missing when
 // the server does not know them.
-export type Attachment = { url: string; name: string; type: string; size: number; width?: number; height?: number; duration?: number };
+// preview: a smaller picture (see lib/media chatSrc), once the server made one.
+export type Attachment = { url: string; name: string; type: string; size: number; width?: number; height?: number; duration?: number; preview?: string };
 export type TextMessage = {
   id: number;
   channel: number;
@@ -427,7 +428,7 @@ const withCategories = (v: Record<string, unknown>) => (isCategories(v.categorie
 const optStr = (v: unknown) => v === undefined || isStr(v);
 const optSize = (v: unknown) => v === undefined || (isNum(v) && v > 0);
 const isAttachment = (v: unknown): v is Attachment =>
-  isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size) && optSize(v.width) && optSize(v.height) && optSize(v.duration);
+  isObj(v) && isStr(v.url) && isStr(v.name) && isStr(v.type) && isNum(v.size) && optSize(v.width) && optSize(v.height) && optSize(v.duration) && optStr(v.preview);
 const isPreview = (v: unknown): v is LinkPreview =>
   isObj(v) &&
   isStr(v.url) &&
@@ -1061,7 +1062,15 @@ const fileUrl = (url: string, base: string): string | null => {
   }
 };
 
-const chatCache = new WeakMap<TextMessage, { chat: DisplayMessage; channels?: ReadonlyMap<string, number> }>();
+// An attachment with absolute URLs on our server (null: it is elsewhere; a
+// preview elsewhere is dropped, the attachment stays).
+const ownAttachment = ({ preview, ...u }: Attachment, base: string): Attachment | null => {
+  const url = fileUrl(u.url, base);
+  const own = preview && fileUrl(preview, base);
+  return url ? { ...u, url, ...(own && { preview: own }) } : null;
+};
+
+const chatCache =new WeakMap<TextMessage, { chat: DisplayMessage; channels?: ReadonlyMap<string, number> }>();
 
 // Text channel messages are plain text: escape, then Markdown. Attachment
 // URLs are relative to the server (`base`); channels: text channel ids by
@@ -1070,7 +1079,7 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
   const cached = chatCache.get(m);
   let chat = cached?.channels === channels ? cached?.chat : undefined;
   if (!chat) {
-    const url = m.upload && fileUrl(m.upload.url, base);
+    const upload = m.upload && ownAttachment(m.upload, base);
     chat = {
       actor: null,
       actorName: m.author,
@@ -1089,7 +1098,7 @@ export const toChatMessage = (m: TextMessage, base = "", channels?: ReadonlyMap<
       ...(m.reactions?.length && { reactions: m.reactions }),
       ...(m.mentionAll && { mentionAll: m.mentionAll }),
       ...(m.noPing && { noPing: true }),
-      ...(m.upload && url && { upload: spoilerUpload({ ...m.upload, url }) }),
+      ...(upload && { upload: spoilerUpload(upload) }),
     };
     chatCache.set(m, { chat, channels });
   }

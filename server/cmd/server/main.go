@@ -33,6 +33,7 @@ import (
 	"kallisti.chat/server/internal/site"
 	"kallisti.chat/server/internal/store"
 	"kallisti.chat/server/internal/stream"
+	"kallisti.chat/server/internal/thumbs"
 	"kallisti.chat/server/internal/whip"
 )
 
@@ -109,11 +110,16 @@ func run() error {
 		Redeem:         hub.RedeemUploadToken,
 		RedeemEmoji:    hub.RedeemEmojiToken,
 		OnEmoji:        hub.EmojiChanged,
+		OnPreview:      hub.UploadPreview,
 	}
 	// Once: uploads from before sizes were kept.
 	if err := db.MeasureUploads(fileHandler.Measure); err != nil {
 		return fmt.Errorf("measure uploads: %w", err)
 	}
+	// ffmpeg's jobs end with the server.
+	previewCtx, stopPreviews := context.WithCancel(context.Background())
+	defer stopPreviews()
+	startPreviews(previewCtx, cfg, fileHandler)
 	var linkImages http.Handler = http.NotFoundHandler()
 	if !cfg.NoLinkPreviews {
 		previews := preview.New()
@@ -291,6 +297,33 @@ func startPush(cfg config.Config, db *store.Store, accounts *auth.Service, hub *
 	svc.Start(pushWorkers, pushQueue)
 	hub.Push = svc.Notify
 	return svc, nil
+}
+
+// Previews: ffmpeg processes at once, and new uploads waiting for one.
+const (
+	previewWorkers = 2
+	previewQueue   = 64
+)
+
+// startPreviews makes upload previews if ffmpeg is there (and they are not
+// turned off), and those older uploads lack in the background.
+func startPreviews(ctx context.Context, cfg config.Config, h *files.Handler) {
+	if cfg.NoMediaPreviews {
+		slog.Info("media previews off (MEDIA_PREVIEWS=0)")
+		return
+	}
+	tool, err := thumbs.Find(cfg.FFmpegPath)
+	if err != nil {
+		log := slog.Info
+		if cfg.FFmpegPath != "" { // asked for
+			log = slog.Warn
+		}
+		log("media previews off: no usable ffmpeg", "err", err)
+		return
+	}
+	slog.Info("media previews on", "ffmpeg", tool.Command[len(tool.Command)-1], "format", tool.Format.Type)
+	h.Previews = thumbs.New(ctx, tool, previewWorkers, previewQueue)
+	go h.MakeMissingPreviews(ctx)
 }
 
 // murmurDialer connects web clients to Murmur. Accounts connect with their

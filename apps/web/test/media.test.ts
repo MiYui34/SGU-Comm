@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { asSpoiler, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload } from "../src/lib/media";
+import { asSpoiler, chatSrc, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload, videoPreload } from "../src/lib/media";
+
+describe("previews", () => {
+  it("show a picture's preview in the chat, else the picture", () => {
+    expect(chatSrc({ url: "/files/k/a.png", preview: "/files/k/a.png?preview" })).toBe("/files/k/a.png?preview");
+    expect(chatSrc({ url: "/files/k/a.png" })).toBe("/files/k/a.png");
+  });
+
+  it("give a video a poster and load it only when played", () => {
+    expect(videoPreload("/files/k/a.mp4?preview")).toBe("none");
+    // Without one: its metadata and first frame.
+    expect(videoPreload(undefined)).toBe("metadata");
+  });
+});
 
 describe("mediaKind", () => {
   it("plays audio and video by type, and older uploads by name", () => {

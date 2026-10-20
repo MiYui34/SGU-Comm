@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { formatDuration, mediaRatio, onlyOne, shownLength } from "../lib/media";
+  import { formatDuration, mediaRatio, onlyOne, shownLength, videoPreload } from "../lib/media";
   import { formatSize } from "../lib/textChannels";
 
   // A video attachment: a play button and the length until it starts, then
   // the browser's controls; the file below.
   // onError: it cannot play (the caller shows the file instead).
   // width, height, length (ms): from the server if it knows them, so the
-  // box and the length are right before the metadata loads.
+  // box and the length are right before the metadata loads. poster: the
+  // server's thumbnail; with it the video loads only when played.
   let {
     url,
+    poster,
     name,
     size,
     width,
@@ -18,6 +20,7 @@
     onError,
   }: {
     url: string;
+    poster?: string;
     name: string;
     size: number;
     width?: number;
@@ -36,13 +39,15 @@
 </script>
 
 <div class="video">
-  <!-- #t=0.1: Safari shows the first frame, not black. Uploads come
-       without captions. -->
+  <!-- #t=0.1: Safari shows the first frame, not black (the same src with
+       a poster: one that comes later does not reload the video). Uploads
+       come without captions. -->
   <!-- svelte-ignore a11y_media_has_caption -->
   <video
     bind:this={video}
     src="{url}#t=0.1"
-    preload="metadata"
+    {poster}
+    preload={videoPreload(poster)}
     playsinline
     style:aspect-ratio={mediaRatio({ width, height })}
     controls={started}
