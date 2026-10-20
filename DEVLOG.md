@@ -1619,3 +1619,69 @@ From `meta/research/discord-comparison.md`.
   categories in the app (the server does not refuse set-private on a
   category's channel, but that is untested). A category's moderators
   can learn that a channel name is taken (also a private or deleted channel's) from the create error.
+
+## Threads (2026-10-20)
+
+- A thread is a chat of its own: a hidden channels row (its id is the
+  thread's id) plus a threads row (text channel, start message, name,
+  maker, archived). History, send, uploads, reactions, pins, typing,
+  read marks and search go through the usual chat paths. The sidecar's
+  chat has a parent; may(), mayModerate (the parent's mirror) and the
+  push check use the parent text channel, so private channels, channel
+  and category moderators, read-only guests, time-outs, slow mode and
+  message rules hold as in the channel. One level: only messages of text
+  channels start threads (no threads in voice chats, direct chats or
+  threads).
+- Old databases get the new tables at the start. Store queries that mean
+  "text channel" use one predicate (textOnly), so channel changes never
+  touch a thread's row.
+- Rights: who may write in the channel starts a thread (it takes a slow
+  mode turn there, and the message rules check the name). Its maker
+  renames and archives it; staff and the channel's moderators also delete
+  it. Slow mode: the channel's time, with turns per thread.
+- Deleting the start message keeps the thread ("The original message was
+  deleted" in its pane). Deleting (hiding) the channel hides its threads
+  too; they come back if staff bring the channel back. Deleting a thread
+  removes its messages and files, but keeps the hidden row (renamed):
+  SQLite would give a deleted row's id again, and clients keep ids.
+- Following: the maker, those who write in a thread and those it
+  mentions or answers (not @everyone) follow it; the follow event goes
+  out before the message. Followed threads count as unread, and their
+  summary comes with ready; others show in the list without unread
+  marks. Muting and notification levels are the client's per chat id, as
+  for channels. Push notifications: mentions, as in channels.
+- Archive: a minute timer (main.go) archives threads without a message
+  for the staff setting (1 h, 1 d, 3 d (default), 1 w; store_meta). A new
+  message opens a thread again. Archived threads stay readable and
+  searchable, in the channel's thread list (paged by id).
+- Wire: ready and channels events carry the active threads of channels
+  the user reads; ready has follows and threadArchive. Events: thread
+  (made or changed: name, replies, last reply, archived, start quote),
+  thread-deleted, follows, archived-threads, thread-archive. Messages
+  carry the thread they started; search results carry the threads of
+  their messages.
+- Web: "Thread" in a message's actions asks for a name (the start of the
+  message). The thread opens in the right column on desktop (one ChatPane
+  in compact mode), full screen on phones. Under the start message a box
+  says "N replies · last reply 5 min ago". Active threads are indented
+  under their channel in the sidebar; the channel header's thread button
+  lists active and archived threads. The quick switcher finds active
+  threads; search results say "#channel › thread". The thread's "⋯" menu
+  and a right-click in the sidebar: follow, archive, rename, delete,
+  mute and notifications.
+- Mumble clients never see threads: no mirror, no relay, no history on
+  entering the channel.
+- Manual check (headless browser): made a thread from a message (name
+  from the text), wrote in it with a mention; the other user got it as
+  unread with a mention badge, opened it from the reply box, could not
+  archive or delete it. Archived it (gone from the sidebar, in the thread
+  list), a new message opened it again. Quick switcher and search opened
+  it and jumped to the message; phone width shows it full screen.
+  Deleting it closed it for both.
+- Known gaps: no pins panel inside a thread (pinning works). A thread's
+  mute and notification level do not follow its channel's. Opening a
+  link to an archived thread the client does not know yet does nothing;
+  a reconnect closes an open archived thread. The composer's slow mode
+  countdown does not know that starting a thread took a turn (the server
+  refuses the next post). Both panes share the upload error. Each
+  channels event and ready queries the threads per connection.
