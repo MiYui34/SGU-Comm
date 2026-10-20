@@ -40,7 +40,7 @@ type Handler struct {
 	BytesPerSecond int
 	MaxSessions    int
 	// Until the peer connects, then until its first keyframe, and then
-	// between video packets (0: the defaults).
+	// between pictures (0: the defaults).
 	ConnectTimeout, KeyTimeout, MediaTimeout time.Duration
 	Closer                                   io.Closer // the UDP port (see Listen), closed by Close; nil: none
 
@@ -111,7 +111,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	// The key again (it may have changed while the offer came), under the
 	// lock EndAccount takes: a change after this ends the session.
-	s, old, err := h.reserve(name, func() bool { n, ok := h.Account(key); return ok && n == name })
+	s, old, err := h.reserve(name, key)
 	for _, o := range old {
 		o.close()
 	}
@@ -150,10 +150,10 @@ var errKeyChanged = errors.New("the stream key changed")
 // reserve makes a session (not yet open) if there is room and the key is
 // still valid. It replaces the account's old ones (OBS reconnecting),
 // returned to be closed.
-func (h *Handler) reserve(account string, valid func() bool) (*session, []*session, error) {
+func (h *Handler) reserve(account, key string) (*session, []*session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if !valid() {
+	if name, ok := h.Account(key); !ok || name != account {
 		return nil, nil, errKeyChanged
 	}
 	old := h.takeAccountLocked(account)

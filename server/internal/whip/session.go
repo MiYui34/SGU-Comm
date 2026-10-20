@@ -3,6 +3,7 @@ package whip
 import (
 	"cmp"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -27,7 +28,7 @@ type session struct {
 	feed        *feed
 	begun       time.Time
 	videoSSRC   atomic.Uint32
-	lastPicture atomic.Int64  // its arrival (see arrival)
+	lastPicture atomic.Int64  // the last picture's arrival (see arrival)
 	sound       atomic.Bool   // a sound track is read
 	pli         chan struct{} // a keyframe is wanted
 	connected   chan struct{}
@@ -175,12 +176,7 @@ type rtpReader interface {
 
 func (s *session) readVideo(t rtpReader) {
 	v := newVideoIn()
-	for {
-		p, _, err := t.ReadRTP()
-		if err != nil {
-			s.readFailed("video", err)
-			return
-		}
+	for p, ok := s.next(t); ok; p, ok = s.next(t) {
 		for _, pic := range v.push(p, s.arrival()) {
 			if pic.data != nil { // before the stream starts with it
 				s.lastPicture.Store(s.arrival())
@@ -195,22 +191,22 @@ func (s *session) readVideo(t rtpReader) {
 }
 
 func (s *session) readSound(t rtpReader) {
-	for {
-		p, _, err := t.ReadRTP()
-		if err != nil {
-			s.readFailed("sound", err)
-			return
-		}
+	for p, ok := s.next(t); ok; p, ok = s.next(t) {
 		s.feed.sound(p, s.arrival())
 	}
 }
 
-// readFailed ends the session: without its reader a track would freeze.
-func (s *session) readFailed(track string, err error) {
-	select {
-	case <-s.done: // closing
-	default:
-		slog.Info("stream from OBS: cannot read", "account", s.account, "track", track, "err", err)
+// next reads a track's next packet. Bad ones (an unknown payload type) are
+// skipped; at the track's end the session ends (it would freeze).
+func (s *session) next(t rtpReader) (*rtp.Packet, bool) {
+	for {
+		p, _, err := t.ReadRTP()
+		if err == nil {
+			return p, true
+		}
+		if errors.Is(err, io.EOF) {
+			s.end()
+			return nil, false
+		}
 	}
-	s.end()
 }

@@ -334,21 +334,30 @@ func TestStreamEndsWithoutPictures(t *testing.T) {
 	eventually(t, "the session's end", func() bool { return h.Sessions() == 0 && len(hub.Streams()) == 0 })
 }
 
-type failingReader struct{}
+// endingReader: two bad packets, then the track's end.
+type endingReader struct{ reads int }
 
-func (failingReader) ReadRTP() (*rtp.Packet, interceptor.Attributes, error) {
-	return nil, nil, errors.New("unknown payload type")
+func (r *endingReader) ReadRTP() (*rtp.Packet, interceptor.Attributes, error) {
+	if r.reads++; r.reads <= 2 {
+		return nil, nil, errors.New("unknown payload type")
+	}
+	return nil, nil, io.EOF
 }
 
-// A track that cannot be read ends the session (it would freeze).
-func TestAReadErrorEndsTheSession(t *testing.T) {
+// Bad packets are skipped; a track's end ends the session (it would
+// freeze).
+func TestATrackEndEndsTheSession(t *testing.T) {
 	for _, read := range []func(*session, rtpReader){(*session).readVideo, (*session).readSound} {
 		s := newSession(&Handler{}, "id", "alice")
-		read(s, failingReader{})
+		r := &endingReader{}
+		read(s, r)
 		select {
 		case <-s.done:
 		default:
 			t.Fatal("the session goes on")
+		}
+		if r.reads != 3 {
+			t.Fatalf("%d reads", r.reads)
 		}
 	}
 }

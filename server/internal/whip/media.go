@@ -61,8 +61,8 @@ const maxUnit = 1 << 20 // bytes of a picture, and of a NAL unit in fragments (t
 
 // h264Depacketizer bounds Pion's FU-A assembly, which appends fragments
 // until an end one: a start fragment drops an unfinished unit, and one past
-// maxUnit is dropped (its picture comes out empty: lost, so a keyframe is
-// asked for).
+// maxUnit is dropped (a picture of only it comes out empty: lost, so a
+// keyframe is asked for).
 type h264Depacketizer struct {
 	codecs.H264Packet
 	frag int  // bytes of the unit in fragments so far
@@ -71,6 +71,7 @@ type h264Depacketizer struct {
 
 func (d *h264Depacketizer) Unmarshal(payload []byte) ([]byte, error) {
 	if len(payload) < 2 || payload[0]&0x1f != 28 { // not FU-A
+		d.open = false
 		return d.H264Packet.Unmarshal(payload)
 	}
 	if payload[1]&0x80 != 0 {
