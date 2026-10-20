@@ -104,46 +104,61 @@ func (s *Server) removeUser(actorSession uint32, m *pb.UserRemove, d time.Durati
 		s.mu.Unlock()
 		return need, false
 	}
-	var ban *BanEntry
-	var more []BanEntry // the other certificates and addresses of the account's sessions
+	var bans []BanEntry // also the certificates and addresses of the account's other sessions
 	if m.GetBan() {
 		// Clients before 1.6 send neither option: both, as Murmur.
 		byCert := m.BanCertificate == nil || m.GetBanCertificate()
 		byIP := m.BanIp == nil || m.GetBanIp()
-		// entry bans a session by what is not banned yet.
+		// entries ban a session by what is not banned yet: its address, its
+		// identity's certificate and a Mumble client's own (another one
+		// after a password login).
 		start := time.Now().UTC().Truncate(time.Second)
 		hashes, hosts := map[string]bool{"": true}, map[netip.Prefix]bool{{}: true}
-		entry := func(o *User) BanEntry {
+		entries := func(o *User) (out []BanEntry) {
 			b := BanEntry{Name: u.Name, Reason: m.GetReason(), Start: start, Duration: d}
-			if byCert && !hashes[o.Hash] {
-				b.Hash, hashes[o.Hash] = o.Hash, true
-			}
-			if t := s.clients[o.Session]; byIP && t != nil && t.host.IsValid() {
+			t := s.clients[o.Session]
+			if byIP && t != nil && t.host.IsValid() {
 				if p := netip.PrefixFrom(t.host, t.host.BitLen()); !hosts[p] {
 					b.Prefix, hosts[p] = p, true
 				}
 			}
-			return b
+			var own string
+			if t != nil {
+				own = certHash(t.certs)
+			}
+			for _, h := range []string{o.Hash, own} {
+				if byCert && !hashes[h] {
+					hashes[h] = true
+					e := b
+					e.Hash, b.Prefix = h, netip.Prefix{} // the address once
+					out = append(out, e)
+				}
+			}
+			if b.Prefix.IsValid() {
+				out = append(out, b)
+			}
+			return out
 		}
-		first := entry(u)
-		ban = &first
-		if !ban.Prefix.IsValid() && ban.Hash == "" {
+		if bans = entries(u); len(bans) == 0 {
 			s.mu.Unlock()
 			return 0, false // nothing to ban by
 		}
 		for _, o := range s.siblingsLocked(u) {
-			if b := entry(o); b.Prefix.IsValid() || b.Hash != "" {
-				more = append(more, b)
-			}
+			bans = append(bans, entries(o)...)
 		}
 	}
 	// Every session of the account goes (see textonly.go).
 	for _, o := range append(s.siblingsLocked(u), u) {
-		s.kickLocked(o.Session, actorSession, m.GetReason(), ban != nil)
+		s.kickLocked(o.Session, actorSession, m.GetReason(), bans != nil)
+	}
+	if bans != nil {
+		// Under the lock: a connection that passed the ban checks meets
+		// the ban in join.
+		bans = s.publishBans(append(slices.Clone(s.currentBans()), bans...))
 	}
 	s.mu.Unlock()
-	if ban != nil {
-		s.setBans(append(append(s.currentBans(), *ban), more...))
+	if bans != nil {
+		s.saveBans(bans)
 	}
 	return 0, true
 }
@@ -164,9 +179,19 @@ func (s *Server) currentBans() []BanEntry {
 // setBans replaces the ban list without expired bans, and saves it.
 // Callers hold saveMu.
 func (s *Server) setBans(bans []BanEntry) {
+	s.saveBans(s.publishBans(bans))
+}
+
+// publishBans replaces the ban list without expired bans and returns it.
+// Callers hold saveMu, and save the list (saveBans) in the same order.
+func (s *Server) publishBans(bans []BanEntry) []BanEntry {
 	now := time.Now()
 	bans = slices.DeleteFunc(slices.Clone(bans), func(b BanEntry) bool { return b.expired(now) })
 	s.bans.Store(&bans)
+	return bans
+}
+
+func (s *Server) saveBans(bans []BanEntry) {
 	if s.cfg.DB == nil {
 		return
 	}

@@ -385,6 +385,13 @@ func (s *Server) handle(conn net.Conn, o Origin, counted bool) {
 func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Again: a ban may have come (and kicked the account's sessions)
+	// since identify. Bans are published under the lock (see removeUser).
+	for _, hash := range []string{id.hash, certHash(c.certs)} {
+		if reject := s.bannedReject(c.host, hash); reject != nil {
+			return reject
+		}
+	}
 	online := make([]Presence, 0, len(s.state.Users))
 	voiceUsers, siblings := 0, 0
 	for _, u := range s.state.Users {

@@ -321,3 +321,26 @@ func TestWhoseMessagesStaffMayDelete(t *testing.T) {
 		}
 	}
 }
+
+// A connection that passed the ban checks before a ban was published is
+// checked again when it joins.
+func TestABanPublishedDuringAdmissionStillApplies(t *testing.T) {
+	s, _ := startServerAndListen(t, "127.0.0.1", Config{}, nil)
+	banned, other := netip.MustParseAddr("203.0.113.9"), netip.MustParseAddr("198.51.100.1")
+	own := [][]byte{[]byte("a Mumble client's own certificate")}
+	for _, e := range []struct {
+		ban  BanEntry
+		host netip.Addr
+	}{{BanEntry{Prefix: netip.PrefixFrom(banned, 32)}, banned}, {BanEntry{Hash: "bad"}, other}, {BanEntry{Hash: certHash(own)}, other}} {
+		s.setBans([]BanEntry{e.ban})
+		c := &client{out: make(chan []byte, queueSize), voice: make(chan []byte, queueSize), host: e.host, name: "late", certs: own}
+		if reject := s.join(c, identity{name: "late", hash: "bad"}, &pb.CryptSetup{}); reject == nil {
+			t.Fatalf("ban %+v: joined", e.ban)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Users) != 0 {
+		t.Fatalf("users %v", s.state.Users)
+	}
+}

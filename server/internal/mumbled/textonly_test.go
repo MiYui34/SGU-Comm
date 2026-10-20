@@ -3,6 +3,7 @@ package mumbled
 import (
 	"net/netip"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -492,5 +493,25 @@ func TestATabTakesVoiceInTheTemporaryChannelOfAnother(t *testing.T) {
 	second.waitForMove(second.session, tmp)
 	if ch, ok := userIn(s, second.session); ch != tmp || !ok {
 		t.Fatalf("second tab in %d (exists: %v), want %d", ch, ok, tmp)
+	}
+}
+
+func TestAnAccountBanCoversTheCertificateOfItsMumbleClient(t *testing.T) {
+	_, addr, _ := lobbyServer(t)
+	su := superUser(t, addr)
+	cert := clientCert(t)
+	native := dialAs(t, addr, dialOpts{name: "alice", password: "pw", cert: cert})
+	su.send(mumble.TypeUserRemove, &pb.UserRemove{Session: proto.Uint32(native.session), Ban: proto.Bool(true),
+		BanCertificate: proto.Bool(true), BanIp: proto.Bool(false)})
+	native.waitForRemove(native.session)
+	// Its certificate as a guest under another name: no.
+	again, err := tryDialWith(t, addr, dialOpts{name: "fresh", cert: cert})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r pb.Reject
+	proto.Unmarshal(again.expect(mumble.TypeReject), &r)
+	if !strings.Contains(r.GetReason(), "banned") {
+		t.Fatalf("reject %v", &r)
 	}
 }
