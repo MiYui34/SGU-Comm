@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"kallisti.chat/server/internal/imagesize"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 )
@@ -41,6 +42,14 @@ func (h *Handler) uploadEmoji(w http.ResponseWriter, r *http.Request) {
 	ctype, _, _ := mime.ParseMediaType(http.DetectContentType(data))
 	if len(data) == 0 || !slices.Contains(inlineTypes, ctype) {
 		jsonError(w, "an emoji is a PNG, GIF, WebP or JPEG image", http.StatusUnsupportedMediaType)
+		return
+	}
+	switch err := imagesize.Inline(bytes.NewReader(data)); {
+	case errors.Is(err, imagesize.ErrTooLarge):
+		jsonError(w, "the emoji image has too many pixels", http.StatusRequestEntityTooLarge)
+		return
+	case err != nil:
+		jsonError(w, "the emoji image is broken", http.StatusUnsupportedMediaType)
 		return
 	}
 	e, err := h.Store.AddEmoji(store.Emoji{Name: name, Type: ctype, Data: data, Author: author}, h.Now())

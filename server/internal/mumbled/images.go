@@ -1,11 +1,15 @@
 package mumbled
 
 import (
+	"bytes"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"regexp"
 	"slices"
 	"strings"
+
+	"kallisti.chat/server/internal/imagesize"
 )
 
 // Images in chat messages: Mumble clients send pictures as HTML with data:
@@ -45,9 +49,18 @@ func extractImages(msg string) (string, []Image) {
 		if err != nil {
 			return ""
 		}
-		if typ := imageType(data); typ != "" {
-			images = append(images, Image{Type: typ, Data: data})
+		typ := imageType(data)
+		if typ == "" {
+			return ""
 		}
+		// Clients show them inline: no pictures that take GBs to decode.
+		switch err := imagesize.Inline(bytes.NewReader(data)); {
+		case errors.Is(err, imagesize.ErrTooLarge):
+			return "[image too large]"
+		case err != nil:
+			return ""
+		}
+		images = append(images, Image{Type: typ, Data: data})
 		return ""
 	})
 	return rest, images

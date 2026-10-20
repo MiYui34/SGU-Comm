@@ -4,17 +4,12 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	_ "golang.org/x/image/webp"
-
+	"kallisti.chat/server/internal/imagesize"
 	"kallisti.chat/server/internal/names"
 )
 
@@ -63,15 +58,10 @@ const maxAvatarSide = 1024
 // avatarType is the type of an avatar that is an allowed image of at most
 // maxAvatarSide a side ("": none). Only the header is read.
 func avatarType(data []byte) string {
-	typ := imageType(data)
-	if typ == "" {
+	if !imagesize.Fits(bytes.NewReader(data), maxAvatarSide, maxAvatarSide*maxAvatarSide) {
 		return ""
 	}
-	c, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || c.Width > maxAvatarSide || c.Height > maxAvatarSide {
-		return ""
-	}
-	return typ
+	return imageType(data)
 }
 
 // avatarOf is a registered user's avatar: the live one while online (it

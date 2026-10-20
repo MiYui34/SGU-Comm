@@ -1,8 +1,11 @@
 package preview
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -58,7 +61,7 @@ func TestPublicAddresses(t *testing.T) {
 func local(netip.AddrPort) bool { return true }
 
 func TestFetchWithImage(t *testing.T) {
-	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 30)...)
+	png := pngOf(4, 4)
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -98,6 +101,35 @@ func TestFetchWithImage(t *testing.T) {
 	for _, path := range []string{"/loop", "/file"} {
 		if p := f.Get(context.Background(), srv.URL+path); p != nil {
 			t.Fatalf("%s: %+v", path, p)
+		}
+	}
+}
+
+func pngOf(w, h int) []byte {
+	var b bytes.Buffer
+	png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h)))
+	return b.Bytes()
+}
+
+// Images too large to show (by their header) or broken: a card without.
+func TestOversizedImagesAreLeftOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/huge", "/broken":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<head><title>Hello</title><meta property="og:image" content="%s.png"></head>`, r.URL.Path)
+		case "/huge.png":
+			w.Write(pngOf(9000, 9000))
+		case "/broken.png":
+			w.Write([]byte("\x89PNG\r\n\x1a\n"))
+		}
+	}))
+	defer srv.Close()
+	f := New()
+	f.allow = local
+	for _, path := range []string{"/huge", "/broken"} {
+		if p := f.Get(context.Background(), srv.URL+path); p == nil || p.Title != "Hello" || p.Image != "" {
+			t.Errorf("%s: %+v", path, p)
 		}
 	}
 }

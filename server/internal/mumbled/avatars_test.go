@@ -115,6 +115,35 @@ func TestOldPicturesAreFlagged(t *testing.T) {
 	}
 }
 
+// Flags set before the size check are checked again once: an oversized
+// or broken avatar loses its flag, real pictures keep theirs.
+func TestPictureFlagsAreRecheckedOnce(t *testing.T) {
+	db := testDB(t)
+	alice, _ := db.RegisterUser("alice", "aa")
+	bob, _ := db.RegisterUser("bob", "bb")
+	carol, _ := db.RegisterUser("carol", "cc")
+	db.SetUserContent(alice, "", pngOf(t, 4, 4))
+	// As older servers saved them: flagged without the size check.
+	db.db.Exec(`UPDATE mumble_users SET texture = ?, picture = 1 WHERE id = ?`, pngOf(t, 4000, 4000), bob)
+	db.db.Exec(`UPDATE mumble_users SET texture = ?, picture = 1 WHERE id = ?`, []byte("\x89PNG\r\n\x1a\nbroken"), carol)
+	db.db.Exec(`DELETE FROM mumble_meta WHERE key = 'pictures_checked'`)
+	db2, err := OpenDB(db.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := db2.Pictures(); !maps.Equal(got, map[uint32]bool{alice: true}) {
+		t.Fatalf("pictures %v", got)
+	}
+	// Once: a flag set later (as by hand) stays.
+	db.db.Exec(`UPDATE mumble_users SET picture = 1 WHERE id = ?`, bob)
+	if _, err := OpenDB(db.db); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := db2.Pictures(); len(got) != 2 {
+		t.Fatalf("checked again: %v", got)
+	}
+}
+
 // Saved pictures that are set, changed or removed are reported (true:
 // there is one, an image).
 func TestPictureChangesAreReported(t *testing.T) {

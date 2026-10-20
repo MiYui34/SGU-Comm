@@ -24,6 +24,7 @@ import (
 	"unicode"
 
 	"kallisti.chat/server/internal/config"
+	"kallisti.chat/server/internal/imagesize"
 	"kallisti.chat/server/internal/sidecar"
 	"kallisti.chat/server/internal/store"
 )
@@ -146,6 +147,9 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.QueryUnescape(r.Header.Get("X-Filename"))
 	// The stored type comes from the content, not from the client.
 	ctype := storedType(head, name)
+	if slices.Contains(inlineTypes, ctype) && !fitsInline(dst) {
+		ctype = "application/octet-stream" // too large to show: a download
+	}
 	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: size, Author: author}, h.Now())
 	if err != nil {
 		os.Remove(dst)
@@ -219,6 +223,17 @@ func storedType(head []byte, name string) string {
 		return sniffed
 	}
 	return cmp.Or(mediaType(head, name), "application/octet-stream")
+}
+
+// fitsInline: the stored image is small enough to show (see imagesize;
+// the header can come after the first 512 bytes).
+func fitsInline(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return imagesize.Inline(f) == nil
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {

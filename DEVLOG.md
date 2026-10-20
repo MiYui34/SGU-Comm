@@ -1457,3 +1457,25 @@ From `meta/research/discord-comparison.md`.
 - Mumble port: an Accept error (out of file descriptors) no longer ends
   the accept loop: it waits (5 ms, doubling to 1 s) and tries again;
   only a closed listener ends it.
+
+## Avatar flags and image size limits (2026-10-20)
+
+- The picture flags of registered users are checked again once at start
+  (`pictures_checked` in mumble_meta, one transaction): avatars flagged
+  before the 1024 px check, or broken ones, lose the flag (no more 404s).
+- imagesize: one header-only check (image.DecodeConfig) for all images.
+  Inline images (chat, link previews, custom emoji) have at most
+  16384 px a side and 2^26 pixels (256 MiB decoded): panoramas and
+  "50 MP" phone photos (8192x6144) pass, pixel bombs do not. Avatars
+  stay at 1024 px. Rare JPEGs Go cannot read (arithmetic coding,
+  12 bit) count as broken.
+- Mumble texts: an oversized picture is dropped, its place gets
+  "[image too large]"; the text stays. Pictures whose header does not
+  decode are dropped without a note (they are no real images).
+- Uploads: an oversized image is kept, but stored as
+  application/octet-stream, so it is a download and the web app shows a
+  file card. Friendlier than a refusal: the file still gets through.
+  The check reads the stored file, as a JPEG's size can come after
+  the first 512 bytes. Uploads and emoji from before are not checked.
+- Link previews: an oversized or broken image leaves the card without
+  one. Custom emoji: refused (413, broken: 415).

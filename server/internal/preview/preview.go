@@ -26,6 +26,8 @@ import (
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
+
+	"kallisti.chat/server/internal/imagesize"
 )
 
 const (
@@ -281,7 +283,7 @@ func (f *Fetcher) get(ctx context.Context, u, accept string) (*http.Response, er
 var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 // image fetches a preview picture: only real images (by their bytes), and
-// small ones.
+// small ones (also in pixels: see imagesize).
 func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if u == "" {
 		return picture{}
@@ -295,7 +297,7 @@ func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if err != nil || len(data) > maxImage {
 		return picture{}
 	}
-	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) {
+	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) && imagesize.Inline(bytes.NewReader(data)) == nil {
 		return picture{data, typ}
 	}
 	return picture{}

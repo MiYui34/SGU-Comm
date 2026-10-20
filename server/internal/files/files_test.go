@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +122,35 @@ func TestNonImagesAreDownloadsEvenIfTheyClaimOtherwise(t *testing.T) {
 		if get.Header.Get("Content-Type") != "application/octet-stream" ||
 			!strings.HasPrefix(get.Header.Get("Content-Disposition"), "attachment") {
 			t.Errorf("%s: served as %q, %q", ctype, get.Header.Get("Content-Type"), get.Header.Get("Content-Disposition"))
+		}
+	}
+}
+
+// Images too large to show inline (by their header; a JPEG's size can come
+// after the first 512 bytes) are kept, as downloads.
+func TestOversizedImagesAreDownloads(t *testing.T) {
+	srv, _ := setup(t, 1<<20)
+	var j bytes.Buffer
+	if err := jpeg.Encode(&j, image.NewGray(image.Rect(0, 0, 20000, 1)), nil); err != nil {
+		t.Fatal(err)
+	}
+	app := append([]byte{0xff, 0xe1, 0x04, 0x02}, make([]byte, 0x400)...) // 1 KB of metadata
+	bigJPEG := slices.Concat(j.Bytes()[:2], app, j.Bytes()[2:])
+	var p bytes.Buffer
+	png.Encode(&p, image.NewGray(image.Rect(0, 0, 9000, 9000)))
+	for name, data := range map[string][]byte{"wide.jpg": bigJPEG, "huge.png": p.Bytes()} {
+		resp, v := upload(t, srv, "good", name, "image/jpeg", data)
+		if resp.StatusCode != 200 || v["type"] != "application/octet-stream" {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, v)
+			continue
+		}
+		get, err := http.Get(srv.URL + v["url"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		get.Body.Close()
+		if !strings.HasPrefix(get.Header.Get("Content-Disposition"), "attachment") {
+			t.Errorf("%s: served %q", name, get.Header.Get("Content-Disposition"))
 		}
 	}
 }
