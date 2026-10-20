@@ -218,3 +218,4 @@
 - [x] [Avatar flags recomputed; size limit for chat images](issues/avatar-flags-and-image-limits.md)
 - [x] [Moderators for single channels](issues/channel-moderators.md)
 - [x] [Channel moderators create voice subchannels](issues/channel-mod-voice-subchannels.md)
+- [x] [Text channel categories](issues/text-categories.md)
