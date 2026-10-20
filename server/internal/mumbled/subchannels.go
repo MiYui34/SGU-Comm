@@ -38,29 +38,43 @@ func (s *State) modPermissions(u *User, channel uint32) Perm {
 // MakeChannel (callers check that) if the moderated channel has
 // maxModSubchannels below it, or the new one would be more than
 // maxModSubchannelDepth levels below it. A move (moved: the channel, 0 for
-// a new one) is refused if the moved channel's deepest one would be; the
-// count stays, as nothing enters the subtree (see mayMove). The moderated
-// channel is the topmost one of the moderator's above parent, the one it
-// may not edit (no Write there): with nested moderated channels, the
-// outer one counts. Staff are not limited.
+// a new one) is refused if the moved channel's deepest one would be, or
+// if it comes from another moderated channel and its channels would be
+// too many there (within one, the count stays). The moderated channel is
+// the topmost one of the moderator's above parent, the one it may not
+// edit (no Write there): with nested moderated channels, the outer one
+// counts. Staff are not limited.
 func (s *State) modLimit(u *User, parent, moved uint32) error {
 	if s.isStaff(u) {
 		return nil
 	}
-	top, depth := parent, 1
+	top, depth := s.modTop(u, parent)
+	entering := 1
 	if moved != 0 {
 		depth += s.height(moved)
-	}
-	for s.modPermissions(u, top)&Write != 0 {
-		top, depth = s.Channels[top].Parent, depth+1
+		if from, _ := s.modTop(u, s.Channels[moved].Parent); from == top {
+			entering = 0
+		} else {
+			entering = len(s.Subtree(moved))
+		}
 	}
 	switch {
-	case moved == 0 && len(s.Subtree(top))-1 >= maxModSubchannels:
+	case entering > 0 && len(s.Subtree(top))-1+entering > maxModSubchannels:
 		return deny(pb.PermissionDenied_ChannelCountLimit, "This channel has the most subchannels it may have (%d)", maxModSubchannels)
 	case depth > maxModSubchannelDepth:
 		return deny(pb.PermissionDenied_NestingLimit, "Subchannels may be at most %d levels deep", maxModSubchannelDepth)
 	}
 	return nil
+}
+
+// modTop is the moderated channel (see modLimit) above parent, and the
+// level below it that a new channel in parent is on.
+func (s *State) modTop(u *User, parent uint32) (top uint32, depth int) {
+	top, depth = parent, 1
+	for s.modPermissions(u, top)&Write != 0 {
+		top, depth = s.Channels[top].Parent, depth+1
+	}
+	return top, depth
 }
 
 // height: the levels below a channel (0: none).

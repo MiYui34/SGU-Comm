@@ -267,6 +267,31 @@ func TestChannelModeratorsMakeAtMostFiftySubchannels(t *testing.T) {
 	}
 }
 
+func TestChannelModeratorsMoveNoChannelsIntoAFullModeratedChannel(t *testing.T) {
+	c := newClubServer(t)
+	c.unlimited(c.alice)
+	if err := c.s.SetChannelModerator(c.su.session, c.aliceID, c.other, true); err != nil {
+		t.Fatal(err)
+	}
+	a, b := c.su.createChannel(c.other, "A", false), c.su.createChannel(c.other, "B", false)
+	c.fill(c.other, maxModSubchannels-3, false) // one place left
+	x := c.alice.createChannel(c.club, "X", false)
+	c.alice.createChannel(x, "Y", false) // two channels go
+	c.alice.send(mumble.TypeChannelState, reparent(x, c.other))
+	if d := c.alice.expectDenied(pb.PermissionDenied_ChannelCountLimit); d.GetReason() != "This channel has the most subchannels it may have (50)" {
+		t.Fatalf("reason %q", d.GetReason())
+	}
+	if c.channel(x).Parent != c.club {
+		t.Fatalf("x %+v", c.channel(x))
+	}
+	// Within the full one, moves go on.
+	c.alice.send(mumble.TypeChannelState, reparent(a, b))
+	c.alice.sync()
+	if c.channel(a).Parent != b {
+		t.Fatalf("a %+v", c.channel(a))
+	}
+}
+
 func TestChannelModeratorsMakeSubchannelsAtMostFiveLevelsDeep(t *testing.T) {
 	c := newClubServer(t)
 	// Also a moderator of Sub: the levels count from Club, the channel
