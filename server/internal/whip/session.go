@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
 	"kallisti.chat/server/internal/stream"
@@ -25,6 +27,7 @@ type session struct {
 	feed        *feed
 	begun       time.Time
 	videoSSRC   atomic.Uint32
+	lastPicture atomic.Int64  // its arrival (see arrival)
 	sound       atomic.Bool   // a sound track is read
 	pli         chan struct{} // a keyframe is wanted
 	connected   chan struct{}
@@ -140,6 +143,10 @@ func (s *session) run() {
 			s.keyframe()
 		case now := <-tick.C:
 			if s.feed.started() {
+				if time.Duration(s.arrival()-s.lastPicture.Load())*time.Microsecond > cmp.Or(s.h.MediaTimeout, mediaTimeout) {
+					slog.Info("stream from OBS: no pictures", "account", s.account)
+					return
+				}
 				continue
 			}
 			if now.After(noKeyBy) {
@@ -161,14 +168,23 @@ func (s *session) keyframe() {
 // arrival: microseconds since the session began.
 func (s *session) arrival() int64 { return time.Since(s.begun).Microseconds() }
 
-func (s *session) readVideo(t *webrtc.TrackRemote) {
+// rtpReader: a *webrtc.TrackRemote.
+type rtpReader interface {
+	ReadRTP() (*rtp.Packet, interceptor.Attributes, error)
+}
+
+func (s *session) readVideo(t rtpReader) {
 	v := newVideoIn()
 	for {
 		p, _, err := t.ReadRTP()
 		if err != nil {
+			s.readFailed("video", err)
 			return
 		}
 		for _, pic := range v.push(p, s.arrival()) {
+			if pic.data != nil { // before the stream starts with it
+				s.lastPicture.Store(s.arrival())
+			}
 			if err := s.feed.picture(pic); err != nil {
 				slog.Info("stream from OBS refused", "account", s.account, "err", err)
 				s.end()
@@ -178,12 +194,23 @@ func (s *session) readVideo(t *webrtc.TrackRemote) {
 	}
 }
 
-func (s *session) readSound(t *webrtc.TrackRemote) {
+func (s *session) readSound(t rtpReader) {
 	for {
 		p, _, err := t.ReadRTP()
 		if err != nil {
+			s.readFailed("sound", err)
 			return
 		}
 		s.feed.sound(p, s.arrival())
 	}
+}
+
+// readFailed ends the session: without its reader a track would freeze.
+func (s *session) readFailed(track string, err error) {
+	select {
+	case <-s.done: // closing
+	default:
+		slog.Info("stream from OBS: cannot read", "account", s.account, "track", track, "err", err)
+	}
+	s.end()
 }

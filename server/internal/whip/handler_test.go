@@ -2,6 +2,7 @@ package whip
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pion/interceptor"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
@@ -317,4 +319,36 @@ func TestTimeoutsAndLimits(t *testing.T) {
 		t.Fatalf("over the limit: %d %s", resp.StatusCode, body)
 	}
 	eventually(t, "the sessions' timeout", func() bool { return h.Sessions() == 0 })
+}
+
+// Pictures that stop after the start (OBS still connected) end the stream.
+func TestStreamEndsWithoutPictures(t *testing.T) {
+	h, srv, hub, _ := setup(t)
+	h.MediaTimeout = 500 * time.Millisecond
+	o := newOBS(t)
+	o.connect(t, srv.URL, "alice-key")
+	stop := make(chan struct{})
+	go o.send(clipFrames(t), stop)
+	eventually(t, "the stream", func() bool { return len(hub.Streams()) == 1 })
+	close(stop)
+	eventually(t, "the session's end", func() bool { return h.Sessions() == 0 && len(hub.Streams()) == 0 })
+}
+
+type failingReader struct{}
+
+func (failingReader) ReadRTP() (*rtp.Packet, interceptor.Attributes, error) {
+	return nil, nil, errors.New("unknown payload type")
+}
+
+// A track that cannot be read ends the session (it would freeze).
+func TestAReadErrorEndsTheSession(t *testing.T) {
+	for _, read := range []func(*session, rtpReader){(*session).readVideo, (*session).readSound} {
+		s := newSession(&Handler{}, "id", "alice")
+		read(s, failingReader{})
+		select {
+		case <-s.done:
+		default:
+			t.Fatal("the session goes on")
+		}
+	}
 }

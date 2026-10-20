@@ -39,10 +39,10 @@ type Handler struct {
 	// sessions at the same time.
 	BytesPerSecond int
 	MaxSessions    int
-	// Until the peer connects, and then until its first keyframe (0: the
-	// defaults).
-	ConnectTimeout, KeyTimeout time.Duration
-	Closer                     io.Closer // the UDP port (see Listen), closed by Close; nil: none
+	// Until the peer connects, then until its first keyframe, and then
+	// between video packets (0: the defaults).
+	ConnectTimeout, KeyTimeout, MediaTimeout time.Duration
+	Closer                                   io.Closer // the UDP port (see Listen), closed by Close; nil: none
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -53,6 +53,7 @@ const (
 	maxOffer       = 64 << 10
 	connectTimeout = 15 * time.Second
 	keyTimeout     = 15 * time.Second
+	mediaTimeout   = 10 * time.Second
 	gatherTimeout  = 5 * time.Second
 )
 
