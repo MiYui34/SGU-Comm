@@ -236,7 +236,7 @@ func (s *Server) userStatsMsg(c *client, m *pb.UserStats) {
 	s.mu.Lock()
 	target := s.clients[m.GetSession()]
 	actor, u := s.state.Users[c.session], s.state.Users[m.GetSession()]
-	if target == nil || actor == nil || u == nil || !c.seen[u.Channel] {
+	if target == nil || actor == nil || u == nil || !c.sees(u) {
 		s.mu.Unlock()
 		return
 	}

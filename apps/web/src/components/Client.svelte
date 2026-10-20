@@ -4,7 +4,9 @@
     commentMissing,
     inVoice,
     isLobby,
+    isTextOnly,
     joinChannel,
+    listedUsers,
     messagesIn,
     escapeHtml,
     queryBans,
@@ -16,7 +18,7 @@
     queryPermissions,
     registerSelf,
     setSelfState,
-    usersSorted,
+    voiceElsewhere,
   } from "@kallisti/protocol";
   import { tick, untrack, type ComponentProps } from "svelte";
   import type { AccountActions } from "../lib/accounts";
@@ -62,6 +64,7 @@
     type ModerationAction,
   } from "../lib/moderation";
   import { chatSeen, notificationBody, notifier, shouldNotify } from "../lib/notify";
+  import { createNotifyLeader } from "../lib/notifyLeader";
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { textOrder } from "../lib/categories";
@@ -130,10 +133,14 @@
 
   const server = $derived(connection.state);
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
-  const channelId = $derived(me?.channelId ?? 0);
+  // A text-only session (our account is in voice elsewhere) is in no
+  // channel: it shows root.
+  const textOnly = $derived(isTextOnly(server));
+  const channelId = $derived(me && !textOnly ? me.channelId : 0);
   const channelName = $derived(server.channels[channelId]?.name ?? "");
   const serverName = $derived(server.channels[0]?.name ?? "Server");
-  const users = $derived(usersSorted(server));
+  const users = $derived(listedUsers(server));
+  const elsewhere = $derived(voiceElsewhere(server));
   // Avatars show the pictures of online users, by name.
   const pictureBase = $derived(connection.text.avatars ? connection.httpBase : null);
   const pictures = $derived(new Map(Object.values(server.users).map((u) => [u.name, onlinePicture(u, pictureBase)])));
@@ -596,6 +603,14 @@
     const first = text.channels[0];
     if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
   });
+  // Voice moved to another device: its chat is not ours any more.
+  $effect(() => {
+    if (!textOnly) return;
+    untrack(() => {
+      const first = text.channels[0];
+      if (view.kind === "voice" && first) show({ kind: "text", id: first.id });
+    });
+  });
   // The open channel was removed: to the first text channel, or the voice
   // view.
   $effect(() => {
@@ -675,10 +690,29 @@
   // Desktop notifications (see shouldNotify): mentions in stored chats, and
   // private messages. Made now: the desktop app reads its permission once.
   const notifications = notifier();
+  // Of several tabs of the account in this browser, one notifies (see
+  // lib/notifyLeader).
+  let leader: ReturnType<typeof createNotifyLeader> | null = null;
+  const myName = $derived(me?.name);
+  $effect(() => {
+    if (!myName) return;
+    const tabs = (leader = createNotifyLeader(`kallisti-notify ${connection.httpBase} ${myName.toLowerCase()}`));
+    const used = () => document.visibilityState === "visible" && tabs.touch();
+    window.addEventListener("focus", used);
+    document.addEventListener("visibilitychange", used);
+    window.addEventListener("pagehide", tabs.close);
+    return () => {
+      window.removeEventListener("focus", used);
+      document.removeEventListener("visibilitychange", used);
+      window.removeEventListener("pagehide", tabs.close);
+      tabs.close();
+      leader = null;
+    };
+  });
   const notify = (title: string, body: string, open: boolean, onOpen: () => void) => {
     const visible = chatSeen({ visible: document.visibilityState === "visible", focused: document.hasFocus(), desktop: isDesktop() });
     const enabled = prefs.notifications;
-    if (shouldNotify({ enabled, permission: notifications.permission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
+    if (leader?.leads() !== false && shouldNotify({ enabled, permission: notifications.permission(), visible, deaf: me?.selfDeaf ?? false, dnd, open }))
       notifications.show(title, body, onOpen);
   };
   $effect(() =>
@@ -1658,10 +1692,17 @@
           entries={goLive.entries}
           {onGoLive}
         />
+      {:else if elsewhere}
+        <VoiceBar
+          channel={server.channels[elsewhere.channelId]?.name ?? ""}
+          onLeave={leaveVoice}
+          info={connection.info}
+          onJoinHere={() => join(elsewhere.channelId)}
+        />
       {/if}
       <UserPanel
         {me}
-        status={!voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
+        status={elsewhere ? "In voice on another device" : !voiceOn ? "Not in voice" : lobby ? "Online" : "Voice connected"}
         active={voiceOn && !lobby}
         info={voiceOn && !lobby ? connection.info : undefined}
         micError={micOn ? (capture ? capture.micError : noVoice) : null}

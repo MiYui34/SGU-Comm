@@ -7,7 +7,11 @@ import {
   descriptionsToFetch,
   inVoice,
   isLobby,
+  isTextOnly,
+  listedUsers,
   may,
+  TEXT_ONLY,
+  voiceElsewhere,
   messagesIn,
   Perm,
   missingDescriptions,
@@ -186,6 +190,41 @@ describe("lobby and voice", () => {
     expect(inVoice(base(0x6, 1))).toBe(true);
     expect(inVoice(base(0x6 | SPEAK, 0))).toBe(true); // root is a voice channel there
     expect(inVoice({ ...base(0x6, 1), session: null })).toBe(false);
+  });
+});
+
+describe("text-only sessions", () => {
+  // We are session 5 of account 7; session 6 is another tab of it.
+  const tabs = (mine: number, other: number | null) => ({
+    ...withData(
+      [ch(0, null, "Root"), ch(1, 0, "General")],
+      [
+        { ...user(5, "me", mine), userId: 7 },
+        ...(other === null ? [] : [{ ...user(6, "me", other), userId: 7 }]),
+        { ...user(8, "bob", 1), userId: 9 },
+      ],
+    ),
+    session: 5,
+    rootPermissions: 0x6,
+  });
+
+  it("is text-only in no channel, and then not in voice", () => {
+    expect(isTextOnly(tabs(TEXT_ONLY, 1))).toBe(true);
+    expect(inVoice(tabs(TEXT_ONLY, 1))).toBe(false);
+    expect(isTextOnly(tabs(1, null))).toBe(false);
+  });
+
+  it("finds our session in voice on another device", () => {
+    expect(voiceElsewhere(tabs(TEXT_ONLY, 1))?.session).toBe(6);
+    expect(voiceElsewhere(tabs(TEXT_ONLY, 0))).toBeNull(); // in the lobby: not in voice
+    expect(voiceElsewhere(tabs(TEXT_ONLY, null))).toBeNull();
+    expect(voiceElsewhere(tabs(1, TEXT_ONLY))).toBeNull(); // we are the one in voice
+  });
+
+  it("lists the account once", () => {
+    expect(listedUsers(tabs(TEXT_ONLY, 1)).map((u) => u.session)).toEqual([8, 6]);
+    expect(listedUsers(tabs(TEXT_ONLY, null)).map((u) => u.session)).toEqual([8, 5]); // nowhere else
+    expect(listedUsers(tabs(1, null)).map((u) => u.session)).toEqual([8, 5]);
   });
 });
 

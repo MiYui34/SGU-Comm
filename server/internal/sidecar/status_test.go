@@ -95,6 +95,52 @@ func TestAwayIsIdleUnlessDoNotDisturb(t *testing.T) {
 	}
 }
 
+func TestAnAccountIsIdleOnlyWhileAllItsSessionsAreAway(t *testing.T) {
+	h := newHub(t, "general")
+	alice := mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 4}
+	tab1 := joinAs(t, h, alice)
+	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob"})
+	alice.Session = 3
+	tab2 := joinAs(t, h, alice)
+	tab1.Handle([]byte(`{"type":"away","on":true}`))
+	empty(t, bob) // tab2 is active: online
+	// All away: every session of alice is idle.
+	tab2.Handle([]byte(`{"type":"away","on":true}`))
+	idle := map[float64]bool{}
+	for range 2 {
+		if m := next(t, bob); m["type"] == "status" && m["status"] == "idle" {
+			idle[m["session"].(float64)] = true
+		}
+	}
+	if !idle[1] || !idle[3] {
+		t.Fatalf("idle: %v", idle)
+	}
+	// A new tab is active: online again, everywhere.
+	alice.Session = 5
+	tab3 := joinAs(t, h, alice)
+	online := map[float64]bool{}
+	for range 2 {
+		if m := next(t, bob); m["type"] == "status" && m["status"] == "online" {
+			online[m["session"].(float64)] = true
+		}
+	}
+	if !online[1] || !online[3] {
+		t.Fatalf("online: %v", online)
+	}
+	empty(t, bob) // the new one was never idle
+	// The active one leaves: idle again.
+	tab3.Close()
+	idle = map[float64]bool{}
+	for range 2 {
+		if m := next(t, bob); m["status"] == "idle" {
+			idle[m["session"].(float64)] = true
+		}
+	}
+	if !idle[1] || !idle[3] {
+		t.Fatalf("idle after the active tab left: %v", idle)
+	}
+}
+
 func TestBadStatusesAreRefused(t *testing.T) {
 	h := newHub(t, "general")
 	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice"})

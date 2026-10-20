@@ -134,10 +134,35 @@ export const may = (state: ServerState, channelId: number, perm: number): boolea
 export const isLobby = (state: ServerState): boolean =>
   state.rootPermissions !== null && (state.rootPermissions & SPEAK) === 0;
 
+const self = (state: ServerState): User | undefined => (state.session === null ? undefined : state.users[state.session]);
+
+// Kallisti servers let an account connect several times; one session is
+// in voice, the others are text-only: in this channel, which is none, and
+// nobody else sees them.
+export const TEXT_ONLY = 0xfffffffe;
+
+export const isTextOnly = (state: ServerState): boolean => self(state)?.channelId === TEXT_ONLY;
+
 export const inVoice = (state: ServerState): boolean => {
-  const me = state.session === null ? undefined : state.users[state.session];
-  return me !== undefined && !(isLobby(state) && me.channelId === 0);
+  const me = self(state);
+  return me !== undefined && me.channelId !== TEXT_ONLY && !(isLobby(state) && me.channelId === 0);
 };
+
+// Other sessions of our account (by user id), in any channel.
+const ourOthers = (state: ServerState): User[] => {
+  const me = self(state);
+  return me?.userId == null ? [] : Object.values(state.users).filter((u) => u.session !== me.session && u.userId === me.userId);
+};
+
+// Our account's session in voice on another device, while we are
+// text-only (null: none).
+export const voiceElsewhere = (state: ServerState): User | null =>
+  (isTextOnly(state) && ourOthers(state).find((u) => !(isLobby(state) && u.channelId === 0))) || null;
+
+// The users to list, by name: a text-only session of ours is left out
+// when the account shows elsewhere.
+export const listedUsers = (state: ServerState): User[] =>
+  isTextOnly(state) && ourOthers(state).length ? usersSorted(state).filter((u) => u.session !== state.session) : usersSorted(state);
 
 // A ban's address for people: IPv4 (::ffff:a.b.c.d) as a.b.c.d/n.
 export const banAddress = ({ address: a, mask }: { address: Uint8Array; mask: number }): string => {

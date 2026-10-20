@@ -69,7 +69,7 @@ func forViewer(m *pb.UserState, seen map[uint32]bool) *pb.UserState {
 func (s *Server) sendUserLocked(u *User, m *pb.UserState) {
 	frame := mumble.MessageFrame(mumble.TypeUserState, m)
 	for _, c := range s.clients {
-		if c.seen[u.Channel] {
+		if c.sees(u) {
 			c.sendUser(m, frame)
 		}
 	}
@@ -86,12 +86,14 @@ func (c *client) sendUser(m *pb.UserState, frame []byte) {
 
 // sendMoveLocked tells everyone about a user that moved from a channel:
 // those who see both get m, those who saw only the old one lose the
-// user, those who see only the new one get all of it.
+// user, those who see only the new one get all of it. The user itself
+// gets m (also to or from TextOnly).
 func (s *Server) sendMoveLocked(u *User, from uint32, m *pb.UserState) {
 	frame := mumble.MessageFrame(mumble.TypeUserState, m)
 	var full *pb.UserState
 	for _, c := range s.clients {
-		before, after := c.seen[from], c.seen[u.Channel]
+		self := c.session == u.Session
+		before, after := self || c.seen[from], self || c.seen[u.Channel]
 		switch {
 		case before && after:
 			c.sendUser(m, frame)
@@ -140,6 +142,9 @@ func (s *Server) syncViewsLocked() {
 	users := slices.Sorted(maps.Keys(s.state.Users))
 	for _, session := range users {
 		u := s.state.Users[session]
+		if u.textOnly() {
+			continue
+		}
 		if to := s.state.visibleAncestor(u); to != u.Channel {
 			s.moveLocked(u, to, 0)
 		}

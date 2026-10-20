@@ -182,30 +182,34 @@ func (s *Server) setTimeoutLocked(key timeoutKey, until time.Time, actor uint32)
 		s.permissionsChangedLocked(nil) // suppress states follow Speak
 		return
 	}
-	var online *User
+	var online []*User // every session of an account (see textonly.go)
 	for _, u := range s.state.Users {
 		if timeoutKeyOf(u) == key {
-			online = u
+			online = append(online, u)
 		}
 	}
 	if on {
-		if old == nil && online != nil {
-			keep = online.Mute
+		if old == nil && len(online) > 0 {
+			keep = slices.ContainsFunc(online, func(u *User) bool { return u.Mute && !u.textOnly() })
 		}
 		s.startTimeoutLocked(key, until)
 		s.timeouts[key].keepMute = keep
 	}
-	if online == nil || online.Mute == on || (!on && keep) {
+	if !on && keep {
 		return
 	}
-	u := online
-	u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, &pb.UserState{Mute: proto.Bool(on)})
-	out := &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf)}
-	if actor != 0 {
-		out.Actor = proto.Uint32(actor)
+	for _, u := range online {
+		if u.Mute == on {
+			continue
+		}
+		u.Mute, u.Deaf = serverMuteState(u.Mute, u.Deaf, &pb.UserState{Mute: proto.Bool(on)})
+		out := &pb.UserState{Session: proto.Uint32(u.Session), Mute: proto.Bool(u.Mute), Deaf: proto.Bool(u.Deaf)}
+		if actor != 0 {
+			out.Actor = proto.Uint32(actor)
+		}
+		s.state.Changed()
+		s.sendUserLocked(u, out)
 	}
-	s.state.Changed()
-	s.sendUserLocked(u, out)
 }
 
 func (s *Server) startTimeoutLocked(key timeoutKey, until time.Time) {

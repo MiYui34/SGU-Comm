@@ -386,7 +386,17 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	online := make([]Presence, 0, len(s.state.Users))
+	voiceUsers, siblings := 0, 0
 	for _, u := range s.state.Users {
+		if !u.textOnly() {
+			voiceUsers++
+		}
+		// The account's sessions stay, but a Mumble client replaces
+		// another (see textonly.go).
+		if id.registered && u.Registered && u.UserID == id.userID && (c.web || s.clients[u.Session].web) {
+			siblings++
+			continue
+		}
 		online = append(online, Presence{
 			Session: u.Session, Name: u.Name, Registered: u.Registered, UserID: u.UserID,
 			Host: s.clients[u.Session].host, Hash: u.Hash,
@@ -396,12 +406,16 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	if inUse {
 		return mumble.RejectFrame(pb.Reject_UsernameInUse, "This name is in use.")
 	}
-	if len(s.state.Users) >= s.maxUsers() && ghost == 0 && !(id.registered && id.userID == 0) {
+	if siblings >= maxSessionsPerUser {
+		return mumble.RejectFrame(pb.Reject_None, fmt.Sprintf("You are connected %d times already. Please close a tab or device.", siblings))
+	}
+	if voiceUsers >= s.maxUsers() && ghost == 0 && siblings == 0 && !(id.registered && id.userID == 0) {
 		return mumble.RejectFrame(pb.Reject_ServerFull, fmt.Sprintf("The server is full (at most %d users).", s.maxUsers()))
 	}
+	stay := false // the same user on another device stays where it was
 	if g := s.state.Users[ghost]; g != nil {
 		if g.Registered && id.registered && g.UserID == id.userID {
-			id.lastChannel = g.Channel // the same user on another device stays where it was
+			id.lastChannel, stay = g.Channel, true
 		}
 		s.kickLocked(ghost, 0, "You connected to the server from another device.", false)
 	}
@@ -419,14 +433,25 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 	// The last channel if the user may enter it, else root (as Murmur). Not
 	// where root is a lobby (no voice in root): there users join voice on
 	// purpose.
+	// A web session joins text-only next to the account's voice session; a
+	// Mumble client takes voice and its channel.
+	voice := s.voiceSiblingLocked(u)
+	if voice != nil && !c.web {
+		id.lastChannel, stay = voice.Channel, true
+	}
 	lobby := !s.state.Has(u, 0, Speak)
-	if ch := s.state.Channels[id.lastChannel]; ch != nil && !lobby && s.state.Has(u, ch.ID, Enter) && s.state.Sees(u, ch.ID) {
+	if ch := s.state.Channels[id.lastChannel]; ch != nil && (!lobby || stay) && s.state.Has(u, ch.ID, Enter) && s.state.Sees(u, ch.ID) {
 		u.Channel = ch.ID
 	}
 	if !s.state.Has(u, u.Channel, Enter) {
 		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
 	}
 	_, u.Mute = s.timedOutLocked(u)
+	if voice != nil && c.web {
+		u.Channel = TextOnly
+	} else if voice != nil {
+		s.takeVoiceLocked(u)
+	}
 	s.state.Refresh(u)
 	c.seen = s.state.Visible(u)
 	c.send(s.state.snapshot(u, c.seen), false)
@@ -492,12 +517,13 @@ func (s *Server) leave(c *client) {
 		return // already replaced or kicked
 	}
 	u := s.removeLocked(c, &pb.UserRemove{Session: proto.Uint32(c.session)})
+	s.promoteLocked(&u)
 	s.mu.Unlock()
 	s.saveLastChannel(u)
 }
 
 func (s *Server) saveLastChannel(u User) {
-	if !u.Registered || s.cfg.DB == nil {
+	if !u.Registered || u.textOnly() || s.cfg.DB == nil {
 		return
 	}
 	if err := s.cfg.DB.SetLastChannel(u.UserID, u.Channel); err != nil {

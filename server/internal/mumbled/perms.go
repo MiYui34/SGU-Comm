@@ -60,11 +60,15 @@ func (s *Server) flushPermissionsLocked(u *User) {
 	if c == nil {
 		return
 	}
+	ch := u.Channel
+	if u.textOnly() {
+		ch = 0
+	}
 	c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
-		ChannelId: proto.Uint32(u.Channel), Permissions: proto.Uint32(uint32(s.state.Permissions(u, u.Channel))),
+		ChannelId: proto.Uint32(ch), Permissions: proto.Uint32(uint32(s.state.Permissions(u, ch))),
 		Flush: proto.Bool(true),
 	})
-	if u.Channel != 0 {
+	if ch != 0 {
 		c.sendMsg(mumble.TypePermissionQuery, &pb.PermissionQuery{
 			ChannelId: proto.Uint32(0), Permissions: proto.Uint32(uint32(s.state.Permissions(u, 0))),
 		})
