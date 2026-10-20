@@ -1365,8 +1365,8 @@
         connection.manage({ invites: f.access });
       }}
       onSubmit={channels.submitMembers}
-      onCreateInvite={(seconds, uses) => connection.manage({ createInvite: f.access, seconds, uses })}
-      onDeleteInvite={(id) => connection.manage({ deleteInvite: id })}
+      onCreateInvite={(seconds, uses) => connection.request({ createInvite: f.access, seconds, uses })}
+      onDeleteInvite={(id) => connection.request({ deleteInvite: id })}
       onClose={() => {
         newInvite = null;
         channels.closeMembers();

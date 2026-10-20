@@ -169,14 +169,15 @@ export const createChannelManagement = (current: () => Connection) => {
       if (access !== null) moderators = { kind, id, access };
     },
     closeModerators: () => (moderators = null),
-    submitModerators: (after: Member[]) => {
+    // Both settle once the server confirms every change (see lib/saveFeedback).
+    submitModerators: async (after: Member[]) => {
       const f = moderatorsForm;
       if (!f) return;
-      for (const a of channelModActions(f.access, f.members.map((m) => m.id), after.map((m) => m.id))) connection.manage(a);
+      await Promise.all(channelModActions(f.access, f.members.map((m) => m.id), after.map((m) => m.id)).map(connection.request));
     },
-    submitMembers: (after: Member[]) => {
+    submitMembers: async (after: Member[]) => {
       const action = membersForm && membersAction(membersForm.access, membersForm.members, after);
-      if (action) connection.manage(action);
+      if (action) await connection.request(action);
     },
     startDelete: (kind: ChannelKind, id: number) => (form = { form: { mode: "delete", kind, name: nameOf(kind, id) }, id }),
     closeForm: () => (form = null),
