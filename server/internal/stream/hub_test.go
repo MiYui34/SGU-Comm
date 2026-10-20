@@ -1,7 +1,12 @@
 package stream
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"slices"
 	"strings"
 	"testing"
@@ -327,7 +332,7 @@ func TestPreviews(t *testing.T) {
 	h, _, _ := setup()
 	var got []Info
 	h.OnPreview = func(i Info) { got = append(got, i) }
-	img := "data:image/jpeg;base64,/9j/4AAQ"
+	img := dataURL(320, 180, false)
 	if err := h.SetPreview(1, img); err == nil {
 		t.Fatal("a preview without a stream")
 	}
@@ -433,12 +438,45 @@ func TestPreviewsEndTheStreamWhenSpeakIsGone(t *testing.T) {
 		h.OnPreview = func(i Info) { got = append(got, i) }
 		h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360, Camera: camera})
 		v.mute = map[uint32]bool{1: true}
-		if err := h.SetPreview(ID(1, camera), "data:image/jpeg;base64,/9j/"); err == nil {
+		if err := h.SetPreview(ID(1, camera), dataURL(320, 180, false)); err == nil {
 			t.Error("accepted")
 		}
 		if len(got) != 0 || len(h.Streams()) != 0 || !slices.Contains(sinks[1].types(), "stopped") {
 			t.Fatalf("camera %v: previews %v, streams %v", camera, got, h.Streams())
 		}
+	}
+}
+
+// dataURL: a w x h picture as a JPEG data URL (or a PNG one with the JPEG
+// prefix).
+func dataURL(w, h int, asPNG bool) string {
+	var b bytes.Buffer
+	img := image.NewGray(image.Rect(0, 0, w, h))
+	if asPNG {
+		png.Encode(&b, img)
+	} else {
+		jpeg.Encode(&b, img, nil)
+	}
+	return previewPrefix + base64.StdEncoding.EncodeToString(b.Bytes())
+}
+
+// Thumbnails are decoded: JPEGs of thumbnail size only.
+func TestPreviewsMustBeSmallJPEGs(t *testing.T) {
+	h, _, _ := setup()
+	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
+	for name, bad := range map[string]string{
+		"not base64": previewPrefix + "%%%",
+		"not a JPEG": previewPrefix + "/9j/4AAQ",
+		"a PNG":      dataURL(320, 180, true),
+		"too wide":   dataURL(maxPreviewSide+1, 10, false),
+		"too tall":   dataURL(10, maxPreviewSide+1, false),
+	} {
+		if err := h.SetPreview(1, bad); err == nil {
+			t.Errorf("accepted %s", name)
+		}
+	}
+	if err := h.SetPreview(1, dataURL(320, 569, false)); err != nil { // a phone's camera
+		t.Fatal(err)
 	}
 }
 
@@ -449,7 +487,7 @@ func TestPreviewsAreLimitedAndCanBeCleared(t *testing.T) {
 	var got []string
 	h.OnPreview = func(i Info) { got = append(got, i.Preview) }
 	h.Start(1, Config{Codec: "vp8", Width: 640, Height: 360})
-	img := "data:image/jpeg;base64,/9j/"
+	img := dataURL(320, 180, false)
 	h.SetPreview(1, img)
 	h.SetPreview(1, img) // too soon: dropped
 	now = now.Add(6 * time.Second)

@@ -5,8 +5,10 @@
 package stream
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"image/jpeg"
 	"maps"
 	"regexp"
 	"slices"
@@ -67,6 +69,8 @@ type Info struct {
 const (
 	previewPrefix = "data:image/jpeg;base64,"
 	maxPreview    = 64 << 10
+	// Clients make them 320 pixels wide; a portrait camera's is taller.
+	maxPreviewSide = 1024
 )
 
 // A frame from a streamer: flags (bit 0: keyframe, bit 1: sound, bit 2:
@@ -268,7 +272,7 @@ func (h *Hub) viewersLocked(id uint32, st *stream) {
 // one every few seconds) and passes it on; "" clears it (previews turned
 // off). session: the stream's id.
 func (h *Hub) SetPreview(session uint32, image string) error {
-	if image != "" && (!strings.HasPrefix(image, previewPrefix) || len(image) > maxPreview) {
+	if image != "" && !goodPreview(image) {
 		return errors.New("bad preview")
 	}
 	h.mu.Lock()
@@ -294,6 +298,16 @@ func (h *Hub) SetPreview(session uint32, image string) error {
 		h.OnPreview(info)
 	}
 	return nil
+}
+
+// goodPreview: a JPEG data URL of thumbnail size (the header is decoded).
+func goodPreview(image string) bool {
+	data, ok := strings.CutPrefix(image, previewPrefix)
+	if !ok || len(image) > maxPreview {
+		return false
+	}
+	c, err := jpeg.DecodeConfig(base64.NewDecoder(base64.StdEncoding, strings.NewReader(data)))
+	return err == nil && c.Width <= maxPreviewSide && c.Height <= maxPreviewSide
 }
 
 // Frame forwards a streamer's frame to the viewers of its screen share or
