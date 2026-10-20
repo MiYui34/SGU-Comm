@@ -224,3 +224,4 @@
 - [x] [Media dimensions: no jumping while loading](issues/media-dimensions.md)
 - [x] [Previews with optional ffmpeg](issues/media-previews-ffmpeg.md)
 - [x] [Mention pills](issues/mention-pills.md)
+- [x] [Feedback on save and apply actions](issues/save-feedback.md)
