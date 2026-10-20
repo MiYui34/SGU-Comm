@@ -55,12 +55,12 @@ export const canListenOnly = (server: ServerState, text: TextState, id: number):
 // makes those), temporary channels (they have none) nor text channel
 // mirrors.
 export const canCreateSubchannel = (server: ServerState, text: TextState, id: number): boolean =>
-  id !== 0 && server.channels[id]?.temporary === false && !mirrorIds(server, text.channels).has(id) && may(server, id, Perm.MakeChannel);
+  id !== 0 && server.channels[id]?.temporary === false && !mirrorIds(server, text.channels, text.categories).has(id) && may(server, id, Perm.MakeChannel);
 
 // A voice channel and its siblings, without text channel mirrors (they
 // keep their place; nobody but SuperUser may edit them).
 export const voiceSiblings = (server: ServerState, text: TextState, id: number) => {
-  const hidden = mirrorIds(server, text.channels);
+  const hidden = mirrorIds(server, text.channels, text.categories);
   return channelSiblings(server, id).filter((c) => !hidden.has(c.id));
 };
 

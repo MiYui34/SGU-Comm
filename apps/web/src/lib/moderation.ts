@@ -67,7 +67,7 @@ const flatten = (n: ChannelNode): Channel[] => [n.channel, ...n.children.flatMap
 // Voice channels in tree order: without text channel mirrors, and without
 // root where it is a lobby.
 const voiceChannels = (server: ServerState, text: TextState): Channel[] => {
-  const tree = withoutMirrors(channelTree(server), mirrorIds(server, text.channels));
+  const tree = withoutMirrors(channelTree(server), mirrorIds(server, text.channels, text.categories));
   return tree ? flatten(tree).filter((c) => c.id !== 0 || !isLobby(server)) : [];
 };
 

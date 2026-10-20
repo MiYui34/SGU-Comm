@@ -726,7 +726,7 @@ func (s *Server) textMsg(c *client, m *pb.TextMessage) {
 		for _, id := range slices.Sorted(maps.Keys(channels)) {
 			// Text channel mirrors only count when written to directly.
 			direct := slices.Contains(m.ChannelId, id)
-			if s.isMirrorLocked(id) && !direct {
+			if s.state.mirror(id) && !direct {
 				continue
 			}
 			// Images only where written to directly: a tree message would

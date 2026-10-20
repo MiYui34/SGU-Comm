@@ -124,6 +124,16 @@ func TestCategoryModeratorsModerateItsChannels(t *testing.T) {
 	if s.ModeratesIn(bob.session, ids[1]) {
 		t.Fatal("bob moderates")
 	}
+	// No voice subchannel rights in the text tree: she builds and edits
+	// nothing in the category or its mirrors.
+	s.mu.Lock()
+	u := s.state.Users[alice.session]
+	for _, id := range []uint32{cats[0], ids[1]} {
+		if p := s.state.Permissions(u, id); p&(MakeChannel|MakeTempChannel|Write) != 0 {
+			t.Errorf("alice has %x in %d", p, id)
+		}
+	}
+	s.mu.Unlock()
 	// As a member she moderates the private one too; bob, a member, only
 	// reads it.
 	if err := s.SetPrivate(su.session, ids[2], true, []uint32{aliceID, bobID}); err != nil {
@@ -160,7 +170,7 @@ func TestCategoriesAreLockedLikeMirrors(t *testing.T) {
 	s.mu.Lock()
 	u := s.state.Users[alice.session]
 	speaks := s.state.Has(u, ids[0], Speak) || s.state.Has(u, cats[0], Speak) || s.state.Has(u, cats[0], MakeChannel)
-	locked := s.isMirrorLocked(cats[0]) && s.isMirrorLocked(ids[0])
+	locked := s.state.mirror(cats[0]) && s.state.mirror(ids[0])
 	s.mu.Unlock()
 	if speaks || !locked {
 		t.Fatalf("speaks %v, locked %v", speaks, locked)

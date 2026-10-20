@@ -1599,6 +1599,10 @@ From `meta/research/discord-comparison.md`.
   (not refused). Mirrors move to the parent before the category channel
   goes, and clients learn the move first: otherwise a Mumble client drops
   the mirror with the users in it.
+- One mirror check (inTextTree, State.Mirror): the mirrors' parent and
+  everything below it, at any depth. Categories and their mirrors get no
+  voice rules (listen-only, recording) and no channel moderator
+  subchannel rights (MakeChannel, Write).
 - Ordering a category's channels puts them into the places they had in
   the global order; the others keep theirs.
 - Clients get the categories with ready and every channels event, only

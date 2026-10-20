@@ -98,7 +98,7 @@ func (s *Server) SyncTextTree(cats []TextCategory, want []TextMirror) (catIDs, i
 		}
 	}
 	for _, w := range want {
-		if w.Channel != 0 && w.Channel != parent.ID && !keepCat[w.Channel] && s.isMirrorLocked(w.Channel) {
+		if w.Channel != 0 && w.Channel != parent.ID && !keepCat[w.Channel] && s.state.mirror(w.Channel) {
 			keep[w.Channel] = true
 		}
 	}
@@ -219,19 +219,11 @@ func mirrorACL() []ACL {
 // its moderators', stay).
 var categoryACL = ACL{ApplyHere: true, ApplySubs: false, Group: "all", Deny: TextMessage}
 
-// isMirrorLocked: a text channel mirror, a category or their parent.
-func (s *Server) isMirrorLocked(id uint32) bool {
-	for range 3 { // the parent, a category, a mirror in a category
-		ch := s.state.Channels[id]
-		if s.textParent == 0 || ch == nil {
-			return false
-		}
-		if id == s.textParent {
-			return true
-		}
-		id = ch.Parent
-	}
-	return false
+// inTextTree: the mirrors' parent or below it (categories, mirrors, and
+// whatever SuperUser made there), at any depth: no voice channel rules
+// apply there (State.Mirror). Under mu.
+func (s *Server) inTextTree(channel uint32) bool {
+	return s.textParent != 0 && slices.ContainsFunc(s.state.chain(channel), func(c *Channel) bool { return c.ID == s.textParent })
 }
 
 func (s *Server) loadTextParent() (uint32, error) {
