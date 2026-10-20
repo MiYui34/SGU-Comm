@@ -12,9 +12,10 @@ import {
   type ServerState,
   type User,
 } from "@kallisti/protocol";
+import { canModerate } from "./channelManagement";
 import { mirrorIds, withoutMirrors } from "./mirrors";
-import { roleOf } from "./roles";
-import type { ManageAction, TextState, Timeout, UserTarget } from "./textChannels";
+import { amStaff, channelModIn, channelsUp, roleOf } from "./roles";
+import type { ChannelTimeout, ManageAction, TextState, Timeout, UserTarget } from "./textChannels";
 
 // What the server settings may show (the server checks again): the ban
 // list with Ban in root, changing it with Write too (admins); registered
@@ -47,14 +48,17 @@ export const DELETE_TIMES = [
 
 // What we may do to another user (the server checks again).
 // timedBans: bans for a time (built-in server; else only for ever).
-// moveTo: the voice channels we may move the user to.
+// moveTo: the voice channels we may move the user to; disconnect: to the
+// lobby. channelTimeout: the Mumble channel we may time the user out in.
 export type UserModeration = {
   kick: boolean;
   ban: boolean;
   timedBans: boolean;
   mute: boolean;
   moveTo: Channel[];
+  disconnect: boolean;
   timeout: boolean;
+  channelTimeout: number | null;
   deleteMessages: boolean;
 };
 
@@ -71,23 +75,32 @@ const voiceChannels = (server: ServerState, text: TextState): Channel[] => {
 // in root) and time-outs (MuteDeafen in root: a mute everywhere) on
 // admins and moderators only by admins (Write in root); server mute in
 // the user's channel; moves with Move there, into channels where we may
-// Move or Enter. Null: nothing.
-export const userModeration = (server: ServerState, text: TextState, user: User): UserModeration | null => {
+// Move or Enter. Who is no staff does not act on staff nor on the
+// channel's moderators. Channel time-outs: in the channel we look at
+// (view), else the user's, where we moderate. Null: nothing.
+export const userModeration = (server: ServerState, text: TextState, user: User, view: number | null = null): UserModeration | null => {
   if (user.session === server.session || user.userId === 0) return null;
   const overStaff = actsOn(server, text, user.userId);
+  const staff = amStaff(server, text);
+  const shields = (channel: number) => !staff && (roleOf(text.roles, user.userId) !== null || channelModIn(server, text.roles, channel, user.userId));
+  const here = !shields(user.channelId);
   const ban = overStaff && may(server, 0, Perm.Ban);
+  const move = here && may(server, user.channelId, Perm.Move);
   const m: UserModeration = {
     kick: overStaff && (ban || may(server, 0, Perm.Kick)),
     ban,
     timedBans: ban && text.voiceChats,
-    mute: may(server, user.channelId, Perm.MuteDeafen),
-    moveTo: may(server, user.channelId, Perm.Move)
+    mute: here && may(server, user.channelId, Perm.MuteDeafen),
+    moveTo: move
       ? voiceChannels(server, text).filter((c) => c.id !== user.channelId && (may(server, c.id, Perm.Move) || may(server, c.id, Perm.Enter)))
       : [],
+    disconnect: move && isLobby(server) && user.channelId !== 0,
     timeout: overStaff && text.voiceChats && may(server, 0, Perm.MuteDeafen),
+    channelTimeout:
+      [view, user.channelId].find((c) => c !== null && c !== 0 && overStaff && !shields(c) && canModerate(server, text, c)) ?? null,
     deleteMessages: mayDeleteMessages(server, text, user.userId),
   };
-  return m.kick || m.mute || m.moveTo.length || m.timeout || m.deleteMessages ? m : null;
+  return m.kick || m.mute || m.moveTo.length || m.disconnect || m.timeout || m.channelTimeout !== null || m.deleteMessages ? m : null;
 };
 
 // Nothing on SuperUser; on admins and moderators only admins act.
@@ -112,6 +125,18 @@ export const permissionsToAsk = (server: ServerState, text: TextState, user: Use
 export const timedOutUntil = (timeouts: readonly Timeout[], user: Pick<User, "session" | "userId">): number | null =>
   timeouts.find((t) => (user.userId !== null ? t.user === user.userId : t.session === user.session))?.until ?? null;
 
+// When a user's time-out in a Mumble channel (or one above it) ends, or
+// null.
+export const channelTimedOutUntil = (
+  server: ServerState,
+  timeouts: readonly ChannelTimeout[],
+  user: Pick<User, "session" | "userId">,
+  channel: number | null,
+): number | null => {
+  const above = channelsUp(server, channel);
+  return timedOutUntil(timeouts.filter((t) => above.includes(t.channel)), user);
+};
+
 // For people: the end of a time-out.
 export const untilText = (until: number) => new Date(until).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
@@ -121,6 +146,7 @@ export type ModerationAction =
   | { kind: "kick"; reason: string; deleteSeconds?: number }
   | { kind: "ban"; reason: string; seconds: number; deleteSeconds?: number } // 0: for ever
   | { kind: "timeout"; seconds: number; deleteSeconds?: number } // 0: end it
+  | { kind: "channelTimeout"; channel: number; seconds: number } // 0: end it
   | { kind: "mute" | "deaf"; on: boolean }
   | { kind: "move"; channel: number }
   | { kind: "delete"; seconds: number };
@@ -140,6 +166,8 @@ export const moderationRequest = (session: number, a: Exclude<ModerationAction, 
         : { mumble: removeUser(session, a.reason, { ban: true }) };
     case "timeout":
       return { manage: { timeout: session, seconds: a.seconds } };
+    case "channelTimeout":
+      return { manage: { channelTimeout: session, channel: a.channel, seconds: a.seconds } };
     case "mute":
       return { mumble: moderateUser(session, { mute: a.on }) };
     case "deaf":

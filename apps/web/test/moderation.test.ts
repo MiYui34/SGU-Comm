@@ -50,7 +50,8 @@ describe("userModeration", () => {
 
   it("needs the rights in the right channel", () => {
     expect(userModeration(server(Perm.Kick, {}), text, user(2, null))).toEqual({
-      kick: true, ban: false, timedBans: false, mute: false, moveTo: [], timeout: false, deleteMessages: false,
+      kick: true, ban: false, timedBans: false, mute: false, moveTo: [], disconnect: false, timeout: false, channelTimeout: null,
+      deleteMessages: false,
     });
     // Move into a channel: Move or Enter there.
     const m = userModeration(server(0, { 1: Perm.Move, 2: Perm.Enter }), text, user(2, null));
