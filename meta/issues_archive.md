@@ -226,3 +226,8 @@
 - [x] [Mention pills](issues/mention-pills.md)
 - [x] [Feedback on save and apply actions](issues/save-feedback.md)
 - [x] [The same user on several devices](issues/multiple-sessions.md)
+- [x] [Fixes from the third whole-code review](issues/review-3-fixes.md)
+  - [x] [Review 3: voice sessions and bans](issues/review-3-voice-sessions.md)
+  - [x] [Review 3: server races and authorization](issues/review-3-server-races.md)
+  - [x] [Review 3: client state](issues/review-3-client-state.md)
+  - [x] [Review 3: media, streams and CI](issues/review-3-media.md)

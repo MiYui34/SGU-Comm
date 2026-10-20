@@ -15,8 +15,3 @@
 - [ ] [Request ids for manage requests](issues/request-ids.md)
 - [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
 - [ ] [Desktop app: links do nothing, videos don't play (Linux)](issues/desktop-links-and-video.md)
-- [ ] [Fixes from the third whole-code review](issues/review-3-fixes.md)
-  - [ ] [Review 3: voice sessions and bans](issues/review-3-voice-sessions.md)
-  - [ ] [Review 3: server races and authorization](issues/review-3-server-races.md)
-  - [ ] [Review 3: client state](issues/review-3-client-state.md)
-  - [ ] [Review 3: media, streams and CI](issues/review-3-media.md)
