@@ -256,8 +256,10 @@ func TestMumbleClientsAndWebSessionsAreToldApart(t *testing.T) {
 	if u, ok := s.MumbleClient(native.session); !ok || !u.Registered || u.UserID != nativeID {
 		t.Fatalf("native: %+v %v", u, ok)
 	}
-	if _, ok := s.MumbleClient(web.session); ok {
-		t.Fatal("a web session counted as a Mumble client")
+	// Who it is still comes back: slow mode counts its binary texts
+	// against the account.
+	if u, ok := s.MumbleClient(web.session); ok || !u.Registered || u.UserID == 0 {
+		t.Fatalf("web: %+v %v", u, ok)
 	}
 	if _, ok := s.MumbleClient(9999); ok {
 		t.Fatal("unknown session")
