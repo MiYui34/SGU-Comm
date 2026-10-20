@@ -1659,6 +1659,15 @@ From `meta/research/discord-comparison.md`.
   summary comes with ready; others show in the list without unread
   marks. Muting and notification levels are the client's per chat id, as
   for channels. Push notifications: mentions, as in channels.
+- Thread settings follow the channel: a thread without its own mute and
+  level takes its channel's (withParents, used for unread marks,
+  notifications, the title count and the mention sound). Its menu sets an
+  own setting, stored whole with its level (so "Only @mentions" or no
+  mute also hold against the channel); "Same as the channel" forgets it.
+  Push: the server resolves it, as the client does not know every thread
+  (new or archived ones while no tab is open). The note has the thread's
+  channel; a device's quiet channel keeps its threads quiet unless the
+  device lists the thread as loud (a chat with a level of its own).
 - Archive: a minute timer (main.go) archives threads without a message
   for the staff setting (1 h, 1 d, 3 d (default), 1 w; store_meta). A new
   message opens a thread again. Archived threads stay readable and
@@ -1687,10 +1696,25 @@ From `meta/research/discord-comparison.md`.
   list), a new message opened it again. Quick switcher and search opened
   it and jumped to the message; phone width shows it full screen.
   Deleting it closed it for both.
-- Known gaps: no pins panel inside a thread (pinning works). A thread's
-  mute and notification level do not follow its channel's. Opening a
-  link to an archived thread the client does not know yet does nothing;
-  a reconnect closes an open archived thread. The composer's slow mode
-  countdown does not know that starting a thread took a turn (the server
-  refuses the next post). Both panes share the upload error. Each
-  channels event and ready queries the threads per connection.
+- Slow mode: the channel's composer counts the threads we started there
+  (their creation time) as turns, as the server does.
+- Links to chats the client does not know (maybe an archived thread):
+  get-thread asks for it by id, with the history's rights check; the
+  thread opens when it comes, at the message. Refused (no thread, or not
+  for us: the same answer) says "You cannot open this message here". A
+  reconnect mounts a new Client: the place now has the open thread, which
+  opens again (asked for if archived).
+- Manual check (headless browser): a thread's menu shows "Same as the
+  channel" only with an own setting. A link to a message in an archived
+  thread opened the thread after a page load; a server restart kept the
+  archived thread open. Not checked by hand: channel mute in the sidebar
+  (agent-browser sends no right-click) and the slow mode countdown (needs
+  staff); both have unit tests.
+- Known gaps: no pins panel inside a thread (pinning works). Both panes
+  share the upload error. Each channels event and ready queries the
+  threads per connection. Thread settings stored before this change with
+  a mute only count as own settings in the client, but are not loud for
+  push. A thread started and then deleted within the slow mode time no
+  longer counts in the countdown (the server still refuses the post).
+  Push subscriptions made before this change keep threads of "nothing"
+  channels quiet until the app sends its settings again (at its start).
