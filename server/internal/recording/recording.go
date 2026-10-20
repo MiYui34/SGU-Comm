@@ -25,6 +25,10 @@ import (
 // speakers). When it is full, packets are dropped: voice never waits.
 const queueSize = 1024
 
+// maxTracks: speakers recorded, at most (each track is an open file until
+// the end); later ones are not recorded, and named in the info (as many).
+const maxTracks = 50
+
 // Limits of one recording: it stops itself at either.
 type Limits struct {
 	MaxDuration time.Duration
@@ -53,6 +57,7 @@ type Info struct {
 	Dropped     uint64      `json:"dropped,omitempty"`
 	Size        int64       `json:"size"` // bytes of all tracks
 	Tracks      []TrackInfo `json:"tracks"`
+	Unrecorded  []string    `json:"unrecorded,omitempty"` // speakers beyond maxTracks
 }
 
 // TrackInfo: a speaker's file. Every track starts at the recording's
@@ -189,6 +194,13 @@ func (r *Recording) run(onLimit func(Info)) {
 func (r *Recording) add(p Packet) string {
 	t := r.tracks[p.Speaker]
 	if _, _, ok := packetSamples(p.Opus); !ok {
+		return ""
+	}
+	if t == nil && len(r.order) >= maxTracks {
+		if len(r.info.Unrecorded) < maxTracks && !slices.Contains(r.info.Unrecorded, p.Speaker) {
+			slog.Warn("recording: too many speakers, not recorded", "id", r.info.ID, "speaker", p.Speaker)
+			r.info.Unrecorded = append(r.info.Unrecorded, p.Speaker)
+		}
 		return ""
 	}
 	if t == nil {

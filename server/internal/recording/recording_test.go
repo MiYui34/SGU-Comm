@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -244,5 +245,22 @@ func TestDownloadsNeedATokenOfStaff(t *testing.T) {
 		if w.Code == http.StatusOK && (!strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") || w.Header().Get("Content-Type") != "application/zip") {
 			t.Errorf("headers %v", w.Header())
 		}
+	}
+}
+
+// Speakers beyond the track limit are not recorded (each track is an open
+// file until the end); the info names them.
+func TestSpeakersBeyondTheTrackLimit(t *testing.T) {
+	lib, _ := testLibrary(t, Limits{})
+	r, _ := lib.Start(5, "Lounge", "mod", nil)
+	for i := range maxTracks + 10 {
+		talk(r, "guest"+strconv.Itoa(i), 0, 2, speech20)
+		time.Sleep(time.Millisecond) // let the recorder keep up
+	}
+	talk(r, "guest0", time.Second, 2, speech20) // has a track
+	info := r.Stop("stopped")
+	entries, _ := os.ReadDir(filepath.Join(lib.Dir, info.ID))
+	if len(info.Tracks) != maxTracks || len(entries) != maxTracks+1 || len(info.Unrecorded) != 10 || info.Unrecorded[0] != "guest"+strconv.Itoa(maxTracks) {
+		t.Fatalf("%d tracks, %d files, unrecorded %v", len(info.Tracks), len(entries), info.Unrecorded)
 	}
 }
