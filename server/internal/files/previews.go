@@ -34,7 +34,8 @@ func previewPath(dir, key string) string { return filepath.Join(dir, key+".previ
 
 // previewJob is the job for an upload's preview, if it gets one. GIFs keep
 // their animation (none); PNG and WebP only in a format with transparency.
-// Nothing with more pixels than inline pictures may have (ffmpeg's memory).
+// Nothing with more pixels than inline pictures may have (ffmpeg's memory;
+// ffmpeg checks the coded frames too, see thumbs.Job.MaxPixels).
 func previewJob(u store.Upload, dir string, f thumbs.Format) (thumbs.Job, bool) {
 	j := thumbs.Job{Src: filepath.Join(dir, u.Key), Dst: previewPath(dir, u.Key), Type: u.Type}
 	pixels := u.Width * u.Height

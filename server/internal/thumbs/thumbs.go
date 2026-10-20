@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"kallisti.chat/server/internal/imagesize"
 )
 
 // Format is a picture format ffmpeg writes.
@@ -57,6 +59,9 @@ type Job struct {
 	Type     string // the upload's type (see Supported)
 	Max      int    // the longer side at most, in pixels
 	Seek     bool   // a video's frame at 1 s, not the first
+	// Frames with more pixels are not decoded (0: imagesize.MaxPixels).
+	// ffmpeg checks the coded frames, whatever the container says.
+	MaxPixels int
 	// A JPEG's Exif orientation: ffmpeg is told to ignore it and the
 	// picture is turned here, as browsers do.
 	Orientation uint16
@@ -75,6 +80,7 @@ func Args(f Format, j Job, out string) []string {
 	if strings.HasPrefix(j.Type, "image/") {
 		a = append(a, "-noautorotate")
 	}
+	a = append(a, "-max_pixels", strconv.Itoa(cmp.Or(j.MaxPixels, imagesize.MaxPixels)))
 	side := strconv.Itoa(j.Max)
 	vf := "scale=w='min(" + side + ",iw)':h='min(" + side + ",ih)':force_original_aspect_ratio=decrease"
 	if t, ok := exifFilters[j.Orientation]; ok {

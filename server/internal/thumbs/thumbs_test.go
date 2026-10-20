@@ -25,7 +25,7 @@ import (
 
 func TestArgs(t *testing.T) {
 	video := Args(WebP, Job{Src: "/up/k", Type: "video/mp4", Max: 480, Seek: true}, "/tmp/o")
-	want := "-nostdin -hide_banner -loglevel error -protocol_whitelist file -threads 1 -ss 1 -f mov -i file:/up/k -frames:v 1 -an -sn -dn " +
+	want := "-nostdin -hide_banner -loglevel error -protocol_whitelist file -threads 1 -ss 1 -max_pixels 67108864 -f mov -i file:/up/k -frames:v 1 -an -sn -dn " +
 		"-vf scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease -c:v libwebp -threads 1 -pix_fmt yuv420p -f webp -y file:/tmp/o"
 	if got := strings.Join(video, " "); got != want {
 		t.Errorf("video:\n%s\nwant\n%s", got, want)
@@ -38,10 +38,11 @@ func TestArgs(t *testing.T) {
 		hasNot []string
 	}{
 		{"first frame", WebP, Job{Type: "video/webm", Max: 480}, []string{"-f matroska"}, []string{"-ss", "-noautorotate"}},
-		{"png keeps alpha", WebP, Job{Type: "image/png", Max: 1000}, []string{"-noautorotate -f png_pipe", "-pix_fmt yuva420p", "min(1000,iw)"}, nil},
+		{"png keeps alpha", WebP, Job{Type: "image/png", Max: 1000}, []string{"-noautorotate -max_pixels 67108864 -f png_pipe", "-pix_fmt yuva420p", "min(1000,iw)"}, nil},
 		{"jpeg turned by exif", JPEG, Job{Type: "image/jpeg", Max: 1000, Orientation: 6}, []string{"-f jpeg_pipe", "-vf transpose=1,scale=", "-c:v mjpeg -threads 1 -pix_fmt yuvj420p -q:v 4 -f mjpeg"}, nil},
 		{"jpeg mirrored", JPEG, Job{Type: "image/jpeg", Max: 1000, Orientation: 2}, []string{"-vf hflip,scale="}, nil},
 		{"webp", WebP, Job{Type: "image/webp", Max: 1000}, []string{"-f webp_pipe"}, nil},
+		{"fewer pixels", WebP, Job{Type: "image/webp", Max: 1000, MaxPixels: 100}, []string{"-max_pixels 100 -f webp_pipe"}, nil},
 	} {
 		got := strings.Join(Args(c.format, c.job, "/tmp/o"), " ")
 		for _, s := range c.has {
@@ -317,6 +318,10 @@ func TestRealFFmpeg(t *testing.T) {
 	app1 := "\xff\xe1\x00" + string(rune(2+6+len(ifd))) + "Exif\x00\x00" + ifd
 	os.WriteFile(filepath.Join(dir, "jpeg"), slices.Concat(b.Bytes()[:2], []byte(app1), b.Bytes()[2:]), 0o600)
 	m := New(t.Context(), tool, 1, 1)
+	// ffmpeg checks the frames' own size (a container's can lie).
+	if _, err := m.Make(t.Context(), Job{Src: filepath.Join(dir, "png"), Dst: filepath.Join(dir, "out"), Type: "image/png", Max: 1000, MaxPixels: 1000 * 1000}); !errors.Is(err, ErrFailed) {
+		t.Errorf("over MaxPixels: %v", err)
+	}
 	for _, c := range []struct {
 		job  Job
 		want mediasize.Info
