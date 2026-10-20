@@ -81,12 +81,16 @@ func (s *State) chain(id uint32) []*Channel {
 
 func isSuperUser(u *User) bool { return u.Registered && u.UserID == 0 }
 
-// Permissions is what a user may do in a channel: the ACLs, and read-only
-// guests may not write.
+// Permissions is what a user may do in a channel: the ACLs, read-only
+// guests may not write, and users with a channel time-out neither write
+// nor speak there.
 func (s *State) Permissions(u *User, channel uint32) Perm {
 	p := s.aclPermissions(u, channel)
 	if s.readOnly(u) {
 		p &^= TextMessage
+	}
+	if s.TimedOutIn != nil && s.TimedOutIn(u, channel) {
+		p &^= Speak | Whisper | TextMessage
 	}
 	return p
 }

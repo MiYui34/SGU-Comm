@@ -285,6 +285,10 @@ func New(cfg Config) (*Server, error) {
 	if cfg.OnUserMoved != nil || cfg.OnUserChanged != nil || cfg.OnPictureChanged != nil {
 		srv.events = newEventQueue()
 	}
+	state.TimedOutIn = func(u *User, channel uint32) bool {
+		_, ok := srv.timedOutInLocked(u, channel)
+		return ok
+	}
 	state.OnMove = func(session, from, to uint32) {
 		if from != NoChannel { // a join is told after ServerSync (see join)
 			srv.tellRecordingLocked(session, to)

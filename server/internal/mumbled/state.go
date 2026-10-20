@@ -27,6 +27,9 @@ type State struct {
 	// OnMove hears every change of a user's channel; NoChannel stands for
 	// joining or leaving the server. It runs under the server lock.
 	OnMove func(session, from, to uint32)
+	// TimedOutIn: the user has a channel time-out in the channel or one
+	// above it (see timeouts.go). It runs under the server lock.
+	TimedOutIn func(u *User, channel uint32) bool
 }
 
 // NoChannel: not on the server (see State.OnMove).

@@ -197,9 +197,9 @@ func (s *Server) aclMsg(c *client, m *pb.ACL) {
 	}
 	s.mu.Unlock()
 	known := s.registeredIDs(aclUserIDs(m)) // DB lookups outside the lock
-	if m.GetChannelId() == 0 {
-		defer s.rolesChanged() // roles live in root's groups; runs after the unlock
-	}
+	// Roles live in root's groups, channel moderators in channels'; runs
+	// after the unlock.
+	defer s.rolesChanged()
 	defer s.listenOnlyChanged()
 	defer s.privateChanged()
 	s.mu.Lock()
@@ -481,8 +481,10 @@ func (s *Server) accountRegistration(id uint32) bool {
 // registrationChangedLocked updates an online user after a rename (name
 // given) or after it was unregistered, and forgets its ACL entries.
 func (s *Server) registrationChangedLocked(id uint32, name *string, actor uint32) {
-	if key := (timeoutKey{id: id}); name == nil && s.timeouts[key] != nil {
-		s.setTimeoutLocked(key, time.Time{}, actor) // the database row is gone too
+	if keys := s.timeoutKeysLocked(timeoutKey{id: id}); name == nil && len(keys) > 0 {
+		for _, k := range keys {
+			s.setTimeoutLocked(k, time.Time{}, actor) // the database rows are gone too
+		}
 		go s.timeoutsChanged()
 	}
 	if name == nil {
