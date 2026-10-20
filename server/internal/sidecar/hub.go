@@ -72,9 +72,9 @@ type Voice interface {
 	// ListenOnly lists the listen-only voice channels (speaker lists are
 	// never nil).
 	ListenOnly() []ListenOnlyChannel
-	// SyncTextChannels keeps a Mumble channel per text channel (in order)
-	// and returns them.
-	SyncTextChannels(want []Mirror) ([]uint32, error)
+	// SyncTextTree keeps a Mumble channel per category and per text
+	// channel (in its category's, in order) and returns them.
+	SyncTextTree(cats []MirrorCategory, want []Mirror) (catIDs, ids []uint32, err error)
 	// Sees: the user may see a Mumble channel (others are hidden from it;
 	// a private text channel is its mirror's access). Private lists the
 	// private channels; SetPrivate makes one private with these members
@@ -222,9 +222,11 @@ type Hub struct {
 	voice Voice
 	// The server's public address, for upload links sent to Mumble clients.
 	publicBase string
-	// Text channels; changed by admins (with the built-in server). Under mu.
-	channels []wireChannel
-	mu       sync.Mutex
+	// Text channels and their categories; changed by admins (with the
+	// built-in server). Under mu.
+	channels   []wireChannel
+	categories []wireCategory
+	mu         sync.Mutex
 	// One channel change at a time: store, reload and broadcast in order.
 	manageMu sync.Mutex
 	// Guest messages of this run: message id -> voice server session (see
@@ -274,11 +276,10 @@ type uploadToken struct {
 }
 
 func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
-	channels, err := s.Channels()
-	if err != nil {
+	h := &Hub{store: s, now: now, conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}
+	if err := h.reloadChannels(); err != nil {
 		return nil, err
 	}
-	h := &Hub{store: s, now: now, channels: toWireChannels(channels, false), conns: map[*Conn]struct{}{}, tokens: map[string]uploadToken{}}
 	return h, h.loadEmoji()
 }
 
@@ -379,7 +380,8 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		c.sendAccess(id) // a registration can change what it sees
 	}
 	if becomesReady {
-		ready := map[string]any{"type": "ready", "channels": c.hub.channelsFor(id), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
+		channels := c.hub.channelsEvent(id)
+		ready := map[string]any{"type": "ready", "channels": channels["channels"], "categories": channels["categories"], "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
 		if c.hub.Avatars {
 			ready["avatars"] = true
 		}
@@ -417,6 +419,7 @@ type wireChannel struct {
 	Topic  string `json:"topic,omitempty"`
 	// Seconds between a user's posts (built-in server; see slowmode.go).
 	SlowMode int64 `json:"slowMode,omitempty"`
+	Category int64 `json:"category,omitempty"` // see categories.go
 }
 
 type wireMessage struct {
@@ -488,9 +491,11 @@ func toWire(m store.Message) wireMessage {
 
 type request struct {
 	Type      string          `json:"type"`
-	Name      string          `json:"name"`     // create-channel, rename-channel; emoji-token, delete-emoji
-	Channels  []int64         `json:"channels"` // order-channels
-	Voice     uint32          `json:"voice"`    // voice-chat, start-recording, stop-recording: the Mumble channel
+	Name      string          `json:"name"`       // create-channel, rename-channel; emoji-token, delete-emoji
+	Channels  []int64         `json:"channels"`   // order-channels
+	Category  int64           `json:"category"`   // create-channel, set-category, rename-category, delete-category
+	Cats      []int64         `json:"categories"` // order-categories
+	Voice     uint32          `json:"voice"`      // voice-chat, start-recording, stop-recording: the Mumble channel
 	Channel   int64           `json:"channel"`
 	Before    int64           `json:"before"`
 	Text      string          `json:"text"`
@@ -572,7 +577,8 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	}
 	switch req.Type {
-	case "create-channel", "rename-channel", "delete-channel", "order-channels", "set-topic", "set-slow-mode":
+	case "create-channel", "rename-channel", "delete-channel", "order-channels", "set-topic", "set-slow-mode",
+		"create-category", "rename-category", "delete-category", "order-categories", "set-category":
 		c.manage(*id, req)
 		return
 	case "mark-read":
@@ -1091,12 +1097,11 @@ func textChannelName(raw string) (string, bool) {
 
 const maxTopicLength = 200
 
-// manage changes the text channels (staff; topic and slow mode also the
-// channel's moderators) and sends everyone the new list.
+// manage changes the text channels and categories (see mayManage) and
+// sends everyone the new list.
 func (c *Conn) manage(id mumble.Identity, req request) {
 	h := c.hub
-	own := (req.Type == "set-topic" || req.Type == "set-slow-mode") && h.mirrorOf(req.Channel) != 0 && h.mayModerate(id, chat{id: req.Channel})
-	if h.voice == nil || !own && !h.voice.MayManage(id.Session) {
+	if !h.mayManage(id, req) {
 		c.manageError("you may not manage channels")
 		return
 	}
@@ -1115,7 +1120,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 		if req.Type == "create-channel" {
 			var ch store.Channel
-			if ch, err = h.store.CreateChannel(name, 0); err == nil && req.Private {
+			if ch, err = h.store.CreateChannel(name, req.Category); err == nil && req.Private {
 				private, access = ch.ID, true
 			}
 		} else {
@@ -1138,9 +1143,29 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		}
 		err = h.store.SetSlowMode(req.Channel, req.Seconds)
 	case "order-channels":
-		err = h.store.SetPositions(h.fullOrder(req.Channels))
+		err = h.store.SetPositions(fullOrder(req.Channels, idsOf(h, &h.channels, func(c wireChannel) int64 { return c.ID })))
+	case "create-category", "rename-category":
+		name, ok := categoryName(req.Name)
+		if !ok {
+			c.manageError("a category name has 1 to 32 letters, digits, spaces or - _ = ( ) [ ] { } @ |")
+			return
+		}
+		if req.Type == "create-category" {
+			_, err = h.store.CreateCategory(name)
+		} else {
+			err = h.store.RenameCategory(req.Category, name)
+		}
+	case "delete-category": // its channels stay, without a category
+		access, err = true, h.store.DeleteCategory(req.Category)
+	case "order-categories":
+		err = h.store.SetCategoryPositions(fullOrder(req.Cats, idsOf(h, &h.categories, func(c wireCategory) int64 { return c.ID })))
+	case "set-category": // its moderators change
+		access, err = true, h.store.SetChannelCategory(req.Channel, req.Category)
 	}
 	switch {
+	case errors.Is(err, store.ErrNameTaken) && strings.Contains(req.Type, "categor"):
+		c.manageError("a category with this name exists")
+		return
 	case errors.Is(err, store.ErrNameTaken):
 		c.manageError("a channel with this name exists")
 		return
@@ -1166,7 +1191,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 		if access {
 			c.sendAccess(id)
 		} else {
-			c.send(map[string]any{"type": "channels", "channels": h.channelsFor(id)})
+			c.send(h.channelsEvent(id))
 		}
 	})
 }
@@ -1176,7 +1201,7 @@ func (c *Conn) manage(id mumble.Identity, req request) {
 func toWireChannels(channels []store.Channel, mirrors bool) []wireChannel {
 	wire := make([]wireChannel, len(channels))
 	for i, ch := range channels {
-		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Topic: ch.Topic}
+		wire[i] = wireChannel{ID: ch.ID, Name: ch.Name, Topic: ch.Topic, Category: ch.Category}
 		if mirrors {
 			wire[i].Mumble, wire[i].SlowMode = ch.Mumble, ch.SlowMode
 		}
@@ -1189,31 +1214,47 @@ func (h *Hub) reloadChannels() error {
 	if err != nil {
 		return err
 	}
+	cats, err := h.store.Categories()
+	if err != nil {
+		return err
+	}
+	wire := make([]wireCategory, len(cats))
+	for i, c := range cats {
+		wire[i] = wireCategory{ID: c.ID, Name: c.Name}
+		if h.voice != nil {
+			wire[i].Mumble = c.Mumble
+		}
+	}
 	h.mu.Lock()
-	h.channels = toWireChannels(channels, h.voice != nil)
+	h.channels, h.categories = toWireChannels(channels, h.voice != nil), wire
 	h.mu.Unlock()
 	return nil
 }
 
-// fullOrder: the given text channels first, the others after them in their
-// current order (a partial list must not leave two at one position).
-func (h *Hub) fullOrder(first []int64) []int64 {
+// idsOf lists the ids of the text channels or categories (list is under
+// mu).
+func idsOf[T any](h *Hub, list *[]T, id func(T) int64) []int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	known := map[int64]bool{}
-	for _, ch := range h.channels {
-		known[ch.ID] = true
+	out := make([]int64, len(*list))
+	for i, x := range *list {
+		out[i] = id(x)
 	}
+	return out
+}
+
+// fullOrder: the given ids of all first, the others after them in their
+// current order (a partial list must not leave two at one position).
+func fullOrder(first, all []int64) []int64 {
 	var out []int64
 	for _, id := range first {
-		if known[id] {
+		if slices.Contains(all, id) && !slices.Contains(out, id) {
 			out = append(out, id)
-			delete(known, id)
 		}
 	}
-	for _, ch := range h.channels {
-		if known[ch.ID] {
-			out = append(out, ch.ID)
+	for _, id := range all {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
 		}
 	}
 	return out

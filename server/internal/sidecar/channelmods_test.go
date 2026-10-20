@@ -12,11 +12,14 @@ import (
 )
 
 // Staff (session 1) moderate everywhere; others where f.moderates says
-// (session: Mumble channel).
+// (session: Mumble channel), and in a moderated category's mirrors they
+// see.
 func (f *fakeVoice) ModeratesIn(session, channel uint32) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return session == 1 || channel != 0 && f.moderates[session] == channel
+	mod := f.moderates[session]
+	inCategory := mod != 0 && f.parents[channel] == mod && (!f.hidden[channel] || f.members[session])
+	return session == 1 || channel != 0 && (mod == channel || inCategory)
 }
 
 func (f *fakeVoice) ChannelModerators() []ChannelModerators {

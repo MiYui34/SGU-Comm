@@ -25,10 +25,15 @@ type fakeVoice struct {
 	// Text channel mirrors: the last sync, Mumble channels by name, and
 	// texts to Mumble clients (channel texts by channel, server texts by
 	// session).
-	synced    []Mirror
-	mirrors   map[string]uint32
-	toChannel map[uint32][]string
-	toUser    map[uint32][]string
+	synced  []Mirror
+	mirrors map[string]uint32
+	// Categories: the last sync, Mumble channels by name, and each
+	// mirror's category (its parent).
+	syncedCats []MirrorCategory
+	cats       map[string]uint32
+	parents    map[uint32]uint32
+	toChannel  map[uint32][]string
+	toUser     map[uint32][]string
 	// Who sessions are: users (others are guests), web (web clients), gone
 	// (disconnected: the voice server forgets them before their leave event).
 	users map[uint32]MumbleUser
@@ -114,18 +119,29 @@ func (f *fakeVoice) SendChannelText(from, channel uint32, text string) {
 	f.toChannel[channel] = append(f.toChannel[channel], text)
 }
 
-// Mirrors get Mumble channels 100, 101, ... by name.
-func (f *fakeVoice) SyncTextChannels(want []Mirror) ([]uint32, error) {
+// New mirrors get Mumble channels 100, 101, ... by name, categories 200,
+// 201, ...
+func (f *fakeVoice) SyncTextTree(cats []MirrorCategory, want []Mirror) ([]uint32, []uint32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.mirrors == nil {
-		f.mirrors = map[string]uint32{}
+		f.mirrors, f.cats = map[string]uint32{}, map[string]uint32{}
 	}
-	f.synced = slices.Clone(want)
+	f.synced, f.syncedCats, f.parents = slices.Clone(want), slices.Clone(cats), map[uint32]uint32{}
+	catIDs := make([]uint32, len(cats))
+	for i, c := range cats {
+		if f.cats[c.Name] == 0 {
+			f.cats[c.Name] = 200 + uint32(len(f.cats))
+		}
+		catIDs[i] = f.cats[c.Name]
+	}
 	ids := make([]uint32, len(want))
 	for i, m := range want {
 		if f.noMirror[m.Name] {
 			continue
+		}
+		if m.Channel != 0 { // kept, also when renamed
+			f.mirrors[m.Name] = m.Channel
 		}
 		if f.mirrors[m.Name] == 0 {
 			f.mirrors[m.Name] = 100 + uint32(len(f.mirrors))
@@ -134,8 +150,11 @@ func (f *fakeVoice) SyncTextChannels(want []Mirror) ([]uint32, error) {
 			}
 		}
 		ids[i] = f.mirrors[m.Name]
+		if m.Category > 0 {
+			f.parents[ids[i]] = catIDs[m.Category-1]
+		}
 	}
-	return ids, nil
+	return catIDs, ids, nil
 }
 
 func (f *fakeVoice) SendServerText(session uint32, text string) {
