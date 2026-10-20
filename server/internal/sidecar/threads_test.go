@@ -372,12 +372,17 @@ func TestGetThread(t *testing.T) {
 		}
 	}
 	empty(t, carol)
-	unknown := refused(t, carol, `{"type":"get-thread","channel":%d}`, id+100)
-	if m := refused(t, carol, `{"type":"get-thread","channel":%d}`, id); m["message"] != unknown["message"] {
-		t.Fatalf("carol got %v, not %v", m, unknown)
+	// The same answer as for no thread (the client tells the link is not
+	// here); not for other chats either.
+	for _, c := range []struct {
+		c  *Conn
+		id int64
+	}{{carol, id}, {carol, id + 100}, {bob, secret}} {
+		do(c.c, `{"type":"get-thread","channel":%d}`, c.id)
+		if m := next(t, c.c); m["type"] != "no-thread" || m["id"] != float64(c.id) || len(m) != 2 {
+			t.Fatalf("%d: got %v", c.id, m)
+		}
 	}
-	// Not other chats.
-	refused(t, bob, `{"type":"get-thread","channel":%d}`, secret)
 }
 
 func TestFollowingThreads(t *testing.T) {

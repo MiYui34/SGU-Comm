@@ -592,9 +592,7 @@
   });
   // The settings as they hold: threads without their own take their
   // channel's (see lib/channelPrefs).
-  const chatPrefs = $derived(
-    withParents(channelPrefs.value, connection.httpBase, Object.fromEntries(Object.values(text.threads).map((t) => [t.id, t.channel]))),
-  );
+  const chatPrefs = $derived(withParents(channelPrefs.value, connection.httpBase, text.threads));
   const prefIn = (id: number) => prefOf(chatPrefs, connection.httpBase, id);
   const mutedText = $derived(mutedIds(chatPrefs, connection.httpBase, muteNow));
   // Link previews of the open chat's messages: asked once per message.
@@ -969,8 +967,8 @@
   $effect(() => {
     if (threadId !== null && (!thread || thread.channel !== textId)) threadId = null;
   });
-  // One asked for by id (see openChat) opens when it comes; a refusal
-  // ends the wait.
+  // One asked for by id (see openChat) opens when it comes (or the server
+  // says it is not there).
   let startedFrom: number | null = null;
   $effect(() =>
     connection.onTextEvent((ev) => {
@@ -981,7 +979,7 @@
         const jump = askedThread.message;
         askedThread = null;
         openThread(ev.thread, jump);
-      } else if (ev.type === "error") askedThread = null;
+      } else if (ev.type === "no-thread" && ev.id === askedThread?.id) askedThread = null;
     }),
   );
   const threadByStart = $derived(new Map(Object.values(text.threads).map((t) => [t.start, t])));

@@ -235,6 +235,10 @@ func (c *Conn) threadRequest(id mumble.Identity, req request) {
 	t, err := h.store.Thread(req.Channel)
 	ch, ok := h.threadChat(t)
 	if err != nil || !ok || !h.may(id, ch, false) {
+		if req.Type == "get-thread" { // a link: the client tells it is not here
+			c.send(map[string]any{"type": "no-thread", "id": req.Channel})
+			return
+		}
 		c.sendError("unknown thread")
 		return
 	}

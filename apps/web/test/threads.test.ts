@@ -150,6 +150,11 @@ describe("thread state", () => {
     );
     expect(Object.keys(s.threads)).toEqual(["7"]);
   });
+  it("tells when a thread asked for by id is not there", () => {
+    const e = ev('{"type":"no-thread","id":9}');
+    expect(e).toEqual({ type: "no-thread", id: 9 });
+    expect(reduceText(ready, e).notice).toEqual({ text: "You cannot open this message here", n: 1 });
+  });
   it("takes the archive time", () => {
     expect(reduceText(ready, ev('{"type":"thread-archive","seconds":86400}')).threadArchive).toBe(86400);
   });
