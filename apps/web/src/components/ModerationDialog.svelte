@@ -266,8 +266,8 @@
     <label class="check">
       <input type="checkbox" checked={guestsReadOnly === true} disabled={saves.guests.busy} onchange={(e) => setGuests(e.currentTarget)} />
       Guests may only read
-      <SaveStatus save={saves.guests.state} />
     </label>
+    <SaveStatus save={saves.guests.state} />
     <p class="note">
       Guests (without an account, or with a guest account) can still read and talk, but they cannot write, react, upload or send
       direct messages. Use it during a spam wave.
@@ -279,8 +279,8 @@
         <option value="normal">Normal</option>
         <option value="hard">Hard</option>
       </select>
-      <SaveStatus save={saves.captcha.state} />
     </label>
+    <SaveStatus save={saves.captcha.state} />
     <p class="note">
       Before a web browser creates an account or joins as a guest, it does some work by itself: about 1 to 2 seconds (Normal) or 4
       times as long (Hard). This slows down scripts that make many accounts. No third party is involved. Mumble clients and logins
@@ -292,8 +292,8 @@
       <select value={threadArchive} disabled={saves.archive.busy} onchange={(e) => setArchive(e.currentTarget)}>
         {#each ARCHIVE_TIMES as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
       </select>
-      <SaveStatus save={saves.archive.state} />
     </label>
+    <SaveStatus save={saves.archive.state} />
     <p class="note">
       A thread without new messages for this time is archived: it leaves the channel list, but stays readable and searchable in the
       channel's thread list. A new message opens it again.
