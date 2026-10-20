@@ -3,6 +3,8 @@ package files
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -75,6 +77,8 @@ func TestUploadAndServeAnEmoji(t *testing.T) {
 func TestEmojiUploadsAreChecked(t *testing.T) {
 	srv, s, changes := setupEmoji(t)
 	big := append(pngBytes(t), make([]byte, MaxEmojiBytes)...)
+	var hugePNG bytes.Buffer
+	png.Encode(&hugePNG, image.NewGray(image.Rect(0, 0, 8000, 8000)))
 	for _, c := range []struct {
 		token  string
 		body   []byte
@@ -84,6 +88,7 @@ func TestEmojiUploadsAreChecked(t *testing.T) {
 		{"good", []byte("<svg onload=alert(1)>"), http.StatusUnsupportedMediaType},
 		{"good", []byte{}, http.StatusUnsupportedMediaType},
 		{"good", big, http.StatusRequestEntityTooLarge},
+		{"good", hugePNG.Bytes(), http.StatusRequestEntityTooLarge}, // too many pixels
 	} {
 		if resp, v := uploadEmoji(t, srv, c.token, c.body); resp.StatusCode != c.status || v["error"] == nil {
 			t.Errorf("%s %d bytes: %d %v", c.token, len(c.body), resp.StatusCode, v)
