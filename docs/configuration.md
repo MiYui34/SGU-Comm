@@ -117,9 +117,10 @@ shows the server address
 
 - `MUMBLE_HOST`: the Murmur server (this turns the built-in server off).
 - `MUMBLE_PORT` (64738).
-- `MUMBLE_INSECURE_TLS=1`: accept Murmur's self-signed certificate. Off by
-  default (the certificate is checked); `compose.murmur.yml` sets 1. Most
-  Murmur servers have a self-signed certificate.
+- `MUMBLE_INSECURE_TLS=1`: accept Murmur's self-signed certificate. The
+  server defaults to checking the certificate; `deploy/compose.murmur.yml`
+  keeps its earlier default of 1 for common self-signed Murmur setups.
+  Set it to 0 in `deploy/.env` when Murmur has a trusted certificate.
 
 ## Development
 
