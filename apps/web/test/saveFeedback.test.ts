@@ -37,16 +37,17 @@ describe("answer", () => {
     expect(r.confirmed).toEqual([]);
     expect(r.rest.map((w) => w.id)).toEqual([1, 3]);
   });
-  it("confirms each waiter of its kind the answer matches", () => {
-    const r = answer(ws, "text", false, (w) => !!w.ok);
+  it("confirms the oldest waiter of its kind the answer matches", () => {
+    const r = answer([...ws, { via: "text", id: 4, ok: true }], "text", false, (w) => !!w.ok);
     expect(r.refused).toBeUndefined();
     expect(r.confirmed.map((w) => w.id)).toEqual([3]);
-    expect(r.rest.map((w) => w.id)).toEqual([1, 2]);
+    expect(r.rest.map((w) => w.id)).toEqual([1, 2, 4]);
   });
-  it("can refuse one and confirm another in the same answer", () => {
-    const r = answer([...ws, { via: "mumble", id: 4, ok: true }], "mumble", true, (w) => !!w.ok);
+  it("can refuse one and confirm the others whose Mumble state holds", () => {
+    const more: W[] = [...ws, { via: "mumble", id: 4, ok: true }, { via: "mumble", id: 5, ok: true }];
+    const r = answer(more, "mumble", true, (w) => !!w.ok);
     expect(r.refused?.id).toBe(1);
-    expect(r.confirmed.map((w) => w.id)).toEqual([4]);
+    expect(r.confirmed.map((w) => w.id)).toEqual([4, 5]);
     expect(r.rest.map((w) => w.id)).toEqual([2, 3]);
   });
   it("leaves the queue as it is without a waiter", () => {

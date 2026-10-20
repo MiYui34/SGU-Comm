@@ -19,13 +19,15 @@ export const busyLabel = (s: Save, label: string, busy = "Saving…") => (s.phas
 
 // Requests that wait for the server's answer, oldest first. The server
 // answers in order, so a refusal (a manage error, a Mumble
-// PermissionDenied) goes to the oldest of its kind; an answer confirms each
-// one it matches.
+// PermissionDenied) goes to the oldest of its kind, and an event confirms
+// the oldest it matches (one "channels" event is not the answer to three
+// changes). Mumble checks look at the state: all that hold are done.
 export type Via = "text" | "mumble";
 export const answer = <W extends { via: Via }>(waiters: readonly W[], via: Via, refused: boolean, matches: (w: W) => boolean) => {
   const mine = waiters.filter((w) => w.via === via);
   const no = refused ? mine[0] : undefined;
-  const confirmed = mine.filter((w) => w !== no && matches(w));
+  const matching = mine.filter((w) => w !== no && matches(w));
+  const confirmed = via === "text" ? matching.slice(0, 1) : matching;
   return { refused: no, confirmed, rest: waiters.filter((w) => w !== no && !confirmed.includes(w)) };
 };
 
