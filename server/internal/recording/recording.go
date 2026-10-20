@@ -263,9 +263,9 @@ func safeName(s string) string {
 // padBytes: a second of silence on a track and its last page, at most.
 const padBytes = 512
 
-// finish closes the tracks at the same end and writes the info. Silence
-// fills them up to the end a second at a time, within the size limit: at
-// it they end earlier.
+// finish closes the tracks and writes the info. Silence fills them up to
+// the end a second at a time, within the size limit: at it they end
+// earlier (where each is, if it was reached already).
 func (r *Recording) finish(reason string) {
 	r.info.Stopped = r.lib.Now()
 	r.info.Expires = r.info.Stopped.Add(r.lib.Keep)

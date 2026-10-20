@@ -122,6 +122,11 @@ func TestServeSurvivesAcceptErrors(t *testing.T) {
 	t.Cleanup(s.Close)
 	served := make(chan error, 1)
 	go func() { served <- s.Serve(&flakyListener{Listener: ln}) }()
+	select {
+	case err := <-served:
+		t.Fatal(err)
+	case <-time.After(50 * time.Millisecond):
+	}
 	dial(t, ln.Addr().String(), "alice")
 	ln.Close()
 	select {
