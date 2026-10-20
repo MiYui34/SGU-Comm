@@ -92,12 +92,13 @@ func TestUploadsAndAttachments(t *testing.T) {
 	s := open(t)
 	s.EnsureChannels([]string{"general"})
 	at := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	u, err := s.AddUpload(Upload{Key: "k1", Name: "cat.png", Type: "image/png", Size: 1234, Author: "alice"}, at)
+	cat := Media{Width: 640, Height: 480, Duration: 1500}
+	u, err := s.AddUpload(Upload{Key: "k1", Name: "cat.png", Type: "image/png", Size: 1234, Author: "alice", Media: cat}, at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.UploadByKey("k1")
-	if err != nil || got.ID != u.ID || got.Name != "cat.png" || got.Author != "alice" || got.Used {
+	if err != nil || got.ID != u.ID || got.Name != "cat.png" || got.Author != "alice" || got.Used || got.Media != cat {
 		t.Fatalf("got %+v %v", got, err)
 	}
 	m, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "look", At: at, UploadID: u.ID})
@@ -116,7 +117,7 @@ func TestUploadsAndAttachments(t *testing.T) {
 		t.Fatal("expected an error for a used upload")
 	}
 	hist, _ := s.History(1, 0, 10)
-	if len(hist) != 1 || hist[0].Upload == nil || hist[0].Upload.Key != "k1" || hist[0].Upload.Size != 1234 {
+	if len(hist) != 1 || hist[0].Upload == nil || hist[0].Upload.Key != "k1" || hist[0].Upload.Size != 1234 || hist[0].Upload.Media != cat {
 		t.Fatalf("history: %+v", hist)
 	}
 	if _, err := s.UploadByKey("nope"); err == nil {
@@ -143,6 +144,54 @@ func TestMigratesAnOldDatabase(t *testing.T) {
 	s.EnsureChannels([]string{"general"})
 	if _, err := s.AddMessage(NewMessage{ChannelID: 1, Author: "alice", Text: "hi", At: time.Now()}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMeasureUploadsOnce(t *testing.T) {
+	path := t.TempDir() + "/old.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now()
+	s.AddUpload(Upload{Key: "video", Name: "a.mp4", Type: "video/mp4", Size: 1, Author: "a"}, at)
+	s.AddUpload(Upload{Key: "file", Name: "b.zip", Type: "application/zip", Size: 1, Author: "a"}, at)
+	// Uploads from before sizes were kept.
+	for _, q := range []string{`ALTER TABLE uploads DROP COLUMN width`, `ALTER TABLE uploads DROP COLUMN height`,
+		`ALTER TABLE uploads DROP COLUMN duration`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	video := Media{Width: 1280, Height: 720, Duration: 2500}
+	var asked []string
+	measure := func(u Upload) Media {
+		asked = append(asked, u.Key+" "+u.Type+" "+u.Name)
+		if u.Key == "video" {
+			return video
+		}
+		return Media{}
+	}
+	if err := s.MeasureUploads(measure); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(asked, []string{"video video/mp4 a.mp4", "file application/zip b.zip"}) {
+		t.Fatalf("asked %v", asked)
+	}
+	if u, _ := s.UploadByKey("video"); u.Media != video {
+		t.Fatalf("video: %+v", u)
+	}
+	if u, _ := s.UploadByKey("file"); u.Media != (Media{}) {
+		t.Fatalf("file: %+v", u)
+	}
+	asked = nil
+	if err := s.MeasureUploads(measure); err != nil || asked != nil {
+		t.Fatalf("again: %v %v", asked, err)
 	}
 }
 
