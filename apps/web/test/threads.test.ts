@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeThreads, defaultThreadName, replyBoxText, threadList, threadRequest, type Thread } from "../src/lib/threads";
+import { activeThreads, defaultThreadName, replyBoxText, startedIn, threadList, threadRequest, type Thread } from "../src/lib/threads";
 import { initialTextState, parseServerEvent, reduceText, unreadTextIds, type TextState } from "../src/lib/textChannels";
 import { mentionCounts } from "../src/lib/mentions";
 
@@ -48,6 +48,21 @@ describe("thread lists", () => {
     expect(threadList(threads, archived, 1).map((t) => t.id)).toEqual([2, 1, 5, 3]);
     // One that opened again is not listed twice.
     expect(threadList({ ...threads, 5: thread(5, { last: 1 }) }, archived, 1).map((t) => t.id)).toEqual([2, 1, 5, 3]);
+  });
+});
+
+describe("threads we started", () => {
+  const threads = {
+    1: thread(1, { authorId: 7, at: 5 }),
+    2: thread(2, { authorId: 8 }),
+    3: thread(3, { channel: 2, authorId: 7 }),
+    4: thread(4, { author: "Guest", at: 50 }),
+    5: thread(5, { author: "guest", at: 10 }),
+  };
+  it("are ours by id, or as guests by name since we joined, in a channel", () => {
+    expect(startedIn(threads, 1, { name: "bob", userId: 7 }, 0).map((t) => t.id)).toEqual([1]);
+    expect(startedIn(threads, 1, { name: "guest", userId: null }, 20).map((t) => t.id)).toEqual([4]);
+    expect(startedIn(threads, 1, undefined, 0)).toEqual([]);
   });
 });
 

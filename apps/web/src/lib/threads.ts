@@ -41,6 +41,16 @@ export const isThreads = (v: unknown): v is Thread[] => Array.isArray(v) && v.ev
 // count).
 export const followedThreads = (follows: ReadonlySet<number>, threads: Threads) => [...follows].filter((id) => threads[id]);
 
+// The threads we started in a channel (each took a slow mode turn there):
+// by user id, or as a guest by name since we joined.
+export const startedIn = (threads: Threads, channel: number, me: { name: string; userId: number | null } | undefined, since: number) =>
+  Object.values(threads).filter(
+    (t) =>
+      t.channel === channel &&
+      !!me &&
+      (t.authorId !== undefined ? t.authorId === me.userId : me.userId === null && t.author.toLowerCase() === me.name.toLowerCase() && t.at >= since),
+  );
+
 // Threads by id, with these added (newer data wins).
 export const withThreads = (threads: Threads, list: readonly Thread[]): Threads =>
   list.length ? { ...threads, ...Object.fromEntries(list.map((t) => [t.id, t])) } : threads;

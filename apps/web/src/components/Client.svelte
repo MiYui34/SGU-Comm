@@ -44,7 +44,7 @@
   import { watchAway } from "../lib/away";
   import { statusOfSession } from "../lib/presence";
   import { ownsMessage } from "../lib/messages";
-  import { lastPostAt } from "../lib/slowMode";
+  import { lastTurnAt } from "../lib/slowMode";
   import { chatKeyOf } from "../lib/composer";
   import type { Place, View } from "../lib/place";
   import {
@@ -83,7 +83,7 @@
   import ChatPane from "./ChatPane.svelte";
   import ThreadList from "./ThreadList.svelte";
   import ThreadNameDialog from "./ThreadNameDialog.svelte";
-  import { activeThreads, defaultThreadName, threadList, type Thread } from "../lib/threads";
+  import { activeThreads, defaultThreadName, startedIn, threadList, type Thread } from "../lib/threads";
   import MemberList from "./MemberList.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import ModerationDialog from "./ModerationDialog.svelte";
@@ -758,11 +758,12 @@
   const joinedAt = Date.now() - 60_000; // allows for clock differences
   const mine = (m: ChatMessage) => ownsMessage(m, me, joinedAt);
   // Slow mode in the open text channel (staff are exempt).
-  // A thread has its channel's slow mode, and its own turns.
+  // A thread has its channel's slow mode, and its own turns; starting one
+  // takes a turn in the channel.
   const slowIn = (id: number | null, chat: readonly ChatMessage[]) =>
     id === null || !textChannel?.slowMode || canModerate(server, text, viewMumble)
       ? null
-      : { seconds: textChannel.slowMode, lastPost: lastPostAt(chat, mine), until: text.slowUntil[id] };
+      : { seconds: textChannel.slowMode, lastPost: lastTurnAt(chat, mine, startedIn(text.threads, id, me, joinedAt)), until: text.slowUntil[id] };
   const slow = $derived(slowIn(textId, textChat));
   // Names "@" suggests: who is online, and who wrote in the open chat;
   // for moderators also everyone and here (stored chats, see lib/mentions).
