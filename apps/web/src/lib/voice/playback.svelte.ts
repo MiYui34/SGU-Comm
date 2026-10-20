@@ -35,7 +35,9 @@ export type Playback = ReturnType<typeof createPlayback>;
 export const createPlayback = (ctx: AudioContext) => {
   const speakers = new Map<number, Speaker>();
   // Per-user volume (0 = locally muted). Kept apart from `speakers`, which
-  // come and go with each talk spurt's decoder.
+  // come and go with each talk spurt's decoder. No entry: the client does
+  // not know the speaker yet (voice can overtake their UserState), or not
+  // their local mute and volume: their voice is dropped.
   const gains = new Map<number, number>();
   const speaking = new SvelteSet<number>();
   const output = ctx.createGain();
@@ -93,7 +95,7 @@ export const createPlayback = (ctx: AudioContext) => {
     const existing = speakers.get(session);
     if (existing) return existing;
     const gain = ctx.createGain();
-    gain.gain.value = gains.get(session) ?? 1;
+    gain.gain.value = gains.get(session)!;
     gain.connect(output);
     const speaker: Speaker = {
       session,
@@ -127,7 +129,7 @@ export const createPlayback = (ctx: AudioContext) => {
     speaking: speaking as ReadonlySet<number>,
     // Must not throw: it runs inside the control connection's message handler.
     handle: (packet: AudioPacket) => {
-      if (deaf) return;
+      if (deaf || !gains.has(packet.session)) return;
       try {
         const speaker = speakerFor(packet.session);
         markSpeaking(packet.session, speaker, packet.terminator);
