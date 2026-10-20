@@ -1,7 +1,12 @@
 package mumbled
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +20,7 @@ import (
 
 func TestAvatarsOfRegisteredUsers(t *testing.T) {
 	db := testDB(t)
-	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 20)...)
+	png := pngOf(t, 4, 4)
 	alice, _ := db.RegisterUser("Alice", "aa")
 	db.SetUserContent(alice, "", png)
 	bob, _ := db.RegisterUser("bob", "bb")
@@ -65,7 +70,7 @@ func TestAvatarsOfOnlineUsersAreLive(t *testing.T) {
 		events <- fmt.Sprint(id)
 	}}, nil)
 	alice, id := registered(t, addr, "alice")
-	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 200)...)
+	png := pngOf(t, 64, 64)
 	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), Texture: png})
 	expectEvent(t, events, fmt.Sprint(id))
 	db.SetUserContent(id, "", []byte("\x89PNG\r\n\x1a\nold")) // as before the save
@@ -78,7 +83,7 @@ func TestAvatarsOfOnlineUsersAreLive(t *testing.T) {
 
 func TestPicturesAreFlaggedWhenSaved(t *testing.T) {
 	db := testDB(t)
-	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 20)...)
+	png := pngOf(t, 4, 4)
 	alice, _ := db.RegisterUser("alice", "aa")
 	bob, _ := db.RegisterUser("bob", "bb")
 	db.RegisterUser("carol", "cc") // none
@@ -97,7 +102,7 @@ func TestPicturesAreFlaggedWhenSaved(t *testing.T) {
 func TestOldPicturesAreFlagged(t *testing.T) {
 	db := testDB(t)
 	alice, _ := db.RegisterUser("alice", "aa")
-	db.SetUserContent(alice, "", append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 20)...))
+	db.SetUserContent(alice, "", pngOf(t, 4, 4))
 	if _, err := db.db.Exec(`ALTER TABLE mumble_users DROP COLUMN picture`); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +131,7 @@ func TestPictureChangesAreReported(t *testing.T) {
 	}
 	set(&pb.UserState{Texture: []byte("<svg onload=alert(1)>")}) // no image
 	expectEvent(t, events, fmt.Sprint(id, " false"))
-	set(&pb.UserState{Texture: append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 200)...)})
+	set(&pb.UserState{Texture: pngOf(t, 64, 64)})
 	expectEvent(t, events, fmt.Sprint(id, " true"))
 	if got := s.Pictures(); !maps.Equal(got, map[uint32]bool{id: true}) {
 		t.Fatalf("pictures %v", got)
@@ -136,5 +141,82 @@ func TestPictureChangesAreReported(t *testing.T) {
 	expectEvent(t, events, fmt.Sprint(id, " false"))
 	if got := s.Pictures(); len(got) != 0 {
 		t.Fatalf("after removal %v", got)
+	}
+}
+
+// pngOf is a real (blank) PNG picture of this size: a few hundred bytes
+// even when large.
+func pngOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// webpOf is the start of a lossless WebP of this size (all that a size
+// check reads).
+func webpOf(w, h int) []byte {
+	bits := uint32(w-1) | uint32(h-1)<<14
+	chunk := append([]byte("VP8L\x05\x00\x00\x00\x2f"), byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24), 0)
+	return append(append([]byte("RIFF"), byte(4+len(chunk)), 0, 0, 0), append([]byte("WEBP"), chunk...)...)
+}
+
+// Avatars are at most 1024 px a side (as clients show them): a small
+// file can hold a huge picture.
+func TestAvatarTypeChecksTheSize(t *testing.T) {
+	encoded := func(enc func(*bytes.Buffer, image.Image) error, w, h int) []byte {
+		var b bytes.Buffer
+		if err := enc(&b, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	gifOf := func(b *bytes.Buffer, m image.Image) error { return gif.Encode(b, m, nil) }
+	jpegOf := func(b *bytes.Buffer, m image.Image) error { return jpeg.Encode(b, m, nil) }
+	for _, c := range []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"png", pngOf(t, 1024, 1024), "image/png"},
+		{"png too wide", pngOf(t, 1025, 1), ""},
+		{"gif", encoded(gifOf, 8, 8), "image/gif"},
+		{"gif too high", encoded(gifOf, 1, 5000), ""},
+		{"jpeg", encoded(jpegOf, 8, 8), "image/jpeg"},
+		{"jpeg too large", encoded(jpegOf, 2000, 16), ""},
+		{"webp", webpOf(16, 16), "image/webp"},
+		{"webp too large", webpOf(4000, 16), ""},
+		{"only the signature", append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 20)...), ""},
+		{"no image", []byte("<svg onload=alert(1)>"), ""},
+	} {
+		if got := avatarType(c.data); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestOversizedAvatarsAreNotServed(t *testing.T) {
+	db := testDB(t)
+	bob, _ := db.RegisterUser("bob", "bb")
+	db.SetUserContent(bob, "", pngOf(t, 4000, 4000))
+	s, addr := startServerAndListen(t, "127.0.0.1", Config{DB: db}, nil)
+	alice, _ := registered(t, addr, "alice")
+	alice.send(mumble.TypeUserState, &pb.UserState{Session: proto.Uint32(alice.session), Texture: pngOf(t, 1, 3000)})
+	eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return len(s.state.Users[alice.session].Texture) > 0
+	})
+	for _, name := range []string{"alice", "bob"} { // online, offline
+		w := httptest.NewRecorder()
+		s.Avatars().ServeHTTP(w, httptest.NewRequest("GET", "/api/avatars/"+name, nil))
+		if w.Code != 404 {
+			t.Fatalf("%s: %d", name, w.Code)
+		}
+	}
+	if got, _ := db.Pictures(); len(got) != 0 {
+		t.Fatalf("flagged %v", got)
 	}
 }
