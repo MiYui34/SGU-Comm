@@ -1386,3 +1386,29 @@ From `meta/research/discord-comparison.md`.
   before. A new start of the clock that moves it earlier (rare: a
   backlog drained by over 1 s) lets sound already scheduled overlap the
   new for up to a second.
+
+## Review fixes: client (2026-10-20)
+
+- Stream playout: after a late item the lead went down by the drift of all
+  the time since, also with no item in between. A still screen share
+  (one picture after 5 min) lost its next picture. Now the lead goes down
+  only after an on-time item was seen since the late one, and by at most
+  1 s of drift per item. Recording the late item's own slack (as the
+  review proposed) was not done: it is below one step by design, so the
+  lead would never go down again.
+- Voice codecs: a failure (load, call, or the codec's error callback) is
+  for good. Queued calls (with their samples) are dropped, later ones
+  ignored, the error is reported once. Capture drops the failed
+  encoder's pending inputs and sends nothing until the next talk spurt,
+  which tries a new encoder (not at once: a codec that cannot load would
+  fail in a loop).
+- Playback drops voice of a session until the client set its local mute
+  and volume (setUserGain, from the UserState and the per-name settings).
+  Before, voice that overtook a muted user's UserState after a
+  reconnect played at full volume until the mute came. The first packets
+  of a new speaker (until the next effect run) are lost.
+- Avatars: the server serves (and flags as pictures) only images of at
+  most 1024 px a side, online and offline. It reads the header only
+  (image.DecodeConfig; WebP from golang.org/x/image). Gap: databases that
+  flagged a larger picture before keep the flag until the next save; the
+  client then gets a 404 (cached 5 min).
