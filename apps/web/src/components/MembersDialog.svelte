@@ -117,7 +117,7 @@
         <select aria-label="Uses" bind:value={uses}>
           {#each useChoices as c (c.uses)}<option value={c.uses}>{c.label}</option>{/each}
         </select>
-        <button type="button" class="action" disabled={links.state.phase === "pending"} onclick={() => links.run(() => onCreateInvite(seconds, uses))}>
+        <button type="button" class="action" disabled={links.busy} onclick={() => links.run(() => onCreateInvite(seconds, uses))}>
           {busyLabel(links.state, "Create link", "Creating…")}
         </button>
       </div>
@@ -132,7 +132,7 @@
               <button
                 type="button"
                 aria-label="Delete the link by {i.creator}, {inviteUses(i)}"
-                disabled={links.state.phase === "pending"}
+                disabled={links.busy}
                 onclick={() => links.run(() => onDeleteInvite(i.id))}
               >
                 ×
@@ -147,7 +147,7 @@
     <footer>
       <SaveStatus save={save.state} />
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
-      <button type="submit" disabled={save.state.phase === "pending"}>{busyLabel(save.state, "Save")}</button>
+      <button type="submit" disabled={save.busy}>{busyLabel(save.state, "Save")}</button>
     </footer>
   </form>
 </dialog>

@@ -76,11 +76,12 @@
   const setPush = (el: HTMLInputElement) => {
     if (!push) return;
     const { base, name, prefs } = push;
+    const on = el.checked;
     pushSave.run(
       async () => {
-        const note = el.checked ? await turnOnPush(base, name, prefs) : (await turnOffPush(base), null);
+        const note = on ? await turnOnPush(base, name, prefs) : (await turnOffPush(base), null);
         pushOn = await pushIsOn(base, name);
-        if (note) throw new Error(note);
+        if (note || pushOn !== on) throw new Error(note ?? "The browser did not change it.");
       },
       () => (el.checked = pushOn),
     );
@@ -415,7 +416,7 @@
   </label>
   {#if push && pushSupport === "ok"}
     <label class="check">
-      <input type="checkbox" checked={pushOn} disabled={pushSave.state.phase === "pending"} onchange={(e) => setPush(e.currentTarget)} />
+      <input type="checkbox" checked={pushOn} disabled={pushSave.busy} onchange={(e) => setPush(e.currentTarget)} />
       <span>Push notifications on this device</span>
       <span class="hint">Mentions and direct messages also while Kallisti is closed. They say who and where, not the message.</span>
       <SaveStatus save={pushSave.state} />
@@ -441,7 +442,7 @@
       <input type="password" bind:value={newPassword} placeholder="New password (8 or more characters)" autocomplete="new-password" minlength="8" required />
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
-        <button type="submit" class="secondary" disabled={passwordSave.state.phase === "pending"}>
+        <button type="submit" class="secondary" disabled={passwordSave.busy}>
           {busyLabel(passwordSave.state, account.temporary ? "Set password" : "Change password")}
         </button>
         <SaveStatus save={passwordSave.state} done="" />

@@ -182,7 +182,7 @@
     <footer>
       <SaveStatus save={save.state} />
       <button type="button" class="secondary" onclick={() => dialog?.close()}>Cancel</button>
-      <button type="submit" class:danger={form.mode === "delete"} disabled={save.state.phase === "pending"}>
+      <button type="submit" class:danger={form.mode === "delete"} disabled={save.busy}>
         {form.mode === "create"
           ? busyLabel(save.state, "Create", "Creating…")
           : form.mode === "edit"

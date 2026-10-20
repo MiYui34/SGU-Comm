@@ -28,7 +28,7 @@
   // The key changes: pending, then the new key (or "Removed"), or the error.
   const making = createSave();
   const removing = createSave();
-  const busy = $derived(making.state.phase === "pending" || removing.state.phase === "pending");
+  const busy = $derived(making.busy || removing.busy);
   const makeKey = () =>
     making.run(async () => {
       newKey = await account.newStreamKey();

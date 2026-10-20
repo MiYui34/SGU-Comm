@@ -122,7 +122,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // the control, not to the notice.
   type Check = { via: "text"; confirms: (ev: ServerEvent) => boolean } | { via: "mumble"; holds: (s: ServerState) => boolean };
   type Waiter = Check & { done: (error?: string) => void };
-  let waiters: Waiter[] = [];
+  let awaiting: Waiter[] = [];
   const wait = (check: Check, request: () => void) =>
     new Promise<void>((resolve, reject) => {
       if (ws.readyState !== WebSocket.OPEN) return reject(new Error("Not connected"));
@@ -131,19 +131,19 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
         ...check,
         done: (error) => {
           clearTimeout(timeout);
-          waiters = waiters.filter((w) => w !== waiter);
+          awaiting = awaiting.filter((w) => w !== waiter);
           if (error === undefined) resolve();
           else reject(new Error(error));
         },
       };
-      waiters = [...waiters, waiter];
+      awaiting = [...awaiting, waiter];
       request();
     });
   // Settles the waiters an answer is for; true if one took the refusal.
   const settleWaiters = (via: Via, refusal: string | null, matches: (w: Waiter) => boolean) => {
-    if (!waiters.some((w) => w.via === via)) return false;
-    const r = answer(waiters, via, refusal !== null, matches);
-    waiters = r.rest;
+    if (!awaiting.some((w) => w.via === via)) return false;
+    const r = answer(awaiting, via, refusal !== null, matches);
+    awaiting = r.rest;
     r.confirmed.forEach((w) => w.done());
     r.refused?.done(refusal ?? undefined);
     return r.refused !== undefined;
@@ -274,7 +274,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     closeReason = event.reason;
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
-    waiters.forEach((w) => w.done("Not connected"));
+    awaiting.forEach((w) => w.done("Not connected"));
     capture?.close();
     streams?.close();
     playback?.close(); // the audio context stays: the app may reconnect with it
@@ -349,7 +349,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     request: (action: ManageAction) => {
       const confirms = confirmsManage(action);
       if (confirms) return wait({ via: "text", confirms }, () => ws.send(manageRequest(action)));
-      if (ws.readyState === WebSocket.OPEN) ws.send(manageRequest(action));
+      if (ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected"));
+      ws.send(manageRequest(action));
       return Promise.resolve();
     },
     // Other requests a control waits on: a text request (done on its

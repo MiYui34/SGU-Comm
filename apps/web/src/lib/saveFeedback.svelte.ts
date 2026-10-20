@@ -11,6 +11,9 @@ export const createSave = () => {
     get state() {
       return state;
     },
+    get busy() {
+      return state.phase === "pending";
+    },
     run: (request: () => Promise<unknown>, undo?: () => void) => {
       const mine = ++current;
       clearTimeout(timer);

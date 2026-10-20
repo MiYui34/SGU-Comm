@@ -117,7 +117,6 @@
     archive: createSave(),
     rules: createSave(),
   };
-  const busy = (what: keyof typeof saves) => saves[what].state.phase === "pending";
   const setGuests = (el: HTMLInputElement) =>
     onGuestsReadOnly && saves.guests.run(() => onGuestsReadOnly(el.checked), () => (el.checked = guestsReadOnly === true));
   const setCaptcha = (el: HTMLSelectElement) =>
@@ -253,7 +252,7 @@
               </span>
             </div>
             {#if rights.editBans}
-              <button type="button" disabled={busy("bans")} onclick={() => saves.bans.run(() => onSetBans(bans.filter((_, k) => k !== i)))}>
+              <button type="button" disabled={saves.bans.busy} onclick={() => saves.bans.run(() => onSetBans(bans.filter((_, k) => k !== i)))}>
                 Remove
               </button>
             {/if}
@@ -265,7 +264,7 @@
     {/if}
   {:else if tab === "guests"}
     <label class="check">
-      <input type="checkbox" checked={guestsReadOnly === true} disabled={busy("guests")} onchange={(e) => setGuests(e.currentTarget)} />
+      <input type="checkbox" checked={guestsReadOnly === true} disabled={saves.guests.busy} onchange={(e) => setGuests(e.currentTarget)} />
       Guests may only read
       <SaveStatus save={saves.guests.state} />
     </label>
@@ -275,7 +274,7 @@
     </p>
     <label class="check">
       Browser check for new accounts and guests
-      <select value={captcha} disabled={busy("captcha")} onchange={(e) => setCaptcha(e.currentTarget)}>
+      <select value={captcha} disabled={saves.captcha.busy} onchange={(e) => setCaptcha(e.currentTarget)}>
         <option value="off">Off</option>
         <option value="normal">Normal</option>
         <option value="hard">Hard</option>
@@ -290,7 +289,7 @@
   {:else if tab === "threads"}
     <label class="check">
       Archive threads after
-      <select value={threadArchive} disabled={busy("archive")} onchange={(e) => setArchive(e.currentTarget)}>
+      <select value={threadArchive} disabled={saves.archive.busy} onchange={(e) => setArchive(e.currentTarget)}>
         {#each ARCHIVE_TIMES as t (t.seconds)}<option value={t.seconds}>{t.label}</option>{/each}
       </select>
       <SaveStatus save={saves.archive.state} />
@@ -333,7 +332,7 @@
         </p>
         {#if rulesError}<p class="error" role="alert">{rulesError}</p>{/if}
         <div class="row">
-          <button type="submit" disabled={busy("rules")}>{busyLabel(saves.rules.state, "Save")}</button>
+          <button type="submit" disabled={saves.rules.busy}>{busyLabel(saves.rules.state, "Save")}</button>
           <SaveStatus save={saves.rules.state} />
         </div>
       </form>
@@ -413,7 +412,7 @@
       <input
         bind:this={fileInput}
         type="file"
-        disabled={busy("add")}
+        disabled={saves.add.busy}
         accept={EMOJI_TYPES.join(",")}
         aria-label="Emoji image"
         onchange={(e) => {
@@ -422,7 +421,7 @@
         }}
       />
       <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" />
-      <button type="submit" disabled={busy("add")}>{busyLabel(saves.add.state, "Add", "Adding…")}</button>
+      <button type="submit" disabled={saves.add.busy}>{busyLabel(saves.add.state, "Add", "Adding…")}</button>
       <SaveStatus save={saves.add.state} done="Added" />
     </form>
     <p class="note">PNG, GIF, WebP or JPEG; still images are scaled to fit 96×96 px. Names: 2 to 32 lower case letters, digits or _.</p>
@@ -439,7 +438,7 @@
               <button
                 type="button"
                 class="danger"
-                disabled={busy("emoji")}
+                disabled={saves.emoji.busy}
                 onclick={() => (saves.emoji.run(() => onDeleteEmoji(e.name)), (confirmingEmoji = null))}
               >
                 Delete
@@ -470,7 +469,7 @@
               }}
             >
               <input bind:value={renaming.name} aria-label="New name for {user.name}" />
-              <button type="submit" disabled={busy("users")}>{busyLabel(saves.users.state, "Save")}</button>
+              <button type="submit" disabled={saves.users.busy}>{busyLabel(saves.users.state, "Save")}</button>
               <button type="button" onclick={() => (renaming = null)}>Cancel</button>
             </form>
           {:else}
@@ -480,7 +479,7 @@
                 <button
                   type="button"
                   class="danger"
-                  disabled={busy("users")}
+                  disabled={saves.users.busy}
                   onclick={() => (saves.users.run(() => onUnregister(user.userId)), (confirming = null))}
                 >
                   Unregister

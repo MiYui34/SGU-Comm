@@ -3,11 +3,12 @@
 
   // Next to a control: "Saved" for a moment once the server confirms, or
   // its error (see lib/saveFeedback). The status region stays, so screen
-  // readers announce the change.
+  // readers announce the change. done "": the control shows the result
+  // itself.
   let { save, done = "Saved" }: { save: Save; done?: string } = $props();
 </script>
 
-<span role="status">{#if save.phase === "saved"}<span class="saved">{done}</span>{/if}</span>
+<span role="status">{#if save.phase === "saved" && done}<span class="saved">{done}</span>{/if}</span>
 {#if save.phase === "error"}<span class="error" role="alert">{save.message}</span>{/if}
 
 <style>
