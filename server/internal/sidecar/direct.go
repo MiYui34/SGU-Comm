@@ -100,12 +100,11 @@ func (h *Hub) readIfCaughtUp(user uint32, channel int64, n int, last int64) {
 			return
 		}
 	}
-	if err == nil {
-		err = h.store.SetReadMark(user, channel, last)
-	}
 	if err != nil {
 		slog.Error("read mark", "err", err)
+		return
 	}
+	h.setReadMark(user, channel, last, nil)
 }
 
 // relayDirect sends a stored direct message to the other user's Mumble
@@ -154,9 +153,7 @@ func (h *Hub) sendMissedDirects(session, user uint32) {
 			msgs = msgs[len(msgs)-missedDirects:]
 		}
 		h.voice.SendServerText(session, "<b>"+head+":</b>"+h.historyLines(msgs))
-		if err := h.store.SetReadMark(user, channel, latest); err != nil {
-			slog.Error("read mark", "err", err)
-		}
+		h.setReadMark(user, channel, latest, nil)
 	}
 }
 

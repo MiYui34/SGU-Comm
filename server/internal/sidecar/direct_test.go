@@ -182,6 +182,11 @@ func TestDirectMessagesReachMumbleClients(t *testing.T) {
 	if mark, _, _ := h.store.ReadMark(20, ch); mark != int64(m["message"].(map[string]any)["id"].(float64)) {
 		t.Fatalf("read mark %d", mark)
 	}
+	// Bob's web tab learns it.
+	if r := next(t, bob); r["type"] != "read" || jsonNum(r["channel"]) != chat || r["message"] != m["message"].(map[string]any)["id"] {
+		t.Fatalf("bob got %v", r)
+	}
+	empty(t, alice)
 }
 
 func TestMumbleClientsGetMissedDirectMessages(t *testing.T) {

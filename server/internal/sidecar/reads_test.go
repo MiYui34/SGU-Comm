@@ -68,6 +68,23 @@ func TestMarkRead(t *testing.T) {
 	}
 }
 
+func TestMarkReadReachesTheAccountsOtherSessions(t *testing.T) {
+	h := newHub(t, "general")
+	general := strconv.FormatInt(h.channels[0].ID, 10)
+	tab1 := joinAs(t, h, mumble.Identity{Session: 1, Name: "Alice", Registered: true, UserID: 3})
+	tab2 := joinAs(t, h, mumble.Identity{Session: 2, Name: "Alice", Registered: true, UserID: 3})
+	bob := joinAs(t, h, mumble.Identity{Session: 3, Name: "bob", Registered: true, UserID: 4})
+	guest := joinAs(t, h, mumble.Identity{Session: 4, Name: "guest"})
+	drain(tab1, tab2, bob, guest)
+	tab1.Handle([]byte(`{"type":"mark-read","channel":` + general + `,"message":7}`))
+	if m := next(t, tab2); m["type"] != "read" || jsonNum(m["channel"]) != general || m["message"] != float64(7) {
+		t.Fatalf("other tab got %v", m)
+	}
+	empty(t, tab1)
+	empty(t, bob)
+	empty(t, guest)
+}
+
 func TestMentionRuleKnowsUnicodeSpaces(t *testing.T) {
 	if !mentionsName("hi @lain", "lain") || !mentionsName("　@lain", "lain") {
 		t.Fatal("no mention after a no-break or wide space")
