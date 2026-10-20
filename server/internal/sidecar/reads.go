@@ -3,6 +3,7 @@ package sidecar
 import (
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -46,15 +47,28 @@ type summaryEntry struct {
 	Channel  int64   `json:"channel"`
 	Voice    uint32  `json:"voice,omitempty"`  // a voice channel's chat
 	Direct   *uint32 `json:"direct,omitempty"` // a direct chat: the other user (0 is SuperUser)
+	Parent   int64   `json:"parent,omitempty"` // a thread: its text channel
 	Latest   int64   `json:"latest"`
 	Mentions int     `json:"mentions"`
 }
 
-// readableChats are the text channels and the voice chats a user may read.
+// readableChats are the text channels (and their threads), the voice
+// chats and the direct chats a user may read.
 func (h *Hub) readableChats(id mumble.Identity) []summaryEntry {
 	var chats []summaryEntry
+	reads := map[int64]bool{}
 	for _, c := range h.channelsFor(id) {
 		chats = append(chats, summaryEntry{Channel: c.ID})
+		reads[c.ID] = true
+	}
+	threads, err := h.store.ThreadParents()
+	if err != nil {
+		slog.Error("threads", "err", err)
+	}
+	for thread, parent := range threads {
+		if reads[parent] {
+			chats = append(chats, summaryEntry{Channel: thread, Parent: parent})
+		}
 	}
 	if h.voice == nil {
 		return chats
@@ -95,9 +109,13 @@ func (c *Conn) search(id mumble.Identity, req request) {
 	}
 	author := strings.TrimSpace(req.Author)
 	var ids []int64
+	threads := map[int64]int64{}
 	for _, e := range c.hub.readableChats(id) {
 		if req.Channel == 0 || req.Channel == e.Channel {
 			ids = append(ids, e.Channel)
+		}
+		if e.Parent != 0 {
+			threads[e.Channel] = e.Parent
 		}
 	}
 	// No words and no filter: nothing (not the newest messages).
@@ -114,7 +132,7 @@ func (c *Conn) search(id mumble.Identity, req request) {
 	for i, m := range msgs {
 		wire[i] = toWire(m)
 	}
-	c.send(map[string]any{"type": "search-results", "text": req.Text, "messages": wire})
+	c.send(map[string]any{"type": "search-results", "text": req.Text, "messages": wire, "threads": c.hub.threadsOf(msgs, threads)})
 }
 
 // readState is what ready carries for a registered user: read marks and a
@@ -128,8 +146,12 @@ func (h *Hub) readState(id mumble.Identity) (map[int64]int64, []summaryEntry) {
 	}
 	chats := h.readableChats(id)
 	mention := mentionPattern(id.Name)
+	followed := h.followsOf(id.UserID)
 	out := chats[:0]
 	for _, e := range chats {
+		if e.Parent != 0 && !slices.Contains(followed, e.Channel) {
+			continue // threads count for their followers
+		}
 		// In a direct chat every message counts (to the user, as a mention).
 		contains := "@"
 		if e.Direct != nil {

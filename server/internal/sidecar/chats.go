@@ -10,12 +10,16 @@ type chat struct {
 	isVoice bool
 	direct  bool
 	peers   [2]uint32 // with direct: the two users' ids
+	parent  int64     // a thread: its text channel (see threads.go)
 }
 
 // chatOf finds a chat by its store channel.
 func (h *Hub) chatOf(channel int64) (chat, bool) {
 	if h.channelExists(channel) {
 		return chat{id: channel}, true
+	}
+	if t, err := h.store.Thread(channel); err == nil {
+		return h.threadChat(t)
 	}
 	if h.voice == nil {
 		return chat{}, false
@@ -29,8 +33,12 @@ func (h *Hub) chatOf(channel int64) (chat, bool) {
 
 // may: the user may read (or write) the chat. Text channels are for all
 // who see their mirror (private ones for members and staff); writing
-// needs TextMessage there (no channel time-out).
+// needs TextMessage there (no channel time-out). Threads are their
+// channel's.
 func (h *Hub) may(id mumble.Identity, c chat, write bool) bool {
+	if c.parent != 0 {
+		c = chat{id: c.parent}
+	}
 	if c.direct {
 		return id.Registered && (id.UserID == c.peers[0] || id.UserID == c.peers[1])
 	}

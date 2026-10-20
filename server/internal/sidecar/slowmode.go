@@ -1,6 +1,7 @@
 package sidecar
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"sync"
@@ -44,12 +45,13 @@ func slowText(wait time.Duration) string {
 // slowTurn takes the user's turn to post in a text channel, or tells how
 // long it waits (and until when). Posts count also while slow mode is
 // off: one turned on holds back who just posted (as the composer does).
-func (h *Hub) slowTurn(id mumble.Identity, channel int64) (time.Duration, time.Time) {
-	if h.voice == nil || h.mayModerate(id, chat{id: channel}) {
+// A thread has its channel's slow mode, and turns of its own.
+func (h *Hub) slowTurn(id mumble.Identity, ch chat) (time.Duration, time.Time) {
+	if h.voice == nil || h.mayModerate(id, ch) {
 		return 0, time.Time{}
 	}
-	every := time.Duration(h.slowModeOf(channel)) * time.Second
-	key := slowKey{channel: channel, registered: id.Registered, id: id.Session}
+	every := time.Duration(h.slowModeOf(cmp.Or(ch.parent, ch.id))) * time.Second
+	key := slowKey{channel: ch.id, registered: id.Registered, id: id.Session}
 	if id.Registered {
 		key.id = id.UserID
 	}
@@ -89,7 +91,7 @@ func (c *Conn) slowMode(id mumble.Identity, ch chat, text string) bool {
 	if ch.direct || ch.isVoice {
 		return false
 	}
-	wait, until := c.hub.slowTurn(id, ch.id)
+	wait, until := c.hub.slowTurn(id, ch)
 	if wait > 0 {
 		c.send(map[string]any{"type": "error", "message": slowText(wait), "about": "slow-mode", "channel": ch.id, "until": until.UnixMilli(), "text": text})
 	}
@@ -105,7 +107,7 @@ func (h *Hub) MumbleTextAllowed(session, channel uint32) error {
 		return nil
 	}
 	u, _ := h.voice.MumbleClient(session)
-	if wait, _ := h.slowTurn(mumble.Identity{Session: session, Registered: u.Registered, UserID: u.UserID}, text.ID); wait > 0 {
+	if wait, _ := h.slowTurn(mumble.Identity{Session: session, Registered: u.Registered, UserID: u.UserID}, chat{id: text.ID}); wait > 0 {
 		return errors.New(slowText(wait))
 	}
 	return nil

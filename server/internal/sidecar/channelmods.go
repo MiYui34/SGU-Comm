@@ -28,6 +28,8 @@ func (h *Hub) mumbleOf(c chat) uint32 {
 		return 0
 	case c.isVoice:
 		return c.voice
+	case c.parent != 0:
+		return h.mirrorOf(c.parent)
 	}
 	return h.mirrorOf(c.id)
 }

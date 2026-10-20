@@ -246,12 +246,20 @@ func (s *Store) withThreads(msgs []Message) error {
 	for i, m := range msgs {
 		at[m.ID], ids[i] = i, m.ID
 	}
-	in, args := inList(ids)
-	ts, err := s.threads(`WHERE t.start_id IN (`+in+`)`, args...)
+	ts, err := s.ThreadsFrom(ids)
 	for _, t := range ts {
 		msgs[at[t.Start]].Thread = &t
 	}
 	return err
+}
+
+// ThreadsFrom: the threads started from these messages.
+func (s *Store) ThreadsFrom(starts []int64) ([]Thread, error) {
+	if len(starts) == 0 {
+		return nil, nil
+	}
+	in, args := inList(starts)
+	return s.threads(`WHERE t.start_id IN (`+in+`)`, args...)
 }
 
 // Threads are archived after this long without a message (unless set).

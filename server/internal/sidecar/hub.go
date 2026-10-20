@@ -382,7 +382,8 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 	}
 	if becomesReady {
 		channels := c.hub.channelsFor(id)
-		ready := map[string]any{"type": "ready", "channels": channels, "categories": c.hub.categoriesFor(id, channels), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
+		ready := map[string]any{"type": "ready", "channels": channels, "categories": c.hub.categoriesFor(id, channels), "threads": c.hub.threadsFor(id),
+			"threadArchive": c.hub.threadArchive(), "voiceChats": c.hub.voice != nil, "emoji": c.hub.customEmoji(), "uploadMax": c.hub.UploadMax}
 		if c.hub.Avatars {
 			ready["avatars"] = true
 		}
@@ -400,6 +401,7 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 		}
 		if id.Registered {
 			ready["reads"], ready["summary"] = c.hub.readState(id)
+			ready["follows"] = c.hub.followsOf(id.UserID)
 			if c.hub.voice != nil {
 				ready["directs"] = c.hub.directs(id)
 			}
@@ -438,6 +440,7 @@ type wireMessage struct {
 	Reactions  []wireReaction `json:"reactions,omitempty"`
 	MentionAll string         `json:"mentionAll,omitempty"` // "here" or "everyone"
 	NoPing     bool           `json:"noPing,omitempty"`     // a reply that does not ping
+	Thread     *wireThread    `json:"thread,omitempty"`     // the thread started from it
 }
 
 // wireQuote is the start of the message a reply answers (author empty:
@@ -487,6 +490,11 @@ func toWire(m store.Message) wireMessage {
 		w.Reactions = toWireReactions(m.Reactions)
 	}
 	w.MentionAll, w.NoPing = m.MentionAll, m.NoPing
+	if m.Thread != nil {
+		t := toWireThread(*m.Thread)
+		t.Quote = nil // this message
+		w.Thread = &t
+	}
 	return w
 }
 
@@ -501,7 +509,7 @@ type request struct {
 	Before    int64           `json:"before"`
 	Text      string          `json:"text"`
 	Upload    string          `json:"upload"`    // key of an upload to attach
-	Message   int64           `json:"message"`   // edit-message, delete-message
+	Message   int64           `json:"message"`   // edit-message, delete-message, create-thread
 	Reply     int64           `json:"reply"`     // send: the message it answers
 	NoPing    bool            `json:"noPing"`    // send: the reply does not ping
 	Author    string          `json:"author"`    // search: only this author
@@ -570,7 +578,7 @@ func (c *Conn) Handle(raw []byte) {
 		c.send(map[string]any{"type": "upload-token", "token": c.hub.issueUploadToken(id.Name, "")})
 		return
 	}
-	if (req.Type == "send" || req.Type == "react" || req.Type == "edit-message" || req.Type == "typing") && c.timedOut(*id, req) {
+	if (req.Type == "send" || req.Type == "react" || req.Type == "edit-message" || req.Type == "typing" || req.Type == "create-thread") && c.timedOut(*id, req) {
 		return
 	}
 	if req.Type == "voice-chat" {
@@ -584,6 +592,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "mark-read":
 		c.markRead(*id, req)
+		return
+	case "create-thread", "threads", "rename-thread", "archive-thread", "delete-thread", "follow-thread", "set-thread-archive":
+		c.threadRequest(*id, req)
 		return
 	case "search":
 		c.search(*id, req)
@@ -902,9 +913,15 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	if ch.direct {
 		c.hub.announceDirect(ch)
 	}
+	if ch.parent != 0 {
+		c.hub.threadFollowers(id, ch, m)
+	}
 	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
 	if ch.direct {
 		c.hub.relayDirect(id, ch, m)
+	}
+	if ch.parent != 0 {
+		c.hub.threadPosted(ch)
 	}
 	c.hub.pushFor(ch, m)
 	if ch.isVoice {
