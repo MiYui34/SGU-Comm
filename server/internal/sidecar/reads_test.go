@@ -77,10 +77,13 @@ func TestMarkReadReachesTheAccountsOtherSessions(t *testing.T) {
 	guest := joinAs(t, h, mumble.Identity{Session: 4, Name: "guest"})
 	drain(tab1, tab2, bob, guest)
 	tab1.Handle([]byte(`{"type":"mark-read","channel":` + general + `,"message":7}`))
-	if m := next(t, tab2); m["type"] != "read" || jsonNum(m["channel"]) != general || m["message"] != float64(7) {
-		t.Fatalf("other tab got %v", m)
+	// The sender too: its read marks must catch up, or it sends them again
+	// on every event (and two tabs keep each other busy).
+	for _, tab := range []*Conn{tab1, tab2} {
+		if m := next(t, tab); m["type"] != "read" || jsonNum(m["channel"]) != general || m["message"] != float64(7) {
+			t.Fatalf("tab got %v", m)
+		}
 	}
-	empty(t, tab1)
 	empty(t, bob)
 	empty(t, guest)
 }

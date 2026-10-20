@@ -200,7 +200,7 @@ export type ServerEvent =
   // "message-deleted").
   | { type: "messages-deleted"; channel: number; ids: number[] }
   | { type: "search-results"; text: string; messages: TextMessage[]; threads?: Thread[] }
-  // Another session of our account read a chat up to a message.
+  // A session of our account (also this one) read a chat up to a message.
   | { type: "read"; channel: number; message: number }
   // about "manage": the answer to a channel or role change; slow: a post
   // refused by slow mode, and when the wait ends.
