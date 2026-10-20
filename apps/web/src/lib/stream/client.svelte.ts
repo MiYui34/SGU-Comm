@@ -428,6 +428,11 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (v && withSound && !v.sound) listen(session, v);
   };
 
+  // Sound plays only while the audio context runs: suspended (or WebKit's
+  // "interrupted") its clock stands still, so sound would pile up without
+  // a limit and play as one burst when it runs again.
+  const soundRuns = () => audio?.state === "running";
+
   // The stream's sound, into the app's audio context with its own volume.
   // The playout's clock is the audio context's from now on.
   const listen = (session: number, v: Viewer) => {
@@ -436,7 +441,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     v.gain.connect(audio.destination);
     v.sound = new AudioDecoder({
       output: (data) => {
-        const at = v.playout.at(data.timestamp, audio.currentTime);
+        const at = soundRuns() ? v.playout.at(data.timestamp, audio.currentTime) : null;
         if (at !== null && v.gain) {
           const buffer = audio.createBuffer(1, data.numberOfFrames, data.sampleRate);
           data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
@@ -551,7 +556,7 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     const v = f && watched.get(f.session);
     if (!f || !v?.decoder || v.decoder.state !== "configured") return;
     if (f.sound) {
-      if (v.sound?.state === "configured") v.sound.decode(new EncodedAudioChunk({ type: "key", timestamp: f.timestamp, data: f.data }));
+      if (v.sound?.state === "configured" && soundRuns()) v.sound.decode(new EncodedAudioChunk({ type: "key", timestamp: f.timestamp, data: f.data }));
       return;
     }
     if (!f.key && v.needKey) return;

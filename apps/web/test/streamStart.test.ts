@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/stream/ticker.worker?worker", () => ({ default: class { postMessage() {} terminate() {} } }));
 const { createStreamClient } = await import("../src/lib/stream/client.svelte");
+const { encodeFrame } = await import("../src/lib/stream/protocol");
 
 // Starting a screen share while the connection goes away: the browser parts
 // are fakes (a socket that is ready at once, a picker the test answers).
@@ -181,6 +182,90 @@ describe("watching", () => {
     await Promise.all([first, again]);
     expect(FakeSocket.all[0]!.types()).toEqual(["auth", "watch"]);
     expect(client.watching).toEqual([7]);
+  });
+});
+
+describe("watching with sound", () => {
+  // The app's audio context: frozen (suspended, or WebKit's "interrupted")
+  // until the test lets it run.
+  const ctx = { state: "suspended", currentTime: 5, destination: {}, createBuffer: () => ({ getChannelData: () => new Float32Array(1) }) };
+  let decoded: unknown[] = [];
+  let soundOut: ((d: unknown) => void) | null = null;
+  let started: number[] = [];
+
+  beforeEach(() => {
+    ctx.state = "suspended";
+    decoded = [];
+    soundOut = null;
+    started = [];
+    vi.stubGlobal("document", { hidden: false, addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.stubGlobal(
+      "VideoDecoder",
+      class {
+        static isConfigSupported = async () => ({ supported: true });
+        state = "configured";
+        configure() {}
+        close() {}
+      },
+    );
+    vi.stubGlobal(
+      "AudioDecoder",
+      class {
+        state = "unconfigured";
+        constructor(init: { output: (d: unknown) => void }) {
+          soundOut = init.output;
+        }
+        configure() {
+          this.state = "configured";
+        }
+        decode(c: unknown) {
+          decoded.push(c);
+        }
+        close() {}
+      },
+    );
+    vi.stubGlobal("GainNode", class { gain = {}; connect() {} disconnect() {} });
+    vi.stubGlobal("EncodedAudioChunk", class {});
+    vi.stubGlobal("AudioBufferSourceNode", class { connect() {} start(at: number) { started.push(at); } });
+  });
+
+  const watchWithSound = async () => {
+    const client = createStreamClient("ws://x", async () => "t", ctx as unknown as AudioContext);
+    await client.watch(7);
+    const sock = FakeSocket.all[0]!;
+    sock.onmessage?.({ data: JSON.stringify({ type: "stream", session: 7, codec: "vp8", audio: "opus" }) });
+    await flush();
+    return (timestamp: number) => {
+      const f = encodeFrame(true, timestamp, new Uint8Array(4), true);
+      const buf = new Uint8Array(4 + f.length);
+      new DataView(buf.buffer).setUint32(0, 7);
+      buf.set(f, 4);
+      (sock.onmessage as unknown as (e: { data: ArrayBuffer }) => void)({ data: buf.buffer });
+    };
+  };
+  const decodedSound = { numberOfFrames: 960, sampleRate: 48000, timestamp: 0, copyTo() {}, close() {} };
+
+  it("drops stream sound while the audio context does not run (it would pile up and play as one burst)", async () => {
+    const sound = await watchWithSound();
+    sound(1_000_000);
+    expect(decoded).toHaveLength(0);
+    ctx.state = "running";
+    sound(1_020_000);
+    expect(decoded).toHaveLength(1);
+  });
+
+  it("does not schedule sound decoded after the audio context stopped running", async () => {
+    await watchWithSound();
+    ctx.state = "interrupted";
+    const dropped = { ...decodedSound, close: vi.fn() };
+    soundOut!(dropped);
+    expect(started).toEqual([]);
+    expect(dropped.close).toHaveBeenCalled();
+    ctx.state = "running";
+    soundOut!({ ...decodedSound });
+    expect(started).toHaveLength(1);
   });
 });
 

@@ -11,6 +11,17 @@ describe("createPlayout", () => {
     expect(p.at(s(1.04), 10.3)).toBeCloseTo(10.54); // jitter within the lead: on time
   });
 
+  it("starts over cleanly when the audio clock runs again after it stood still (sound dropped meanwhile)", () => {
+    const p = createPlayout();
+    p.at(s(1), 10);
+    // Pictures go on while the clock stands still at 10.
+    expect(p.at(s(30), 10)).toBeCloseTo(10 + MIN_LEAD);
+    // The clock runs again from where it stood; sound comes after a gap.
+    expect(p.at(s(60), 10.02)).toBeCloseTo(10.02 + MIN_LEAD);
+    expect(p.at(s(60.02), 10.04)).toBeCloseTo(10.04 + MIN_LEAD);
+    expect(p.lead()).toBe(MIN_LEAD);
+  });
+
   it("raises the lead in steps for a late item, which then plays at once (a pause, not a skip)", () => {
     const p = createPlayout();
     p.at(s(1), 10);
