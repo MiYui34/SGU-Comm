@@ -242,3 +242,23 @@ func TestDeletingThreads(t *testing.T) {
 		t.Fatalf("delete unknown: %v", err)
 	}
 }
+
+// A post to a thread deleted after it was checked is refused, and its
+// upload stays unused (for the cleanup).
+func TestPostingToADeletedThread(t *testing.T) {
+	s, start := threadStore(t)
+	th, _ := s.CreateThread(1, start.ID, "Games", "bob", nil, t0)
+	if _, err := s.DeleteThread(th.ID); err != nil {
+		t.Fatal(err)
+	}
+	up, _ := s.AddUpload(Upload{Key: "k1", Name: "a.png", Type: "image/png", Size: 1, Author: "bob"}, t0)
+	if _, err := s.AddMessage(NewMessage{ChannelID: th.ID, Thread: true, Author: "bob", Text: "pic", At: t0, UploadID: up.ID}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("post to a deleted thread: %v", err)
+	}
+	if msgs, _ := s.History(th.ID, 0, 10); len(msgs) != 0 {
+		t.Fatalf("messages %v", msgs)
+	}
+	if keys, _ := s.DeleteUnusedUploads(t0.Add(time.Second)); !slices.Equal(keys, []string{"k1"}) {
+		t.Fatalf("unused uploads %v", keys)
+	}
+}

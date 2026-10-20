@@ -59,6 +59,7 @@ type Quote struct {
 // NewMessage is a message to store. UploadID 0: no attachment.
 type NewMessage struct {
 	ChannelID  int64
+	Thread     bool // ChannelID is a thread's: refused once it is deleted
 	Author     string
 	Verified   bool
 	AuthorID   uint32 // with Verified: the Mumble user id
@@ -650,6 +651,14 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 		return Message{}, err
 	}
 	defer tx.Rollback()
+	// A deleted thread keeps its channel row: the thread itself is checked
+	// here, as it may be gone since the caller found it.
+	if n.Thread {
+		var live int
+		if err := tx.QueryRow(`SELECT count(*) FROM threads WHERE channel_id = ?`, n.ChannelID).Scan(&live); err != nil || live == 0 {
+			return Message{}, cmpErr(err, ErrNotFound)
+		}
+	}
 	var upload sql.NullInt64
 	if n.UploadID != 0 {
 		res, err := tx.Exec(`UPDATE uploads SET used = 1 WHERE id = ? AND used = 0`, n.UploadID)

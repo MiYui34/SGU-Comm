@@ -279,6 +279,27 @@ func TestThreadModeration(t *testing.T) {
 	refused(t, bob, `{"type":"history","channel":%d}`, id)
 }
 
+// A post whose thread is deleted after it was found is refused, not
+// stored where nobody can open it.
+func TestAPostLosesToTheThreadsDeletion(t *testing.T) {
+	h, _, _, bob, _ := threadHub(t)
+	id := startThread(t, h, bob, postTo(t, h, bob, h.channels[0].ID, "play?"), "Games")
+	ch, ok := h.chatOf(id)
+	if !ok {
+		t.Fatal("no chat for the thread")
+	}
+	if _, err := h.store.DeleteThread(id); err != nil {
+		t.Fatal(err)
+	}
+	bob.post(mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 20}, request{Type: "send", Channel: id, Text: "late"}, ch)
+	if m := next(t, bob); m["type"] != "error" {
+		t.Fatalf("bob got %v", m)
+	}
+	if msgs, _ := h.store.History(id, 0, 10); len(msgs) != 0 {
+		t.Fatalf("stored %v", msgs)
+	}
+}
+
 func TestSlowModeAndMessageRulesHoldInThreads(t *testing.T) {
 	h, v, staff, bob, _ := threadHub(t)
 	general := h.channels[0].ID

@@ -909,7 +909,7 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		c.sendError(textError)
 		return
 	}
-	n := store.NewMessage{ChannelID: req.Channel, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply, NoPing: req.NoPing && req.Reply != 0}
+	n := store.NewMessage{ChannelID: req.Channel, Thread: ch.parent != 0, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply, NoPing: req.NoPing && req.Reply != 0}
 	// Not in direct chats: there every message counts already.
 	if !ch.direct && c.hub.voice != nil && c.hub.voice.MayManage(id.Session) {
 		n.MentionAll = mentionAllOf(text)
@@ -932,6 +932,10 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		return
 	}
 	m, err := c.hub.store.AddMessage(n)
+	if errors.Is(err, store.ErrNotFound) { // a thread deleted meanwhile
+		c.sendError("unknown channel")
+		return
+	}
 	if err != nil {
 		c.sendError("cannot store message")
 		return
