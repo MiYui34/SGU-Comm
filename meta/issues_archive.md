@@ -222,3 +222,4 @@
 - [x] [Limits for moderators' voice subchannels](issues/subchannel-limits.md)
 - [x] [Threads](issues/threads.md)
 - [x] [Media dimensions: no jumping while loading](issues/media-dimensions.md)
+- [x] [Previews with optional ffmpeg](issues/media-previews-ffmpeg.md)
