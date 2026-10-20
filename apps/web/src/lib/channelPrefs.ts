@@ -78,11 +78,11 @@ export const setThreadPref = (prefs: ChannelPrefs, server: string, id: number, n
 
 export const forgetPref = (prefs: ChannelPrefs, server: string, id: number) => withPref(prefs, server, id, {});
 
-// The settings as they hold: threads (parents: thread -> its channel)
-// without their own take their channel's.
-export const withParents = (prefs: ChannelPrefs, server: string, parents: Readonly<Record<number, number>>): ChannelPrefs => {
+// The settings as they hold: threads (by id, with their channel) without
+// their own take their channel's.
+export const withParents = (prefs: ChannelPrefs, server: string, threads: Readonly<Record<number, { channel: number }>>): ChannelPrefs => {
   const own = prefs[server] ?? {};
-  const taken = Object.entries(parents).flatMap(([id, parent]) => (own[Number(id)] || !own[parent] ? [] : [[id, own[parent]!] as const]));
+  const taken = Object.entries(threads).flatMap(([id, { channel }]) => (own[Number(id)] || !own[channel] ? [] : [[id, own[channel]!] as const]));
   return taken.length ? { ...prefs, [server]: { ...Object.fromEntries(taken), ...own } } : prefs;
 };
 
@@ -104,14 +104,15 @@ export const nothingIds = (prefs: ChannelPrefs, server: string): number[] =>
 
 // What the server learns for push notifications (see lib/push): quiet:
 // chats set to "nothing" and direct chats muted for good (a timed mute
-// would outlive closed tabs); loud: chats with another setting of their
-// own (the server keeps the threads of quiet channels quiet, not these).
+// would outlive closed tabs); loud: chats with another level of their
+// own (threads with a setting of their own have one: the server keeps
+// the threads of quiet channels quiet, not these).
 export const pushLists = (prefs: ChannelPrefs, server: string, directs: readonly number[]) => {
   const own = prefs[server] ?? {};
   return {
     quiet: [...nothingIds(prefs, server), ...directs.filter((id) => own[id]?.mutedUntil === 0)].sort((a, b) => a - b),
     loud: Object.entries(own)
-      .filter(([, p]) => p.level !== "nothing")
+      .filter(([, p]) => p.level && p.level !== "nothing")
       .map(([id]) => Number(id)),
   };
 };

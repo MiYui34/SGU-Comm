@@ -47,7 +47,7 @@ describe("channel settings", () => {
 
   it("gives threads their channel's settings, unless they have their own", () => {
     const prefs = { [A]: { 1: { mutedUntil: 0 }, 2: { level: "all" as const }, 11: { level: "mentions" as const } }, b: { 3: { level: "nothing" as const } } };
-    const parents = { 10: 1, 11: 1, 12: 2, 13: 4 };
+    const parents = { 10: { channel: 1 }, 11: { channel: 1 }, 12: { channel: 2 }, 13: { channel: 4 } };
     const all = withParents(prefs, A, parents);
     expect(prefOf(all, A, 10)).toEqual({ mutedUntil: 0 });
     expect(prefOf(all, A, 11)).toEqual({ level: "mentions" }); // its own: not muted
@@ -55,7 +55,7 @@ describe("channel settings", () => {
     expect(prefOf(all, A, 13)).toEqual({});
     expect(mutedIds(all, A, 0)).toEqual(new Set([1, 10]));
     expect(all.b).toBe(prefs.b);
-    expect(withParents(prefs, A, { 11: 1 })).toBe(prefs);
+    expect(withParents(prefs, A, { 11: { channel: 1 } })).toBe(prefs);
   });
 
   it("keeps a thread's own setting whole (the default level too), and forgets it", () => {
@@ -71,7 +71,7 @@ describe("channel settings", () => {
 
   it("lists for push: quiet chats, and those with a setting of their own (threads of quiet channels)", () => {
     const prefs = { [A]: { 1: { level: "nothing" as const }, 7: { mutedUntil: 0 }, 8: { mutedUntil: 10 }, 11: { level: "mentions" as const } } };
-    expect(pushLists(prefs, A, [7, 8])).toEqual({ quiet: [1, 7], loud: [7, 8, 11] });
+    expect(pushLists(prefs, A, [7, 8])).toEqual({ quiet: [1, 7], loud: [11] }); // thread settings have a level
     expect(pushLists({}, A, [7])).toEqual({ quiet: [], loud: [] });
   });
 });
