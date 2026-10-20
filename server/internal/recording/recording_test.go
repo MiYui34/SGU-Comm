@@ -4,12 +4,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -244,5 +246,78 @@ func TestDownloadsNeedATokenOfStaff(t *testing.T) {
 		if w.Code == http.StatusOK && (!strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") || w.Header().Get("Content-Type") != "application/zip") {
 			t.Errorf("headers %v", w.Header())
 		}
+	}
+}
+
+// Speakers beyond the track limit are not recorded (each track is an open
+// file until the end); the info names them.
+func TestSpeakersBeyondTheTrackLimit(t *testing.T) {
+	lib, _ := testLibrary(t, Limits{})
+	r, _ := lib.Start(5, "Lounge", "mod", nil)
+	for i := range maxTracks + 10 {
+		talk(r, "guest"+strconv.Itoa(i), 0, 2, speech20)
+		time.Sleep(time.Millisecond) // let the recorder keep up
+	}
+	talk(r, "guest0", time.Second, 2, speech20) // has a track
+	info := r.Stop("stopped")
+	entries, _ := os.ReadDir(filepath.Join(lib.Dir, info.ID))
+	if len(info.Tracks) != maxTracks || len(entries) != maxTracks+1 || len(info.Unrecorded) != 10 || info.Unrecorded[0] != "guest"+strconv.Itoa(maxTracks) {
+		t.Fatalf("%d tracks, %d files, unrecorded %v", len(info.Tracks), len(entries), info.Unrecorded)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+// handRecording: a recording without its goroutine, with a track for
+// alice that cannot be written.
+func handRecording(t *testing.T) *Recording {
+	lib, _ := testLibrary(t, Limits{})
+	tr, err := createTrack(filepath.Join(lib.Dir, "alice.opus"), "alice", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.ogg.w = failingWriter{}
+	return &Recording{lib: lib, info: Info{Started: t0}, tracks: map[string]*track{"alice": tr}, order: []*track{tr}}
+}
+
+// A failed write stops the recording (at once, or when it is finished).
+func TestAWriteErrorStopsTheRecording(t *testing.T) {
+	r := handRecording(t)
+	reason := ""
+	for i := 0; i < 200 && reason == ""; i++ {
+		reason = r.add(Packet{Speaker: "alice", Seq: uint64(2 * i), Opus: speech20, At: t0.Add(time.Duration(i) * 20 * time.Millisecond)})
+	}
+	if reason != "write error" {
+		t.Fatalf("reason %q", reason)
+	}
+	r = handRecording(t)
+	r.add(Packet{Speaker: "alice", Opus: speech20, At: t0}) // buffered
+	if r.finish("stopped"); r.info.Reason != "write error" {
+		t.Fatalf("reason %q", r.info.Reason)
+	}
+}
+
+// The silence that ends the tracks counts too: a long quiet recording
+// ends early instead of going over the size limit; the tracks stay valid
+// and end together.
+func TestFinalSilenceStaysWithinTheSizeLimit(t *testing.T) {
+	lib, c := testLibrary(t, Limits{MaxBytes: 20_000})
+	r, _ := lib.Start(5, "Lounge", "mod", nil)
+	talk(r, "alice", 0, 1, speech20)
+	talk(r, "bob", 0, 1, speech20)
+	time.Sleep(10 * time.Millisecond)
+	c.set(t0.Add(time.Hour))
+	info := r.Stop("stopped")
+	if info.Size > lib.Limits.MaxBytes || info.Reason != "size limit" {
+		t.Fatalf("%d bytes over %d, reason %q", info.Size, lib.Limits.MaxBytes, info.Reason)
+	}
+	var ends []int64
+	for _, tr := range info.Tracks {
+		ends = append(ends, parseTrack(t, filepath.Join(lib.Dir, info.ID, tr.File)).end)
+	}
+	if len(ends) != 2 || ends[0] != ends[1] || ends[0] < 10*sampleRate {
+		t.Fatalf("the tracks end at %v", ends)
 	}
 }

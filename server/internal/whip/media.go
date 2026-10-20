@@ -52,9 +52,39 @@ const (
 
 func newVideoIn() *videoIn {
 	return &videoIn{
-		sb:    samplebuilder.New(maxLatePackets, &codecs.H264Packet{}, 90_000, samplebuilder.WithMaxTimeDelay(maxLate)),
+		sb:    samplebuilder.New(maxLatePackets, &h264Depacketizer{}, 90_000, samplebuilder.WithMaxTimeDelay(maxLate)),
 		clock: clock{rate: 90_000},
 	}
+}
+
+const maxUnit = 1 << 20 // bytes of a picture, and of a NAL unit in fragments (the hub's frame limit)
+
+// h264Depacketizer bounds Pion's FU-A assembly, which appends fragments
+// until an end one: a start fragment drops an unfinished unit, and one past
+// maxUnit is dropped (a picture of only it comes out empty: lost, so a
+// keyframe is asked for).
+type h264Depacketizer struct {
+	codecs.H264Packet
+	frag int  // bytes of the unit in fragments so far
+	open bool // its start came
+}
+
+func (d *h264Depacketizer) Unmarshal(payload []byte) ([]byte, error) {
+	if len(payload) < 2 || payload[0]&0x1f != 28 { // not FU-A
+		d.open = false
+		return d.H264Packet.Unmarshal(payload)
+	}
+	if payload[1]&0x80 != 0 {
+		d.H264Packet, d.frag, d.open = codecs.H264Packet{}, 0, true
+	}
+	if d.frag += len(payload); !d.open || d.frag > maxUnit {
+		d.H264Packet, d.open = codecs.H264Packet{}, false
+		return []byte{}, nil
+	}
+	if payload[1]&0x40 != 0 {
+		d.open = false
+	}
+	return d.H264Packet.Unmarshal(payload)
 }
 
 // timed is a picture with its stream timestamp; lost: pictures before it
@@ -74,7 +104,7 @@ func (v *videoIn) push(p *rtp.Packet, arrival int64) []timed {
 	for s := v.sb.Pop(); s != nil; s = v.sb.Pop() {
 		ts := v.clock.micros(s.PacketTimestamp, arrival)
 		pic, err := v.avc.unit(s.Data)
-		if err != nil || len(s.Data) == 0 {
+		if err != nil || len(s.Data) == 0 || len(s.Data) > maxUnit {
 			out = append(out, timed{lost: true})
 			continue
 		}

@@ -39,10 +39,10 @@ type Handler struct {
 	// sessions at the same time.
 	BytesPerSecond int
 	MaxSessions    int
-	// Until the peer connects, and then until its first keyframe (0: the
-	// defaults).
-	ConnectTimeout, KeyTimeout time.Duration
-	Closer                     io.Closer // the UDP port (see Listen), closed by Close; nil: none
+	// Until the peer connects, then until its first keyframe, and then
+	// between pictures (0: the defaults).
+	ConnectTimeout, KeyTimeout, MediaTimeout time.Duration
+	Closer                                   io.Closer // the UDP port (see Listen), closed by Close; nil: none
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -53,6 +53,7 @@ const (
 	maxOffer       = 64 << 10
 	connectTimeout = 15 * time.Second
 	keyTimeout     = 15 * time.Second
+	mediaTimeout   = 10 * time.Second
 	gatherTimeout  = 5 * time.Second
 )
 
@@ -79,10 +80,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	name, ok := h.Account(strings.TrimSpace(key))
+	key = strings.TrimSpace(key)
+	name, ok := h.Account(key)
 	if !ok {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		http.Error(w, "unknown stream key (see Settings in Kallisti)", http.StatusUnauthorized)
+		unauthorized(w)
 		return
 	}
 	if ctype, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ctype != "application/sdp" {
@@ -108,9 +109,15 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s, old, err := h.reserve(name)
+	// The key again (it may have changed while the offer came), under the
+	// lock EndAccount takes: a change after this ends the session.
+	s, old, err := h.reserve(name, key)
 	for _, o := range old {
 		o.close()
+	}
+	if errors.Is(err, errKeyChanged) {
+		unauthorized(w)
+		return
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -133,11 +140,22 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, answer)
 }
 
-// reserve makes a session (not yet open) if there is room. It replaces
-// the account's old ones (OBS reconnecting), returned to be closed.
-func (h *Handler) reserve(account string) (*session, []*session, error) {
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	http.Error(w, "unknown stream key (see Settings in Kallisti)", http.StatusUnauthorized)
+}
+
+var errKeyChanged = errors.New("the stream key changed")
+
+// reserve makes a session (not yet open) if there is room and the key is
+// still valid. It replaces the account's old ones (OBS reconnecting),
+// returned to be closed.
+func (h *Handler) reserve(account, key string) (*session, []*session, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if name, ok := h.Account(key); !ok || name != account {
+		return nil, nil, errKeyChanged
+	}
 	old := h.takeAccountLocked(account)
 	if h.sessions == nil {
 		h.sessions = map[string]*session{}

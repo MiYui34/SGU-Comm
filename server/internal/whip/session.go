@@ -3,13 +3,16 @@ package whip
 import (
 	"cmp"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
 	"kallisti.chat/server/internal/stream"
@@ -25,6 +28,7 @@ type session struct {
 	feed        *feed
 	begun       time.Time
 	videoSSRC   atomic.Uint32
+	lastPicture atomic.Int64  // the last picture's arrival (see arrival)
 	sound       atomic.Bool   // a sound track is read
 	pli         chan struct{} // a keyframe is wanted
 	connected   chan struct{}
@@ -140,6 +144,10 @@ func (s *session) run() {
 			s.keyframe()
 		case now := <-tick.C:
 			if s.feed.started() {
+				if time.Duration(s.arrival()-s.lastPicture.Load())*time.Microsecond > cmp.Or(s.h.MediaTimeout, mediaTimeout) {
+					slog.Info("stream from OBS: no pictures", "account", s.account)
+					return
+				}
 				continue
 			}
 			if now.After(noKeyBy) {
@@ -161,14 +169,18 @@ func (s *session) keyframe() {
 // arrival: microseconds since the session began.
 func (s *session) arrival() int64 { return time.Since(s.begun).Microseconds() }
 
-func (s *session) readVideo(t *webrtc.TrackRemote) {
+// rtpReader: a *webrtc.TrackRemote.
+type rtpReader interface {
+	ReadRTP() (*rtp.Packet, interceptor.Attributes, error)
+}
+
+func (s *session) readVideo(t rtpReader) {
 	v := newVideoIn()
-	for {
-		p, _, err := t.ReadRTP()
-		if err != nil {
-			return
-		}
+	for p, ok := s.next(t); ok; p, ok = s.next(t) {
 		for _, pic := range v.push(p, s.arrival()) {
+			if pic.data != nil { // before the stream starts with it
+				s.lastPicture.Store(s.arrival())
+			}
 			if err := s.feed.picture(pic); err != nil {
 				slog.Info("stream from OBS refused", "account", s.account, "err", err)
 				s.end()
@@ -178,12 +190,23 @@ func (s *session) readVideo(t *webrtc.TrackRemote) {
 	}
 }
 
-func (s *session) readSound(t *webrtc.TrackRemote) {
+func (s *session) readSound(t rtpReader) {
+	for p, ok := s.next(t); ok; p, ok = s.next(t) {
+		s.feed.sound(p, s.arrival())
+	}
+}
+
+// next reads a track's next packet. Bad ones (an unknown payload type) are
+// skipped; at the track's end the session ends (it would freeze).
+func (s *session) next(t rtpReader) (*rtp.Packet, bool) {
 	for {
 		p, _, err := t.ReadRTP()
-		if err != nil {
-			return
+		if err == nil {
+			return p, true
 		}
-		s.feed.sound(p, s.arrival())
+		if errors.Is(err, io.EOF) {
+			s.end()
+			return nil, false
+		}
 	}
 }

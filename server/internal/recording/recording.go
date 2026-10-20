@@ -25,6 +25,10 @@ import (
 // speakers). When it is full, packets are dropped: voice never waits.
 const queueSize = 1024
 
+// maxTracks: speakers recorded, at most (each track is an open file until
+// the end); later ones are not recorded, and named in the info (as many).
+const maxTracks = 50
+
 // Limits of one recording: it stops itself at either.
 type Limits struct {
 	MaxDuration time.Duration
@@ -53,6 +57,7 @@ type Info struct {
 	Dropped     uint64      `json:"dropped,omitempty"`
 	Size        int64       `json:"size"` // bytes of all tracks
 	Tracks      []TrackInfo `json:"tracks"`
+	Unrecorded  []string    `json:"unrecorded,omitempty"` // speakers beyond maxTracks
 }
 
 // TrackInfo: a speaker's file. Every track starts at the recording's
@@ -191,6 +196,13 @@ func (r *Recording) add(p Packet) string {
 	if _, _, ok := packetSamples(p.Opus); !ok {
 		return ""
 	}
+	if t == nil && len(r.order) >= maxTracks {
+		if len(r.info.Unrecorded) < maxTracks && !slices.Contains(r.info.Unrecorded, p.Speaker) {
+			slog.Warn("recording: too many speakers, not recorded", "id", r.info.ID, "speaker", p.Speaker)
+			r.info.Unrecorded = append(r.info.Unrecorded, p.Speaker)
+		}
+		return ""
+	}
 	if t == nil {
 		var err error
 		if t, err = createTrack(filepath.Join(r.dir(), r.fileFor(p.Speaker)), p.Speaker, uint32(len(r.order)+1)); err != nil {
@@ -200,7 +212,10 @@ func (r *Recording) add(p Packet) string {
 		r.tracks[p.Speaker], r.order = t, append(r.order, t)
 	}
 	at := max(0, p.At.Sub(r.info.Started).Microseconds()*sampleRate/1e6)
-	t.add(p.Opus, p.Seq, p.Terminator, at)
+	if err := t.add(p.Opus, p.Seq, p.Terminator, at); err != nil {
+		slog.Error("recording: writing a track", "track", t.name, "err", err)
+		return "write error"
+	}
 	if r.size() > r.lib.Limits.MaxBytes {
 		return "size limit"
 	}
@@ -245,15 +260,37 @@ func safeName(s string) string {
 	return s
 }
 
-// finish closes the tracks at the same end and writes the info.
+// padBytes: a second of silence on a track and its last page, at most.
+const padBytes = 512
+
+// finish closes the tracks and writes the info. Silence fills them up to
+// the end a second at a time, within the size limit: at it they end
+// earlier (where each is, if it was reached already).
 func (r *Recording) finish(reason string) {
 	r.info.Stopped = r.lib.Now()
 	r.info.Expires = r.info.Stopped.Add(r.lib.Keep)
 	r.info.Reason, r.info.Dropped = reason, r.dropped.Load()
 	end := max(0, r.info.Stopped.Sub(r.info.Started).Microseconds()*sampleRate/1e6)
+	reached := end
 	for _, t := range r.order {
-		if err := t.finish(end); err != nil {
+		reached = min(reached, t.pos)
+	}
+	for reached < end {
+		if r.size()+int64(len(r.order))*padBytes > r.lib.Limits.MaxBytes {
+			if reason != "write error" {
+				r.info.Reason = "size limit"
+			}
+			break
+		}
+		reached = min(end, reached+sampleRate)
+		for _, t := range r.order {
+			t.fill(reached)
+		}
+	}
+	for _, t := range r.order {
+		if err := t.finish(reached); err != nil {
 			slog.Error("recording: closing a track", "track", t.name, "err", err)
+			r.info.Reason = "write error"
 		}
 		channels := 1
 		if t.stereo {

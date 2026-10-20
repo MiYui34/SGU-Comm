@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/netip"
@@ -295,13 +296,22 @@ func New(cfg Config) (*Server, error) {
 	return srv, nil
 }
 
-// Serve accepts TLS connections until the listener closes.
+// Serve accepts TLS connections until the listener closes. Other errors
+// (out of file descriptors) wait and try again, as net/http does.
 func (s *Server) Serve(ln net.Listener) error {
+	var wait time.Duration
 	for {
 		conn, err := ln.Accept()
-		if err != nil {
+		if errors.Is(err, net.ErrClosed) {
 			return err
 		}
+		if err != nil {
+			wait = min(max(2*wait, 5*time.Millisecond), time.Second)
+			slog.Warn("mumble: accept", "err", err, "retry", wait)
+			time.Sleep(wait)
+			continue
+		}
+		wait = 0
 		// Banned addresses are dropped before TLS, as in Murmur.
 		host := remoteHost(conn)
 		if s.banned(host, "") != nil || !s.conns.add(host, s.cfg.MaxPerIP) {

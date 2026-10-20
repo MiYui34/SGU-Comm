@@ -48,6 +48,7 @@ type oggWriter struct {
 	// position at its last packet and before its first.
 	pending  [][]byte
 	segments int
+	body     int // bytes of the pending packets
 	granule  int64
 	start    int64
 }
@@ -99,13 +100,22 @@ func (o *oggWriter) packet(p []byte, granule int64) error {
 		o.start = o.granule
 	}
 	o.pending, o.segments, o.granule = append(o.pending, p), o.segments+segments(p), granule
+	o.body += len(p)
 	return nil
 }
 
 func (o *oggWriter) flush(flags byte) error {
 	err := o.page(o.pending, o.granule, flags)
-	o.pending, o.segments = nil, 0
+	o.pending, o.segments, o.body = nil, 0, 0
 	return err
+}
+
+// size: the bytes written and those of the pending page.
+func (o *oggWriter) size() int64 {
+	if len(o.pending) == 0 {
+		return o.bytes
+	}
+	return o.bytes + int64(27+o.segments+o.body)
 }
 
 // close writes the last page (end of stream).

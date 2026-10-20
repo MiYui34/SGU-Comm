@@ -2,15 +2,18 @@ package whip
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/pion/interceptor"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
@@ -254,6 +257,48 @@ func TestANewKeyEndsTheStream(t *testing.T) {
 	}
 }
 
+// A key revoked while its request's offer comes in (slowly) starts nothing.
+func TestAKeyRevokedDuringTheOffer(t *testing.T) {
+	h, srv, _, _ := setup(t)
+	var mu sync.Mutex
+	revoked, checked := false, make(chan struct{}, 4)
+	h.Account = func(key string) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		checked <- struct{}{}
+		return "alice", key == "alice-key" && !revoked
+	}
+	body, pw := io.Pipe()
+	done := make(chan *http.Response)
+	go func() {
+		req, _ := http.NewRequest("POST", srv.URL+Path, body)
+		req.Header.Set("Authorization", "Bearer alice-key")
+		req.Header.Set("Content-Type", "application/sdp")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- resp
+	}()
+	offer := newOBS(t).offer(t)
+	io.WriteString(pw, offer[:10])
+	<-checked // authenticated, the offer still coming
+	mu.Lock()
+	revoked = true
+	mu.Unlock()
+	h.EndAccount("alice")
+	io.WriteString(pw, offer[10:])
+	pw.Close()
+	resp := <-done
+	if resp == nil {
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || h.Sessions() != 0 {
+		t.Fatalf("%d, %d sessions", resp.StatusCode, h.Sessions())
+	}
+}
+
 func TestTimeoutsAndLimits(t *testing.T) {
 	h, srv, _, _ := setup(t)
 	h.ConnectTimeout = 300 * time.Millisecond
@@ -274,4 +319,45 @@ func TestTimeoutsAndLimits(t *testing.T) {
 		t.Fatalf("over the limit: %d %s", resp.StatusCode, body)
 	}
 	eventually(t, "the sessions' timeout", func() bool { return h.Sessions() == 0 })
+}
+
+// Pictures that stop after the start (OBS still connected) end the stream.
+func TestStreamEndsWithoutPictures(t *testing.T) {
+	h, srv, hub, _ := setup(t)
+	h.MediaTimeout = 500 * time.Millisecond
+	o := newOBS(t)
+	o.connect(t, srv.URL, "alice-key")
+	stop := make(chan struct{})
+	go o.send(clipFrames(t), stop)
+	eventually(t, "the stream", func() bool { return len(hub.Streams()) == 1 })
+	close(stop)
+	eventually(t, "the session's end", func() bool { return h.Sessions() == 0 && len(hub.Streams()) == 0 })
+}
+
+// endingReader: two bad packets, then the track's end.
+type endingReader struct{ reads int }
+
+func (r *endingReader) ReadRTP() (*rtp.Packet, interceptor.Attributes, error) {
+	if r.reads++; r.reads <= 2 {
+		return nil, nil, errors.New("unknown payload type")
+	}
+	return nil, nil, io.EOF
+}
+
+// Bad packets are skipped; a track's end ends the session (it would
+// freeze).
+func TestATrackEndEndsTheSession(t *testing.T) {
+	for _, read := range []func(*session, rtpReader){(*session).readVideo, (*session).readSound} {
+		s := newSession(&Handler{}, "id", "alice")
+		r := &endingReader{}
+		read(s, r)
+		select {
+		case <-s.done:
+		default:
+			t.Fatal("the session goes on")
+		}
+		if r.reads != 3 {
+			t.Fatalf("%d reads", r.reads)
+		}
+	}
 }
