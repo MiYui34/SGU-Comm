@@ -98,6 +98,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       error: (err) => {
         console.warn("encoder error", err);
         micError = `Voice encoder failed: ${err.message}`;
+        encoders.fail(encoder);
       },
     });
     madeFor = encoderKey();
@@ -106,6 +107,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   const encoders = createEncoderRotation<VoiceEncoder, { timestamp: number; terminator: boolean }>(makeEncoder);
 
   const encode = (samples: Float32Array<ArrayBuffer>, terminator: boolean) => {
+    if (encoders.failed()) return; // until the next talk spurt
     const encoder = encoders.current();
     encoders.encoded(encoder, { timestamp, terminator });
     encoder.encode(samples, timestamp);

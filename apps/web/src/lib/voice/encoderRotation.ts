@@ -12,6 +12,7 @@ export const createEncoderRotation = <E extends Closable, R>(make: () => E) => {
   const pending = new Map<E, R[]>(); // inputs not out yet, per encoder
   let current = make();
   let used = false;
+  let broken = false; // the current one failed
   const retired = new Set<E>();
 
   const closeIfDone = (e: E) => {
@@ -26,7 +27,7 @@ export const createEncoderRotation = <E extends Closable, R>(make: () => E) => {
     retired.add(current);
     closeIfDone(current);
     current = make();
-    used = false;
+    used = broken = false;
   };
 
   return {
@@ -41,8 +42,18 @@ export const createEncoderRotation = <E extends Closable, R>(make: () => E) => {
       return input;
     },
     startSpurt: () => {
-      if (used) renew();
+      if (used || broken) renew();
     },
+    // A failed encoder: its inputs never come out, so they go now. The
+    // current one is replaced at the next talk spurt, not at once: a codec
+    // that cannot load would fail again and again.
+    fail: (e: E) => {
+      pending.delete(e);
+      retired.delete(e);
+      e.close();
+      if (e === current) broken = true;
+    },
+    failed: () => broken,
     // A new encoder now, for example for new settings.
     renew,
     closeAll: () => {

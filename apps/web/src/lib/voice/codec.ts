@@ -75,17 +75,31 @@ export const libopusOptions = (c: EncoderConfig) => ({
 const asError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
 
 // A codec that is still loading: calls wait for it and run in order. A
-// failure (the load or a call) goes to onError; close() also closes one
-// that arrives later.
+// failure (the load, a call, or fail() from the codec's own error
+// callback) is for good: onError once, queued calls dropped, later ones
+// ignored. close() also closes one that arrives later.
 export const whenReady = <T extends Closable>(loading: Promise<T>, onError: (err: Error) => void) => {
   let ready: T | null = null;
   let closed = false;
+  let failed = false;
   let queue: ((t: T) => void)[] = [];
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    queue = [];
+    ready?.close();
+  };
+  const fail = (err: Error) => {
+    if (closed) return;
+    failed = true;
+    close();
+    onError(err);
+  };
   const call = (t: T, fn: (t: T) => void) => {
     try {
       fn(t);
     } catch (err) {
-      onError(asError(err));
+      fail(asError(err));
     }
   };
   loading.then(
@@ -95,7 +109,7 @@ export const whenReady = <T extends Closable>(loading: Promise<T>, onError: (err
       if (closed) t.close();
       else ready = t;
     },
-    (err) => closed || onError(asError(err)),
+    (err) => fail(asError(err)),
   );
   return {
     run: (fn: (t: T) => void) => {
@@ -103,12 +117,9 @@ export const whenReady = <T extends Closable>(loading: Promise<T>, onError: (err
       if (ready) call(ready, fn);
       else queue.push(fn);
     },
-    close: () => {
-      if (closed) return;
-      closed = true;
-      queue = [];
-      ready?.close();
-    },
+    close,
+    fail,
+    failed: () => failed,
   };
 };
 
@@ -193,17 +204,20 @@ const codec = () =>
     return kind;
   }));
 
+// The codec's own errors fail it for good too (see whenReady).
 export const voiceEncoder = (config: EncoderConfig, sink: EncoderSink): VoiceEncoder => {
+  const s: EncoderSink = { output: sink.output, error: (err) => r.fail(err) };
   const r = whenReady(
-    codec().then((kind) => (kind === "webcodecs" ? webCodecsEncoder(config, sink) : wasmEncoder(config, sink))),
+    codec().then((kind) => (kind === "webcodecs" ? webCodecsEncoder(config, s) : wasmEncoder(config, s))),
     sink.error,
   );
   return { encode: (samples, timestamp) => r.run((e) => e.encode(samples, timestamp)), flush: () => r.run((e) => e.flush()), close: r.close };
 };
 
 export const voiceDecoder = (sink: DecoderSink): VoiceDecoder => {
+  const s: DecoderSink = { output: sink.output, error: (err) => r.fail(err) };
   const r = whenReady(
-    codec().then((kind) => (decoderKind(kind, linuxApp()) === "webcodecs" ? webCodecsDecoder(sink) : wasmDecoder(sink))),
+    codec().then((kind) => (decoderKind(kind, linuxApp()) === "webcodecs" ? webCodecsDecoder(s) : wasmDecoder(s))),
     sink.error,
   );
   return { decode: (opus, timestamp) => r.run((d) => d.decode(opus, timestamp)), close: r.close };
