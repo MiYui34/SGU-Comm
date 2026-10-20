@@ -1830,3 +1830,27 @@ From `meta/research/discord-comparison.md`.
   query); non-square pixels (SAR) are not corrected in video thumbnails;
   old octet-stream uploads with media names get none. The systemd unit's
   MemoryDenyWriteExecute applies to ffmpeg too (not checked).
+
+## Save feedback (2026-10-20)
+
+- One pattern for controls that save on the server: `lib/saveFeedback`
+  (pure: idle → pending → saved | error, and which event confirms which
+  request), `createSave` (runes), `SaveStatus` ("Saved" for 2 s, or the
+  error, next to the control). Buttons show "Saving…" and are disabled.
+- `connection.request` / `ask` / `sendAwait` return a promise: settled by
+  the confirming event, a manage error (now at the waiting control, not
+  the toast) or a Mumble PermissionDenied, or "No answer from the server"
+  after 5 s. A checkbox or select goes back to the server's value then.
+- The server sends no request ids: answers are matched in order. A refusal
+  goes to the oldest waiting control; an event confirms the oldest request
+  it matches. Mumble requests (bans, registered users) are done when the
+  state holds the change (asked for again after the change).
+- Dialogs (channel, members, moderators) now close when the server
+  confirms, not at once; Mumble's own channel edits still have no answer.
+- Not changed: user menu role changes, kick/ban/time-out dialogs, channel
+  recording (they close at once; the result shows in the lists; errors
+  stay toasts); the status dialog (errors come as chat errors); the bio
+  (saved on blur, no status). Known gaps: a refusal of a request sent
+  without waiting (list loads) can go to a waiting control; a broadcast
+  from another admin can confirm early; an answer after the dialog closed
+  is lost; a plain (non-manage) error makes the control wait 5 s.
