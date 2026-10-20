@@ -1386,3 +1386,27 @@ From `meta/research/discord-comparison.md`.
   before. A new start of the clock that moves it earlier (rare: a
   backlog drained by over 1 s) lets sound already scheduled overlap the
   new for up to a second.
+
+## Review fixes: streams and recording (2026-10-20)
+
+- WHIP: Pion's H.264 depacketizer appends FU-A fragments until an end
+  fragment, also across pictures, so unfinished starts grew memory without
+  bound. A wrapper drops an unfinished unit at each start and one over
+  1 MB (the hub's frame limit); its picture counts as lost (keyframe
+  asked for). Pictures over 1 MB are lost too.
+- WHIP: the stream key is checked again under the lock EndAccount takes
+  when the session is reserved: a key revoked while the offer came in
+  (slowly) starts nothing. A track's end ends the session (bad packets
+  are skipped; before, they ended the reader), and a live stream without
+  pictures for 10 s ends (it froze).
+- Recording: at most 50 tracks (each an open file until the end); later
+  speakers are not recorded and are named in recording.json
+  (`unrecorded`). A write error stops the recording ("write error", told
+  like the limits). The size limit counts the page still buffered, and
+  the silence that ends the tracks: it goes a second at a time on all
+  tracks and stops at the limit, so the recording ends earlier ("size
+  limit"). A stop that finishes while a newer recording runs is not told
+  ("Recording stopped" would be false).
+- Mumble port: an Accept error (out of file descriptors) no longer ends
+  the accept loop: it waits (5 ms, doubling to 1 s) and tries again;
+  only a closed listener ends it.
