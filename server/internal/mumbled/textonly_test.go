@@ -433,3 +433,44 @@ func TestTextOnlySessionsJoinAndLeaveFromNoChannel(t *testing.T) {
 		t.Fatalf("second left: %+v", m)
 	}
 }
+
+// userIn is the channel of a session and whether that channel exists
+// (TextOnly counts as existing).
+func userIn(s *Server, session uint32) (uint32, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.state.Users[session]
+	if u == nil {
+		return 0, false
+	}
+	return u.Channel, u.textOnly() || s.state.Channels[u.Channel] != nil
+}
+
+func TestAMumbleClientTakesVoiceInATemporaryChannel(t *testing.T) {
+	s, addr, general := lobbyServer(t)
+	web := aliceTab(t, s, "203.0.113.1")
+	tmp := web.createChannel(general, "Tmp", true)
+	web.waitForMove(web.session, tmp)
+	native := dialAs(t, addr, dialOpts{name: "alice", password: "pw", cert: clientCert(t)})
+	web.waitForState(web.session, isIn(TextOnly))
+	if ch, ok := userIn(s, native.session); ch != tmp || !ok {
+		t.Fatalf("Mumble client in %d (exists: %v), want %d", ch, ok, tmp)
+	}
+	s.mu.Lock()
+	s.permissionsChangedLocked(nil) // walks users' channels: crashed
+	s.mu.Unlock()
+}
+
+func TestATabTakesVoiceInTheTemporaryChannelOfAnother(t *testing.T) {
+	s, _, general := lobbyServer(t)
+	first := aliceTab(t, s, "203.0.113.1")
+	tmp := first.createChannel(general, "Tmp", true)
+	first.waitForMove(first.session, tmp)
+	second := aliceTab(t, s, "203.0.113.1")
+	second.move(second.session, tmp)
+	first.waitForState(first.session, isIn(TextOnly))
+	second.waitForMove(second.session, tmp)
+	if ch, ok := userIn(s, second.session); ch != tmp || !ok {
+		t.Fatalf("second tab in %d (exists: %v), want %d", ch, ok, tmp)
+	}
+}

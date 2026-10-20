@@ -20,6 +20,10 @@ type State struct {
 	Users       map[uint32]*User
 	nextChannel uint32
 	gen         uint64 // see Changed
+	// held: a temporary channel that stays while empty (see
+	// takeVoiceLocked, which does not nest); 0 (root, never temporary)
+	// for none.
+	held uint32
 	// Guests may not write (see guests.go).
 	GuestsReadOnly bool
 	// Index in CaptchaLevels (see captcha.go).
@@ -396,7 +400,7 @@ func (s *State) MoveUser(session, channel uint32) []uint32 {
 
 func (s *State) removeIfEmptyTemporary(id uint32) []uint32 {
 	c := s.Channels[id]
-	if c == nil || !c.Temporary {
+	if c == nil || !c.Temporary || id == s.held {
 		return nil
 	}
 	for _, u := range s.Users {

@@ -447,10 +447,11 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		return mumble.RejectFrame(pb.Reject_None, "You may not enter this server.")
 	}
 	_, u.Mute = s.timedOutLocked(u)
+	tookVoice := func() {}
 	if voice != nil && c.web {
 		u.Channel = TextOnly
 	} else if voice != nil {
-		s.takeVoiceLocked(u)
+		tookVoice = s.takeVoiceLocked(u)
 	}
 	s.state.Refresh(u)
 	c.seen = s.state.Visible(u)
@@ -468,6 +469,7 @@ func (s *Server) join(c *client, id identity, setup *pb.CryptSetup) []byte {
 		s.byHost[c.host] = map[*client]bool{}
 	}
 	s.byHost[c.host][c] = true
+	tookVoice() // with c told if the voice session's channel goes
 	s.sendUserLocked(u, userStateMsg(u))
 	c.sendMsg(mumble.TypeServerSync, &pb.ServerSync{
 		Session: proto.Uint32(c.session), MaxBandwidth: proto.Uint32(maxBandwidth),
