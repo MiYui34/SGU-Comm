@@ -2036,3 +2036,28 @@ From `meta/research/discord-comparison.md`.
   other forever.
 - Gap: the connections view lists every session but does not mark
   text-only ones.
+
+## Review 3: client state (2026-10-20)
+
+- Push: the opt-out count is in localStorage (`pushOffs`), so an
+  opt-out in another tab stops a sync that is running here.
+- Reconnect: `Place.session` is the session that held our voice. After a
+  reconnect we take voice back only from that old session (the server
+  has not let it go yet), not from another device that joined meanwhile.
+- Read marks: only a visible tab marks new messages read (`autoSeen`); a
+  tab that becomes visible catches up.
+- Streams: a watch stopped before the stream socket opens asks for
+  nothing (the viewer entry is checked after the await).
+- Resync: the client answers `resync` with a `resync` request; the
+  sidecar sends a fresh ready (`readyFor`, `resendReady`), with nothing
+  told to others. So follows, threads, read marks and the rest come back,
+  not only history. A ready keeps known archived threads, as a channel
+  list does.
+- Save feedback: a channel change is confirmed only by a list with that
+  change (names compared as the server writes them, without case and
+  marks: Go and JS lower case differently); a privacy change by the
+  private list. Before, the privacy change's own "channels" event
+  confirmed a rename in the same save.
+- Drafts live in `Client` (`Drafts`), so they survive panes that close
+  (a thread over the channel on phones, a closed thread pane). Checked
+  headless on desktop and phone sizes.
