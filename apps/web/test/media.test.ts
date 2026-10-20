@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asSpoiler, formatDuration, imageBox, mediaKind, mediaRatio, spoilerUpload } from "../src/lib/media";
+import { asSpoiler, formatDuration, imageBox, mediaKind, mediaRatio, shownLength, spoilerUpload } from "../src/lib/media";
 
 describe("mediaKind", () => {
   it("plays audio and video by type, and older uploads by name", () => {
@@ -18,6 +18,15 @@ describe("formatDuration", () => {
     expect(formatDuration(211.6)).toBe("3:31");
     expect(formatDuration(3725)).toBe("1:02:05");
     expect(formatDuration(NaN)).toBe("0:00");
+  });
+});
+
+describe("shownLength", () => {
+  it("is the player's length, else the server's", () => {
+    expect(shownLength(12.5, 3000)).toBe(12.5);
+    expect(shownLength(0, 3000)).toBe(3);
+    expect(shownLength(Infinity, 3000)).toBe(3); // a recording without a length
+    expect(shownLength(NaN)).toBe(0);
   });
 });
 

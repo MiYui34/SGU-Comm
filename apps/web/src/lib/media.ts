@@ -39,6 +39,10 @@ export const imageBox = ({ width, height }: Sized, max = { width: 400, height: 3
 // CSS aspect-ratio of a video (its box width is fixed).
 export const mediaRatio = ({ width, height }: Sized) => (width && height ? `${width} / ${height}` : undefined);
 
+// Seconds to show: the player's, else the server's (milliseconds, known
+// before the metadata loads).
+export const shownLength = (seconds: number, knownMs = 0) => finite(seconds) || knownMs / 1000;
+
 // One plays at a time: starting one pauses the one before.
 let playing: HTMLMediaElement | null = null;
 export const onlyOne = (el: HTMLMediaElement) => {
