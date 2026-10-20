@@ -338,7 +338,13 @@
       expanded = new Set();
     });
   });
-  $effect(() => () => (drafts.value = keepDraft(drafts.value, draftFor, draft)));
+  // After this pane closes, an upload that ends finds its chat not open
+  // (see afterUpload): a sent caption leaves the kept drafts.
+  let closed = false;
+  $effect(() => () => {
+    closed = true;
+    drafts.value = keepDraft(drafts.value, draftFor, draft);
+  });
   const onPaste = (event: ClipboardEvent) => {
     if (!onUpload) return;
     const files = pastedFiles(event.clipboardData);
@@ -374,7 +380,7 @@
       const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
       void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
-        const done = afterUpload(ok, sent, { chat, draft, file: pending?.file, drafts: drafts.value });
+        const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
         drafts.value = done.drafts;
