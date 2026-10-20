@@ -1956,3 +1956,74 @@ From `meta/research/discord-comparison.md`.
   countries, as for the Linux distributions that ship it.
 - Not done: the .deb and .rpm use the system GStreamer; they do not
   depend on gst-libav. macOS and Windows not run (same wry code paths).
+
+## Multiple sessions (2026-10-20)
+
+- mumbled: a registered account (also a guest account) may connect up to
+  10 times (`maxSessionsPerUser`). At most one session is in a channel,
+  the voice session, the one others see. The others are text-only: in
+  `TextOnly` (`NoChannel - 1`), which is no channel. No client has it in
+  `seen`, so the existing broadcasts leave them out without new checks;
+  the session itself always gets its own UserState (`client.sees`). They
+  get the channel tree and the users, no voice in or out (also not by
+  whisper to their session, no listening), and others cannot move them.
+  Unregistered guests keep one session (findGhost, as before).
+- A new web session joins text-only when the account has a voice
+  session. A text-only session that joins a channel takes voice: the
+  voice session moves to `TextOnly` (its own client sees itself there,
+  others see it leave and the other join) and the server mute, deafen
+  and priority go along, so a second tab cannot shake off a mute. When
+  the voice session disconnects, the newest text-only session goes to
+  root, but only where root is a lobby (elsewhere root has voice, and the
+  tab would open its microphone).
+- Texts written in a text-only tab reach Mumble clients from the voice
+  session (they do not know the text-only one, and showed "Server");
+  without a voice session the text starts with the name. When the voice
+  session leaves, the others keep its server mute.
+- A Mumble client cannot be text-only: it takes voice when it connects
+  (and the channel of the web session), a second Mumble client replaces
+  the first as before, and a web session that joins voice kicks it ("You
+  joined voice on another device"). So at most one non-web session.
+- Hooks see `TextOnly` as `NoChannel`: a text-only session joins and
+  leaves from NoChannel to NoChannel (the sidecar updates the online set
+  then), taking voice is a join and losing it a leave (streams end, as
+  when leaving). `UserChannel` has none for it, so it can neither stream
+  nor watch; it may still read a voice channel's chat it may enter.
+- `Online()` has one session per user: the voice session, else the
+  oldest. It counts text-only sessions, so pushes stay off while any
+  session is connected.
+- Moderation: a kick or ban removes every session of the account; a ban
+  also covers the certificates of the other sessions (a Mumble client
+  logging in with the account's password may have its own). A time-out
+  mutes every session. Channel time-outs, message rules and slow mode
+  were per user id already.
+- MaxUsers counts users in channels only; more sessions of an account
+  that is in already are not refused.
+- Sidecar statuses: still by session (clients look them up by the
+  session they see), but each session of an account shows the account's
+  status, idle only while all its sessions are away (as Discord). A
+  status is sent again for every session whose shown status changed
+  (`Conn.sent`). Typing no longer goes to the typist's other tabs.
+- Web: `isTextOnly`, `voiceElsewhere` and `listedUsers` in the protocol
+  package. A text-only tab shows root, is not in voice (the microphone
+  stays closed), lists the account once, and the voice bar says "In
+  voice on another device" with "Join voice here" (the channel the other
+  device is in). Losing voice to another tab leaves the voice chat for a
+  text channel. Device names are not shown: the bridge does not tell
+  them, and the Mumble state alone (another session with our user id in
+  a channel) is enough for the bar.
+- Notifications: of several tabs of one account in one browser, only the
+  tab used last (focus or shown) shows desktop notifications, with its
+  own rules (lib/notifyLeader.ts, a BroadcastChannel per server and
+  account). A tab that ends without "bye" (a crash) keeps the others
+  quiet until one is used again. Other devices notify as before.
+- Manual check (headless Chromium, fake microphone): two sessions of
+  alice and one of bob. Both alice tabs connected, bob listed alice once.
+  Voice on the first tab: the second showed "In voice on another
+  device"; "Join voice here" moved voice, the first tab showed the bar,
+  bob still saw one alice and heard the active tab (speaking ring), the
+  text-only tab heard nothing. Closing the voice tab brought the other
+  into the lobby, still online for bob.
+- Gaps: read marks are not synced live between open tabs (an unread
+  badge stays in the other tab until it reloads); the connections view
+  lists every session but does not mark text-only ones.
