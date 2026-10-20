@@ -47,7 +47,7 @@
   <div class="where">
     <div class="state" class:elsewhere={onJoinHere}>
       {#if onJoinHere}
-        You are in voice on another device
+        In voice on another device
       {:else}
         <ConnectionInfo {info} />
         Voice connected

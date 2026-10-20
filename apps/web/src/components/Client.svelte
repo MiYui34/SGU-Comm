@@ -135,7 +135,8 @@
   const me = $derived(server.session === null ? undefined : server.users[server.session]);
   // A text-only session (our account is in voice elsewhere) is in no
   // channel: it shows root.
-  const channelId = $derived(me && !isTextOnly(server) ? me.channelId : 0);
+  const textOnly = $derived(isTextOnly(server));
+  const channelId = $derived(me && !textOnly ? me.channelId : 0);
   const channelName = $derived(server.channels[channelId]?.name ?? "");
   const serverName = $derived(server.channels[0]?.name ?? "Server");
   const users = $derived(listedUsers(server));
@@ -601,6 +602,14 @@
   $effect(() => {
     const first = text.channels[0];
     if (first && !navigated && view.kind === "voice") view = { kind: "text", id: first.id };
+  });
+  // Voice moved to another device: its chat is not ours any more.
+  $effect(() => {
+    if (!textOnly) return;
+    untrack(() => {
+      const first = text.channels[0];
+      if (view.kind === "voice" && first) show({ kind: "text", id: first.id });
+    });
   });
   // The open channel was removed: to the first text channel, or the voice
   // view.
