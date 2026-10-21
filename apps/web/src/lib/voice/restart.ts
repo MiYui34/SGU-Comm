@@ -23,11 +23,31 @@ type Media = Pick<MediaDevices, "enumerateDevices"> & {
   removeEventListener: (type: "devicechange", listener: () => void) => void;
 };
 
+// Whether the page shows, and a call when it shows again (see documentPage).
+export type Page = { visible: () => boolean; onVisible: (listener: () => void) => () => void };
+const alwaysVisible: Page = { visible: () => true, onVisible: () => () => {} };
+export const documentPage = (doc: Document): Page => ({
+  visible: () => doc.visibilityState === "visible",
+  onVisible: (listener) => {
+    const l = () => doc.visibilityState === "visible" && listener();
+    doc.addEventListener("visibilitychange", l);
+    return () => doc.removeEventListener("visibilitychange", l);
+  },
+});
+
 // Calls back when the outputs changed: once after a burst of devicechange
-// events (they come several at a time). Not for microphones. Returns stop.
-export const watchOutputDevices = (media: Media, changed: () => void, debounceMs = 500): (() => void) => {
-  let last: string | null = null;
+// events (they come several at a time). Not for microphones. Only while
+// the page shows: a phone in a pocket keeps its voice (a new context there
+// may not start without a tap); a change meanwhile counts when it shows
+// again, compared with the list of the current context. Returns stop.
+export const watchOutputDevices = (
+  media: Media,
+  changed: () => void,
+  { debounceMs = 500, page = alwaysVisible }: { debounceMs?: number; page?: Page } = {},
+): (() => void) => {
+  let last: string | null = null; // the outputs the current context knows
   let stopped = false;
+  let hiddenChange = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let reads = 0; // a slow read must not win over a newer one
   const read = () => media.enumerateDevices().then(outputSignature, () => null);
@@ -36,6 +56,7 @@ export const watchOutputDevices = (media: Media, changed: () => void, debounceMs
     const mine = ++reads;
     const now = await read();
     if (stopped || mine !== reads || now === null) return;
+    if (!page.visible()) return void (hiddenChange = true);
     const was = last;
     last = now;
     if (was !== null && was !== now) changed();
@@ -44,10 +65,16 @@ export const watchOutputDevices = (media: Media, changed: () => void, debounceMs
     clearTimeout(timer);
     timer = setTimeout(() => void check(), debounceMs);
   };
+  const stopPage = page.onVisible(() => {
+    if (!hiddenChange) return;
+    hiddenChange = false;
+    void check();
+  });
   media.addEventListener("devicechange", onChange);
   return () => {
     stopped = true;
     clearTimeout(timer);
+    stopPage();
     media.removeEventListener("devicechange", onChange);
   };
 };

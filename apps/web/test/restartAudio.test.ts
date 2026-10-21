@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { outputSignature, restartOnJoin, swapContext, watchOutputDevices } from "../src/lib/voice/restart";
+import { documentPage, outputSignature, restartOnJoin, swapContext, watchOutputDevices } from "../src/lib/voice/restart";
 
 type Device = Pick<MediaDeviceInfo, "kind" | "deviceId" | "groupId" | "label">;
 const out = (deviceId: string, label: string, groupId = label): Device => ({ kind: "audiooutput", deviceId, groupId, label });
@@ -46,10 +46,67 @@ describe("watchOutputDevices", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  // A page that can hide (a locked phone): the test shows it again.
+  const fakePage = () => {
+    let visible = true;
+    const shown = new Set<() => void>();
+    return {
+      hide: () => (visible = false),
+      show: () => ((visible = true), shown.forEach((l) => l())),
+      shown,
+      page: { visible: () => visible, onVisible: (l: () => void) => (shown.add(l), () => void shown.delete(l)) },
+    };
+  };
+
+  it("waits while the page is hidden, and restarts when it shows again", async () => {
+    const f = fakeMedia([out("a", "A")]);
+    const p = fakePage();
+    const changed = vi.fn();
+    watchOutputDevices(f.media, changed, { debounceMs: 500, page: p.page });
+    await vi.advanceTimersByTimeAsync(0);
+    p.hide();
+    f.set([out("a", "A"), out("h", "Headset")]);
+    f.fire();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(changed).not.toHaveBeenCalled();
+    p.show();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).toHaveBeenCalledTimes(1);
+    p.hide();
+    p.show(); // the same list: nothing more
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it("compares with the list of the current context: a change undone while hidden does nothing", async () => {
+    const f = fakeMedia([out("a", "A")]);
+    const p = fakePage();
+    const changed = vi.fn();
+    watchOutputDevices(f.media, changed, { debounceMs: 500, page: p.page });
+    await vi.advanceTimersByTimeAsync(0);
+    p.hide();
+    f.set([out("h", "Headset")]);
+    f.fire();
+    await vi.advanceTimersByTimeAsync(500);
+    f.set([out("a", "A")]);
+    f.fire();
+    await vi.advanceTimersByTimeAsync(500);
+    p.show();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("stops listening for the page too", async () => {
+    const p = fakePage();
+    const stop = watchOutputDevices(fakeMedia([out("a", "A")]).media, vi.fn(), { page: p.page });
+    stop();
+    expect(p.shown.size).toBe(0);
+  });
+
   it("calls back once, after a burst of events, when the outputs changed", async () => {
     const f = fakeMedia([out("default", "Default - AirPods"), mic("m", "Mic")]);
     const changed = vi.fn();
-    watchOutputDevices(f.media, changed, 500);
+    watchOutputDevices(f.media, changed, { debounceMs: 500 });
     await vi.advanceTimersByTimeAsync(0);
     f.set([out("default", "Default - Speakers"), mic("m", "Mic")]);
     f.fire();
@@ -64,7 +121,7 @@ describe("watchOutputDevices", () => {
   it("does not call back when only the microphones changed, and compares with the last list", async () => {
     const f = fakeMedia([out("a", "A"), mic("m", "Mic")]);
     const changed = vi.fn();
-    watchOutputDevices(f.media, changed, 500);
+    watchOutputDevices(f.media, changed, { debounceMs: 500 });
     await vi.advanceTimersByTimeAsync(0);
     f.set([out("a", "A"), mic("m", "Mic"), mic("n", "USB mic")]);
     f.fire();
@@ -81,7 +138,7 @@ describe("watchOutputDevices", () => {
   it("uses only the newest list when reads overlap", async () => {
     const f = fakeMedia([out("a", "A")]);
     const changed = vi.fn();
-    watchOutputDevices(f.media, changed, 500);
+    watchOutputDevices(f.media, changed, { debounceMs: 500 });
     await vi.advanceTimersByTimeAsync(0);
     let slow!: (d: MediaDeviceInfo[]) => void;
     f.media.enumerateDevices.mockImplementationOnce(() => new Promise((r) => (slow = r)));
@@ -98,7 +155,7 @@ describe("watchOutputDevices", () => {
   it("stops listening and drops a pending check", async () => {
     const f = fakeMedia([out("a", "A")]);
     const changed = vi.fn();
-    const stop = watchOutputDevices(f.media, changed, 500);
+    const stop = watchOutputDevices(f.media, changed, { debounceMs: 500 });
     await vi.advanceTimersByTimeAsync(0);
     f.set([out("b", "B")]);
     f.fire();
@@ -112,7 +169,7 @@ describe("watchOutputDevices", () => {
     const f = fakeMedia([out("a", "A")]);
     let answer!: (d: MediaDeviceInfo[]) => void;
     const changed = vi.fn();
-    const stop = watchOutputDevices(f.media, changed, 500);
+    const stop = watchOutputDevices(f.media, changed, { debounceMs: 500 });
     await vi.advanceTimersByTimeAsync(0);
     f.media.enumerateDevices.mockImplementationOnce(() => new Promise((r) => (answer = r)));
     f.fire();
@@ -140,5 +197,27 @@ describe("swapContext", () => {
     const make = vi.fn();
     expect(swapContext(null, make, vi.fn(), vi.fn())).toBeNull();
     expect(make).not.toHaveBeenCalled();
+  });
+});
+
+describe("documentPage", () => {
+  it("calls back only when the document shows, until stopped", () => {
+    const listeners = new Set<() => void>();
+    const doc = {
+      visibilityState: "hidden",
+      addEventListener: (_: string, l: () => void) => listeners.add(l),
+      removeEventListener: (_: string, l: () => void) => listeners.delete(l),
+    };
+    const page = documentPage(doc as unknown as Document);
+    const shown = vi.fn();
+    const stop = page.onVisible(shown);
+    listeners.forEach((l) => l());
+    expect(page.visible()).toBe(false);
+    expect(shown).not.toHaveBeenCalled();
+    doc.visibilityState = "visible";
+    listeners.forEach((l) => l());
+    expect(shown).toHaveBeenCalledTimes(1);
+    stop();
+    expect(listeners.size).toBe(0);
   });
 });
