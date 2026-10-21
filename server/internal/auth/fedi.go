@@ -36,6 +36,9 @@ const (
 	// An app without a login yet is registered again after this: instances
 	// may delete apps nobody used (Mastodon after a day).
 	unusedAppLifetime = time.Hour
+	// A fresh login with the linked fediverse account allows the first
+	// password of an account without one, this long (see changePassword).
+	reauthLifetime = 5 * time.Minute
 	// Flows and sign-ups kept at most (bounded memory); more: refused.
 	maxFediPending = 10_000
 )
@@ -54,6 +57,39 @@ type FediLogin struct {
 
 	flows   pending[fediFlow]   // by state
 	signups pending[fediSignup] // by the signup cookie
+	// Fresh logins (reauth flows) by session key: the account's id.
+	proofMu sync.Mutex
+	proofs  map[string]pendingEntry[int64]
+}
+
+// prove records a fresh login of the account in this session; false: full.
+func (f *FediLogin) prove(session string, account int64, now time.Time) bool {
+	f.proofMu.Lock()
+	defer f.proofMu.Unlock()
+	if f.proofs == nil {
+		f.proofs = map[string]pendingEntry[int64]{}
+	}
+	if len(f.proofs) >= maxFediPending {
+		for k, e := range f.proofs {
+			if !now.Before(e.expires) {
+				delete(f.proofs, k)
+			}
+		}
+		if len(f.proofs) >= maxFediPending {
+			return false
+		}
+	}
+	f.proofs[session] = pendingEntry[int64]{account, now.Add(reauthLifetime)}
+	return true
+}
+
+// takeProof uses up the session's fresh login of the account.
+func (f *FediLogin) takeProof(session string, account int64, now time.Time) bool {
+	f.proofMu.Lock()
+	defer f.proofMu.Unlock()
+	e, ok := f.proofs[session]
+	delete(f.proofs, session)
+	return ok && e.v == account && now.Before(e.expires)
 }
 
 type fediFlow struct {
@@ -61,9 +97,11 @@ type fediFlow struct {
 	app      fedi.App
 	verifier string
 	scope    string
-	// A link: the account and its session (store key) that started it.
+	// A link (or a reauth: a fresh login with the linked account): the
+	// account and its session (store key) that started it.
 	link    int64
 	session string
+	reauth  bool
 }
 
 type fediSignup struct {
@@ -197,6 +235,8 @@ func (a *Service) fediStart(w http.ResponseWriter, r *http.Request) {
 		Instance string `json:"instance"`
 		Link     bool   `json:"link"`
 		Password string `json:"password"`
+		// "reauth": a fresh login with the linked account (see prove).
+		Purpose string `json:"purpose"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&c) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -208,7 +248,18 @@ func (a *Service) fediStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flow := fediFlow{inst: inst, verifier: fedi.NewVerifier()}
-	if c.Link {
+	if c.Purpose == "reauth" {
+		acc, ok := a.AccountFor(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
+			return
+		}
+		if id, err := a.Store.FediIdentityOf(acc.ID); err != nil || id.Host != inst.Host {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "log in with the fediverse account linked to this account"})
+			return
+		}
+		flow.link, flow.session, flow.reauth = acc.ID, SessionKey(r), true
+	} else if c.Link {
 		acc, ok := a.AccountFor(r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
@@ -313,6 +364,10 @@ func (a *Service) fediCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := store.FediIdentity{Host: flow.inst.Host, RemoteID: remote.ID, Handle: remote.Handle(flow.inst)}
+	if flow.reauth {
+		back(a.fediReauth(linkTo, flow.session, id))
+		return
+	}
 	if flow.link != 0 {
 		back(a.fediLink(linkTo, id))
 		return
@@ -369,6 +424,19 @@ func (a *Service) fediLink(acc store.Account, id store.FediIdentity) (string, st
 		a.OnPermanent(acc.Name)
 	}
 	return "linked", ""
+}
+
+// fediReauth records a fresh login with the account's linked remote
+// account, for this session; the result for home.
+func (a *Service) fediReauth(acc store.Account, session string, id store.FediIdentity) (string, string) {
+	linked, err := a.Store.FediIdentityOf(acc.ID)
+	if err != nil || linked.Host != id.Host || linked.RemoteID != id.RemoteID {
+		return "error", "other"
+	}
+	if !a.Fedi.prove(session, acc.ID, a.Now()) {
+		return "error", "failed"
+	}
+	return "reauth", ""
 }
 
 // fediSignup makes the account for a remote account without one, with the

@@ -259,7 +259,8 @@ func TestFediUnlinkKeepsAWayToLogIn(t *testing.T) {
 	if resp, v := d.do("POST", "/api/fedi/unlink", map[string]any{}); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("unlink the only login: %d %v", resp.StatusCode, v)
 	}
-	// A first password needs no old one.
+	// A first password needs no old one (but a fresh fediverse login).
+	wantRedirect(t, d.fediFlow(f, map[string]any{"instance": inst, "purpose": "reauth"}, "dave"), home+"?fedi=reauth")
 	if resp, v := d.do("POST", "/api/password", map[string]any{"old": "", "new": "davespassword"}); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("first password: %d %v", resp.StatusCode, v)
 	}
@@ -351,5 +352,75 @@ func TestFediAppsAreKeptOnceUsed(t *testing.T) {
 	b.do("POST", "/api/fedi/start", map[string]any{"instance": inst})
 	if f.Requests() != used || used <= registered+1 {
 		t.Fatalf("requests: %d %d %d", registered, used, f.Requests())
+	}
+}
+
+// The first password of a fediverse-only account needs a fresh login with
+// the linked fediverse account, in the same session: a stolen session
+// cannot set one and lock the owner out.
+func TestFirstPasswordNeedsAFreshFediLogin(t *testing.T) {
+	f := &fedifake.Instance{}
+	_, srv, inst := fediSetup(t, f)
+	d := newBrowser(t, srv)
+	d.fediFlow(f, map[string]any{"instance": inst}, "dave")
+	d.do("POST", "/api/fedi/signup", map[string]any{"name": "dave"})
+	setPassword := func(b *browser) (*http.Response, map[string]any) {
+		return b.do("POST", "/api/password", map[string]any{"old": "", "new": "davespassword"})
+	}
+	if resp, v := setPassword(d); resp.StatusCode != http.StatusForbidden || v["code"] != "reauth" {
+		t.Fatalf("without a fresh login: %d %v", resp.StatusCode, v)
+	}
+	// Another fediverse account proves nothing.
+	reauth := map[string]any{"instance": inst, "purpose": "reauth"}
+	wantRedirect(t, d.fediFlow(f, reauth, "eve"), home+"?fedi=error&reason=other")
+	if resp, _ := setPassword(d); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("after another account: %d", resp.StatusCode)
+	}
+	// The proof belongs to the session that got it.
+	wantRedirect(t, d.fediFlow(f, reauth, "dave"), home+"?fedi=reauth")
+	other := newBrowser(t, srv)
+	other.fediFlow(f, map[string]any{"instance": inst}, "dave")
+	if resp, _ := setPassword(other); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("another session: %d", resp.StatusCode)
+	}
+	if resp, v := setPassword(d); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("with a fresh login: %d %v", resp.StatusCode, v)
+	}
+}
+
+func TestFediProofsAreSingleUse(t *testing.T) {
+	var f FediLogin
+	now := time.Now()
+	f.prove("session", 1, now)
+	if f.takeProof("session", 2, now) || f.takeProof("session", 1, now) {
+		t.Fatal("a proof for another account, or used twice")
+	}
+	f.prove("session", 1, now)
+	if !f.takeProof("session", 1, now) || f.takeProof("session", 1, now) {
+		t.Fatal("not single use")
+	}
+}
+
+func TestFediReauthExpiresAndNeedsALink(t *testing.T) {
+	f := &fedifake.Instance{}
+	a, srv, inst := fediSetup(t, f)
+	now := time.Now()
+	a.Now = func() time.Time { return now }
+	d := newBrowser(t, srv)
+	d.fediFlow(f, map[string]any{"instance": inst}, "dave")
+	d.do("POST", "/api/fedi/signup", map[string]any{"name": "dave"})
+	wantRedirect(t, d.fediFlow(f, map[string]any{"instance": inst, "purpose": "reauth"}, "dave"), home+"?fedi=reauth")
+	now = now.Add(6 * time.Minute)
+	if resp, v := d.do("POST", "/api/password", map[string]any{"new": "davespassword"}); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expired proof: %d %v", resp.StatusCode, v)
+	}
+	// Accounts with a password change it as before; a reauth needs a link.
+	b := newBrowser(t, srv)
+	b.do("POST", "/api/accounts", map[string]any{"name": "bob", "password": "longpassword"})
+	if resp, _ := b.do("POST", "/api/fedi/start", map[string]any{"instance": inst, "purpose": "reauth"}); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("reauth without a link: %d", resp.StatusCode)
+	}
+	if resp, _ := b.do("POST", "/api/password", map[string]any{"old": "longpassword", "new": "newpassword"}); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("password change: %d", resp.StatusCode)
 	}
 }

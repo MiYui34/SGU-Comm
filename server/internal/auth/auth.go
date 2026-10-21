@@ -468,7 +468,14 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	// A temporary account has no password yet: the first one makes it a
 	// normal account. An account made with a fediverse login gets its first
-	// one too (for Mumble apps, or to unlink).
+	// one too (for Mumble apps, or to unlink), after a fresh login with its
+	// fediverse account in this session: a stolen session cannot set one and
+	// lock the owner out (the change ends the other sessions). With
+	// fediverse logins off there is no other way back in: no check then.
+	if acc.PasswordHash == "" && !acc.Temporary && a.Fedi != nil && !a.Fedi.takeProof(SessionKey(r), acc.ID, a.Now()) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "confirm with your fediverse account first", "code": "reauth"})
+		return
+	}
 	release := password.Limit()
 	ok = acc.Temporary || acc.PasswordHash == "" || password.Check(acc.PasswordHash, c.Old)
 	var hash string
