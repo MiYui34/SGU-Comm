@@ -16,8 +16,16 @@ func TestFediApps(t *testing.T) {
 	if err := s.SaveFediApp(app, now); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.FediApp("social.example", "https://k.example/cb"); err != nil || got != app {
+	got, err := s.FediApp("social.example", "https://k.example/cb")
+	if err != nil || got.ClientID != "id" || got.ClientSecret != "secret" || got.Scopes != app.Scopes || got.Used || !got.CreatedAt.Equal(now) {
 		t.Fatalf("saved app: %+v %v", got, err)
+	}
+	// An app that got a login is kept (instances may drop unused ones).
+	if err := s.MarkFediAppUsed("social.example"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.FediApp("social.example", "https://k.example/cb"); !got.Used {
+		t.Fatalf("used: %+v", got)
 	}
 	// A new public address needs a new app.
 	if _, err := s.FediApp("social.example", "https://other.example/cb"); err != ErrNotFound {

@@ -18,7 +18,8 @@ const fediTables = `CREATE TABLE IF NOT EXISTS fedi_apps (
 	scopes        TEXT NOT NULL,
 	client_id     TEXT NOT NULL,
 	client_secret TEXT NOT NULL,
-	created_at    INTEGER NOT NULL
+	created_at    INTEGER NOT NULL,
+	used          INTEGER NOT NULL DEFAULT 0 -- a login went through
 );
 CREATE TABLE IF NOT EXISTS fedi_identities (
 	host       TEXT NOT NULL,
@@ -40,6 +41,9 @@ var (
 
 type FediApp struct {
 	Host, RedirectURI, Scopes, ClientID, ClientSecret string
+	// Used: a login went through (instances may delete apps without one).
+	Used      bool
+	CreatedAt time.Time
 }
 
 type FediIdentity struct {
@@ -50,12 +54,19 @@ type FediIdentity struct {
 // FediApp is the app registered on an instance for this redirect URI.
 func (s *Store) FediApp(host, redirectURI string) (FediApp, error) {
 	a := FediApp{Host: host, RedirectURI: redirectURI}
-	err := s.db.QueryRow(`SELECT scopes, client_id, client_secret FROM fedi_apps WHERE host = ? AND redirect_uri = ?`,
-		host, redirectURI).Scan(&a.Scopes, &a.ClientID, &a.ClientSecret)
+	var at int64
+	err := s.db.QueryRow(`SELECT scopes, client_id, client_secret, used, created_at FROM fedi_apps WHERE host = ? AND redirect_uri = ?`,
+		host, redirectURI).Scan(&a.Scopes, &a.ClientID, &a.ClientSecret, &a.Used, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return FediApp{}, ErrNotFound
 	}
+	a.CreatedAt = time.UnixMilli(at).UTC()
 	return a, err
+}
+
+func (s *Store) MarkFediAppUsed(host string) error {
+	_, err := s.db.Exec(`UPDATE fedi_apps SET used = 1 WHERE host = ?`, host)
+	return err
 }
 
 // SaveFediApp keeps an instance's app (replacing an older one).
@@ -138,16 +149,12 @@ func scanIdentity(row interface{ Scan(...any) error }) (FediIdentity, error) {
 
 // AccountByFedi is the account a remote account is linked to.
 func (s *Store) AccountByFedi(host, remoteID string) (Account, FediIdentity, error) {
-	var id FediIdentity
-	var a Account
-	var at int64
-	err := s.db.QueryRow(`SELECT `+accountColumns+`, `+identityColumns+` FROM fedi_identities i JOIN accounts a ON a.id = i.account_id
-		WHERE i.host = ? AND i.remote_id = ?`, host, remoteID).Scan(
-		&a.ID, &a.Name, &a.PasswordHash, &a.CertPEM, &a.KeyPEM, &at, &a.Temporary, &id.Host, &id.RemoteID, &id.Handle, &id.Public)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Account{}, FediIdentity{}, ErrNotFound
+	id, err := scanIdentity(s.db.QueryRow(`SELECT `+identityColumns+` FROM fedi_identities i WHERE i.host = ? AND i.remote_id = ?`, host, remoteID))
+	if err != nil {
+		return Account{}, FediIdentity{}, err
 	}
-	a.CreatedAt = time.UnixMilli(at).UTC()
+	a, err := scanAccount(s.db.QueryRow(`SELECT `+accountColumns+` FROM accounts a JOIN fedi_identities i ON i.account_id = a.id
+		WHERE i.host = ? AND i.remote_id = ?`, host, remoteID))
 	return a, id, err
 }
 
