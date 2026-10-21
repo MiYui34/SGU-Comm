@@ -30,6 +30,7 @@ import (
 
 const (
 	MaxTextLength = 2000 // characters, like Discord
+	maxNonce      = 64   // bytes of a send's nonce
 	// Small pages: a page goes out as one frame on the voice connection.
 	pageSize   = 30
 	outboxSize = 64
@@ -522,6 +523,7 @@ type request struct {
 	Message   int64           `json:"message"`   // edit-message, delete-message, create-thread
 	Reply     int64           `json:"reply"`     // send: the message it answers
 	NoPing    bool            `json:"noPing"`    // send: the reply does not ping
+	Nonce     string          `json:"nonce"`     // send: the client's id for it, the same on a retry (see store.MessageByNonce)
 	Author    string          `json:"author"`    // search: only this author
 	User      uint32          `json:"user"`      // set-moderator, set-admin, dm, bio, delete-messages: registered user id
 	Moderator bool            `json:"moderator"` // set-moderator
@@ -896,7 +898,22 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		c.sendError(textError)
 		return
 	}
-	n := store.NewMessage{ChannelID: req.Channel, Thread: ch.parent != 0, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply, NoPing: req.NoPing && req.Reply != 0}
+	if len(req.Nonce) > maxNonce {
+		c.sendError("invalid nonce")
+		return
+	}
+	n := store.NewMessage{ChannelID: req.Channel, Thread: ch.parent != 0, Author: id.Name, Verified: id.Registered, AuthorID: id.UserID, Text: text, At: c.hub.now(), ReplyTo: req.Reply, NoPing: req.NoPing && req.Reply != 0, Nonce: req.Nonce}
+	// A retry of a stored send: its message again, to the sender only.
+	stored := func() bool {
+		m, err := c.hub.store.MessageByNonce(n)
+		if err == nil {
+			c.send(map[string]any{"type": "message", "message": toWire(m), "nonce": req.Nonce})
+		}
+		return err == nil
+	}
+	if stored() {
+		return
+	}
 	// Not in direct chats: there every message counts already.
 	if !ch.direct && c.hub.voice != nil && c.hub.voice.MayManage(id.Session) {
 		n.MentionAll = mentionAllOf(text)
@@ -924,7 +941,9 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 		return
 	}
 	if err != nil {
-		c.sendError("cannot store message")
+		if !stored() { // else the same send from another connection won
+			c.sendError("cannot store message")
+		}
 		return
 	}
 	if !id.Registered {
@@ -936,7 +955,19 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 	if ch.parent != 0 {
 		c.hub.threadFollowers(id, ch, m)
 	}
-	c.hub.sendTo(ch, map[string]any{"type": "message", "message": toWire(m)})
+	// The sender's copy has the nonce: it confirms that send.
+	ev := map[string]any{"type": "message", "message": toWire(m)}
+	mine := ev
+	if req.Nonce != "" {
+		mine = map[string]any{"type": "message", "message": ev["message"], "nonce": req.Nonce}
+	}
+	for _, conn := range c.hub.readers(ch) {
+		if conn == c {
+			conn.send(mine)
+		} else {
+			conn.send(ev)
+		}
+	}
 	if ch.direct {
 		c.hub.relayDirect(id, ch, m)
 	}
