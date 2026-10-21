@@ -77,7 +77,7 @@
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { loadSelfState, micWanted, saveSelfState, soundHint, type SelfState } from "../lib/voice";
-  import { restartOnJoin, watchOutputDevices } from "../lib/voice/restart";
+  import { documentPage, restartOnJoin, watchOutputDevices } from "../lib/voice/restart";
   import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
@@ -137,7 +137,7 @@
     // The audio context's state (see soundHint).
     audioState?: string | null;
     // A fresh audio context (see lib/voice/restart).
-    onRestartAudio?: () => void;
+    onRestartAudio?: (keepMic?: boolean) => void;
     // Back to the login screen (a guest that may only read).
     onLogIn?: () => void;
     // The server's address, for message and invite links (the desktop app's
@@ -1282,10 +1282,11 @@
     connection.send(joinChannel(me.session, id));
   };
   // In voice: a new output device restarts audio (Chrome would resample
-  // the old context, and music crackles).
+  // the old context, and music crackles), once the page shows. The
+  // microphone stays open.
   $effect(() => {
     if (!voiceOn || !navigator.mediaDevices?.enumerateDevices) return;
-    return watchOutputDevices(navigator.mediaDevices, () => untrack(() => onRestartAudio)?.());
+    return watchOutputDevices(navigator.mediaDevices, () => untrack(() => onRestartAudio)?.(true), { page: documentPage(document) });
   });
 
   // Keyboard (see lib/switcher): Alt+Up/Down through text channels and

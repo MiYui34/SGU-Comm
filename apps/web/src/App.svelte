@@ -311,9 +311,10 @@
     void ctx?.close().catch(() => {});
   };
   // Into voice, or a new output device: everything moves to a fresh
-  // context (see lib/voice/restart). Not on reconnects.
-  const restartAudio = () => {
-    const move = (ctx: AudioContext) => [connection, attempt].forEach((c) => c?.setAudio(ctx));
+  // context (see lib/voice/restart). Not on reconnects. keepMic: the
+  // microphone stays open (a new output device).
+  const restartAudio = (keepMic = false) => {
+    const move = (ctx: AudioContext) => [connection, attempt].forEach((c) => c?.setAudio(ctx, keepMic));
     audio = swapContext(audio, makeAudio, move, closeAudio);
   };
   const start = async (credentials: Credentials) => {
