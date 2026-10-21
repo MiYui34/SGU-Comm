@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"slices"
@@ -24,6 +25,7 @@ import (
 	"kallisti.chat/server/internal/certs"
 	"kallisti.chat/server/internal/config"
 	"kallisti.chat/server/internal/emoji"
+	"kallisti.chat/server/internal/fedi"
 	"kallisti.chat/server/internal/files"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/preview"
@@ -96,6 +98,7 @@ func run() error {
 		AllowedOrigins:    cfg.AllowedOrigins,
 		TrustForwardedFor: cfg.TrustForwardedFor,
 	}
+	accounts.Fedi = fediLogin(cfg)
 	// Before the built-in server listens: Mumble messages may bring images.
 	if err := os.MkdirAll(cfg.UploadDir, 0o700); err != nil {
 		return fmt.Errorf("create upload directory: %w", err)
@@ -210,7 +213,7 @@ func run() error {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/api/upload", fileHandler)
-	for _, path := range []string{"/api/challenge", "/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me", "/api/stream-key"} {
+	for _, path := range []string{"/api/challenge", "/api/accounts", "/api/guest", "/api/login", "/api/logout", "/api/logout-all", "/api/password", "/api/me", "/api/stream-key", "/api/fedi", "/api/fedi/"} {
 		mux.Handle(path, accounts)
 	}
 	mux.Handle("/files/", fileHandler)
@@ -355,6 +358,25 @@ func publicBase(origins []string) string {
 		}
 	}
 	return ""
+}
+
+// fediLogin: logins with fediverse accounts, unless turned off or without
+// a public address (instances send the browser back to it).
+func fediLogin(cfg config.Config) *auth.FediLogin {
+	public := publicBase(cfg.AllowedOrigins)
+	if cfg.NoFediLogin || public == "" {
+		return nil
+	}
+	name := "Kallisti"
+	if cfg.Builtin != nil {
+		name = cfg.Builtin.ServerName
+	}
+	var allow func(netip.AddrPort) bool // public addresses, HTTPS
+	if cfg.FediInsecureDev {
+		slog.Warn("FEDI_INSECURE_DEV_INSTANCES is 1: fediverse logins may reach local addresses (development only)")
+		allow = func(netip.AddrPort) bool { return true }
+	}
+	return &auth.FediLogin{Client: fedi.NewClient(allow, nil, cfg.FediInsecureDev), Public: public, AppName: name, Dev: cfg.FediInsecureDev}
 }
 
 // startWHIP takes streams from OBS on the UDP port (WHIP_UDP_PORT), with

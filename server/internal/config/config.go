@@ -39,6 +39,13 @@ type Config struct {
 	TrustForwardedFor bool
 	// LINK_PREVIEWS=0: the server fetches no pages for link previews.
 	NoLinkPreviews bool
+	// FEDI_LOGIN=0: no logins with fediverse accounts. They also need a
+	// public address (an ALLOWED_ORIGINS entry other than *).
+	NoFediLogin bool
+	// FEDI_INSECURE_DEV_INSTANCES=1, for development and tests only:
+	// fediverse instances may be on local addresses and plain HTTP (no
+	// protection against requests into the local network).
+	FediInsecureDev bool
 	// MEDIA_PREVIEWS=0: no video thumbnails and picture previews, even
 	// with ffmpeg (FFMPEG_PATH, else on PATH).
 	NoMediaPreviews bool
@@ -201,6 +208,8 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	c.TrustForwardedFor = getenv("TRUST_FORWARDED_FOR") == "1"
 	c.NoLinkPreviews = getenv("LINK_PREVIEWS") == "0"
+	c.NoFediLogin = getenv("FEDI_LOGIN") == "0"
+	c.FediInsecureDev = getenv("FEDI_INSECURE_DEV_INSTANCES") == "1"
 	c.NoMediaPreviews = getenv("MEDIA_PREVIEWS") == "0"
 	c.FFmpegPath = getenv("FFMPEG_PATH")
 	var err error
