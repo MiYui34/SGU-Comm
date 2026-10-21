@@ -211,6 +211,25 @@ func TestFediScopeFallback(t *testing.T) {
 	wantRedirect(t, resp, home+"?fedi=register")
 }
 
+func TestFediAsksPleromaForReadAccounts(t *testing.T) {
+	// Pleroma and Akkoma take an app with "profile" but give a token that
+	// cannot read the account: ask such servers for read:accounts.
+	f := &fedifake.Instance{Version: "2.7.2 (compatible; Pleroma 2.6.0)", IgnoresProfile: true}
+	_, srv, inst := fediSetup(t, f)
+	b := newBrowser(t, srv)
+	_, v := b.do("POST", "/api/fedi/start", map[string]any{"instance": inst})
+	authorize, _ := url.Parse(v["url"].(string))
+	if got := authorize.Query().Get("scope"); got != "read:accounts" {
+		t.Fatalf("scope: %q", got)
+	}
+	callback, err := f.Approve(authorize.String(), "lain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, _ := b.do("GET", callback, nil)
+	wantRedirect(t, resp, home+"?fedi=register")
+}
+
 func TestFediLinkAndUnlink(t *testing.T) {
 	f := &fedifake.Instance{}
 	_, srv, inst := fediSetup(t, f)
@@ -441,6 +460,12 @@ func TestFediAppsAreKeptOnceUsed(t *testing.T) {
 	b.do("POST", "/api/fedi/start", map[string]any{"instance": inst})
 	if f.Requests() != registered {
 		t.Fatal("registered again at once")
+	}
+	// Pleroma deletes apps without a login after 15 minutes.
+	now = now.Add(6 * time.Minute)
+	b.do("POST", "/api/fedi/start", map[string]any{"instance": inst})
+	if f.Requests() == registered {
+		t.Fatal("an unused app of 6 minutes was kept")
 	}
 	now = now.Add(2 * time.Hour)
 	b.fediFlow(f, map[string]any{"instance": inst}, "gina") // registers again, then is used

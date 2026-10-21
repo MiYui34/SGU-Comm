@@ -2223,3 +2223,8 @@ From `meta/research/discord-comparison.md`.
 - A message or invite link in the URL wins over the saved view and thread; voice still comes back. Direct chats find the partner's session again by user id (guests: by name).
 - The audio context starts suspended after a refresh (no user gesture). The first pointer or key input resumes it; in voice, "Click anywhere to turn on sound" shows until then (`soundHint`). Not in the Linux app, where `startAfter` holds the context on purpose.
 - Svelte wiring has no unit tests (App, Client); the save/load and hint logic do. Checked headless: thread restore after a refresh; in voice, muted and deafened, back in voice after a refresh and after a fast double refresh; hint shown, gone after a click; a message link in the URL beats the saved voice view. Headless Chromium had no fake microphone ("No microphone"), so voice was checked for channel and state only, not for audio.
+
+## Fediverse login on Pleroma and Akkoma
+
+- Pleroma's AppCleanupWorker deletes apps without a token after 15 minutes (every 10 minutes). We kept unused apps for an hour, so a later login sent a client_id the instance no longer knew: its authorize page showed no app and Approve said "Invalid Username/Password". Unused apps are now registered again after 5 minutes, which leaves a user 10 minutes on the instance's page.
+- Pleroma and Akkoma accept the "profile" scope as a string, but its token cannot read the account. The app asks for "profile" only when /api/v1/instance reports a plain Mastodon version of 4.3 or later; everything else gets read:accounts.

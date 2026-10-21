@@ -30,11 +30,18 @@ type Instance struct {
 	// ProfileDenied: apps may have "profile", but authorizing it fails
 	// (back to the app with error=invalid_scope).
 	ProfileDenied bool
+	// Version is what /api/v1/instance says ("": "4.3.0", a Mastodon
+	// that knows "profile").
+	Version string
+	// IgnoresProfile: as Pleroma, apps and logins may ask for "profile",
+	// but a token without read:accounts cannot read the account.
+	IgnoresProfile bool
 
 	mu       sync.Mutex
 	apps     map[string]app   // by client id
 	codes    map[string]grant // by code
 	tokens   map[string]string
+	limited  map[string]bool   // tokens that cannot read the account
 	users    map[string]string // user name: id
 	requests int
 	avatar   []byte
@@ -50,7 +57,7 @@ func (f *Instance) SetAvatar(data []byte) {
 
 type app struct{ secret, redirect, scopes string }
 
-type grant struct{ client, redirect, challenge, user string }
+type grant struct{ client, redirect, challenge, user, scope string }
 
 func random() string {
 	b := make([]byte, 16)
@@ -70,10 +77,17 @@ func (f *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.requests++
 	if f.apps == nil {
 		f.apps, f.codes, f.tokens, f.users = map[string]app{}, map[string]grant{}, map[string]string{}, map[string]string{}
+		f.limited = map[string]bool{}
 	}
 	f.mu.Unlock()
 	r.ParseForm()
 	switch {
+	case r.URL.Path == "/api/v1/instance" && r.Method == http.MethodGet:
+		version := f.Version
+		if version == "" {
+			version = "4.3.0"
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"uri": r.Host, "version": version})
 	case r.URL.Path == "/api/v1/apps" && r.Method == http.MethodPost:
 		f.register(w, r)
 	case r.URL.Path == "/oauth/authorize" && r.Method == http.MethodGet:
@@ -179,7 +193,7 @@ func (f *Instance) approve(q url.Values, user string) (string, error) {
 	} else {
 		code := random()
 		f.mu.Lock()
-		f.codes[code] = grant{client: q.Get("client_id"), redirect: a.redirect, challenge: q.Get("code_challenge"), user: user}
+		f.codes[code] = grant{client: q.Get("client_id"), redirect: a.redirect, challenge: q.Get("code_challenge"), user: user, scope: q.Get("scope")}
 		f.mu.Unlock()
 		v.Set("code", code)
 	}
@@ -202,6 +216,7 @@ func (f *Instance) token(w http.ResponseWriter, r *http.Request) {
 	}
 	token := random()
 	f.tokens[token] = g.user
+	f.limited[token] = f.IgnoresProfile && !slices.Contains(strings.Fields(g.scope), "read:accounts")
 	writeJSON(w, http.StatusOK, map[string]string{"access_token": token, "token_type": "Bearer"})
 }
 
@@ -211,6 +226,10 @@ func (f *Instance) verify(w http.ResponseWriter, r *http.Request) {
 	user, ok := f.tokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "The access token is invalid"})
+		return
+	}
+	if f.limited[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")] {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Insufficient permissions: read:accounts."})
 		return
 	}
 	id, ok := f.users[user]

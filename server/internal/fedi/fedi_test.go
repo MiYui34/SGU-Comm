@@ -268,3 +268,16 @@ func TestAvatarURL(t *testing.T) {
 		srv.Close()
 	}
 }
+
+func TestKnowsProfile(t *testing.T) {
+	for v, want := range map[string]bool{
+		"4.3.0": true, "4.4.1": true, "5.0.0-beta.1": true, "4.3.0+glitch": true,
+		"4.2.12": false, "3.5.3": false, "": false,
+		"2.7.2 (compatible; Pleroma 2.6.0)": false, "2.7.2 (compatible; Akkoma 3.13.2)": false,
+		"0.17.3 git-abc": false,
+	} {
+		if fedi.KnowsProfile(v) != want {
+			t.Errorf("%q: %v", v, !want)
+		}
+	}
+}

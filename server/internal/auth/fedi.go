@@ -34,8 +34,9 @@ const (
 	// A remote account without a Kallisti account: time to choose a name.
 	signupLifetime = 15 * time.Minute
 	// An app without a login yet is registered again after this: instances
-	// may delete apps nobody used (Mastodon after a day).
-	unusedAppLifetime = time.Hour
+	// may delete apps nobody used (Mastodon after a day, Pleroma after 15
+	// minutes): this leaves a user 10 minutes on the instance's page.
+	unusedAppLifetime = 5 * time.Minute
 	// A fresh login with the linked fediverse account allows the first
 	// password of an account without one, this long (see changePassword).
 	reauthLifetime = 5 * time.Minute

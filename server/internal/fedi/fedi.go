@@ -20,6 +20,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -226,10 +227,47 @@ func (c *Client) post(ctx context.Context, u string, form url.Values, v any) err
 // App is our app on an instance.
 type App struct{ ClientID, ClientSecret, Scopes string }
 
-// RegisterApp registers the app, with "profile" where the server knows it.
+// mastodonVersion: a plain Mastodon version ("4.3.2"); other servers add
+// their name ("2.7.2 (compatible; Pleroma 2.6.0)").
+var mastodonVersion = regexp.MustCompile(`^(\d+)\.(\d+)\.\d+(?:[-+][0-9A-Za-z.-]*)?$`)
+
+// KnowsProfile: the server's version is a Mastodon that knows "profile"
+// (4.3 and later). Others may take the scope but give a token that cannot
+// read the account (Pleroma, Akkoma).
+func KnowsProfile(version string) bool {
+	m := mastodonVersion.FindStringSubmatch(version)
+	if m == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major > 4 || major == 4 && minor >= 3
+}
+
+// version is what the server says it runs ("": unknown).
+func (c *Client) version(ctx context.Context, inst Instance) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, inst.Base+"/api/v1/instance", nil)
+	if err != nil {
+		return ""
+	}
+	var v struct {
+		Version string `json:"version"`
+	}
+	if c.do(req, &v) != nil {
+		return ""
+	}
+	return v.Version
+}
+
+// RegisterApp registers the app, with "profile" where the server knows it
+// (see KnowsProfile).
 func (c *Client) RegisterApp(ctx context.Context, inst Instance, name, redirectURI, website string) (App, error) {
 	var err error
-	for _, scopes := range []string{scopeAccounts + " " + scopeProfile, scopeAccounts} {
+	tries := []string{scopeAccounts}
+	if KnowsProfile(c.version(ctx, inst)) {
+		tries = []string{scopeAccounts + " " + scopeProfile, scopeAccounts}
+	}
+	for _, scopes := range tries {
 		var a struct {
 			ClientID     string `json:"client_id"`
 			ClientSecret string `json:"client_secret"`
