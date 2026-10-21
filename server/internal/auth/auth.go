@@ -79,6 +79,8 @@ type Service struct {
 	// StreamKeyChanged hears that an account's stream key was replaced or
 	// removed (streams with the old one end). Nil: none.
 	StreamKeyChanged func(name string)
+	// Fedi: logins with fediverse accounts (see fedi.go). Nil: off.
+	Fedi *FediLogin
 
 	logins, guests limiter
 	challenges     challenges
@@ -145,6 +147,9 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if a.serveFedi(w, r) {
+		return
+	}
 	switch {
 	case r.URL.Path == "/api/challenge" && r.Method == http.MethodGet:
 		a.challenge(w)
@@ -164,7 +169,11 @@ func (a *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.streamKey(w, r)
 	case r.URL.Path == "/api/me" && r.Method == http.MethodGet:
 		if acc, ok := a.AccountFor(r); ok {
-			writeJSON(w, http.StatusOK, map[string]any{"name": acc.Name, "temporary": acc.Temporary})
+			me := map[string]any{"name": acc.Name, "temporary": acc.Temporary, "password": acc.PasswordHash != ""}
+			if f := a.fediMe(acc); f != nil {
+				me["fedi"] = f
+			}
+			writeJSON(w, http.StatusOK, me)
 		} else {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
 		}
@@ -268,7 +277,7 @@ func (a *Service) create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
 		return
 	}
-	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, PasswordHash: hash}); ok {
+	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, PasswordHash: hash}, a.createAccount); ok {
 		writeJSON(w, http.StatusCreated, withToken(map[string]any{"name": acc.Name}, token))
 	}
 }
@@ -298,7 +307,7 @@ func (a *Service) guest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many guests from your address, try again later"})
 		return
 	}
-	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}); ok {
+	if acc, token, ok := a.newAccount(w, r, store.Account{Name: name, Temporary: true}, a.createAccount); ok {
 		writeJSON(w, http.StatusCreated, withToken(map[string]any{"name": acc.Name, "temporary": true}, token))
 	}
 }
@@ -318,9 +327,13 @@ func (a *Service) checkName(w http.ResponseWriter, raw string) (string, bool) {
 	return name, true
 }
 
-// newAccount stores an account with a new certificate and logs it in; on
-// failure it answers the request.
-func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.Account) (store.Account, string, bool) {
+func (a *Service) createAccount(acc store.Account) (store.Account, error) {
+	return a.Store.CreateAccount(acc, a.Now())
+}
+
+// newAccount stores an account with a new certificate (by create) and logs
+// it in; on failure it answers the request.
+func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.Account, create func(store.Account) (store.Account, error)) (store.Account, string, bool) {
 	fail := func() (store.Account, string, bool) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create the account"})
 		return store.Account{}, "", false
@@ -329,9 +342,13 @@ func (a *Service) newAccount(w http.ResponseWriter, r *http.Request, acc store.A
 	if acc.CertPEM, acc.KeyPEM, err = certs.Generate(acc.Name); err != nil {
 		return fail()
 	}
-	acc, err = a.Store.CreateAccount(acc, a.Now())
+	acc, err = create(acc)
 	if errors.Is(err, store.ErrNameTaken) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "this name is already taken"})
+		return store.Account{}, "", false
+	}
+	if errors.Is(err, store.ErrFediTaken) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this fediverse account has a Kallisti account already: log in with it"})
 		return store.Account{}, "", false
 	}
 	if err != nil {
@@ -354,7 +371,7 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 	}
 	acc, err := a.Store.AccountByName(c.Name)
 	hash := acc.PasswordHash
-	if err != nil || acc.Temporary {
+	if err != nil || acc.Temporary || hash == "" {
 		hash = password.Dummy // same work for unknown names; no login without a password
 	}
 	release := password.Limit()
@@ -375,7 +392,7 @@ func (a *Service) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !ok || err != nil || acc.Temporary {
+	if !ok || err != nil || acc.Temporary || acc.PasswordHash == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong name or password"})
 		return
 	}
@@ -450,9 +467,10 @@ func (a *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A temporary account has no password yet: the first one makes it a
-	// normal account.
+	// normal account. An account made with a fediverse login gets its first
+	// one too (for Mumble apps, or to unlink).
 	release := password.Limit()
-	ok = acc.Temporary || password.Check(acc.PasswordHash, c.Old)
+	ok = acc.Temporary || acc.PasswordHash == "" || password.Check(acc.PasswordHash, c.Old)
 	var hash string
 	var err error
 	if ok {
