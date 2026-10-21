@@ -3,10 +3,13 @@
 // development). The desktop app (session given) cannot use the cookie (it
 // is third-party there): it keeps the server's token and sends it.
 import type { Challenge, Proof } from "./captcha";
+import type { FediLink } from "./fedi";
 
 // A logged-in account; temporary: a guest account without a password (the
-// server deletes it after a day without a visit).
-export type Account = { name: string; temporary: boolean };
+// server deletes it after a day without a visit). password false: made
+// with a fediverse login, no password yet (undefined: not known). fedi:
+// the linked fediverse account.
+export type Account = { name: string; temporary: boolean; password?: boolean; fedi?: FediLink | null };
 
 // An answer the server refused, with its status.
 class ApiError extends Error {
@@ -21,7 +24,8 @@ class ApiError extends Error {
 export type SessionStore = { get: () => string | null; set: (token: string | null) => void };
 
 export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, session?: SessionStore) => {
-  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string } & Partial<Challenge> & Partial<StreamKey> & { key?: string };
+  type Answer = { name?: string; mumble?: boolean; temporary?: boolean; token?: string } & Partial<Challenge> &
+    Partial<StreamKey> & { key?: string; url?: string; handle?: string; password?: boolean; fedi?: FediLink };
   const call = async (path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<Answer> => {
     const token = session?.get();
     const headers: Record<string, string> = {
@@ -94,11 +98,33 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
     removeStreamKey: async () => {
       await call("/api/stream-key", undefined, "DELETE");
     },
+    // Fediverse logins (see lib/fedi): on for this server?
+    fediEnabled: async () => (await call("/api/fedi").catch(() => ({}) as Answer & { enabled?: boolean })).enabled === true,
+    // The instance's page to go to, for a login (or a link: with the
+    // account's password, "" for one without).
+    fediStart: async (instance: string, linkPassword?: string) => {
+      const { url } = await call("/api/fedi/start", { instance, ...(linkPassword !== undefined && { link: true, password: linkPassword }) });
+      if (!url) throw new Error("No answer from the server. Please try again.");
+      return url;
+    },
+    // After a login with an unlinked fediverse account: the suggested name
+    // and the handle; null: none (expired).
+    fediSignup: async (): Promise<{ name: string; handle: string } | null> => {
+      const data = await call("/api/fedi/signup").catch(() => null);
+      return data ? { name: data.name ?? "", handle: data.handle ?? "" } : null;
+    },
+    fediCreate: async (name: string, proof?: Proof) => (await call("/api/fedi/signup", { name, ...proof })).name ?? name,
+    fediUnlink: async () => {
+      await call("/api/fedi/unlink", {});
+    },
+    fediPublic: async (on: boolean) => {
+      await call("/api/fedi/public", { on });
+    },
     // The logged-in account, or null (also for servers without accounts).
     me: async (): Promise<Account | null> => {
       try {
         const data = await call("/api/me");
-        return data.name ? { name: data.name, temporary: data.temporary === true } : null;
+        return data.name ? { name: data.name, temporary: data.temporary === true, password: data.password, fedi: data.fedi } : null;
       } catch {
         return null;
       }
@@ -129,4 +155,14 @@ export type AccountActions = {
   streamKey: () => Promise<StreamKey>;
   newStreamKey: () => Promise<string>;
   removeStreamKey: () => Promise<void>;
+  // false: an account made with a fediverse login, without a password yet
+  // (it sets its first one without an old one).
+  hasPassword: boolean;
+  // The linked fediverse account (see lib/fedi). fediLink goes to the
+  // instance (with the account's password; "" without one).
+  fedi: FediLink | null;
+  fediEnabled: () => Promise<boolean>;
+  fediLink: (instance: string, password: string) => Promise<void>;
+  fediUnlink: () => Promise<void>;
+  fediPublic: (on: boolean) => Promise<void>;
 };
