@@ -192,10 +192,14 @@ describe("watching with sound", () => {
   let decoded: unknown[] = [];
   let soundOut: ((d: unknown) => void) | null = null;
   let started: number[] = [];
+  let gains: { ctx: unknown; disconnected: boolean }[] = [];
+  let soundCloses = 0;
 
   beforeEach(() => {
     ctx.state = "suspended";
     decoded = [];
+    gains = [];
+    soundCloses = 0;
     soundOut = null;
     started = [];
     vi.stubGlobal("document", { hidden: false, addEventListener() {}, removeEventListener() {} });
@@ -223,10 +227,26 @@ describe("watching with sound", () => {
         decode(c: unknown) {
           decoded.push(c);
         }
-        close() {}
+        close() {
+          this.state = "closed";
+          soundCloses++;
+        }
       },
     );
-    vi.stubGlobal("GainNode", class { gain = {}; connect() {} disconnect() {} });
+    vi.stubGlobal(
+      "GainNode",
+      class {
+        gain = { setTargetAtTime() {} };
+        disconnected = false;
+        constructor(public ctx: unknown) {
+          gains.push(this);
+        }
+        connect() {}
+        disconnect() {
+          this.disconnected = true;
+        }
+      },
+    );
     vi.stubGlobal("EncodedAudioChunk", class {});
     vi.stubGlobal("AudioBufferSourceNode", class { connect() {} start(at: number) { started.push(at); } });
   });
@@ -237,13 +257,13 @@ describe("watching with sound", () => {
     const sock = FakeSocket.all[0]!;
     sock.onmessage?.({ data: JSON.stringify({ type: "stream", session: 7, codec: "vp8", audio: "opus" }) });
     await flush();
-    return (timestamp: number) => {
+    return Object.assign((timestamp: number) => {
       const f = encodeFrame(true, timestamp, new Uint8Array(4), true);
       const buf = new Uint8Array(4 + f.length);
       new DataView(buf.buffer).setUint32(0, 7);
       buf.set(f, 4);
       (sock.onmessage as unknown as (e: { data: ArrayBuffer }) => void)({ data: buf.buffer });
-    };
+    }, { client });
   };
   const decodedSound = { numberOfFrames: 960, sampleRate: 48000, timestamp: 0, copyTo() {}, close() {} };
 
@@ -266,6 +286,19 @@ describe("watching with sound", () => {
     ctx.state = "running";
     soundOut!({ ...decodedSound });
     expect(started).toHaveLength(1);
+  });
+
+  it("moves the sound to a new audio context (an audio restart), at its volume", async () => {
+    const sound = await watchWithSound();
+    sound.client.setVolume(7, 0.5);
+    const next = { ...ctx, state: "running", currentTime: 1 };
+    sound.client.setAudio(next as unknown as AudioContext);
+    expect(soundCloses).toBe(1);
+    expect(gains[0]!.disconnected).toBe(true);
+    expect(gains.at(-1)!.ctx).toBe(next);
+    expect(sound.client.volumeOf(7)).toBe(0.5);
+    sound(1_000_000); // the new context runs
+    expect(decoded).toHaveLength(1);
   });
 });
 

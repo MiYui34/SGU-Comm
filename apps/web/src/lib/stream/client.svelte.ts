@@ -436,16 +436,17 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
   // The stream's sound, into the app's audio context with its own volume.
   // The playout's clock is the audio context's from now on.
   const listen = (session: number, v: Viewer) => {
-    if (!audio || typeof AudioDecoder === "undefined") return;
-    v.gain = new GainNode(audio, { gain: deaf ? 0 : (sounds[session] ?? 1) });
-    v.gain.connect(audio.destination);
+    const ctx = audio;
+    if (!ctx || typeof AudioDecoder === "undefined") return;
+    v.gain = new GainNode(ctx, { gain: deaf ? 0 : (sounds[session] ?? 1) });
+    v.gain.connect(ctx.destination);
     v.sound = new AudioDecoder({
       output: (data) => {
-        const at = soundRuns() ? v.playout.at(data.timestamp, audio.currentTime) : null;
+        const at = soundRuns() ? v.playout.at(data.timestamp, ctx.currentTime) : null;
         if (at !== null && v.gain) {
-          const buffer = audio.createBuffer(1, data.numberOfFrames, data.sampleRate);
+          const buffer = ctx.createBuffer(1, data.numberOfFrames, data.sampleRate);
           data.copyTo(buffer.getChannelData(0), { planeIndex: 0, format: "f32-planar" });
-          const src = new AudioBufferSourceNode(audio, { buffer, playbackRate: v.playout.rate() });
+          const src = new AudioBufferSourceNode(ctx, { buffer, playbackRate: v.playout.rate() });
           src.connect(v.gain);
           src.start(at);
         }
@@ -460,6 +461,11 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     for (const t of v.decoding.keys()) v.decoding.set(t, null);
     v.queue.splice(0).forEach((q) => q.frame.close());
     sounds = { ...sounds, [session]: sounds[session] ?? 1 };
+  };
+  const dropSound = (v: Viewer) => {
+    if (v.sound && v.sound.state !== "closed") v.sound.close();
+    v.gain?.disconnect();
+    v.sound = v.gain = null;
   };
 
   // Watched pictures are drawn on animation frames; in a hidden tab (none
@@ -574,9 +580,8 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
     if (!v) return;
     if (tell) send({ type: "unwatch", session });
     if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
-    if (v.sound && v.sound.state !== "closed") v.sound.close();
+    dropSound(v);
     v.queue.forEach((q) => q.frame.close());
-    v.gain?.disconnect();
     watched.delete(session);
     if (!watched.size) stopLoop();
     watching = [...watched.keys()];
@@ -626,6 +631,14 @@ export const createStreamClient = (url: string, token: () => Promise<string>, au
       deaf = on;
       if (!audio) return;
       for (const [session, v] of watched) v.gain?.gain.setTargetAtTime(on ? 0 : (sounds[session] ?? 1), audio.currentTime, 0.02);
+    },
+    // An audio restart (see voice/restart.ts): watched sound goes on in
+    // the new context, at its volume.
+    setAudio: (ctx: AudioContext) => {
+      const withSound = [...watched].filter(([, v]) => v.sound);
+      withSound.forEach(([, v]) => dropSound(v));
+      audio = ctx;
+      withSound.forEach(([session, v]) => listen(session, v));
     },
     // The camera to open next (null: the default).
     setCameraDevice: (deviceId: string | null) => (cameraDevice = deviceId),
