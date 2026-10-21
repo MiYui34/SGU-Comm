@@ -68,6 +68,7 @@ import { awayRequest, setStatusRequest, type CustomStatus, type Presence } from 
 import { createCapture } from "./voice/capture.svelte";
 import { createStreamClient, streamingSupported } from "./stream/client.svelte";
 import { createPlayback } from "./voice/playback.svelte";
+import { createVoiceAudio } from "./voice/voiceAudio.svelte";
 import { createConnectionInfo } from "./connectionInfo.svelte";
 import { exposePlayback } from "./perfHook";
 import { transportOf } from "./connectionQuality";
@@ -207,10 +208,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     if (state.status === "synced") send(encodeVoicePacket(encodeAudio(audioFormat(state), packet)));
   };
 
-  const playback = audio && createPlayback(audio);
-  // The UI starts capture, with the device from the settings.
-  const capture = audio && createCapture(audio, sendAudio);
-  const playbackStats = () => playback?.stats() ?? { good: 0, late: 0, lost: 0 };
+  // The UI starts capture, with the device from the settings. Both move
+  // to a new context on an audio restart (see setAudio).
+  const voice = createVoiceAudio(audio, (ctx) => ({ playback: createPlayback(ctx), capture: createCapture(ctx, sendAudio) }));
+  const playbackStats = () => voice.playback?.stats() ?? { good: 0, late: 0, lost: 0 };
   const info = createConnectionInfo(transportOf(url), playbackStats);
   exposePlayback(playbackStats);
   // Not in yet: only to stay connected. During the handshake the answer
@@ -225,6 +226,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
   // connection info. State stays pure.
   const routeAudio = (msg: MumbleMessage) => {
     if (msg.type === "Ping") info.pong(Number(msg.message.timestamp), performance.now());
+    const playback = voice.playback;
     if (!playback) return;
     // Not before the sync (the server may send voice first). Playback
     // also waits for each speaker's local mute and volume (setUserGain).
@@ -291,9 +293,8 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     tokenWaiter?.reject(new Error("connection closed"));
     awaiting.forEach((w) => w.done("Not connected"));
     confirming.forEach((fn) => fn(null));
-    capture?.close();
+    voice.close(); // the audio context stays: the app may reconnect with it
     streams?.close();
-    playback?.close(); // the audio context stays: the app may reconnect with it
     closed = true;
   };
 
@@ -496,9 +497,20 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       wait({ via: "text", confirms: (ev) => ev.type === "removed-emoji" && ev.ids.includes(parseRef(emoji)?.id ?? 0) }, () =>
         ws.send(removeEmojiImageRequest(emoji)),
       ),
-    playback,
-    capture,
+    get playback() {
+      return voice.playback;
+    },
+    get capture() {
+      return voice.capture;
+    },
     streams,
+    // An audio restart (see voice/restart.ts): voice and stream sound go on
+    // in the new context. The app closes the old one.
+    setAudio: (ctx: AudioContext) => {
+      if (closed) return;
+      voice.move(ctx);
+      streams?.setAudio(ctx);
+    },
     send,
     sendText: (target: TextTarget, text: string) => {
       send(sendText(target, text));
