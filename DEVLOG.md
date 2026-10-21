@@ -2168,3 +2168,12 @@ From `meta/research/discord-comparison.md`.
 ## Self-mute survives a refresh
 
 - Self-mute and deafen are saved per server in localStorage ("muted", "deaf" or "") and sent right after connecting, before any voice join, as Mumble keeps them across restarts. A reconnect still uses the in-memory place. Saving starts only after the restore, since a new session starts unmuted. Checked headless: mute, deafen and unmute each survive a reload.
+
+## Personal emoji
+
+- A message or reaction refers to a personal emoji as `<:name:id>`, where id is the image (as Discord does). Markdown runs on escaped text, so the client keeps `&lt;:name:id&gt;` away from emphasis and adds the image after sanitizing, as for server emoji. Mumble clients get `:name:` (mumbleText, also in reply quotes and history). The user types `:name:`. The client sends the reference (toRefs) and changes it back for an edit. Server emoji keep their names: a personal emoji cannot get a server emoji's name.
+- Images are stored once per sha256 (`emoji_images`). A user's list is `user_emoji` (name, image id). Images stay when nobody has them, because messages show them. Limits: 50 emoji per user, and 50 new images per user in 24 hours (a user who deletes and uploads again cannot fill the disk). New images follow the message rules for uploads from new accounts. Adding an image from a message is not a new upload.
+- A reaction is stored under the image's first name. Then everyone's reactions with the same image are one chip, whatever names they gave it.
+- Moderator removal keeps the image row without data. The same row blocks the hash and keeps the name for reactions. Clients get the removed ids (ready, `removed-emoji`) and show `:name:` text. Personal images are `Cache-Control: private`, so shared caches drop them, and a browser's cached copy is not shown. The block only stops the same bytes: a changed image gets through.
+- Using an emoji does not require it in your list on the server side: anyone can post `<:name:id>`. The images are public anyway (like server emoji), and moderators can remove one.
+- Checked headless (agent-browser, media devices stubbed): add an emoji in the settings, use it with a `:bl` suggestion, a second user sees it and adds it from the message under another name, reacts with it from the picker (one chip), SuperUser removes it for everyone (text in messages and reactions, 404 for the image), and an upload of the same image is refused. Guests have no "My emoji".
