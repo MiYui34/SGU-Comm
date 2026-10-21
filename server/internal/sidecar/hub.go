@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -333,6 +334,9 @@ type Conn struct {
 	ctx        context.Context
 	stop       context.CancelFunc
 	previewing int
+	// The nonce of the send being handled: every error it answers with
+	// carries it, so the client fails only that send (see Handle).
+	answering string
 }
 
 func (h *Hub) Connect() *Conn {
@@ -571,6 +575,11 @@ func (c *Conn) Handle(raw []byte) {
 	if err := json.Unmarshal(raw, &req); err != nil {
 		c.sendError("invalid request")
 		return
+	}
+	// Requests come one at a time (one reader per connection).
+	if req.Type == "send" && len(req.Nonce) <= maxNonce {
+		c.setAnswering(req.Nonce)
+		defer c.setAnswering("")
 	}
 	c.mu.Lock()
 	id, ready := c.identity, c.ready
@@ -1081,7 +1090,23 @@ var resync = []byte(`{"type":"resync"}`)
 // send never blocks: a client that does not read its outbox loses messages
 // instead of holding up everyone else. It gets a "resync" (reload what you
 // show) as soon as there is room again.
+func (c *Conn) setAnswering(nonce string) {
+	c.mu.Lock()
+	c.answering = nonce
+	c.mu.Unlock()
+}
+
 func (c *Conn) send(v any) {
+	if m, ok := v.(map[string]any); ok && m["type"] == "error" {
+		c.mu.Lock()
+		nonce := c.answering
+		c.mu.Unlock()
+		if nonce != "" {
+			m = maps.Clone(m)
+			m["nonce"] = nonce
+			v = m
+		}
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		slog.Error("encode sidecar message", "err", err)

@@ -9,6 +9,7 @@ import (
 
 func TestSendWithANonce(t *testing.T) {
 	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
 	alice := joinAs(t, h, mumble.Identity{Session: 1, Name: "alice", Registered: true, UserID: 3})
 	bob := joinAs(t, h, mumble.Identity{Session: 2, Name: "bob", Registered: true, UserID: 4})
 	send := `{"type":"send","channel":1,"text":"hi","nonce":"n1"}`
@@ -33,6 +34,7 @@ func TestSendWithANonce(t *testing.T) {
 	}
 	// Also when slow mode would refuse a new message now.
 	h.store.SetSlowMode(1, 60)
+	h.reloadChannels()
 	again.Handle([]byte(send))
 	if m := next(t, again); m["type"] != "message" {
 		t.Fatalf("retry in slow mode %v", m)
@@ -66,5 +68,51 @@ func TestLongNoncesAreRefused(t *testing.T) {
 	alice.Handle([]byte(`{"type":"send","channel":1,"text":"hi","nonce":"` + strings.Repeat("x", maxNonce+1) + `"}`))
 	if m := next(t, alice); m["type"] != "error" {
 		t.Fatalf("got %v", m)
+	}
+}
+
+// Every refusal of a send with a nonce carries it: the client fails only
+// that send on it.
+func TestRefusalsOfASendCarryItsNonce(t *testing.T) {
+	h := newHub(t, "general")
+	h.SetVoice(&fakeVoice{}, "")
+	alice := readyAs(t, h, 2, "alice")
+	long := strings.Repeat("x", MaxTextLength+1)
+	for _, req := range []string{
+		`{"type":"send","channel":1,"text":"` + long + `","nonce":"n1"}`,
+		`{"type":"send","channel":1,"text":"hi","upload":"nope","nonce":"n1"}`,
+		`{"type":"send","channel":999,"text":"hi","nonce":"n1"}`,
+	} {
+		alice.Handle([]byte(req))
+		if m := next(t, alice); m["type"] != "error" || m["nonce"] != "n1" {
+			t.Fatalf("%s: %v", req[:40], m)
+		}
+	}
+	// Slow mode.
+	h.store.SetSlowMode(1, 60)
+	h.reloadChannels()
+	alice.Handle([]byte(`{"type":"send","channel":1,"text":"first","nonce":"a"}`))
+	next(t, alice)
+	alice.Handle([]byte(`{"type":"send","channel":1,"text":"second","nonce":"b"}`))
+	if m := next(t, alice); m["about"] != "slow-mode" || m["nonce"] != "b" {
+		t.Fatalf("slow mode: %v", m)
+	}
+	// Other errors, and sends without a nonce, carry none.
+	alice.Handle([]byte(`{"type":"history","channel":999}`))
+	if m := next(t, alice); m["type"] != "error" || m["nonce"] != nil {
+		t.Fatalf("history: %v", m)
+	}
+	alice.Handle([]byte(`{"type":"send","channel":999,"text":"hi"}`))
+	if m := next(t, alice); m["type"] != "error" || m["nonce"] != nil {
+		t.Fatalf("no nonce: %v", m)
+	}
+	// Over the rate limit.
+	for range burst {
+		alice.Handle([]byte(`{"type":"history","channel":1}`))
+		next(t, alice)
+	}
+	alice.Handle([]byte(`{"type":"send","channel":1,"text":"hi","nonce":"c"}`))
+	if m := next(t, alice); m["about"] != "refused" || m["nonce"] != "c" {
+		t.Fatalf("rate: %v", m)
 	}
 }
