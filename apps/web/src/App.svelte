@@ -484,7 +484,7 @@
 <style>
   .update {
     position: fixed;
-    top: 8px;
+    top: calc(8px + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     z-index: 60;
@@ -513,7 +513,7 @@
   }
   .reconnecting {
     position: fixed;
-    top: 8px;
+    top: calc(8px + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     z-index: 50;

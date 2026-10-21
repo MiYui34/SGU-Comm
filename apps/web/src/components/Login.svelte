@@ -340,6 +340,7 @@
     justify-content: safe center;
     overflow-y: auto;
     height: 100%;
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
     background: var(--bg-rail);
   }
   .card {

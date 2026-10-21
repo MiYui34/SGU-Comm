@@ -30,6 +30,13 @@
   -webkit-font-smoothing: antialiased;
   scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
+  /* iOS home screen app (viewport-fit=cover, see index.html): the status
+     bar, the home indicator and the notch in landscape. 0 elsewhere.
+     Tests set these to see the layout with insets. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 :root[data-theme="light"] {
@@ -112,6 +119,14 @@ dialog > form > header {
   margin-top: -24px;
   padding-top: 24px;
   background: var(--bg-main);
+}
+
+/* Modal dialogs stay clear of the status bar and the home indicator
+   (no specificity: a dialog's own rules win, see Lightbox). */
+:where(dialog:modal) {
+  inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  max-width: calc(100% - 6px - 2em - var(--safe-left) - var(--safe-right));
+  max-height: calc(100% - 6px - 2em - var(--safe-top) - var(--safe-bottom));
 }
 
 /* Text for screen readers only. */

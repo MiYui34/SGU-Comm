@@ -1979,15 +1979,31 @@
     text-align: center;
   }
   .layout {
+    --rail: calc(72px + var(--safe-left));
     display: grid;
-    grid-template-columns: 72px 240px 1fr;
+    grid-template-columns: var(--rail) 240px 1fr;
     height: 100%;
+    padding-right: var(--safe-right);
   }
   .layout.members {
-    grid-template-columns: 72px 240px 1fr 240px;
+    grid-template-columns: var(--rail) 240px 1fr 240px;
   }
   .layout.thread {
-    grid-template-columns: 72px 240px 1fr minmax(320px, 420px);
+    grid-template-columns: var(--rail) 240px 1fr minmax(320px, 420px);
+  }
+  /* iOS (see app.css --safe-top): each column runs under the status bar
+     and the home indicator in its own colour, its content stays clear of
+     them. A transparent border shows the background and, unlike padding,
+     stays out of the scrolling area. */
+  .left > :global(nav),
+  .sidebar,
+  .layout :global(main.chat),
+  .layout > :global(aside:not(.thread-pane)) {
+    border-top: var(--safe-top) solid transparent;
+    border-bottom: var(--safe-bottom) solid transparent;
+  }
+  .left > :global(nav) {
+    border-left: var(--safe-left) solid transparent;
   }
   .thread-pane {
     display: flex;
@@ -2052,7 +2068,7 @@
   @media (max-width: 900px) and (min-width: 701px) {
     .layout,
     .layout.members {
-      grid-template-columns: 72px 240px 1fr;
+      grid-template-columns: var(--rail) 240px 1fr;
     }
     /* Members do not fit; search and pins slide over the chat. */
     .layout {
@@ -2064,7 +2080,7 @@
     .layout.side > :global(aside) {
       position: absolute;
       top: 0;
-      right: 0;
+      right: var(--safe-right);
       bottom: 0;
       z-index: 20;
       width: min(320px, 40vw);

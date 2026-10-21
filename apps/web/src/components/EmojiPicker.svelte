@@ -375,6 +375,7 @@
       left: 0 !important;
       width: 100%;
       height: 70vh;
+      padding-bottom: var(--safe-bottom);
       border-radius: 12px 12px 0 0;
     }
     footer {

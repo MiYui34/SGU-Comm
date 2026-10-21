@@ -137,7 +137,7 @@
     left: 0;
     z-index: 31;
     max-height: 80vh;
-    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 8px calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
     border-radius: 12px 12px 0 0;
     background: var(--bg-rail);
     overflow-y: auto;

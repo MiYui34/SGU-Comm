@@ -42,8 +42,9 @@
     max-width: 100vw;
     height: 100vh;
     max-height: 100vh;
+    inset: 0;
     margin: 0;
-    padding: 0;
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
     border: none;
     background: none;
     display: flex;

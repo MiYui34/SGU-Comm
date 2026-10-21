@@ -16,7 +16,7 @@
 <style>
   .toast {
     position: fixed;
-    bottom: 96px;
+    bottom: calc(96px + var(--safe-bottom));
     left: 50%;
     z-index: 200;
     max-width: min(480px, 90vw);
