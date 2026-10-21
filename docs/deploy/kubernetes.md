@@ -10,7 +10,7 @@ The app and copier run with no capabilities. Caddy receives only `NET_BIND_SERVI
 
 ## Release checks
 
-After configuring real images, capacities, resources, a Secret and a tested off-cluster backup, run `helm lint` and `helm template` as shown in the chart README. Check your provider supports mixed-protocol LoadBalancer Services on one IP, and confirm DNS resolves to the allocated IP. Once an operator explicitly installs the chart, check:
+After configuring real images, capacities, resources, the app's Secret, any namespace-local image-pull Secrets for private registries, and a tested off-cluster backup, run `helm lint` and `helm template` as shown in the chart README. Check your provider supports mixed-protocol LoadBalancer Services on one IP, and confirm DNS resolves to the allocated IP. Once an operator explicitly installs the chart, check:
 
 ```sh
 kubectl -n <namespace> get deployment,service,pvc,pods
