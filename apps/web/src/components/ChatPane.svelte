@@ -13,6 +13,7 @@
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
   import { customEmojiFor, customEntries, jumboEmoji, knownEmoji, refsAsNames } from "../lib/customEmoji";
+  import { composerEmoji, fromRefs, personalEntries, sameEmoji, toRefs } from "../lib/personalEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -379,7 +380,7 @@
       const { file, spoiler } = pending;
       const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
-      void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
+      void onUpload(asSpoiler(file, spoiler), withRefs(text), sent.reply, replying ? !replying.ping : undefined).then((ok) => {
         const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
@@ -389,7 +390,7 @@
       return;
     }
     if (!text || !onSend) return;
-    onSend(text, replying?.id, replying ? !replying.ping : undefined);
+    onSend(withRefs(text), replying?.id, replying ? !replying.ping : undefined);
     sentAway ||= away;
     replying = null;
     draft = "";
@@ -408,9 +409,11 @@
   // a failure, again only for the next ":" word.
   let emojiData = $state.raw<EmojiData | null>(null);
   let emojiFailedAt = $state<number | null>(null);
-  // Custom server emoji (see Client).
+  // Custom server emoji and ours (see Client). We type ":name:"; ours go
+  // out as references (see lib/personalEmoji).
   const customEmoji = customEmojiFor();
   const custom = $derived(customEmoji());
+  const withRefs = (text: string) => toRefs(text, custom.mine, custom.urls);
   const box = createCombobox({
     id: listId,
     text: () => draft,
@@ -419,13 +422,16 @@
     build: (typed): Suggestion[] => {
       if (typed.kind === "@") return suggestNames(people, typed.query, me).map((n) => ({ key: n, label: n, insert: `@${n}`, kind: "user" }));
       if (typed.kind === "#") return suggestNames(channelNames, typed.query, "").map((n) => ({ key: n, label: n, insert: `#${n}`, kind: "channel" }));
-      // Custom emoji first; they go in as ":name:".
-      return [...searchEmoji(customEntries(custom.list), typed.query), ...searchEmoji(emojiData?.emoji ?? [], typed.query)]
-        .slice(0, SUGGESTIONS)
-        .map((e) => {
-          const emoji = normalEmoji(withTone(e, skinTone.value));
-          return { key: e.emoji, label: e.name, insert: emoji, kind: "emoji", emoji };
-        });
+      // Custom emoji first, then ours; they go in as ":name:".
+      const found = [
+        ...searchEmoji(customEntries(custom.list), typed.query),
+        ...searchEmoji(personalEntries(custom.mine), typed.query),
+        ...searchEmoji(emojiData?.emoji ?? [], typed.query),
+      ];
+      return found.slice(0, SUGGESTIONS).map((e) => {
+        const emoji = normalEmoji(withTone(e, skinTone.value));
+        return { key: e.emoji, label: e.name, insert: composerEmoji(emoji, custom.mine, custom.urls), kind: "emoji", emoji };
+      });
     },
     setText: (text, at) => setDraft(text, at),
     onPick: (s) => s.kind === "emoji" && s.emoji && usedEmoji(s.emoji),
@@ -455,13 +461,13 @@
   let cancelButton: HTMLButtonElement | undefined = $state();
   const startEdit = async (m: ChatMessage | DisplayMessage) => {
     if (!("source" in m) || !m.source) return;
-    editing = { id: m.source.id, text: m.source.text, old: m.source.text, upload: !!("upload" in m && m.upload) };
+    editing = { id: m.source.id, text: fromRefs(m.source.text, custom.mine, custom.urls), old: m.source.text, upload: !!("upload" in m && m.upload) };
     await tick();
     editInput?.focus();
   };
   const saveEdit = () => {
     if (!editing) return;
-    const text = editing.text.trim();
+    const text = withRefs(editing.text.trim());
     // A message with an attachment may lose its caption.
     if (text !== editing.old && (text || editing.upload)) onEdit?.(editing.id, text);
     editing = null;
@@ -487,7 +493,8 @@
     draftEmoji = null;
     const from = messageInput?.selectionStart ?? draft.length;
     const to = messageInput?.selectionEnd ?? draft.length;
-    void setDraft(draft.slice(0, from) + emoji + draft.slice(to), from + emoji.length);
+    const text = composerEmoji(emoji, custom.mine, custom.urls);
+    void setDraft(draft.slice(0, from) + text + draft.slice(to), from + text.length);
   };
   // The quick reactions; "+" opens all emoji (allEmoji: for that message).
   const quick = $derived(
@@ -501,7 +508,7 @@
   // The current message (its reactions change while the picker is open).
   const allEmojiFor = $derived(allEmoji && messages.find((m) => idOf(m) === allEmoji!.id));
   const mineOf = (m: ChatMessage | DisplayMessage, emoji: string) =>
-    !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, myId)));
+    !!("reactions" in m && m.reactions?.some((r) => sameEmoji(r.emoji, emoji) && reactedBy(r, myId)));
   const react = (m: ChatMessage | DisplayMessage, id: number, emoji: string) => {
     usedEmoji(emoji);
     onReact?.(id, emoji, !mineOf(m, emoji));
