@@ -235,3 +235,5 @@
 - [x] [Old media plays again; stream audio piles up while audio is frozen](issues/stale-media-playback.md)
 - [x] [Hide a shown spoiler again](issues/rehide-spoilers.md)
 - [x] [Remember self-mute and deafen across a page refresh](issues/remember-self-mute.md)
+- [x] [Personal emoji](issues/personal-emoji.md)
+- [x] [Log in with a fediverse account](issues/fediverse-login.md)
