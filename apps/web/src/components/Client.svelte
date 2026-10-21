@@ -77,6 +77,7 @@
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
   import { loadSelfState, micWanted, saveSelfState, soundHint, type SelfState } from "../lib/voice";
+  import { restartOnJoin, watchOutputDevices } from "../lib/voice/restart";
   import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
@@ -120,6 +121,7 @@
     resume = null,
     onPlace,
     audioState = null,
+    onRestartAudio,
     onLogIn,
     site = location.origin,
     drafts = { value: new Map() },
@@ -134,6 +136,8 @@
     onPlace?: (place: Place) => void;
     // The audio context's state (see soundHint).
     audioState?: string | null;
+    // A fresh audio context (see lib/voice/restart).
+    onRestartAudio?: () => void;
     // Back to the login screen (a guest that may only read).
     onLogIn?: () => void;
     // The server's address, for message and invite links (the desktop app's
@@ -1272,8 +1276,17 @@
   };
   const join = (id: number) => {
     show({ kind: "voice" });
-    if (me && id !== channelId) connection.send(joinChannel(me.session, id));
+    if (!me || id === channelId) return;
+    // Into voice from outside it: a fresh audio context, made in the click.
+    if (restartOnJoin({ inVoice: voiceOn, lobby, target: id })) onRestartAudio?.();
+    connection.send(joinChannel(me.session, id));
   };
+  // In voice: a new output device restarts audio (Chrome would resample
+  // the old context, and music crackles).
+  $effect(() => {
+    if (!voiceOn || !navigator.mediaDevices?.enumerateDevices) return;
+    return watchOutputDevices(navigator.mediaDevices, () => untrack(() => onRestartAudio)?.());
+  });
 
   // Keyboard (see lib/switcher): Alt+Up/Down through text channels and
   // direct chats (with Shift: unread ones), Ctrl/Cmd+K finds any place.

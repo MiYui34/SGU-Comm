@@ -28,6 +28,8 @@
   import { browserPushSupport, turnOffPush } from "./lib/push";
   import { voiceSupported } from "./lib/voice/support";
   import { loadCaptureWorklet, startAfter } from "./lib/voice/worklet";
+  import { closeVoiceOutput } from "./lib/voice/output";
+  import { swapContext } from "./lib/voice/restart";
   import { settings } from "./lib/settings.svelte";
   import { themeOf } from "./lib/settings";
   import { fediResult, reauthInstance, withoutFediResult } from "./lib/fedi";
@@ -120,7 +122,7 @@
     connection?.close();
     connection = null;
     keepPlace(null);
-    void audio?.close();
+    closeAudio(audio);
     audio = null;
   };
   // The session ended on the server (a logout or password change on
@@ -294,6 +296,26 @@
   const wakeSound = () => {
     if (audioState === "suspended") void audio?.resume().catch(() => {});
   };
+  // Made in a click where possible: browsers allow audio only after a
+  // user gesture.
+  const makeAudio = () => {
+    const ctx = new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" });
+    // Linux app: the capture module first, then the output (see startAfter).
+    if (linuxApp()) startAfter(ctx, loadCaptureWorklet(ctx));
+    audioState = linuxApp() ? null : ctx.state;
+    if (!linuxApp()) ctx.onstatechange = () => audio === ctx && (audioState = ctx.state);
+    return ctx;
+  };
+  const closeAudio = (ctx: AudioContext | null) => {
+    if (ctx) closeVoiceOutput(ctx);
+    void ctx?.close().catch(() => {});
+  };
+  // Into voice, or a new output device: everything moves to a fresh
+  // context (see lib/voice/restart). Not on reconnects.
+  const restartAudio = () => {
+    const move = (ctx: AudioContext) => [connection, attempt].forEach((c) => c?.setAudio(ctx));
+    audio = swapContext(audio, makeAudio, move, closeAudio);
+  };
   const start = async (credentials: Credentials) => {
     lastCredentials = credentials;
     const mine = ++starts;
@@ -305,14 +327,10 @@
     // Per server and user: another account here does not get the files.
     pendingFiles = createPendingFiles(indexedDbStore(), [kallisti ?? location.origin, credentials.server ?? "", credentials.username].join(" "));
     connection?.close();
-    void audio?.close();
-    // Created here: browsers allow audio only after a user gesture.
-    const ctx = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
-    audio = ctx;
-    // Linux app: the capture module first, then the output (see startAfter).
-    if (ctx && linuxApp()) startAfter(ctx, loadCaptureWorklet(ctx));
-    audioState = linuxApp() ? null : (ctx?.state ?? null);
-    if (ctx && !linuxApp()) ctx.onstatechange = () => audio === ctx && (audioState = ctx.state);
+    closeAudio(audio);
+    // Created here: a login is a user gesture.
+    audio = voiceSupported() ? makeAudio() : null;
+    if (!audio) audioState = null;
     try {
       const { url, protocols } = await urlFor(credentials);
       if (mine !== starts) return;
@@ -445,7 +463,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} {audioState} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} {audioState} onRestartAudio={restartAudio} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
     {/key}
   </div>
 {:else}
