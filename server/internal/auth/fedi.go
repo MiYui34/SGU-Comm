@@ -41,6 +41,8 @@ const (
 	reauthLifetime = 5 * time.Minute
 	// Flows and sign-ups kept at most (bounded memory); more: refused.
 	maxFediPending = 10_000
+	// The download of a remote account's avatar, after the answer.
+	avatarTimeout = 5 * time.Second
 )
 
 // FediLogin turns fediverse logins on (see Service.Fedi).
@@ -60,6 +62,7 @@ type FediLogin struct {
 	// Fresh logins (reauth flows) by session key: the account's id.
 	proofMu sync.Mutex
 	proofs  map[string]pendingEntry[int64]
+	avatars sync.WaitGroup // downloads (tests wait for them)
 }
 
 // prove records a fresh login of the account in this session; false: full.
@@ -105,8 +108,9 @@ type fediFlow struct {
 }
 
 type fediSignup struct {
-	id   store.FediIdentity
-	name string // the suggestion
+	id     store.FediIdentity
+	name   string // the suggestion
+	avatar string // its URL ("": none)
 }
 
 // pending keeps short-lived entries by random keys, in bounded memory.
@@ -369,7 +373,11 @@ func (a *Service) fediCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if flow.link != 0 {
-		back(a.fediLink(linkTo, id))
+		result, reason := a.fediLink(linkTo, id)
+		if result == "linked" {
+			a.fediAvatar(linkTo, remote.Avatar, true)
+		}
+		back(result, reason)
 		return
 	}
 	acc, known, err := a.Store.AccountByFedi(id.Host, id.RemoteID)
@@ -384,7 +392,7 @@ func (a *Service) fediCallback(w http.ResponseWriter, r *http.Request) {
 		back("", "")
 	case errors.Is(err, store.ErrNotFound):
 		now := a.Now()
-		token := a.Fedi.signups.put(fediSignup{id: id, name: fedi.SuggestName(remote.Username)}, now, now.Add(signupLifetime))
+		token := a.Fedi.signups.put(fediSignup{id: id, name: fedi.SuggestName(remote.Username), avatar: remote.Avatar}, now, now.Add(signupLifetime))
 		if token == "" {
 			back("error", "failed")
 			return
@@ -470,6 +478,26 @@ func (a *Service) fediSignup(w http.ResponseWriter, r *http.Request) {
 	a.Fedi.signups.get(key, a.Now(), true)
 	a.setFediCookie(w, r, signupCookie, "", 0)
 	writeJSON(w, http.StatusCreated, withToken(map[string]any{"name": acc.Name}, token))
+	a.fediAvatar(acc, s.avatar, false)
+}
+
+// fediAvatar gives the account the remote account's avatar (from its URL,
+// "": none), in the background: the answer does not wait for the
+// instance. Failures leave the account as it is.
+func (a *Service) fediAvatar(acc store.Account, avatarURL string, onlyIfNone bool) {
+	if avatarURL == "" || a.SetAvatar == nil {
+		return
+	}
+	a.Fedi.avatars.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), avatarTimeout)
+		defer cancel()
+		avatar, err := a.Fedi.Client.Avatar(ctx, avatarURL)
+		if err != nil {
+			slog.Info("fediverse avatar", "account", acc.Name, "err", err)
+			return
+		}
+		a.SetAvatar(acc, avatar, onlyIfNone)
+	})
 }
 
 func (a *Service) fediUnlink(w http.ResponseWriter, r *http.Request) {

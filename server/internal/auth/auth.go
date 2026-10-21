@@ -81,6 +81,9 @@ type Service struct {
 	StreamKeyChanged func(name string)
 	// Fedi: logins with fediverse accounts (see fedi.go). Nil: off.
 	Fedi *FediLogin
+	// SetAvatar gives an account an avatar (a JPEG, see avatarimg), only
+	// if it has none if onlyIfNone. Nil: none.
+	SetAvatar func(acc store.Account, avatar []byte, onlyIfNone bool)
 
 	logins, guests limiter
 	challenges     challenges

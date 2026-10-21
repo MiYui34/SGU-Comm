@@ -3,17 +3,22 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"kallisti.chat/server/internal/fedi"
 	"kallisti.chat/server/internal/fedi/fedifake"
+	"kallisti.chat/server/internal/store"
 )
 
 // home is the web app's address (the server's public one) in fediSetup.
@@ -246,6 +251,98 @@ func TestFediLinkAndUnlink(t *testing.T) {
 
 	if resp, _ := b.do("POST", "/api/fedi/unlink", map[string]any{}); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("unlink: %d", resp.StatusCode)
+	}
+}
+
+func pngOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+type avatarSet struct {
+	name       string
+	onlyIfNone bool
+	width      int
+}
+
+// recordAvatars records the avatars set (see Service.SetAvatar); done waits
+// for the downloads and gives them.
+func recordAvatars(t *testing.T, a *Service) (done func() []avatarSet) {
+	var mu sync.Mutex
+	var got []avatarSet
+	a.SetAvatar = func(acc store.Account, avatar []byte, onlyIfNone bool) {
+		cfg, format, err := image.DecodeConfig(bytes.NewReader(avatar))
+		if err != nil || format != "jpeg" || cfg.Height != cfg.Width {
+			t.Errorf("avatar: %v %s %v", cfg, format, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, avatarSet{acc.Name, onlyIfNone, cfg.Width})
+	}
+	return func() []avatarSet {
+		a.Fedi.avatars.Wait()
+		mu.Lock()
+		defer mu.Unlock()
+		out := got
+		got = nil
+		return out
+	}
+}
+
+// A new account gets the remote account's avatar; a linked one only if it
+// has none (the Mumble server keeps one it has).
+func TestFediAvatar(t *testing.T) {
+	f := &fedifake.Instance{}
+	f.SetAvatar(pngOf(t, 300, 200))
+	a, srv, inst := fediSetup(t, f)
+	done := recordAvatars(t, a)
+	b := newBrowser(t, srv)
+	wantRedirect(t, b.fediFlow(f, map[string]any{"instance": inst}, "Alice"), home+"?fedi=register")
+	if got := done(); len(got) != 0 {
+		t.Fatalf("before the sign-up: %v", got)
+	}
+	b.do("POST", "/api/fedi/signup", map[string]any{"name": "alice"})
+	if got := done(); !slices.Equal(got, []avatarSet{{"alice", false, 128}}) {
+		t.Fatalf("sign-up: %v", got)
+	}
+	// Logins do not change it.
+	wantRedirect(t, newBrowser(t, srv).fediFlow(f, map[string]any{"instance": inst}, "Alice"), home)
+	if got := done(); len(got) != 0 {
+		t.Fatalf("login: %v", got)
+	}
+
+	c := newBrowser(t, srv)
+	c.do("POST", "/api/accounts", map[string]any{"name": "bob", "password": "longpassword"})
+	wantRedirect(t, c.fediFlow(f, map[string]any{"instance": inst, "link": true, "password": "longpassword"}, "bobby"), home+"?fedi=linked")
+	if got := done(); !slices.Equal(got, []avatarSet{{"bob", true, 128}}) {
+		t.Fatalf("link: %v", got)
+	}
+}
+
+// Broken or oversized pictures, or none: no avatar, the login goes on.
+func TestFediAvatarFailures(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"none":      nil,
+		"broken":    []byte("<html>"),
+		"oversized": pngOf(t, 9000, 1),
+		"too large": append(pngOf(t, 10, 10), make([]byte, 3<<20)...),
+	} {
+		f := &fedifake.Instance{}
+		f.SetAvatar(data)
+		a, srv, inst := fediSetup(t, f)
+		done := recordAvatars(t, a)
+		b := newBrowser(t, srv)
+		wantRedirect(t, b.fediFlow(f, map[string]any{"instance": inst}, "carol"), home+"?fedi=register")
+		if resp, _ := b.do("POST", "/api/fedi/signup", map[string]any{"name": "carol"}); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("%s: sign-up %d", name, resp.StatusCode)
+		}
+		if got := done(); len(got) != 0 {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }
 
