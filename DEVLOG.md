@@ -2199,3 +2199,7 @@ From `meta/research/discord-comparison.md`.
 - On the Android PWA the file picker sends the app to the background: the connection drops (the Client is new after the reconnect) or Android kills the page. A picked file now lives per chat in `lib/pendingFiles` (created in App per login, like drafts) and also in IndexedDB, keyed by server origin + Mumble server + user name + chat key. It comes back when its chat opens, also after another chat or a reload; it goes on send or discard. A failed upload keeps it.
 - Bounds: only files within the upload limit (50 MB when unknown), the newest 5, 24 h. IndexedDB failures (private mode, quota) only leave the file in memory. Store calls go through one queue, so a delete never overtakes its put.
 - The IndexedDB adapter has no unit tests (no fake-indexeddb); the logic is tested with an in-memory store. Checked headless: pick, server restart (reconnect), reload, send.
+
+## Phone: member drawer no longer pushes the chat aside
+
+- Opening the member drawer focused its first button while the drawer was still off-screen to the right; the browser scrolled the `overflow: hidden` layout to show it (280 px), and the chat slid back. The channel drawer sits to the left, where a container cannot scroll, so it never showed this. Fix: `focus({ preventScroll: true })` and `overflow: clip` on the phone layout. Checked headless at 390 px: the layout's scrollLeft stays 0.

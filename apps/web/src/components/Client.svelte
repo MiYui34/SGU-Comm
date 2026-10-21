@@ -283,11 +283,13 @@
       await tick();
       if (p === "chat") {
         const button = closed === "channels" ? "button[aria-label=Channels]" : ".members-toggle";
-        if (closed !== "chat") document.querySelector<HTMLElement>(button)?.focus();
+        if (closed !== "chat") document.querySelector<HTMLElement>(button)?.focus({ preventScroll: true });
         return;
       }
       const drawer = p === "channels" ? leftEl : document.querySelector<HTMLElement>(".layout > aside");
-      drawer?.querySelector<HTMLElement>("button, [href], input")?.focus();
+      // No scrolling: the drawer is still off-screen, and the browser would
+      // scroll the layout to show it, pushing the chat aside.
+      drawer?.querySelector<HTMLElement>("button, [href], input")?.focus({ preventScroll: true });
     });
   });
   const touchEnd = (e: TouchEvent) => {
@@ -2049,6 +2051,7 @@
       position: relative;
       display: block;
       overflow: hidden;
+      overflow: clip; /* not scrollable at all (see the drawer focus) */
     }
     .main {
       display: block;
