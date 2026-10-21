@@ -32,6 +32,7 @@
   import { formatSize, type Attachment, type DisplayMessage } from "../lib/textChannels";
   import { replyBoxText, type Thread } from "../lib/threads";
   import { afterUpload, canAttach, clipboardImage, emptyPaste, keepDraft, pastedFiles, refusedDraft, switchDraft, tooLarge, uploadTitle, type Drafts } from "../lib/composer";
+  import { createPendingFiles, type Pending, type PendingFiles } from "../lib/pendingFiles";
   import { linuxApp } from "../lib/desktop";
   import { formatSeconds, slowLeft } from "../lib/slowMode";
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
@@ -100,6 +101,7 @@
     loginToWrite = null,
     chatKey,
     drafts = { value: new Map() },
+    pendingFiles = createPendingFiles(null, ""),
     compact = false,
     intro,
     tools,
@@ -191,6 +193,8 @@
     chatKey?: string;
     // Kept here while no pane shows their chat (see lib/composer).
     drafts?: Drafts;
+    // Picked files not sent, by chat (see lib/pendingFiles).
+    pendingFiles?: PendingFiles;
     // A thread's pane (see lib/threads): no member list button; intro: in
     // place of the channel's welcome; tools: more header buttons.
     compact?: boolean;
@@ -302,12 +306,22 @@
   // Spoiler attachments shown (by URL).
   let shownFiles = $state<ReadonlySet<string>>(new Set());
   // A chosen file waits above the message box until it is sent with Enter
-  // (with the typed text as caption) or cancelled.
-  let pending = $state<{ file: File; preview: string | null; spoiler: boolean } | null>(null);
+  // (with the typed text as caption) or cancelled; kept per chat in
+  // pendingFiles (over another chat, a reconnect, a reload).
+  let pending = $state<(Pending & { preview: string | null }) | null>(null);
   const WAIT_UPLOAD = "Wait for the upload to finish";
-  const cancelPending = () => {
+  const showPending = (next: Pending | null) => {
     if (pending?.preview) URL.revokeObjectURL(pending.preview);
-    pending = null;
+    pending = next && { ...next, preview: next.file.type.startsWith("image/") ? URL.createObjectURL(next.file) : null };
+  };
+  const cancelPending = () => {
+    pendingFiles.clear(chat);
+    showPending(null);
+  };
+  const togglePendingSpoiler = () => {
+    if (!pending) return;
+    pending.spoiler = !pending.spoiler;
+    pendingFiles.set(chat, { file: pending.file, spoiler: pending.spoiler }, uploadMax);
   };
   const sendFiles = (files: ArrayLike<File> | null | undefined) => {
     const file = files?.[0];
@@ -318,8 +332,8 @@
     }
     const big = tooLarge(file.size, uploadMax);
     if (big) return notify(big);
-    cancelPending();
-    pending = { file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, spoiler: false };
+    showPending({ file, spoiler: false });
+    pendingFiles.set(chat, { file, spoiler: false }, uploadMax);
     messageInput?.focus(); // after the file picker or a drop: Enter sends
   };
   let returnedSeen = 0; // each refusal fills the box once
@@ -329,9 +343,10 @@
     const back = returned.text;
     untrack(() => (draft = refusedDraft(draft, fromRefs(back, custom.mine, custom.urls))));
   });
-  // Another conversation: drop a waiting file, the reply and the edit (the
-  // ids are of the old chat). The typed text is kept per chat (see
-  // switchDraft), also when this pane closes; draftFor: the chat of `draft`.
+  // Another conversation: drop the reply and the edit (the ids are of the
+  // old chat). The typed text is kept per chat (see switchDraft), also when
+  // this pane closes; draftFor: the chat of `draft`. A waiting file stays
+  // in pendingFiles and comes back with its chat.
   const chat = $derived(chatKey ?? target);
   let draftFor = "";
   $effect(() => {
@@ -340,7 +355,10 @@
       if (to === draftFor) return;
       ({ drafts: drafts.value, draft } = switchDraft(drafts.value, draftFor, to, draft));
       draftFor = to;
-      cancelPending();
+      showPending(null);
+      void pendingFiles.get(to).then((back) => {
+        if (back && !closed && chat === to && !pending) showPending(back);
+      });
       replying = null;
       editing = null;
       expanded = new Set();
@@ -352,6 +370,7 @@
   $effect(() => () => {
     closed = true;
     drafts.value = keepDraft(drafts.value, draftFor, draft);
+    showPending(null);
   });
   const onPaste = (event: ClipboardEvent) => {
     if (!onUpload) return;
@@ -389,7 +408,8 @@
       sentAway ||= away;
       void onUpload(asSpoiler(file, spoiler), withRefs(text), sent.reply, replying ? !replying.ping : undefined).then((ok) => {
         const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
-        if (done.file) cancelPending();
+        if (ok) pendingFiles.clear(sent.chat, file);
+        if (done.file) showPending(null);
         if (done.caption) draft = "";
         drafts.value = done.drafts;
         if (ok && replying?.id === sent.reply) replying = null;
@@ -938,7 +958,7 @@
           {/if}
           <span class="pending-name ellipsis">{pending.file.name}</span>
           <span class="file-size">{formatSize(pending.file.size)}</span>
-          <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={() => pending && (pending.spoiler = !pending.spoiler)}
+          <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={togglePendingSpoiler}
             >Spoiler</button
           >
           <button type="button" class="pending-cancel" onclick={cancelPending} aria-label="Remove attachment">×</button>

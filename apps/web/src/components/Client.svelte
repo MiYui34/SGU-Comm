@@ -49,6 +49,7 @@
   import { ownsMessage } from "../lib/messages";
   import { lastTurnAt } from "../lib/slowMode";
   import { chatKeyOf, type Drafts } from "../lib/composer";
+  import type { PendingFiles } from "../lib/pendingFiles";
   import type { Place, View } from "../lib/place";
   import { rejoinTarget } from "../lib/reconnect";
   import { voiceSession } from "../lib/mediaSession";
@@ -121,6 +122,7 @@
     onLogIn,
     site = location.origin,
     drafts = { value: new Map() },
+    pendingFiles,
     openSettings = false,
     onSettingsOpened,
   }: {
@@ -137,6 +139,7 @@
     // Unsent texts of the chats not open (see chatCommon): kept by the
     // caller, so that they outlive a reconnect.
     drafts?: Drafts;
+    pendingFiles?: PendingFiles;
     // Open the settings at once (back from a fediverse login for them).
     openSettings?: boolean;
     onSettingsOpened?: () => void;
@@ -1037,6 +1040,7 @@
   // What both chat panes (the open chat and an open thread) share.
   const chatCommon = $derived({
     drafts,
+    pendingFiles,
     loginToWrite,
     me: me?.name ?? "",
     people,
