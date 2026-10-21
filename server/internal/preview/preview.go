@@ -252,7 +252,7 @@ func (f *Fetcher) get(ctx context.Context, u, accept string) (*http.Response, er
 	return res, nil
 }
 
-var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
+var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
 
 // image fetches a preview picture: only real images (by their bytes), and
 // small ones (also in pixels: see imagesize; mediasize knows no others).
@@ -269,7 +269,7 @@ func (f *Fetcher) image(ctx context.Context, u string) picture {
 	if err != nil || len(data) > maxImage {
 		return picture{}
 	}
-	if typ := http.DetectContentType(data); slices.Contains(imageTypes, typ) {
+	if typ := mediasize.DetectType(data); slices.Contains(imageTypes, typ) {
 		if size := mediasize.Probe(bytes.NewReader(data), int64(len(data)), typ); size.Width > 0 {
 			return picture{data, typ, size}
 		}

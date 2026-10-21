@@ -31,8 +31,8 @@ import (
 )
 
 // Only these are shown inline: they cannot carry scripts. SVG can, so it
-// is a download like everything else.
-var inlineTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
+// is a download like everything else. AVIF: see mediasize.DetectType.
+var inlineTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
 
 const (
 	// Uploads not attached to a message within this time are deleted, so
@@ -234,7 +234,7 @@ func (h *Handler) save(dst string, body io.Reader) (int64, []byte, error) {
 // storedType is an upload's type, from its content: an inline image, audio
 // or video (content and name agree), or a download.
 func storedType(head []byte, name string) string {
-	if sniffed, _, _ := mime.ParseMediaType(http.DetectContentType(head)); slices.Contains(inlineTypes, sniffed) {
+	if sniffed := mediasize.DetectType(head); slices.Contains(inlineTypes, sniffed) {
 		return sniffed
 	}
 	return cmp.Or(mediaType(head, name), "application/octet-stream")

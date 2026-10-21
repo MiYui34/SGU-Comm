@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -109,6 +110,34 @@ func pngOf(w, h int) []byte {
 	var b bytes.Buffer
 	png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h)))
 	return b.Bytes()
+}
+
+func TestAVIFImage(t *testing.T) {
+	avif, err := os.ReadFile("../mediasize/testdata/grid.avif")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/page":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<head><title>Hello</title><meta property="og:image" content="/pic"></head>`)
+		case "/pic":
+			w.Write(avif)
+		}
+	}))
+	defer srv.Close()
+	f := New()
+	f.allow = local
+	p := f.Get(context.Background(), srv.URL+"/page")
+	if p == nil || p.Image == "" || p.ImageWidth != 128 || p.ImageHeight != 96 {
+		t.Fatalf("preview %+v", p)
+	}
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, httptest.NewRequest("GET", "/api/link-image/"+p.Image, nil))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/avif" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("image: %d %v", w.Code, w.Header())
+	}
 }
 
 // Images too large to show (by their header) or broken: a card without.

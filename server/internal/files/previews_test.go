@@ -35,6 +35,9 @@ func TestPreviewJob(t *testing.T) {
 		{"heavy webp", store.Upload{Type: "image/webp", Size: 2 << 20, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, true, 1000, false},
 		{"small png", store.Upload{Type: "image/png", Size: 1000, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, false, 0, false},
 		{"gif keeps its animation", store.Upload{Type: "image/gif", Size: 5 << 20, Media: big}, thumbs.WebP, false, 0, false},
+		// The image's ffmpeg (6.1) fails on grids and drops the rotation
+		// (irot) browsers show: the original is small enough anyway.
+		{"avif: none", store.Upload{Type: "image/avif", Size: 5 << 20, Media: big}, thumbs.WebP, false, 0, false},
 		{"too many pixels", store.Upload{Type: "image/jpeg", Size: 5 << 20, Media: store.Media{Width: 9000, Height: 9000}}, thumbs.WebP, false, 0, false},
 		{"video with too many pixels", store.Upload{Type: "video/mp4", Media: store.Media{Width: 16000, Height: 9000}}, thumbs.WebP, false, 0, false},
 		{"picture of unknown size", store.Upload{Type: "image/png", Size: 5 << 20}, thumbs.WebP, false, 0, false},
