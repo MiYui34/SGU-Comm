@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forgetPref, mutedIds, nothingIds, notifies, parseChannelPrefs, prefOf, pushLists, setChannelPref, setThreadPref, withoutMuted, withParents } from "../src/lib/channelPrefs";
+import { forgetPref, muteUntil, mutedIds, nothingIds, notifies, parseChannelPrefs, prefOf, pushLists, setChannelPref, setThreadPref, withoutMuted, withParents } from "../src/lib/channelPrefs";
 
 const A = "https://a";
 
@@ -73,5 +73,12 @@ describe("channel settings", () => {
     const prefs = { [A]: { 1: { level: "nothing" as const }, 7: { mutedUntil: 0 }, 8: { mutedUntil: 10 }, 11: { level: "mentions" as const } } };
     expect(pushLists(prefs, A, [7, 8])).toEqual({ quiet: [1, 7], loud: [11] }); // thread settings have a level
     expect(pushLists({}, A, [7])).toEqual({ quiet: [], loud: [] });
+  });
+});
+
+describe("mute choices", () => {
+  it("mute for some minutes, or until turned off (0)", () => {
+    expect(muteUntil(15, 1_000)).toBe(1_000 + 15 * 60_000);
+    expect(muteUntil(0, 1_000)).toBe(0);
   });
 });

@@ -86,6 +86,19 @@ export const withParents = (prefs: ChannelPrefs, server: string, threads: Readon
   return taken.length ? { ...prefs, [server]: { ...Object.fromEntries(taken), ...own } } : prefs;
 };
 
+// The mute choices (minutes; 0: until turned off) and when one ends.
+export const MUTE_FOR: readonly [string, number][] = [
+  ["For 15 minutes", 15],
+  ["For 1 hour", 60],
+  ["For 8 hours", 8 * 60],
+  ["For 24 hours", 24 * 60],
+  ["Until I turn it back on", 0],
+];
+export const muteUntil = (minutes: number, now: number) => (minutes ? now + minutes * 60_000 : 0);
+// null: no end.
+export const mutedUntilText = (t: number | undefined) =>
+  t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null;
+
 export const isMuted = (p: ChannelPref, now: number) => p.mutedUntil !== undefined && (p.mutedUntil === 0 || p.mutedUntil > now);
 
 export const mutedIds = (prefs: ChannelPrefs, server: string, now: number): Set<number> =>

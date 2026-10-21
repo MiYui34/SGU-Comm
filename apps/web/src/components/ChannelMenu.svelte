@@ -1,6 +1,6 @@
 <script lang="ts">
   import ContextMenu from "./ContextMenu.svelte";
-  import { isMuted, levelOf, LEVELS, type ChannelPref } from "../lib/channelPrefs";
+  import { isMuted, levelOf, LEVELS, MUTE_FOR, mutedUntilText, muteUntil, type ChannelPref } from "../lib/channelPrefs";
 
   // Right-click menu of a channel, or of a direct chat (direct). Items show
   // only when the user may use them (the server checks again).
@@ -73,15 +73,7 @@
     fn();
     onClose();
   };
-  const MUTE_FOR: [string, number][] = [
-    ["For 15 minutes", 15],
-    ["For 1 hour", 60],
-    ["For 8 hours", 8 * 60],
-    ["For 24 hours", 24 * 60],
-    ["Until I turn it back on", 0],
-  ];
   const id = $props.id();
-  const until = (t: number | undefined) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : null);
   const noun = $derived(direct ? "conversation" : thread ? "thread" : category ? "category" : "channel");
   const changes = $derived(canEdit || canCreateSub || canMoveUp || canMoveDown || canMembers || canModerators);
 </script>
@@ -99,14 +91,14 @@
   {/if}
   {#if notify && onNotify}
     {#if isMuted(notify.pref, Date.now())}
-      {@const end = until(notify.pref.mutedUntil)}
+      {@const end = mutedUntilText(notify.pref.mutedUntil)}
       <button onclick={act(() => onNotify({ mutedUntil: undefined }))}>Unmute {noun}</button>
       {#if end}<p class="none">Muted until {end}</p>{/if}
     {:else}
       <div role="group" aria-labelledby="{id}-mute">
         <p class="heading" id="{id}-mute">Mute {noun}</p>
         {#each MUTE_FOR as [label, minutes] (minutes)}
-          <button onclick={act(() => onNotify({ mutedUntil: minutes && Date.now() + minutes * 60_000 }))}>{label}</button>
+          <button onclick={act(() => onNotify({ mutedUntil: muteUntil(minutes, Date.now()) }))}>{label}</button>
         {/each}
       </div>
     {/if}
