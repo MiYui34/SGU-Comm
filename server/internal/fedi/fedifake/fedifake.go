@@ -21,7 +21,8 @@ import (
 
 // Instance serves /api/v1/apps, /oauth/authorize (a page that approves
 // at once, for any user name), /oauth/token and
-// /api/v1/accounts/verify_credentials. The zero value works.
+// /api/v1/accounts/verify_credentials, and the avatar (see SetAvatar).
+// The zero value works.
 type Instance struct {
 	// NoProfileScope: an older server that does not know the "profile"
 	// scope (Mastodon before 4.3): apps asking for it are refused.
@@ -36,6 +37,15 @@ type Instance struct {
 	tokens   map[string]string
 	users    map[string]string // user name: id
 	requests int
+	avatar   []byte
+}
+
+// SetAvatar gives all users this avatar (nil: none), at /media/avatar and
+// /media/avatar_static.
+func (f *Instance) SetAvatar(data []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.avatar = data
 }
 
 type app struct{ secret, redirect, scopes string }
@@ -79,6 +89,15 @@ func (f *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.token(w, r)
 	case r.URL.Path == "/api/v1/accounts/verify_credentials" && r.Method == http.MethodGet:
 		f.verify(w, r)
+	case (r.URL.Path == "/media/avatar" || r.URL.Path == "/media/avatar_static") && r.Method == http.MethodGet:
+		f.mu.Lock()
+		avatar := f.avatar
+		f.mu.Unlock()
+		if avatar == nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(avatar)
 	default:
 		http.NotFound(w, r)
 	}
@@ -199,7 +218,15 @@ func (f *Instance) verify(w http.ResponseWriter, r *http.Request) {
 		id = strconv.Itoa(100 + len(f.users))
 		f.users[user] = id
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": id, "username": user, "acct": user, "display_name": user})
+	acc := map[string]string{"id": id, "username": user, "acct": user, "display_name": user}
+	if f.avatar != nil {
+		base := "https://" + r.Host
+		if r.TLS == nil {
+			base = "http://" + r.Host
+		}
+		acc["avatar"], acc["avatar_static"] = base+"/media/avatar", base+"/media/avatar_static"
+	}
+	writeJSON(w, http.StatusOK, acc)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

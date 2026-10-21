@@ -1,8 +1,11 @@
 package fedi_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -196,5 +199,72 @@ func TestRedirectsStayOnHTTPS(t *testing.T) {
 	u, _ := url.Parse(srv.URL)
 	if _, err := testClient(srv).VerifyCredentials(context.Background(), fedi.Instance{Host: u.Host, Base: srv.URL}, "t"); err == nil {
 		t.Fatal("followed a redirect to http")
+	}
+}
+
+func pngOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestAvatar(t *testing.T) {
+	ctx := context.Background()
+	f := &fedifake.Instance{}
+	f.SetAvatar(pngOf(t, 300, 200))
+	srv, inst := fakeInstance(t, f)
+	c := testClient(srv)
+	app, _ := c.RegisterApp(ctx, inst, "Kallisti", "https://k.example/cb", "")
+	verifier := fedi.NewVerifier()
+	callback, _ := f.Approve(fedi.AuthorizeURL(inst, app.ClientID, "https://k.example/cb", "profile", "st", fedi.Challenge(verifier)), "alice")
+	cb, _ := url.Parse(callback)
+	token, _ := c.Token(ctx, inst, app, "https://k.example/cb", cb.Query().Get("code"), verifier)
+	acc, err := c.VerifyCredentials(ctx, inst, token)
+	if err != nil || acc.Avatar != inst.Base+"/media/avatar_static" {
+		t.Fatalf("verify: %+v %v", acc, err)
+	}
+	jpg, err := c.Avatar(ctx, acc.Avatar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg, format, err := image.DecodeConfig(bytes.NewReader(jpg)); err != nil || format != "jpeg" || cfg.Width != 128 || cfg.Height != 128 {
+		t.Fatalf("avatar: %v %s %v", cfg, format, err)
+	}
+	// Not a picture, too large to download, too many pixels.
+	for name, data := range map[string][]byte{
+		"broken":    []byte("<html>"),
+		"too large": append(pngOf(t, 10, 10), make([]byte, 3<<20)...),
+		"oversized": pngOf(t, 9000, 1),
+	} {
+		f.SetAvatar(data)
+		if _, err := c.Avatar(ctx, acc.Avatar); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+func TestAvatarURL(t *testing.T) {
+	ctx := context.Background()
+	for body, want := range map[string]string{
+		`"avatar":"https://a.example/a.gif","avatar_static":"https://a.example/a.png"`: "https://a.example/a.png",
+		`"avatar":"https://a.example/a.gif"`:                                           "https://a.example/a.gif",
+		`"avatar":"http://a.example/a.png"`:                                            "",
+		`"avatar":"javascript:alert(1)"`:                                               "",
+		`"avatar":"https://m.example/avatars/original/missing.png"`:                    "", // Mastodon's default
+		`"avatar":"https://p.example/images/avi.png"`:                                  "", // Pleroma's default
+		`"avatar":""`: "",
+	} {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"id":"1","username":"bob",` + body + `}`))
+		}))
+		u, _ := url.Parse(srv.URL)
+		acc, err := testClient(srv).VerifyCredentials(ctx, fedi.Instance{Host: u.Host, Base: srv.URL}, "t")
+		if err != nil || acc.Avatar != want {
+			t.Errorf("%s: %q %v", body, acc.Avatar, err)
+		}
+		srv.Close()
 	}
 }
