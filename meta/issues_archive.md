@@ -244,3 +244,5 @@
 - [x] [A refresh keeps the open channel and voice](issues/refresh-keeps-place.md)
 - [x] [Restart audio when entering voice and on device changes](issues/restart-audio.md)
 - [x] [Show AVIF and JPEG XL images](issues/avif-images.md)
+- [x] [iOS PWA: content runs under the status bar](issues/ios-safe-area.md)
+- [x] [Phone: a simpler top bar with a channel sheet](issues/phone-header.md)
