@@ -93,13 +93,21 @@ func TestAccountAvatarOfAnOnlineAccount(t *testing.T) {
 	if set, err := s.SetAccountAvatar("carol", "cert-carol", png, true); !set || err != nil {
 		t.Fatalf("set: %v %v", set, err)
 	}
+	expectedHash := blobHash(png)
 	for _, c := range []*testClient{web, other} {
-		m := c.waitForState(web.session, func(m *pb.UserState) bool { return m.TextureHash != nil })
-		if !bytes.Equal(m.TextureHash, blobHash(png)) || m.Texture != nil {
-			t.Fatalf("avatar announcement: %v", m)
+		m := c.waitForState(web.session, func(m *pb.UserState) bool {
+			return m.Texture != nil || m.TextureHash != nil
+		})
+		if !bytes.Equal(m.TextureHash, expectedHash) {
+			t.Fatalf("avatar hash %x, want %x", m.TextureHash, expectedHash)
 		}
-		c.send(mumble.TypeRequestBlob, &pb.RequestBlob{SessionTexture: []uint32{web.session}})
-		m = c.waitForState(web.session, func(m *pb.UserState) bool { return m.Texture != nil })
+		if expectedHash != nil {
+			if m.Texture != nil {
+				t.Fatalf("hashed avatar was sent inline: %v", m)
+			}
+			c.send(mumble.TypeRequestBlob, &pb.RequestBlob{SessionTexture: []uint32{web.session}})
+			m = c.waitForState(web.session, func(m *pb.UserState) bool { return m.Texture != nil })
+		}
 		if !bytes.Equal(m.Texture, png) {
 			t.Fatalf("texture %d bytes", len(m.Texture))
 		}
