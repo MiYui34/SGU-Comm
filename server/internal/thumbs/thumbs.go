@@ -48,6 +48,7 @@ var demuxers = map[string]string{
 	"image/png":  "png_pipe",
 	"image/jpeg": "jpeg_pipe",
 	"image/webp": "webp_pipe",
+	"image/jxl":  "jpegxl_pipe", // also the container; libjxl turns by the orientation
 }
 
 // Supported: Make can read uploads of this type.

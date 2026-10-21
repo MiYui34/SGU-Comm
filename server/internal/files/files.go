@@ -34,6 +34,15 @@ import (
 // is a download like everything else. AVIF: see mediasize.DetectType.
 var inlineTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
 
+// Pictures few browsers show (JPEG XL): downloads, shown by their preview
+// (see previews.go).
+var previewedTypes = []string{"image/jxl"}
+
+func isPreviewed(ctype string) bool { return slices.Contains(previewedTypes, ctype) }
+
+// isPicture: an upload of this type is a picture (it needs a size).
+func isPicture(ctype string) bool { return slices.Contains(inlineTypes, ctype) || isPreviewed(ctype) }
+
 const (
 	// Uploads not attached to a message within this time are deleted, so
 	// the server is no free file host.
@@ -161,7 +170,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	// the first 512 bytes) have no size: downloads.
 	ctype := storedType(head, name)
 	media := measure(dst, ctype)
-	if slices.Contains(inlineTypes, ctype) && media.Width == 0 {
+	if isPicture(ctype) && media.Width == 0 {
 		ctype = "application/octet-stream"
 	}
 	u, err := h.Store.AddUpload(store.Upload{Key: key, Name: cleanName(name), Type: ctype, Size: size, Author: author, Media: media}, h.Now())
@@ -231,10 +240,10 @@ func (h *Handler) save(dst string, body io.Reader) (int64, []byte, error) {
 	return rest, head, nil
 }
 
-// storedType is an upload's type, from its content: an inline image, audio
-// or video (content and name agree), or a download.
+// storedType is an upload's type, from its content: a picture, audio or
+// video (content and name agree), or a download.
 func storedType(head []byte, name string) string {
-	if sniffed := mediasize.DetectType(head); slices.Contains(inlineTypes, sniffed) {
+	if sniffed := mediasize.DetectType(head); isPicture(sniffed) {
 		return sniffed
 	}
 	return cmp.Or(mediaType(head, name), "application/octet-stream")
