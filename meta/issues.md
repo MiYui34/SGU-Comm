@@ -15,3 +15,5 @@
 - [ ] [Request ids for manage requests](issues/request-ids.md)
 - [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
 - [ ] [Desktop app: links do nothing, videos don't play (Linux)](issues/desktop-links-and-video.md)
+- [ ] [iOS PWA: content runs under the status bar](issues/ios-safe-area.md)
+- [ ] [Phone: a simpler top bar with a channel sheet](issues/phone-header.md)
