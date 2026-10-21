@@ -236,6 +236,7 @@ func TestReplace(t *testing.T) {
 		{Phrase: "nice ass", With: []string{"beautiful behind", "lovely posterior"}},
 		{Phrase: "ass", With: []string{"behind"}},
 		{Phrase: "広告", With: []string{"宣伝"}},
+		{Phrase: "12", With: []string{"twelve"}},
 	}}
 	for _, c := range []struct{ text, want string }{
 		{"what a nice ass", "what a beautiful behind"},
@@ -262,6 +263,7 @@ func TestReplace(t *testing.T) {
 		// Not in links, code, mentions, channels and emoji.
 		{"https://x.example/nice-ass ass", "https://x.example/nice-ass behind"},
 		{"`nice ass` ```\nass\n``` :nice_ass: @ass #ass", "`nice ass` ```\nass\n``` :nice_ass: @ass #ass"},
+		{"<:nice_ass:12> 12", "<:nice_ass:12> twelve"}, // a personal emoji
 		// Only spaces, dots and dashes between the words of a phrase:
 		// markup stays.
 		{"**nice** ass", "**nice** behind"},

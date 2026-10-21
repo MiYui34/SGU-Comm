@@ -30,9 +30,12 @@ func symbol(r rune) bool {
 // Normal is the fully qualified form (as in Unicode's emoji-test.txt),
 // so the same emoji is one reaction: the variation selector after symbols
 // that look like text without it, except before a skin tone. Custom emoji
-// (":name:") stay as they are.
+// (":name:", "<:name:id>") stay as they are.
 func Normal(s string) string {
 	if _, ok := CustomName(s); ok {
+		return s
+	}
+	if _, _, ok := ParseRef(s); ok {
 		return s
 	}
 	var rs []rune

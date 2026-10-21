@@ -270,8 +270,9 @@ var (
 	// one of ' - . _ between them (other symbols would split a word, so
 	// "c++" would block every "c").
 	wordEntry = regexp.MustCompile(`^[\p{L}\p{N}\p{M}]+(?:(?: |['’._-])[\p{L}\p{N}\p{M}]+)*$`)
-	// Where nothing is replaced: code, links, mentions, channels, emoji.
-	kept = regexp.MustCompile("```[\\s\\S]*?```|`[^`\\n]+`|[a-zA-Z][a-zA-Z0-9+.-]*://\\S+|www\\.\\S+|[@#][\\p{L}\\p{N}_-]+|:[\\p{L}\\p{N}_-]+:")
+	// Where nothing is replaced: code, links, mentions, channels, emoji
+	// (personal ones are "<:name:id>").
+	kept = regexp.MustCompile("```[\\s\\S]*?```|`[^`\\n]+`|<:[a-z0-9_]+:[0-9]+>|[a-zA-Z][a-zA-Z0-9+.-]*://\\S+|www\\.\\S+|[@#][\\p{L}\\p{N}_-]+|:[\\p{L}\\p{N}_-]+:")
 	// Replacements (as PLAIN in apps/web src/lib/messageRules.ts): words of letters, digits, marks and emoji with spaces
 	// and ' . , ! ? - between them. Nothing that formats (* _ ~ ` | >),
 	// links (:/), mentions (@ #) or is HTML.
