@@ -5,7 +5,7 @@
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
-  import { hold } from "../lib/longPress";
+  import { hold, longPress } from "../lib/longPress";
   import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { collapses, MAX_HEIGHT_PX } from "../lib/collapse";
@@ -517,9 +517,13 @@
   // The menu of a custom emoji in a message or reaction (see EmojiMenu):
   // only when there is something to do with it.
   let emojiMenu = $state<{ x: number; y: number; emoji: string } | null>(null);
-  const openEmojiMenu = (emoji: string, e: MouseEvent) => {
+  // A custom emoji has a menu (add to my emoji, remove for everyone).
+  const hasEmojiMenu = (emoji: string) => {
     const actions = emojiActions(emoji, custom, { add: !!onAddEmoji, remove: !!onRemoveEmoji });
-    if (!actions || (actions.add === null && actions.remove === null)) return false;
+    return !!actions && (actions.add !== null || actions.remove !== null);
+  };
+  const openEmojiMenu = (emoji: string, e: MouseEvent) => {
+    if (!hasEmojiMenu(emoji)) return false;
     e.preventDefault();
     emojiMenu = { x: e.clientX, y: e.clientY, emoji };
     return true;
@@ -1210,6 +1214,8 @@
           aria-label="{refsAsNames(r.emoji)} {r.users.length}, from {r.users.join(', ')}"
           title={r.users.join(", ")}
           disabled={!canReact}
+          data-own-press={hasEmojiMenu(r.emoji) ? "" : undefined}
+          use:longPress
           oncontextmenu={(e) => openEmojiMenu(r.emoji, e)}
           onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji"><Emoji text={r.emoji} /></span>{r.users.length}</button
         >

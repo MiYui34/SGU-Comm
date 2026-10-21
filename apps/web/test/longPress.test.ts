@@ -79,4 +79,15 @@ describe("hold", () => {
     vi.advanceTimersByTime(500);
     expect(onHold).not.toHaveBeenCalled();
   });
+
+  it("leaves elements with their own long press alone", () => {
+    const node = document.createElement("div");
+    const chip = node.appendChild(document.createElement("button"));
+    chip.dataset.ownPress = "";
+    const onHold = vi.fn();
+    hold(node, onHold);
+    touch(chip, "touchstart");
+    vi.advanceTimersByTime(500);
+    expect(onHold).not.toHaveBeenCalled();
+  });
 });

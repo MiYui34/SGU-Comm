@@ -83,8 +83,9 @@ export const longPress = (node: HTMLElement) => {
   return attach(node, press, press.native);
 };
 
-// Text fields and media controls keep their own long press (caret, seeking).
-const OWN_LONG_PRESS = "input, textarea, select, video, audio, [contenteditable]";
+// Text fields and media controls keep their own long press (caret, seeking),
+// as do elements marked data-own-press (e.g. a reaction with its own menu).
+const OWN_LONG_PRESS = "input, textarea, select, video, audio, [contenteditable], [data-own-press]";
 
 // A Svelte action for touch screens: a long press runs onHold. The
 // browser's own long-press menu (Android) runs it too, instead of its menu;

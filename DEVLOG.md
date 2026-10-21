@@ -2188,3 +2188,7 @@ From `meta/research/discord-comparison.md`.
 - SSRF: one guarded client (`fedi.NewClient`, `netguard` shared with link previews): the dialer checks the address really dialed (DNS and redirects included), public addresses on port 443 only, HTTPS only, 3 redirects, 10 s, 64 KB bodies, no proxy. `FEDI_INSECURE_DEV_INSTANCES=1` (dev only, off by default) allows local and plain-HTTP instances, for `server/cmd/fakefedi`. `FEDI_LOGIN=0` turns the feature off.
 - Verified handle: opt-in per account; `GET /api/fedi/handle?name=` gives it only when on, and the user card shows it with a check mark.
 - Checked headless against the fake instance: register (with a name clash), log in again, link a password account (wrong password refused), log in through the link, unlink refused for a password-less account, handle hidden until opted in, error notice on the login screen. The settings dialog closes the headless Chromium tab (also on main, before this work), so its fediverse section was checked through the API only.
+
+## Long press on a reaction
+
+- On touch screens a long press on a custom-emoji reaction opens its menu ("Add to my emoji", "Remove for everyone…"), as right-click does with a mouse; iOS has no right-click. Elements marked `data-own-press` keep their own long press, so the message sheet does not open as well. Reactions with plain emoji keep opening the message sheet.
