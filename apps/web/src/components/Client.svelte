@@ -1054,7 +1054,9 @@
     },
     onReact: readOnly ? undefined : connection.react,
     myId: me?.userId ?? null,
-    previewOf: (id: number) => text.previews[id] ?? null,
+    onAddEmoji: mayAddEmoji ? connection.addUserEmoji : undefined,
+    onRemoveEmoji: moderation.emoji ? connection.removeEmojiImage : undefined,
+    previewOf:(id: number) => text.previews[id] ?? null,
     httpBase: connection.httpBase,
   } satisfies Partial<ComponentProps<typeof ChatPane>>);
 

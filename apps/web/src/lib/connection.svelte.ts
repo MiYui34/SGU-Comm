@@ -60,6 +60,7 @@ import { untrack } from "svelte";
 import { texturesToFetch } from "./avatar";
 import type { SearchQuery } from "./search";
 import { reactRequest } from "./reactions";
+import { parseRef } from "./customEmoji";
 import { previewsRequest } from "./linkPreview";
 import { bioRequest } from "./members";
 import { awayRequest, setStatusRequest, type CustomStatus, type Presence } from "./presence";
@@ -463,8 +464,10 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       wait({ via: "text", confirms: (ev) => ev.type === "my-emoji" && !ev.emoji.some((e) => e.name === name) }, () =>
         ws.send(deleteUserEmojiRequest(name)),
       ),
-    removeEmojiImage: (emoji: string, id: number) =>
-      wait({ via: "text", confirms: (ev) => ev.type === "removed-emoji" && ev.ids.includes(id) }, () => ws.send(removeEmojiImageRequest(emoji))),
+    removeEmojiImage: (emoji: string) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "removed-emoji" && ev.ids.includes(parseRef(emoji)?.id ?? 0) }, () =>
+        ws.send(removeEmojiImageRequest(emoji)),
+      ),
     playback,
     capture,
     streams,

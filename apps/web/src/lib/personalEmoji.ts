@@ -1,4 +1,4 @@
-import { CUSTOM_NAME, emojiFormError, parseRef, personalRef, PERSONAL_REF } from "./customEmoji";
+import { CUSTOM_NAME, customImageOf, emojiFormError, parseRef, personalRef, PERSONAL_REF, type CustomEmojiSet } from "./customEmoji";
 import type { EmojiEntry } from "./emojiPicker";
 
 // Personal emoji: registered users keep their own (server/internal/
@@ -77,6 +77,30 @@ export const personalFormError = (
   if (mine.some((e) => e.name === name)) return "You have an emoji with this name.";
   if (server.has(name)) return "This server has an emoji with this name.";
   if (mine.length >= MAX_PERSONAL) return `You have the most emoji you can have (${MAX_PERSONAL}).`;
-  const problem = emojiFormError(name, upload ? file : { size: 0, type: "image/png" }, []);
-  return problem;
+  return emojiFormError(name, upload ? file : { size: 0, type: "image/png" }, []);
+};
+
+// name, or with _2, _3, … when taken (at most 32 letters).
+export const freeName = (name: string, taken: ReadonlySet<string>) => {
+  let free = name;
+  for (let n = 2; taken.has(free); n++) free = name.slice(0, 32 - `_${n}`.length) + `_${n}`;
+  return free;
+};
+
+// What we may do with an emoji in a message or reaction (null: nothing,
+// it shows no image): add it to ours under a free name (add, unless it is
+// ours already), or remove a personal one everywhere (remove: moderators).
+export const emojiActions = (emoji: string, set: CustomEmojiSet, rights: { add: boolean; remove: boolean }) => {
+  const image = customImageOf(emoji, set);
+  if (!image) return null;
+  const ref = parseRef(emoji);
+  const mine = !!ref && set.mine.some((e) => e.id === ref.id);
+  const taken = new Set([...set.urls.keys(), ...set.mine.map((e) => e.name)]);
+  return {
+    ...image,
+    kind: ref ? ("personal" as const) : ("server" as const),
+    mine,
+    add: rights.add && !mine ? freeName(image.name, taken) : null,
+    remove: rights.remove && ref ? emoji : null,
+  };
 };

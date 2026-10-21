@@ -4,6 +4,8 @@ import { escapeHtml } from "@kallisti/protocol";
 import { customEmojiSet, jumboEmoji, knownEmoji, parseRef, personalRef, refsAsNames } from "../src/lib/customEmoji";
 import {
   composerEmoji,
+  emojiActions,
+  freeName,
   fromRefs,
   parsePersonalEmoji,
   parseRemovedEmoji,
@@ -146,5 +148,37 @@ describe("adding personal emoji", () => {
     expect(personalFormError("cat", file, full, set.urls)).toMatch(/50/);
     expect(personalFormError("cat", null, mine, set.urls)).toMatch(/image/);
     expect(personalFormError("cat", null, mine, set.urls, false)).toBeNull(); // from a message: no file
+  });
+});
+
+describe("an emoji in a message", () => {
+  const rights = { add: true, remove: false };
+  it("can be added: a server emoji or someone's, under a free name", () => {
+    expect(emojiActions(":party:", set, rights)).toEqual({
+      name: "party",
+      url: "https://chat.example/api/emoji/1",
+      kind: "server",
+      mine: false,
+      add: "party_2", // the server's name, and ours too
+      remove: null,
+    });
+    expect(emojiActions("<:cool:12>", set, rights)).toMatchObject({ kind: "personal", mine: false, add: "cool", remove: null });
+  });
+  it("is not added again when it is ours", () => {
+    expect(emojiActions("<:other_name:7>", set, rights)).toMatchObject({ mine: true, add: null });
+  });
+  it("can be removed everywhere by moderators, personal ones only", () => {
+    const mod = { add: false, remove: true };
+    expect(emojiActions("<:cool:12>", set, mod)).toMatchObject({ add: null, remove: "<:cool:12>" });
+    expect(emojiActions(":party:", set, mod)).toMatchObject({ remove: null });
+  });
+  it("has no actions when it shows no image", () => {
+    expect(emojiActions("<:gone:9>", set, rights)).toBeNull();
+    expect(emojiActions(":nope:", set, rights)).toBeNull();
+    expect(emojiActions("👍", set, rights)).toBeNull();
+  });
+  it("freeName counts up, within 32 letters", () => {
+    expect(freeName("cat", new Set(["cat", "cat_2"]))).toBe("cat_3");
+    expect(freeName("x".repeat(32), new Set(["x".repeat(32)]))).toBe(`${"x".repeat(30)}_2`);
   });
 });

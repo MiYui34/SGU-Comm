@@ -13,7 +13,7 @@
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
   import { customEmojiFor, customEntries, jumboEmoji, knownEmoji, refsAsNames } from "../lib/customEmoji";
-  import { composerEmoji, fromRefs, personalEntries, sameEmoji, toRefs } from "../lib/personalEmoji";
+  import { composerEmoji, emojiActions, fromRefs, personalEntries, sameEmoji, toRefs } from "../lib/personalEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -40,6 +40,7 @@
   import { tick, untrack, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
+  import EmojiMenu from "./EmojiMenu.svelte";
   import Icon from "./Icon.svelte";
 
   let {
@@ -90,6 +91,8 @@
     onTyping,
     onReact,
     myId = null,
+    onAddEmoji,
+    onRemoveEmoji,
     previewOf,
     httpBase = "",
     cannotWrite = null,
@@ -170,6 +173,10 @@
     // user id (null: not registered, no reactions).
     onReact?: (id: number, emoji: string, on: boolean) => void;
     myId?: number | null;
+    // A custom emoji in a message or reaction: add it to ours (registered
+    // users but guests), remove a personal one everywhere (moderators).
+    onAddEmoji?: (emoji: string, name: string) => Promise<void>;
+    onRemoveEmoji?: (emoji: string) => Promise<void>;
     // Link previews of stored messages; images are on the server (httpBase).
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
@@ -507,6 +514,15 @@
   let allEmoji = $state.raw<{ id: number; anchor: DOMRect } | null>(null);
   // The current message (its reactions change while the picker is open).
   const allEmojiFor = $derived(allEmoji && messages.find((m) => idOf(m) === allEmoji!.id));
+  // The menu of a custom emoji in a message or reaction (see EmojiMenu):
+  // only when there is something to do with it.
+  let emojiMenu = $state<{ x: number; y: number; emoji: string } | null>(null);
+  const openEmojiMenu = (emoji: string, e: MouseEvent) => {
+    const actions = emojiActions(emoji, custom, { add: !!onAddEmoji, remove: !!onRemoveEmoji });
+    if (!actions || (actions.add === null && actions.remove === null)) return;
+    e.preventDefault();
+    emojiMenu = { x: e.clientX, y: e.clientY, emoji };
+  };
   const mineOf = (m: ChatMessage | DisplayMessage, emoji: string) =>
     !!("reactions" in m && m.reactions?.some((r) => sameEmoji(r.emoji, emoji) && reactedBy(r, myId)));
   const react = (m: ChatMessage | DisplayMessage, id: number, emoji: string) => {
@@ -1025,6 +1041,9 @@
   </form>
 </main>
 
+{#if emojiMenu}
+  <EmojiMenu {...emojiMenu} onAdd={onAddEmoji} onRemove={onRemoveEmoji} onClose={() => (emojiMenu = null)} />
+{/if}
 {#if sheetMessage}
   {@const m = sheetMessage}
   {@const id = idOf(m)}
@@ -1140,6 +1159,8 @@
       use:measure={"source" in m && m.source ? null : key}
       onfocusin={(e) => long && !open && toggleLong(key, e.currentTarget.closest("li"), true)}
       onclick={(e) => {
+        const custom = (e.target as Element).closest?.("img.emoji.custom[data-emoji]");
+        if (custom instanceof HTMLElement) openEmojiMenu(custom.dataset.emoji!, e);
         const pill = (e.target as Element).closest?.(".mention");
         const name = pill?.textContent?.slice(1) ?? "";
         if (pill instanceof HTMLElement && onMention && name !== "everyone" && name !== "here") onMention(name, pill, e);
@@ -1187,6 +1208,7 @@
           aria-label="{refsAsNames(r.emoji)} {r.users.length}, from {r.users.join(', ')}"
           title={r.users.join(", ")}
           disabled={!canReact}
+          oncontextmenu={(e) => openEmojiMenu(r.emoji, e)}
           onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji"><Emoji text={r.emoji} /></span>{r.users.length}</button
         >
       {/each}
@@ -1575,6 +1597,10 @@
   }
   .text :global(a) {
     color: var(--link);
+  }
+  /* A click opens its menu (see EmojiMenu). */
+  .text :global(img.emoji.custom) {
+    cursor: pointer;
   }
   /* Only emoji: large, as in Discord (48px). */
   .text.jumbo :global(img.emoji) {
