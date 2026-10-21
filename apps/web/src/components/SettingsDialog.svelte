@@ -5,7 +5,8 @@
   import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notifier, permissionNote, type Permission } from "../lib/notify";
   import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush, type PushPrefs } from "../lib/push";
-  import type { AccountActions } from "../lib/accounts";
+  import { needsReauth, type AccountActions } from "../lib/accounts";
+  import { handleHost } from "../lib/fedi";
   import { keyLabel, meterPercent, METER_MIN_DB, type Settings, type ThemeSetting } from "../lib/settings";
   import { isDesktop } from "../lib/desktop";
   import { outputDeviceSupported } from "../lib/voice/support";
@@ -125,12 +126,18 @@
   let newPassword = $state("");
   let passwordNote = $state<string | null>(null); // what changed (errors: passwordSave)
   const passwordSave = createSave();
+  // The first password of a fediverse-only account needs a fresh login.
+  let reauth = $state(false);
+  const reauthSave = createSave();
   const changePassword = (event: SubmitEvent) => {
     event.preventDefault();
     passwordNote = null;
     passwordSave.run(async () => {
       const [kept, first] = [account?.temporary, account?.hasPassword === false];
-      await account?.changePassword(oldPassword, newPassword);
+      await account?.changePassword(oldPassword, newPassword).catch((err: unknown) => {
+        reauth = needsReauth(err);
+        throw err;
+      });
       passwordNote = kept
         ? "Password set: your account stays."
         : first
@@ -457,7 +464,7 @@
         </p>
       {:else if !account.hasPassword}
         <span class="label">Set a password</span>
-        <p class="hint">You log in with your fediverse account. A password also works in Mumble apps, with your name.</p>
+        <p class="hint">You log in with your fediverse account. A password also works in Mumble apps, with your name. First you confirm with your fediverse server.</p>
       {:else}
         <span class="label">Change password</span>
         <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
@@ -470,6 +477,17 @@
         </button>
         <SaveStatus save={passwordSave.state} done="" />
       </div>
+      <!-- The first password: confirm with the fediverse account first (again
+           after a refusal: the confirmation lasts a few minutes, once). Not
+           in the desktop app, which cannot come back from the instance. -->
+      {#if (reauth || (!account.hasPassword && !account.temporary)) && account.fedi && !isDesktop()}
+        <div class="buttons">
+          <button type="button" class="secondary" disabled={reauthSave.busy} onclick={() => reauthSave.run(account.fediReauth)}>
+            Confirm with {handleHost(account.fedi.handle)}
+          </button>
+          <SaveStatus save={reauthSave.state} done="" />
+        </div>
+      {/if}
     </form>
     <FediAccount {account} />
     <div class="account">

@@ -29,7 +29,7 @@
   import { loadCaptureWorklet, startAfter } from "./lib/voice/worklet";
   import { settings } from "./lib/settings.svelte";
   import { themeOf } from "./lib/settings";
-  import { fediResult, withoutFediResult } from "./lib/fedi";
+  import { fediResult, reauthInstance, withoutFediResult } from "./lib/fedi";
   import Toast from "./components/Toast.svelte";
 
   // The colour theme (see app.css), also before the login.
@@ -98,6 +98,8 @@
   if (fediBack) history.replaceState(history.state, "", withoutFediResult(location.pathname + location.search + location.hash));
   let fediSignup = $state(fediBack?.kind === "register");
   let fediNotice = $state<string | null>(null);
+  // Back from a fresh login for the first password: to the settings again.
+  let reopenSettings = $state(fediBack?.kind === "reauth");
   if (!isDesktop())
     void untrack(() => api)
       .me()
@@ -169,6 +171,10 @@
     fediPublic: async (on) => {
       await api.fediPublic(on);
       if (account?.fedi) account = { ...account, fedi: { ...account.fedi, public: on } };
+    },
+    fediReauth: async () => {
+      if (!account?.fedi) return;
+      location.assign(await api.fediReauth(reauthInstance(account.fedi.handle, safeGet(localStorage, "fediInstance")))); // back with ?fedi=reauth
     },
     get whipUrl() {
       return api.whipUrl;
@@ -409,7 +415,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
     {/key}
   </div>
 {:else}

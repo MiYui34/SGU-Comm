@@ -16,6 +16,7 @@ class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -40,10 +41,10 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
       ...(Object.keys(headers).length && { headers }),
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    const data = (await res.json().catch(() => ({}))) as Answer & { error?: string };
+    const data = (await res.json().catch(() => ({}))) as Answer & { error?: string; code?: string };
     // The server no longer knows the token (not: a wrong password).
     if (res.status === 401 && path === "/api/me") session?.set(null);
-    if (!res.ok) throw new ApiError(data.error ?? `request failed (${res.status})`, res.status);
+    if (!res.ok) throw new ApiError(data.error ?? `request failed (${res.status})`, res.status, data.code);
     if (data.token) session?.set(data.token);
     return data;
   };
@@ -113,6 +114,12 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
       const data = await call("/api/fedi/signup").catch(() => null);
       return data ? { name: data.name ?? "", handle: data.handle ?? "" } : null;
     },
+    // A fresh login with the linked account, for the first password.
+    fediReauth: async (instance: string) => {
+      const { url } = await call("/api/fedi/start", { instance, purpose: "reauth" });
+      if (!url) throw new Error("No answer from the server. Please try again.");
+      return url;
+    },
     fediCreate: async (name: string, proof?: Proof) => (await call("/api/fedi/signup", { name, ...proof })).name ?? name,
     fediUnlink: async () => {
       await call("/api/fedi/unlink", {});
@@ -133,6 +140,9 @@ export const createAccountsApi = (base: string, fetchFn: typeof fetch = fetch, s
 };
 
 export type AccountsApi = ReturnType<typeof createAccountsApi>;
+
+// The server wants a fresh fediverse login before the first password.
+export const needsReauth = (err: unknown) => err instanceof ApiError && err.code === "reauth";
 
 export type StreamKey = { enabled: boolean; exists: boolean };
 
@@ -165,4 +175,7 @@ export type AccountActions = {
   fediLink: (instance: string, password: string) => Promise<void>;
   fediUnlink: () => Promise<void>;
   fediPublic: (on: boolean) => Promise<void>;
+  // A fresh login with the linked account (goes to the instance, and back
+  // to the settings), needed for the first password.
+  fediReauth: () => Promise<void>;
 };

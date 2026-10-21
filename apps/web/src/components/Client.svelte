@@ -121,6 +121,8 @@
     onLogIn,
     site = location.origin,
     drafts = { value: new Map() },
+    openSettings = false,
+    onSettingsOpened,
   }: {
     connection: Connection;
     account?: AccountActions;
@@ -135,6 +137,9 @@
     // Unsent texts of the chats not open (see chatCommon): kept by the
     // caller, so that they outlive a reconnect.
     drafts?: Drafts;
+    // Open the settings at once (back from a fediverse login for them).
+    openSettings?: boolean;
+    onSettingsOpened?: () => void;
   } = $props();
 
   const server = $derived(connection.state);
@@ -169,7 +174,8 @@
   // Outside voice nothing is sent, also while the settings test the mic.
   $effect(() => capture?.setMuted((me?.selfMute ?? false) || !voiceOn));
 
-  let showSettings = $state(false);
+  let showSettings = $state(untrack(() => openSettings));
+  if (untrack(() => openSettings)) untrack(() => onSettingsOpened)?.(); // once, on mount
   let showSwitcher = $state(false);
   let showShortcuts = $state(false);
   let membersOpen = $state(true);

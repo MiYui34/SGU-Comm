@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fetchFediHandle, fediResult, withoutFediResult } from "../src/lib/fedi";
-import { createAccountsApi } from "../src/lib/accounts";
+import { fetchFediHandle, fediResult, reauthInstance, withoutFediResult } from "../src/lib/fedi";
+import { createAccountsApi, needsReauth } from "../src/lib/accounts";
 
 describe("fediResult", () => {
   it("reads the server's answer after a fediverse login", () => {
@@ -12,6 +12,11 @@ describe("fediResult", () => {
       kind: "error",
       text: "This fediverse account is linked to another account already.",
     });
+  });
+
+  it("reads a fresh login for the first password", () => {
+    expect(fediResult("?fedi=reauth")).toEqual({ kind: "reauth", text: "Confirmed: set your password now." });
+    expect(fediResult("?fedi=error&reason=other")?.kind).toBe("error");
   });
 
   it("never shows text from the address", () => {
@@ -79,5 +84,31 @@ describe("fediverse account API", () => {
     expect(calls[0]?.url).toBe("http://srv/api/fedi/handle?name=a%20b");
     expect(await fetchFediHandle("http://srv", "x", fakeFetch(500, {}, []))).toBe("");
     expect(await fetchFediHandle("http://srv", "x", fakeFetch(404, "not json", []))).toBe("");
+  });
+});
+
+describe("reauthInstance", () => {
+  it("uses the server from the linked handle, or the one typed for it", () => {
+    expect(reauthInstance("@alice@social.example", null)).toBe("social.example");
+    expect(reauthInstance("@alice@social.example", "other.example")).toBe("social.example");
+    expect(reauthInstance("@alice@social.example", "https://Social.example/")).toBe("https://Social.example/");
+    expect(reauthInstance("@alice@127.0.0.1:9000", "http://127.0.0.1:9000")).toBe("http://127.0.0.1:9000");
+  });
+});
+
+describe("first password", () => {
+  it("tells a refusal for a missing fresh login apart", async () => {
+    const api = createAccountsApi("http://srv", fakeFetch(403, { error: "confirm first", code: "reauth" }, []));
+    const err = await api.changePassword("", "newpassword").catch((e: unknown) => e);
+    expect(needsReauth(err)).toBe(true);
+    const other = createAccountsApi("http://srv", fakeFetch(401, { error: "wrong" }, []));
+    expect(needsReauth(await other.changePassword("a", "b").catch((e: unknown) => e))).toBe(false);
+  });
+
+  it("starts a fresh login", async () => {
+    const calls: Call[] = [];
+    const api = createAccountsApi("http://srv", fakeFetch(200, { url: "https://social.example/oauth/authorize" }, calls));
+    expect(await api.fediReauth("social.example")).toBe("https://social.example/oauth/authorize");
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ instance: "social.example", purpose: "reauth" });
   });
 });
