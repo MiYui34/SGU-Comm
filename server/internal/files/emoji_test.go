@@ -28,7 +28,12 @@ func setupEmoji(t *testing.T) (*httptest.Server, *store.Store, *int) {
 
 func uploadEmoji(t *testing.T, srv *httptest.Server, token string, body []byte) (*http.Response, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", srv.URL+"/api/emoji", bytes.NewReader(body))
+	return postEmoji(t, srv, "/api/emoji", token, body)
+}
+
+func postEmoji(t *testing.T, srv *httptest.Server, path, token string, body []byte) (*http.Response, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+path, bytes.NewReader(body))
 	req.Header.Set("X-Upload-Token", token)
 	req.Header.Set("Origin", "https://app.example")
 	resp, err := http.DefaultClient.Do(req)
@@ -102,5 +107,80 @@ func TestEmojiUploadsAreChecked(t *testing.T) {
 	}
 	if *changes != 0 {
 		t.Errorf("%d changes", *changes)
+	}
+}
+
+// setupPersonalEmoji: the token "good" adds alice's (user 5) emoji "party".
+func setupPersonalEmoji(t *testing.T) (*httptest.Server, *store.Store, *[]uint32) {
+	t.Helper()
+	_, s, h := setupHandler(t, 1<<20)
+	var changed []uint32
+	h.RedeemUserEmoji = func(token string) (uint32, string, bool) { return 5, "party", token == "good" }
+	h.OnUserEmoji = func(user uint32) { changed = append(changed, user) }
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv, s, &changed
+}
+
+func TestUploadAndServeAPersonalEmoji(t *testing.T) {
+	srv, s, changed := setupPersonalEmoji(t)
+	img := pngBytes(t)
+	resp, v := postEmoji(t, srv, "/api/emoji/personal", "good", img)
+	if resp.StatusCode != http.StatusOK || v["name"] != "party" || v["id"] == nil || len(*changed) != 1 || (*changed)[0] != 5 {
+		t.Fatalf("status %d %v (changed %v)", resp.StatusCode, v, *changed)
+	}
+	if resp.Header.Get("Access-Control-Allow-Origin") != "https://app.example" {
+		t.Error("missing CORS header")
+	}
+	if list, _ := s.UserEmojis(5); len(list) != 1 || list[0].Name != "party" {
+		t.Fatalf("stored %+v", list)
+	}
+	get, err := http.Get(srv.URL + v["url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer get.Body.Close()
+	body, _ := io.ReadAll(get.Body)
+	h := get.Header
+	if get.StatusCode != http.StatusOK || !bytes.Equal(body, img) || h.Get("Content-Type") != "image/png" ||
+		h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Content-Security-Policy") == "" || h.Get("Cache-Control") == "" {
+		t.Fatalf("serve %d %v", get.StatusCode, h)
+	}
+	// A removed image is gone.
+	s.RemoveEmojiImage(int64(v["id"].(float64)))
+	for _, path := range []string{v["url"].(string), "/api/emoji/personal/999", "/api/emoji/personal/x", "/api/emoji/personal/"} {
+		if r, _ := http.Get(srv.URL + path); r.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: %d", path, r.StatusCode)
+		}
+	}
+	// And blocked.
+	s.DeleteUserEmoji(5, "party")
+	if resp, v := postEmoji(t, srv, "/api/emoji/personal", "good", img); resp.StatusCode != http.StatusForbidden || v["error"] == nil {
+		t.Fatalf("blocked: %d %v", resp.StatusCode, v)
+	}
+}
+
+func TestPersonalEmojiUploadsAreChecked(t *testing.T) {
+	srv, s, changed := setupPersonalEmoji(t)
+	for _, c := range []struct {
+		token  string
+		body   []byte
+		status int
+	}{
+		{"bad", pngBytes(t), http.StatusUnauthorized},
+		{"good", []byte("<svg onload=alert(1)>"), http.StatusUnsupportedMediaType},
+		{"good", pngBytes(t)[:20], http.StatusUnsupportedMediaType},
+	} {
+		if resp, v := postEmoji(t, srv, "/api/emoji/personal", c.token, c.body); resp.StatusCode != c.status || v["error"] == nil {
+			t.Errorf("%s %d bytes: %d %v", c.token, len(c.body), resp.StatusCode, v)
+		}
+	}
+	// The name was taken meanwhile.
+	s.AddUserEmoji(5, "party", "image/png", []byte("x"), time.Now())
+	if resp, _ := postEmoji(t, srv, "/api/emoji/personal", "good", pngBytes(t)); resp.StatusCode != http.StatusConflict {
+		t.Errorf("taken: %d", resp.StatusCode)
+	}
+	if len(*changed) != 0 {
+		t.Errorf("changed %v", *changed)
 	}
 }
