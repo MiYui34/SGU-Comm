@@ -413,10 +413,25 @@ func (a *Service) remoteAccount(ctx context.Context, flow fediFlow, code string)
 	if err != nil {
 		return fedi.Account{}, err
 	}
+	remote, err := a.Fedi.Client.VerifyCredentials(ctx, flow.inst, token)
+	var status *fedi.StatusError
+	if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) &&
+		flow.scope == fedi.ScopeProfile {
+		// A "profile" token that cannot read the account (Pleroma takes
+		// the scope, see fedi.KnowsProfile): register again next time.
+		if err := a.Store.ForgetFediApp(flow.inst.Host); err != nil {
+			slog.Error("fediverse app", "err", err)
+		}
+		return fedi.Account{}, err
+	}
+	if err != nil {
+		return fedi.Account{}, err
+	}
+	// Used only once the account was read: a kept app must work.
 	if err := a.Store.MarkFediAppUsed(flow.inst.Host); err != nil {
 		slog.Error("fediverse app", "err", err)
 	}
-	return a.Fedi.Client.VerifyCredentials(ctx, flow.inst, token)
+	return remote, nil
 }
 
 // fediLink links the remote account to the account; the result for home.

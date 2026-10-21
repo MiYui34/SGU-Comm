@@ -230,6 +230,20 @@ func TestFediAsksPleromaForReadAccounts(t *testing.T) {
 	wantRedirect(t, resp, home+"?fedi=register")
 }
 
+func TestFediForgetsAnAppWhoseProfileTokenCannotReadTheAccount(t *testing.T) {
+	// An app registered with "profile" before the version check, on a
+	// server that cannot read the account with it (Pleroma): the failed
+	// login does not keep the app, and the next one registers again.
+	f := &fedifake.Instance{IgnoresProfile: true} // says it is Mastodon 4.3
+	_, srv, inst := fediSetup(t, f)
+	b := newBrowser(t, srv)
+	if resp := b.fediFlow(f, map[string]any{"instance": inst}, "pwm"); !strings.Contains(resp.Header.Get("Location"), "fedi=error") {
+		t.Fatalf("first login: %s", resp.Header.Get("Location"))
+	}
+	f.Version = "3.0.666 (compatible; Pleroma 2.10.2)"
+	wantRedirect(t, b.fediFlow(f, map[string]any{"instance": inst}, "pwm"), home+"?fedi=register")
+}
+
 func TestFediLinkAndUnlink(t *testing.T) {
 	f := &fedifake.Instance{}
 	_, srv, inst := fediSetup(t, f)

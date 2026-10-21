@@ -120,7 +120,7 @@ func SuggestName(username string) string {
 // servers know "read:accounts". Apps are registered with both where the
 // server allows it.
 const (
-	scopeProfile  = "profile"
+	ScopeProfile  = "profile"
 	scopeAccounts = "read:accounts"
 )
 
@@ -128,8 +128,8 @@ const (
 // instance refused "profile".
 func Scope(appScopes string, fallback bool) string {
 	for _, s := range strings.Fields(appScopes) {
-		if s == scopeProfile && !fallback {
-			return scopeProfile
+		if s == ScopeProfile && !fallback {
+			return ScopeProfile
 		}
 	}
 	return scopeAccounts
@@ -265,7 +265,7 @@ func (c *Client) RegisterApp(ctx context.Context, inst Instance, name, redirectU
 	var err error
 	tries := []string{scopeAccounts}
 	if KnowsProfile(c.version(ctx, inst)) {
-		tries = []string{scopeAccounts + " " + scopeProfile, scopeAccounts}
+		tries = []string{scopeAccounts + " " + ScopeProfile, scopeAccounts}
 	}
 	for _, scopes := range tries {
 		var a struct {

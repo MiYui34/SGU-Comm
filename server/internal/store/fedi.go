@@ -69,6 +69,12 @@ func (s *Store) MarkFediAppUsed(host string) error {
 	return err
 }
 
+// ForgetFediApp drops an instance's app: the next login registers again.
+func (s *Store) ForgetFediApp(host string) error {
+	_, err := s.db.Exec(`DELETE FROM fedi_apps WHERE host = ?`, host)
+	return err
+}
+
 // SaveFediApp keeps an instance's app (replacing an older one).
 func (s *Store) SaveFediApp(a FediApp, at time.Time) error {
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO fedi_apps (host, redirect_uri, scopes, client_id, client_secret, created_at)
