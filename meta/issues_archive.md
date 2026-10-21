@@ -238,3 +238,4 @@
 - [x] [Personal emoji](issues/personal-emoji.md)
 - [x] [Log in with a fediverse account](issues/fediverse-login.md)
 - [x] [A picked attachment survives a reconnect and a reload](issues/pending-attachment-survives.md)
+- [x] [Phone: the member drawer pushes the chat aside when it opens](issues/member-drawer-jump.md)
