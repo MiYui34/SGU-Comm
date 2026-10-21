@@ -243,3 +243,4 @@
 - [x] [Sending an attachment across a dropped connection](issues/send-after-reconnect.md)
 - [x] [A refresh keeps the open channel and voice](issues/refresh-keeps-place.md)
 - [x] [Restart audio when entering voice and on device changes](issues/restart-audio.md)
+- [x] [Show AVIF and JPEG XL images](issues/avif-images.md)
