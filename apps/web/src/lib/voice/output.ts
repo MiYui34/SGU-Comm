@@ -32,6 +32,7 @@ const createVoiceOutput = (ctx: AudioContext, background: boolean) => {
   const element = background ? new Audio() : null;
   let direct = true;
   let active = false;
+  let closed = false;
   let release: ReturnType<typeof setTimeout> | undefined;
   const route = (toElement: boolean) => {
     if (direct !== toElement) return;
@@ -62,18 +63,30 @@ const createVoiceOutput = (ctx: AudioContext, background: boolean) => {
     input: input as AudioNode,
     // null: out of voice. Does nothing off Android.
     setVoice: (session: VoiceSession | null, run: (action: VoiceSessionAction) => void) => {
-      if (!element) return;
+      if (!element || closed) return;
       clearTimeout(release);
       showSession(session, run);
       setActive(session !== null);
     },
     // The client went away: out of voice, unless a new one takes over.
     release: () => {
+      if (closed) return;
       clearTimeout(release);
       release = setTimeout(() => (showSession(null, () => {}), setActive(false)), RELEASE_MS);
     },
     setSinkId: (deviceId: string | null) => {
       for (const sink of [ctx, element] as (Sinkable | null)[]) void sink?.setSinkId?.(deviceId ?? "").catch((err) => console.warn("output device", err));
+    },
+    // The context goes (see closeVoiceOutput). The media session stays:
+    // the next context's output takes it over: later calls (the old
+    // client's teardown) do nothing.
+    close: () => {
+      closed = true;
+      clearTimeout(release);
+      if (element) element.onplaying = element.onpause = null;
+      setActive(false);
+      if (element) element.srcObject = null;
+      input.disconnect();
     },
   };
 };
@@ -93,4 +106,11 @@ export const voiceOutput = (ctx: AudioContext): VoiceOutput => {
     outputs.set(ctx, (out = createVoiceOutput(ctx, background)));
   }
   return out;
+};
+
+// Before the context closes (an audio restart, a new login): its element
+// stops, and no late release ends the next output's media session.
+export const closeVoiceOutput = (ctx: AudioContext) => {
+  outputs.get(ctx)?.close();
+  outputs.delete(ctx);
 };
