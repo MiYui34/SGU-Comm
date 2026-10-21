@@ -5,6 +5,8 @@
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import MessageSheet, { type SheetItem } from "./MessageSheet.svelte";
+  import ChannelSheet from "./ChannelSheet.svelte";
+  import { headerParts } from "../lib/chatHeader";
   import { hold, longPress } from "../lib/longPress";
   import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
@@ -38,7 +40,7 @@
   import { chatItems, formatDay, formatTime, formatTimestamp, itemKey, messageKey, type MessageGroup } from "../lib/chat";
   import { awayFromBottom, newSince, nextScrollTop } from "../lib/scroll";
   import { jumpStep } from "../lib/jump";
-  import { tick, untrack, type Snippet } from "svelte";
+  import { tick, untrack, type ComponentProps, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
   import EmojiMenu from "./EmojiMenu.svelte";
@@ -110,6 +112,8 @@
     onCreateThread,
     onThreads,
     threadsOpen = false,
+    phone = false,
+    details,
   }: {
     title: string;
     // Shown after the title, like a Discord channel topic (plain text).
@@ -207,6 +211,11 @@
     onCreateThread?: (message: number, text: string) => void;
     onThreads?: () => void;
     threadsOpen?: boolean;
+    // Phones (see lib/chatHeader): a simpler header; a tap on the name
+    // opens the channel sheet (ChannelSheet) with the topic, pins,
+    // threads and these: notification settings and the chat's link.
+    phone?: boolean;
+    details?: Pick<ComponentProps<typeof ChannelSheet>, "notify" | "onNotify"> & { link?: string };
     // Text channels: attach a file (button, paste or drop), with a caption.
     // Settles once the server confirmed the message; fails with why (busy,
     // upload failed, refused, no answer, disconnected: the file stays).
@@ -693,6 +702,32 @@
     setTimeout(() => (flashed = flashed === id ? null : flashed), 1500);
   };
 
+  // Phones: the channel sheet, and the search field over the header.
+  const hasDetails = $derived(phone && !!(topic || onPins || onThreads || (details?.notify && details.onNotify) || details?.link));
+  const parts = $derived(
+    headerParts(phone, { topic: !!topic, search: !!onSearch, threads: !!onThreads, pins: !!onPins, details: hasDetails }),
+  );
+  let detailsOpen = $state(false);
+  let searching = $state(false);
+  // Not kept for another chat or after a resize.
+  $effect(() => {
+    void chatKey;
+    void phone;
+    detailsOpen = false;
+    searching = false;
+  });
+  let searchOpener: HTMLButtonElement | undefined = $state();
+  const openSearch = async () => {
+    searching = true;
+    await tick();
+    searchInput?.focus();
+  };
+  const closeSearch = async () => {
+    searching = false;
+    await tick();
+    searchOpener?.focus();
+  };
+
   let searchText = $state("");
   // Suggestions after "from:" and "in:" (see lib/suggest).
   let searchInput: HTMLInputElement | undefined = $state();
@@ -763,7 +798,49 @@
   }}
   ondrop={onUpload ? onDrop : undefined}
 >
+  {#snippet searchForm()}
+    <form
+      class="search"
+      class:wide={searching}
+      role="search"
+      onsubmit={(e) => {
+        e.preventDefault();
+        if (searchText.trim()) onSearch?.(searchText.trim());
+      }}
+    >
+      <input
+        bind:this={searchInput}
+        bind:value={searchText}
+        placeholder="Search"
+        aria-label="Search messages"
+        title="Filters: from:name, in:#channel"
+        {...searchBox.aria}
+        oninput={searchBox.update}
+        onclick={searchBox.update}
+        onkeyup={searchBox.onkeyup}
+        onkeydown={(e) => {
+          searchBox.onkeydown(e);
+          if (searching && e.key === "Escape" && !e.defaultPrevented) void closeSearch();
+        }}
+        onblur={searchBox.onblur}
+      />
+      {#if searchBox.items.length}
+        <Suggestions
+          id="{listId}-search"
+          label={LIST_LABEL[searchBox.typed!.kind]}
+          items={searchBox.items}
+          active={searchBox.active}
+          onPick={searchBox.pick}
+          below
+        />
+      {/if}
+    </form>
+  {/snippet}
   <header>
+    {#if parts.searchIcon && searching}
+      <button class="back" onclick={closeSearch} title="Close search" aria-label="Close search"><Icon name="back" size={22} /></button>
+      {@render searchForm()}
+    {:else}
     {#if onMenu}
       <button class="menu" onclick={onMenu} aria-label="Channels" aria-expanded={menuOpen}>
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
@@ -776,52 +853,32 @@
     {:else}
       <Icon name={compact ? "thread" : kind === "text" ? "hash" : "speaker"} size={22} />
     {/if}
-    <h1 class="ellipsis">{title}</h1>
-    {#if topic}
+    {#if hasDetails}
+      <h1 class="ellipsis">
+        <button class="title" onclick={() => (detailsOpen = true)} aria-haspopup="dialog" aria-expanded={detailsOpen} title="Channel details"
+          ><span class="ellipsis">{title}</span><Icon name="chevron" size={16} /></button
+        >
+      </h1>
+    {:else}
+      <h1 class="ellipsis">{title}</h1>
+    {/if}
+    {#if parts.topic}
       <span class="divider-v" aria-hidden="true"></span>
       <span class="topic ellipsis" title={topic}>{topic}</span>
     {/if}
     <div class="tools">
-      {#if onSearch}
-        <form
-          class="search"
-          role="search"
-          onsubmit={(e) => {
-            e.preventDefault();
-            if (searchText.trim()) onSearch(searchText.trim());
-          }}
-        >
-          <input
-            bind:this={searchInput}
-            bind:value={searchText}
-            placeholder="Search"
-            aria-label="Search messages"
-            title="Filters: from:name, in:#channel"
-            {...searchBox.aria}
-            oninput={searchBox.update}
-            onclick={searchBox.update}
-            onkeyup={searchBox.onkeyup}
-            onkeydown={searchBox.onkeydown}
-            onblur={searchBox.onblur}
-          />
-          {#if searchBox.items.length}
-            <Suggestions
-              id="{listId}-search"
-              label={LIST_LABEL[searchBox.typed!.kind]}
-              items={searchBox.items}
-              active={searchBox.active}
-              onPick={searchBox.pick}
-              below
-            />
-          {/if}
-        </form>
+      {#if parts.searchBox}
+        {@render searchForm()}
       {/if}
-      {#if onThreads}
+      {#if parts.searchIcon}
+        <button bind:this={searchOpener} onclick={openSearch} title="Search" aria-label="Search messages"><Icon name="search" size={22} /></button>
+      {/if}
+      {#if parts.threads}
         <button class:on={threadsOpen} onclick={onThreads} aria-pressed={threadsOpen} title="Threads" aria-label="Threads">
           <Icon name="thread" size={20} />
         </button>
       {/if}
-      {#if onPins}
+      {#if parts.pins}
         <button class:on={pinsOpen} onclick={onPins} aria-pressed={pinsOpen} title="Pinned messages" aria-label="Pinned messages">
           <Icon name="pin" size={20} />
         </button>
@@ -845,6 +902,7 @@
         </button>
       {/if}
     </div>
+    {/if}
   </header>
   {@render stage?.()}
 
@@ -1095,6 +1153,20 @@
     onReact={canReact && id !== undefined ? (emoji) => (react(m, id, emoji), (sheetFor = null)) : undefined}
     items={sheetItems(m)}
     onClose={() => (sheetFor = null)}
+  />
+{/if}
+{#if detailsOpen && hasDetails}
+  {@const link = details?.link}
+  <ChannelSheet
+    {title}
+    {kind}
+    {topic}
+    {onPins}
+    {onThreads}
+    onCopyLink={link ? () => copy(link, "Link copied") : undefined}
+    notify={details?.notify}
+    onNotify={details?.onNotify}
+    onClose={() => (detailsOpen = false)}
   />
 {/if}
 {#if draftEmoji}
@@ -1471,7 +1543,8 @@
     color: var(--text-muted);
     font-size: 14px;
   }
-  .menu {
+  .menu,
+  .back {
     display: inline-flex;
     margin-right: 4px;
     padding: 10px;
@@ -2317,6 +2390,28 @@
       top: calc(100% - 2px);
       right: 8px;
       left: 8px;
+    }
+    /* The search icon's field, over the whole header. */
+    .search.wide {
+      flex: 1;
+      min-width: 0;
+    }
+    .search.wide input {
+      width: 100%;
+      height: 36px;
+    }
+    /* The name opens the channel sheet. */
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      max-width: 100%;
+      padding: 8px 0;
+      font-weight: inherit;
+    }
+    .title :global(svg) {
+      flex-shrink: 0;
+      color: var(--text-faint);
     }
   }
   /* The member list is hidden on narrow screens: so is its toggle. */

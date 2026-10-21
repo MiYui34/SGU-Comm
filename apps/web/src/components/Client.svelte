@@ -70,7 +70,7 @@
   import { MENTION_ALL, pingsMe, replyPing } from "../lib/mentions";
   import { blockedUsers, channelPrefs, collapsedCategories, directPrefs, settings, userAudio } from "../lib/settings.svelte";
   import { textOrder } from "../lib/categories";
-  import { forgetPref, isMuted, mutedIds, notifies, prefOf, pushLists, setThreadPref, withoutMuted, withParents } from "../lib/channelPrefs";
+  import { forgetPref, isMuted, mutedIds, notifies, prefOf, pushLists, setThreadPref, withoutMuted, withParents, type ChannelPref } from "../lib/channelPrefs";
   import { closeDirect, quietDirects, reopenDirect, togglePin, visibleDirects } from "../lib/directList";
   import { browserPushSupport, syncPush, type PushPrefs } from "../lib/push";
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
@@ -107,7 +107,7 @@
   import { IS_MAC, navAction, stepPlace } from "../lib/switcher";
   import { mirrorIds } from "../lib/mirrors";
   import { tabTitle } from "../lib/title";
-  import { messageLink, parseMessageLink } from "../lib/messageLink";
+  import { channelLink, messageLink, parseMessageLink } from "../lib/messageLink";
   import { inviteLink, invitePlace, parseInviteLink } from "../lib/invites";
   import UserPanel from "./UserPanel.svelte";
   import VoiceBar from "./VoiceBar.svelte";
@@ -565,6 +565,17 @@
   // The stored chat that is open: a text channel, a voice channel's or a
   // direct chat.
   const chatId = $derived(textId ?? voiceChatId ?? directChatId);
+  // Phones: the channel sheet's notification settings (as in the channel
+  // menu; direct chats: only mute) and link (see ChannelSheet).
+  const details = $derived.by(() => {
+    const id = textId ?? directChatId;
+    if (!phone || id === null) return undefined;
+    return {
+      notify: { pref: prefOf(channelPrefs.value, connection.httpBase, id), desktop: prefs.notifications, direct: textId === null },
+      onNotify: (patch: ChannelPref) => channelPrefs.set(connection.httpBase, id, patch),
+      link: textId === null ? undefined : channelLink(site, textId),
+    };
+  });
   // An open thread (see below), and a message to jump to there.
   let threadId = $state<number | null>(null);
   let threadJump = $state<number | null>(null);
@@ -1877,6 +1888,8 @@
       {...(readOnly ? { onSend: undefined, onUpload: undefined } : {})}
       chatKey={chatKeyOf(view, channelId)}
       {slow}
+      {phone}
+      {details}
       onSearch={text.available
         ? (q) => {
             searchQuery = q;
