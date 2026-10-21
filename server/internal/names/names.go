@@ -31,3 +31,6 @@ func Check(name string) string {
 	}
 	return ""
 }
+
+// AllowedRune: the character may be in a name.
+func AllowedRune(r rune) bool { return allowed.MatchString(string(r)) }
