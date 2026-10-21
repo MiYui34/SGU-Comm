@@ -16,9 +16,9 @@ vi.mock("../src/lib/voice/codec", () => ({
 const fakeNode = () => ({ connect: vi.fn((n: unknown) => n), disconnect: vi.fn(), port: { postMessage: vi.fn() } });
 
 const setup = () => {
-  const tracks: { stop: ReturnType<typeof vi.fn> }[] = [];
+  const tracks: { stop: ReturnType<typeof vi.fn>; readyState: string }[] = [];
   const getUserMedia = vi.fn(async () => {
-    const track = { stop: vi.fn(), label: "mic", onended: null, getSettings: () => ({ channelCount: 2 }) };
+    const track = { stop: vi.fn(), readyState: "live", label: "mic", onended: null, getSettings: () => ({ channelCount: 2 }) };
     tracks.push(track);
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   });
@@ -38,7 +38,8 @@ const setup = () => {
     destination: {},
     createMediaStreamSource: vi.fn(() => fakeNode()),
   } as unknown as AudioContext;
-  return { tracks, getUserMedia, addModule, capture: createCapture(ctx, () => {}) };
+  const make = (mic?: Parameters<typeof createCapture>[2]) => createCapture(ctx, () => {}, mic);
+  return { tracks, getUserMedia, addModule, ctx, make, capture: make() };
 };
 
 describe("capture start", () => {
@@ -109,5 +110,69 @@ describe("capture with a failed encoder", () => {
     capture.setPttDown(true);
     frame();
     expect(encoders[1]!.encode).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A restart for a new output device: the new context's capture takes the
+// open microphone over (no new permission prompt, no gap in the mic).
+describe("capture handover", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps the microphone open and the next capture uses it without asking again", async () => {
+    const { tracks, getUserMedia, ctx, capture, make } = setup();
+    await capture.start("mic-2");
+    const stream = await getUserMedia.mock.results[0]!.value;
+    const mic = capture.close(true);
+    expect(tracks[0]!.stop).not.toHaveBeenCalled();
+    const next = make(mic);
+    await next.start("mic-2");
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.createMediaStreamSource).mock.lastCall).toEqual([stream]);
+    expect(next.deviceLabel).toBe("mic");
+    expect(tracks[0]!.stop).not.toHaveBeenCalled();
+  });
+
+  it("opens the microphone again for another device or other filters, and stops the old one", async () => {
+    const { tracks, getUserMedia, capture, make } = setup();
+    await capture.start("mic-2");
+    const next = make(capture.close(true));
+    next.setEchoCancellation(false);
+    await next.start("mic-2");
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(tracks[0]!.stop).toHaveBeenCalled();
+  });
+
+  it("does not use a microphone that ended meanwhile", async () => {
+    const { tracks, getUserMedia, capture, make } = setup();
+    await capture.start();
+    const next = make(capture.close(true));
+    tracks[0]!.readyState = "ended";
+    await next.start();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops a microphone it was handed but did not use", async () => {
+    const { tracks, capture, make } = setup();
+    await capture.start();
+    const next = make(capture.close(true));
+    next.stop();
+    expect(tracks[0]!.stop).toHaveBeenCalled();
+  });
+
+  it("passes an unused microphone on (two restarts in a row)", async () => {
+    const { tracks, getUserMedia, capture, make } = setup();
+    await capture.start();
+    const second = make(capture.close(true));
+    const third = make(second.close(true));
+    await third.start();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(tracks[0]!.stop).not.toHaveBeenCalled();
+  });
+
+  it("a plain close stops the microphone and hands nothing over", async () => {
+    const { tracks, capture } = setup();
+    await capture.start();
+    expect(capture.close()).toBeNull();
+    expect(tracks[0]!.stop).toHaveBeenCalled();
   });
 });

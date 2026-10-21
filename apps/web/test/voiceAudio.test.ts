@@ -3,7 +3,10 @@ import { createVoiceAudio } from "../src/lib/voice/voiceAudio.svelte";
 
 const ctxA = { name: "a" } as unknown as AudioContext;
 const ctxB = { name: "b" } as unknown as AudioContext;
-const parts = (ctx: AudioContext) => ({ playback: { ctx, close: vi.fn() }, capture: { ctx, close: vi.fn() } });
+const parts = (ctx: AudioContext, mic: string | null = null) => ({
+  playback: { ctx, close: vi.fn() },
+  capture: { ctx, mic, close: vi.fn((keep?: boolean) => (keep ? `mic of ${(ctx as unknown as { name: string }).name}` : null)) },
+});
 
 describe("createVoiceAudio", () => {
   it("has no playback or capture without a context (no voice support)", () => {
@@ -23,6 +26,16 @@ describe("createVoiceAudio", () => {
     expect(oldPlayback.close).toHaveBeenCalled();
     expect(voice.playback!.ctx).toBe(ctxB);
     expect(voice.capture!.ctx).toBe(ctxB);
+  });
+
+  it("hands the open microphone to the new capture when asked (a new output device)", () => {
+    const voice = createVoiceAudio(ctxA, parts);
+    const old = voice.capture!;
+    voice.move(ctxB, true);
+    expect(old.close).toHaveBeenCalledWith(true);
+    expect(voice.capture!.mic).toBe("mic of a");
+    voice.move(ctxA);
+    expect(voice.capture!.mic).toBeNull();
   });
 
   it("does not move after it closed (a restart after the connection went)", () => {

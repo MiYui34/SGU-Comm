@@ -1,18 +1,19 @@
-type Closable = { close: () => void };
-
 // A connection's playback and capture, on one audio context. An audio
 // restart (see restart.ts) moves both to a new one: the UI sees new
 // objects and applies its settings to them again (volumes, devices, the
 // microphone). null context: no voice support.
-export const createVoiceAudio = <P extends Closable, C extends Closable>(
+// M: the open microphone a capture hands to the next (see capture.svelte.ts).
+export const createVoiceAudio = <P extends { close: () => void }, M, C extends { close: (keepMic?: boolean) => M | null }>(
   ctx: AudioContext | null,
-  make: (ctx: AudioContext) => { playback: P; capture: C },
+  make: (ctx: AudioContext, mic: M | null) => { playback: P; capture: C },
 ) => {
-  let parts = $state.raw(ctx && make(ctx));
+  let parts = $state.raw(ctx && make(ctx, null));
   let closed = false;
-  const closeParts = () => {
-    parts?.capture.close();
+  // keepMic: the microphone stays open for the new capture.
+  const closeParts = (keepMic = false) => {
+    const mic = parts?.capture.close(keepMic) ?? null;
     parts?.playback.close();
+    return mic;
   };
   return {
     get playback(): P | null {
@@ -21,10 +22,9 @@ export const createVoiceAudio = <P extends Closable, C extends Closable>(
     get capture(): C | null {
       return parts?.capture ?? null;
     },
-    move: (next: AudioContext) => {
+    move: (next: AudioContext, keepMic = false) => {
       if (closed || !parts) return;
-      closeParts();
-      parts = make(next);
+      parts = make(next, closeParts(keepMic));
     },
     close: () => {
       closed = true;

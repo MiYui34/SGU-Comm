@@ -47,7 +47,13 @@ const sharedDfn = (ctx: AudioContext): Promise<SharedDfn> => {
   return p;
 };
 
-export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) => void) => {
+// An open microphone, handed from one capture to the next (see close),
+// and the constraints it was opened with (they include the device).
+export type MicHandover = { stream: MediaStream; key: string };
+
+// mic: from the capture before (an audio restart): start uses it if the
+// constraints are the same, else opens the microphone again.
+export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) => void, mic: MicHandover | null = null) => {
   let level = $state(-100);
   let transmitting = $state(false);
   let micError = $state<string | null>(null);
@@ -64,6 +70,8 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   // Bumped on every device switch, so a slow older getUserMedia loses.
   let generation = 0;
   let stream: MediaStream | null = null;
+  let streamKey = ""; // its constraints (see MicHandover)
+  let handed = mic;
   let source: MediaStreamAudioSourceNode | null = null;
   let node: AudioWorkletNode | null = null;
   // Noise suppression (see noise.ts): the browser's, RNNoise in our worklet,
@@ -233,6 +241,19 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
   };
 
   const stopTracks = (s: MediaStream | null) => s?.getTracks().forEach((t) => t.stop());
+  // The handed microphone, if it still fits (once: after that, start opens
+  // one itself). One that does not fit is closed.
+  const dropHanded = () => {
+    stopTracks(handed?.stream ?? null);
+    handed = null;
+  };
+  const takeHanded = (key: string): MediaStream | null => {
+    const h = handed;
+    const fits = h && h.key === key && h.stream.getAudioTracks().every((t) => t.readyState !== "ended");
+    if (!fits) dropHanded();
+    handed = null;
+    return fits ? h.stream : null;
+  };
   const stopStream = () => {
     source?.disconnect();
     stopTracks(stream);
@@ -249,11 +270,12 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       // The browser's noise filter only without ours (not twice).
       const constraints = () => micConstraints(deviceId, { browserNoise: filter() === "browser", cancelEcho, music });
       const asked = constraints();
-      next = await navigator.mediaDevices.getUserMedia({ audio: asked });
+      const key = JSON.stringify(asked);
+      next = takeHanded(key) ?? (await navigator.mediaDevices.getUserMedia({ audio: asked }));
       // close() or another switch can run while the permission prompt is open.
       if (stale()) return stopTracks(next);
       // The filters changed meanwhile: ask again.
-      if (JSON.stringify(constraints()) !== JSON.stringify(asked)) {
+      if (JSON.stringify(constraints()) !== key) {
         stopTracks(next);
         return await start(deviceId);
       }
@@ -261,6 +283,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       if (stale()) return stopTracks(next);
       stopStream();
       stream = next;
+      streamKey = key;
       const track = next.getAudioTracks()[0];
       // Stereo in music mode, if the microphone has two channels.
       const ch = sendChannels(music, track?.getSettings().channelCount);
@@ -315,6 +338,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     stop: () => {
       generation++; // a getUserMedia still on its way is not used
       stopStream();
+      dropHanded();
       level = -100;
       transmitting = false;
       vad = { talking: false, silentMs: 0 };
@@ -358,9 +382,15 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
     setEcho: (on: boolean) => {
       echo.gain.value = on ? ECHO_GAIN : 0;
     },
-    close: () => {
+    // keepMic: an audio restart for a new output device; the open
+    // microphone goes to the next capture (see MicHandover).
+    close: (keepMic = false): MicHandover | null => {
       closed = true;
+      // Not used yet (a second restart right after the first): passed on.
+      const kept = !keepMic ? null : stream ? { stream, key: streamKey } : handed;
+      if (kept) stream = handed = null;
       stopStream();
+      dropHanded();
       if (dfn) {
         dfn.node.disconnect(); // kept for the next capture (see sharedDfn)
         dfn.handlers = null;
@@ -368,6 +398,7 @@ export const createCapture = (ctx: AudioContext, send: (packet: OutgoingAudio) =
       // The node can still be on its way: disconnect it when it arrives.
       void nodePromise?.then((n) => n.disconnect()).catch(() => {});
       encoders.closeAll();
+      return kept;
     },
   };
 };
