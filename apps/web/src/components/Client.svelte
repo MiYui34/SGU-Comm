@@ -591,7 +591,7 @@
     }
     return true;
   };
-  const openMessage = (link: { chat: number; message: number } | null) => !!link && openChat(link.chat, link.message);
+  const openMessage = (link: { chat: number; message?: number } | null) => !!link && openChat(link.chat, link.message);
   // After a reconnect or a refresh: the thread open before, again (once the channels
   // are known; an archived one is asked for).
   let reopen = untrack(() => (linkOpens ? null : (back?.thread ?? null)));
