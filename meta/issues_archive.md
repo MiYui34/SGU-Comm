@@ -233,3 +233,4 @@
   - [x] [Review 3: media, streams and CI](issues/review-3-media.md)
 - [x] [Fixes from the follow-up review](issues/review-4-fixes.md)
 - [x] [Old media plays again; stream audio piles up while audio is frozen](issues/stale-media-playback.md)
+- [x] [Hide a shown spoiler again](issues/rehide-spoilers.md)
