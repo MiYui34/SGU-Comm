@@ -2193,3 +2193,9 @@ From `meta/research/discord-comparison.md`.
 ## Long press on a reaction
 
 - On touch screens a long press on a custom-emoji reaction opens its menu ("Add to my emoji", "Remove for everyone…"), as right-click does with a mouse; iOS has no right-click. Elements marked `data-own-press` keep their own long press, so the message sheet does not open as well. Reactions with plain emoji keep opening the message sheet.
+
+## Pending attachment survives a reconnect and a reload
+
+- On the Android PWA the file picker sends the app to the background: the connection drops (the Client is new after the reconnect) or Android kills the page. A picked file now lives per chat in `lib/pendingFiles` (created in App per login, like drafts) and also in IndexedDB, keyed by server origin + Mumble server + user name + chat key. It comes back when its chat opens, also after another chat or a reload; it goes on send or discard. A failed upload keeps it.
+- Bounds: only files within the upload limit (50 MB when unknown), the newest 5, 24 h. IndexedDB failures (private mode, quota) only leave the file in memory. Store calls go through one queue, so a delete never overtakes its put.
+- The IndexedDB adapter has no unit tests (no fake-indexeddb); the logic is tested with an in-memory store. Checked headless: pick, server restart (reconnect), reload, send.
