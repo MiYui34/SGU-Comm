@@ -2,10 +2,12 @@ package files
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +82,53 @@ func TestAudioAndVideoAreServedForPlaying(t *testing.T) {
 	old.Body.Close()
 	if old.Header.Get("Content-Type") != "audio/mpeg" || !bytes.Equal(body, mp3) {
 		t.Fatalf("old upload served as %v", old.Header)
+	}
+}
+
+// AVIF (which Go's sniffing does not know) is an inline picture when its
+// header gives a size inline pictures may have; else a download.
+func TestAVIFIsShownInline(t *testing.T) {
+	srv, s, _ := setupHandler(t, 1<<20)
+	read := func(name string) []byte {
+		b, err := os.ReadFile("../mediasize/testdata/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	box := func(typ string, body ...byte) []byte {
+		return append(binary.BigEndian.AppendUint32(nil, uint32(8+len(body))), append([]byte(typ), body...)...)
+	}
+	// ftyp avif, then meta → iprp → ipco → ispe of 20000 x 10.
+	ispe := box("ispe", slices.Concat(make([]byte, 4), binary.BigEndian.AppendUint32(nil, 20000), binary.BigEndian.AppendUint32(nil, 10))...)
+	huge := slices.Concat(box("ftyp", []byte("avif\x00\x00\x00\x00mif1")...), box("meta", slices.Concat(make([]byte, 4), box("iprp", box("ipco", ispe...)...))...))
+	for _, c := range []struct {
+		name  string
+		data  []byte
+		ctype string
+		media store.Media
+	}{
+		{"photo.avif", read("still.avif"), "image/avif", store.Media{Width: 64, Height: 48}},
+		{"grid.bin", read("grid.avif"), "image/avif", store.Media{Width: 128, Height: 96}},
+		{"anim.avif", read("anim.avif"), "image/avif", store.Media{Width: 48, Height: 32}},
+		{"huge.avif", huge, "application/octet-stream", store.Media{}},
+		{"cut.avif", read("still.avif")[:40], "application/octet-stream", store.Media{}},
+	} {
+		_, v := upload(t, srv, "good", c.name, "image/avif", c.data)
+		u, err := s.UploadByKey(v["key"].(string))
+		if err != nil || u.Type != c.ctype || u.Media != c.media {
+			t.Errorf("%s: %+v %v", c.name, u, err)
+			continue
+		}
+		get, err := http.Get(srv.URL + v["url"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		get.Body.Close()
+		inline := strings.HasPrefix(get.Header.Get("Content-Disposition"), "inline")
+		if get.Header.Get("Content-Type") != c.ctype || inline != (c.ctype == "image/avif") || get.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: served as %v", c.name, get.Header)
+		}
 	}
 }
 

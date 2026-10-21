@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  afterImageError,
   asSpoiler,
+  attachmentView,
   chatSrc,
   downloadUrl,
   formatDuration,
   imageBox,
+  lightboxOf,
   mediaKind,
   mediaRatio,
   onlyOne,
@@ -24,6 +27,44 @@ describe("previews", () => {
     expect(videoPreload("/files/k/a.mp4?preview")).toBe("none");
     // Without one: its metadata and first frame.
     expect(videoPreload(undefined)).toBe("metadata");
+  });
+});
+
+describe("attachments", () => {
+  const avif = { type: "image/avif", name: "a.avif", url: "/files/k/a.avif" };
+
+  it("show pictures, play audio and video, and offer the rest as files", () => {
+    expect(attachmentView(avif, false)).toBe("image");
+    expect(attachmentView({ type: "video/mp4", name: "a.mp4" }, false)).toBe("video");
+    expect(attachmentView({ type: "application/octet-stream", name: "song.mp3" }, false)).toBe("audio");
+    expect(attachmentView({ type: "application/zip", name: "a.zip" }, false)).toBe("file");
+  });
+
+  it("offer a picture or player the browser cannot show as a file", () => {
+    expect(attachmentView(avif, true)).toBe("file");
+    expect(attachmentView({ type: "video/webm", name: "a.webm" }, true)).toBe("file");
+  });
+
+  it("try the picture after a failed preview, then give up", () => {
+    expect(afterImageError("/files/k/a.avif?preview", avif)).toBe("/files/k/a.avif");
+    expect(afterImageError("/files/k/a.avif", avif)).toBeNull();
+    expect(afterImageError(null, avif)).toBeNull();
+  });
+
+  // JPEG XL: few browsers show it; the server's preview is its picture.
+  const jxl = { type: "image/jxl", name: "a.jxl", url: "/files/k/a.jxl" };
+  const jxlWithPreview = { ...jxl, preview: "/files/k/a.jxl?preview" };
+
+  it("show a JPEG XL picture by its preview only", () => {
+    expect(attachmentView(jxlWithPreview, false)).toBe("image");
+    expect(attachmentView(jxl, false)).toBe("file"); // none (yet)
+    expect(attachmentView(jxlWithPreview, true)).toBe("file");
+    expect(afterImageError(jxlWithPreview.preview, jxlWithPreview)).toBeNull();
+  });
+
+  it("open the preview in the lightbox, with the original as a download", () => {
+    expect(lightboxOf(jxlWithPreview)).toEqual({ url: jxlWithPreview.preview, name: "a.jxl", download: "/files/k/a.jxl?download" });
+    expect(lightboxOf({ ...avif, preview: "/files/k/a.avif?preview" })).toEqual({ url: avif.url, name: "a.avif" });
   });
 });
 

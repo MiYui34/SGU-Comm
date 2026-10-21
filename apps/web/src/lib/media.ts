@@ -15,6 +15,25 @@ export const mediaKind = (u: { type: string; name: string }): MediaKind | null =
   return AUDIO.test(u.name) ? "audio" : VIDEO.test(u.name) ? "video" : null;
 };
 
+// Pictures few browsers show (JPEG XL): the server serves them as
+// downloads and shows them by its preview only (as files.previewedTypes).
+const previewOnly = (u: { type: string }) => u.type === "image/jxl";
+
+// How an attachment shows: a picture, a player, or a file card (also a
+// picture or player the browser could not load: AVIF in an old WebView).
+export const attachmentView = (u: { type: string; name: string; preview?: string }, failed: boolean): "image" | MediaKind | "file" =>
+  failed || (previewOnly(u) && !u.preview) ? "file" : u.type.startsWith("image/") ? "image" : (mediaKind(u) ?? "file");
+
+// The source to try after a picture failed to load from src: the picture
+// after its preview; null: none, show the file card.
+export const afterImageError = (src: string | null, u: { type: string; url: string }) =>
+  src !== null && src !== u.url && !previewOnly(u) ? u.url : null;
+
+// What the lightbox shows: the picture, or the preview of one shown only
+// by it, with the original to download.
+export const lightboxOf = (u: { type: string; name: string; url: string; preview?: string }) =>
+  previewOnly(u) && u.preview ? { url: u.preview, name: u.name, download: downloadUrl(u.url) } : { url: u.url, name: u.name };
+
 export const formatDuration = (seconds: number) => {
   const s = Number.isFinite(seconds) ? Math.floor(seconds) : 0;
   const mm = String(Math.floor(s / 60) % 60);

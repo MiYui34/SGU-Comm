@@ -33,7 +33,7 @@ func readEmojiImage(w http.ResponseWriter, r *http.Request) (ctype string, data 
 		return "", nil, false
 	}
 	// The type comes from the content: only images that cannot carry
-	// scripts.
+	// scripts. Not AVIF (not mediasize.DetectType): imagesize cannot check it.
 	ctype, _, _ = mime.ParseMediaType(http.DetectContentType(data))
 	if len(data) == 0 || !slices.Contains(inlineTypes, ctype) {
 		jsonError(w, "an emoji is a PNG, GIF, WebP or JPEG image", http.StatusUnsupportedMediaType)

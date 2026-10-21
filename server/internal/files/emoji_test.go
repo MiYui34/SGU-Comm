@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -84,6 +85,7 @@ func TestEmojiUploadsAreChecked(t *testing.T) {
 	big := append(pngBytes(t), make([]byte, MaxEmojiBytes)...)
 	var hugePNG bytes.Buffer
 	png.Encode(&hugePNG, image.NewGray(image.Rect(0, 0, 9000, 9000)))
+	avif, _ := os.ReadFile("../mediasize/testdata/still.avif")
 	for _, c := range []struct {
 		token  string
 		body   []byte
@@ -95,6 +97,7 @@ func TestEmojiUploadsAreChecked(t *testing.T) {
 		{"good", big, http.StatusRequestEntityTooLarge},
 		{"good", hugePNG.Bytes(), http.StatusRequestEntityTooLarge}, // too many pixels
 		{"good", pngBytes(t)[:20], http.StatusUnsupportedMediaType}, // broken
+		{"good", avif, http.StatusUnsupportedMediaType},             // chat pictures only
 	} {
 		if resp, v := uploadEmoji(t, srv, c.token, c.body); resp.StatusCode != c.status || v["error"] == nil {
 			t.Errorf("%s %d bytes: %d %v", c.token, len(c.body), resp.StatusCode, v)

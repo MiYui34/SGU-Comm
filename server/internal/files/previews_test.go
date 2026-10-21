@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,13 @@ func TestPreviewJob(t *testing.T) {
 		{"heavy webp", store.Upload{Type: "image/webp", Size: 2 << 20, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, true, 1000, false},
 		{"small png", store.Upload{Type: "image/png", Size: 1000, Media: store.Media{Width: 800, Height: 600}}, thumbs.WebP, false, 0, false},
 		{"gif keeps its animation", store.Upload{Type: "image/gif", Size: 5 << 20, Media: big}, thumbs.WebP, false, 0, false},
+		// The image's ffmpeg (6.1) fails on grids and drops the rotation
+		// (irot) browsers show: the original is small enough anyway.
+		{"avif: none", store.Upload{Type: "image/avif", Size: 5 << 20, Media: big}, thumbs.WebP, false, 0, false},
+		{"small jxl: shown only by its preview", store.Upload{Type: "image/jxl", Size: 1000, Media: store.Media{Width: 40, Height: 30}}, thumbs.JPEG, true, 1000, false},
+		{"jxl of the most pixels", store.Upload{Type: "image/jxl", Size: 1000, Media: store.Media{Width: 8192, Height: 8192}}, thumbs.WebP, true, 1000, false},
+		{"jxl too wide for ffmpeg's stride", store.Upload{Type: "image/jxl", Size: 1000, Media: store.Media{Width: 8193, Height: 8191}}, thumbs.WebP, false, 0, false},
+		{"jxl of unknown size", store.Upload{Type: "image/jxl", Size: 1000}, thumbs.WebP, false, 0, false},
 		{"too many pixels", store.Upload{Type: "image/jpeg", Size: 5 << 20, Media: store.Media{Width: 9000, Height: 9000}}, thumbs.WebP, false, 0, false},
 		{"video with too many pixels", store.Upload{Type: "video/mp4", Media: store.Media{Width: 16000, Height: 9000}}, thumbs.WebP, false, 0, false},
 		{"picture of unknown size", store.Upload{Type: "image/png", Size: 5 << 20}, thumbs.WebP, false, 0, false},
@@ -130,6 +138,37 @@ func TestUploadGetsAPreview(t *testing.T) {
 	h.Remove(key)
 	if _, err := os.Stat(filepath.Join(h.Dir, key+".preview")); !os.IsNotExist(err) {
 		t.Fatalf("preview left: %v", err)
+	}
+}
+
+// JPEG XL: few browsers show it, so it is a download (as
+// application/octet-stream) that always gets a preview, even a larger one.
+func TestJXLIsADownloadWithAPreview(t *testing.T) {
+	srv, s, h := setupHandler(t, 1<<20)
+	ready := withPreviews(t, h, `head -c 5000 /dev/zero > "$out"`)
+	jxl, err := os.ReadFile("../mediasize/testdata/codestream.jxl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, v := upload(t, srv, "good", "photo.jxl", "image/jxl", jxl)
+	key := v["key"].(string)
+	if v["type"] != "image/jxl" || <-ready != key {
+		t.Fatalf("response %v", v)
+	}
+	if u, _ := s.UploadByKey(key); u.Media != (store.Media{Width: 40, Height: 30}) || u.Preview != "image/webp" {
+		t.Fatalf("stored %+v", u)
+	}
+	resp, _ := get(t, srv.URL+v["url"].(string))
+	if resp.Header.Get("Content-Type") != "application/octet-stream" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("the original: %v", resp.Header)
+	}
+	if resp, body := get(t, srv.URL+v["url"].(string)+"?preview"); resp.Header.Get("Content-Type") != "image/webp" || len(body) != 5000 {
+		t.Fatalf("preview: %v", resp.Header)
+	}
+	// Without a size (broken), no type: a plain download.
+	_, v = upload(t, srv, "good", "broken.jxl", "image/jxl", jxl[:3])
+	if v["type"] != "application/octet-stream" {
+		t.Fatalf("broken: %v", v)
 	}
 }
 

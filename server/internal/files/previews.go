@@ -48,6 +48,11 @@ func previewJob(u store.Upload, dir string, f thumbs.Format) (thumbs.Job, bool) 
 	}
 	big := max(u.Width, u.Height) > bigSide || u.Size > bigBytes
 	j.Max = previewSide
+	if isPreviewed(u.Type) { // its only picture
+		// ffmpeg checks the width rounded up to its stride (up to 64);
+		// libjxl (ffmpeg 6.1) then loops on the error until killed.
+		return j, pixels > 0 && (u.Width+63)&^63*u.Height <= imagesize.MaxPixels
+	}
 	return j, pixels > 0 && big && (f.Alpha || u.Type == "image/jpeg")
 }
 
@@ -78,11 +83,11 @@ func (h *Handler) preview(u store.Upload) {
 
 // previewDone keeps a preview's type, or NoPreview if the file gives none
 // (thumbs.ErrFailed; other errors leave it to the next start). A
-// picture's preview must be smaller than the picture; one of an upload
-// deleted meanwhile is removed.
+// picture's preview must be smaller than the picture (unless the preview
+// is all that shows); one of an upload deleted meanwhile is removed.
 func (h *Handler) previewDone(u store.Upload, ctype string, err error) {
 	path := previewPath(h.Dir, u.Key)
-	if st, serr := os.Stat(path); err == nil && strings.HasPrefix(u.Type, "image/") && (serr != nil || st.Size() >= u.Size) {
+	if st, serr := os.Stat(path); err == nil && strings.HasPrefix(u.Type, "image/") && !isPreviewed(u.Type) && (serr != nil || st.Size() >= u.Size) {
 		err = fmt.Errorf("%w: not smaller than the picture", thumbs.ErrFailed)
 	}
 	if err != nil {

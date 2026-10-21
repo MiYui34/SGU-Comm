@@ -10,7 +10,10 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"slices"
 	"testing"
+
+	"kallisti.chat/server/internal/imagesize"
 )
 
 func probe(data []byte, ctype string) Info {
@@ -208,6 +211,148 @@ func TestMP4(t *testing.T) {
 	}
 }
 
+// avif is a hand-made AVIF header: ftyp with the brands, then meta with
+// the given property boxes (ispe, irot) in iprp/ipco.
+func avif(brands string, props ...[]byte) []byte {
+	ftyp := box("ftyp", []byte(brands[:4]), be32(0), []byte(brands))
+	return append(ftyp, box("meta", []byte{0, 0, 0, 0}, box("hdlr", make([]byte, 24)), box("iprp", box("ipco", props...)))...)
+}
+
+func ispe(w, h uint32) []byte { return box("ispe", []byte{0, 0, 0, 0}, be32(w), be32(h)) }
+func irot(angle byte) []byte  { return box("irot", []byte{angle}) }
+
+func TestAVIF(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want Info
+	}{
+		{"still (ffmpeg)", fixture(t, "still.avif"), Info{64, 48, 0}},
+		{"grid of 2x2 tiles (avifenc)", fixture(t, "grid.avif"), Info{128, 96, 0}},
+		{"turned by 90 degrees (avifenc --irot 1)", fixture(t, "rotated.avif"), Info{96, 128, 0}},
+		{"animated (ffmpeg)", fixture(t, "anim.avif"), Info{48, 32, 0}},
+		{"hand-made", avif("avifmif1", ispe(640, 480)), Info{640, 480, 0}},
+		{"grid: the largest", avif("mif1avif", ispe(512, 512), ispe(1000, 700), ispe(512, 512)), Info{1000, 700, 0}},
+		{"turned 270", avif("avif", ispe(640, 480), irot(3)), Info{480, 640, 0}},
+		{"turned 180", avif("avif", ispe(640, 480), irot(2)), Info{640, 480, 0}},
+		{"sequence without meta: its track", append(box("ftyp", []byte("avis"), be32(0), []byte("avis")), box("moov", mvhd(0, 1000, 500), box("trak", tkhd(0, 320, 240, identity)))...), Info{320, 240, 0}},
+		{"too wide to show", avif("avif", ispe(imagesize.MaxSide+1, 1)), Info{}},
+		{"too many pixels to show", avif("avif", ispe(9000, 9000)), Info{}},
+		{"zero height", avif("avif", ispe(640, 0)), Info{}},
+		{"no ispe", avif("avif"), Info{}},
+		{"ispe too short", avif("avif", box("ispe", []byte{0, 0, 0, 0}, be32(640))), Info{}},
+	} {
+		if got := probe(c.data, "image/avif"); got != c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDetectAVIF(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		head []byte
+		want bool
+	}{
+		{"still", fixture(t, "still.avif"), true},
+		{"animated", fixture(t, "anim.avif"), true},
+		{"compatible brand only", box("ftyp", []byte("mif1"), be32(0), []byte("mif1miafavif")), true},
+		{"major brand only", box("ftyp", []byte("avis"), be32(0)), true},
+		{"mp4", fixture(t, "faststart.mp4"), false},
+		{"HEIC", box("ftyp", []byte("heic"), be32(0), []byte("mif1heic")), false},
+		{"brand in the minor version", box("ftyp", []byte("mif1"), []byte("avif")), false},
+		{"brand after the ftyp box", append(box("ftyp", []byte("mif1"), be32(0)), "avif"...), false},
+		{"ftyp not first", append(box("free"), box("ftyp", []byte("avif"), be32(0))...), false},
+		{"ftyp too short", append(be32(12), "ftypavif"...), false},
+		{"ftyp cut", append(be32(0x20), "ftypmif1\x00\x00\x00\x00av"...), false},
+		{"cut after a brand", append(be32(0x20), "ftypmif1\x00\x00\x00\x00avif"...), true},
+		{"empty", nil, false},
+	} {
+		if got := DetectType(c.head) == "image/avif"; got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+}
+
+// bitWriter writes bits as JPEG XL reads them: the lowest first.
+type bitWriter struct {
+	b []byte
+	n int
+}
+
+func (w *bitWriter) put(v uint32, n int) *bitWriter {
+	for i := range n {
+		if w.n%8 == 0 {
+			w.b = append(w.b, 0)
+		}
+		w.b[len(w.b)-1] |= byte(v>>i&1) << (w.n % 8)
+		w.n++
+	}
+	return w
+}
+
+// jxlOf is a JPEG XL codestream's start: the size (30-bit fields), and
+// the orientation (0: all metadata the default).
+func jxlOf(w, h, orientation uint32) []byte {
+	var b bitWriter
+	b.put(0, 1).put(3, 2).put(h-1, 30).put(0, 3).put(3, 2).put(w-1, 30)
+	if orientation == 0 {
+		b.put(1, 1)
+	} else {
+		b.put(0, 1).put(1, 1).put(orientation-1, 3)
+	}
+	return append([]byte{0xff, 0x0a}, b.b...)
+}
+
+var jxlSignature = append(be32(12), "JXL \r\n\x87\n"...)
+
+func TestJXL(t *testing.T) {
+	var small bitWriter // multiples of 8: 64 x 32
+	small.put(1, 1).put(3, 5).put(0, 3).put(7, 5).put(1, 1)
+	for _, c := range []struct {
+		name string
+		data []byte
+		want Info
+	}{
+		{"codestream (cjxl)", fixture(t, "codestream.jxl"), Info{40, 30, 0}},
+		{"container (cjxl)", fixture(t, "container.jxl"), Info{40, 30, 0}},
+		{"turned by Exif, in jxlp boxes (cjxl from a JPEG)", fixture(t, "turned.jxl"), Info{30, 40, 0}},
+		{"hand-made", jxlOf(640, 480, 0), Info{640, 480, 0}},
+		{"small sizes", append([]byte{0xff, 0x0a}, small.b...), Info{64, 32, 0}},
+		{"turned 90", jxlOf(640, 480, 6), Info{480, 640, 0}},
+		{"upside down", jxlOf(640, 480, 3), Info{640, 480, 0}},
+		{"codestream in jxlp boxes split in the size", slices.Concat(jxlSignature, box("jxlp", be32(0), jxlOf(64, 48, 0)[:4]), box("jxlp", be32(1<<31|1), jxlOf(64, 48, 0)[4:])), Info{64, 48, 0}},
+		{"too wide to show", jxlOf(imagesize.MaxSide+1, 1, 0), Info{}},
+		{"too many pixels to show", jxlOf(9000, 9000, 0), Info{}},
+		{"the largest size", jxlOf(1<<30, 1<<30, 0), Info{}},
+		{"only the signature", []byte{0xff, 0x0a}, Info{}},
+		{"cut in the size", jxlOf(640, 480, 0)[:5], Info{}},
+		{"container without codestream", slices.Concat(jxlSignature, box("ftyp", []byte("jxl "), be32(0), []byte("jxl "))), Info{}},
+	} {
+		if got := probe(c.data, "image/jxl"); got != c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDetectJXL(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		head []byte
+		want string
+	}{
+		{"codestream", fixture(t, "codestream.jxl"), "image/jxl"},
+		{"container", fixture(t, "container.jxl"), "image/jxl"},
+		{"PNG", pngOf(t, 2, 2), "image/png"},
+		{"other bytes", []byte("\xff\x0b hello"), "application/octet-stream"},
+		{"signature cut", jxlSignature[:11], "application/octet-stream"},
+	} {
+		if got := DetectType(c.head); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // ebml is an element with an 8-byte size.
 func ebml(id uint32, parts ...[]byte) []byte {
 	idb := be32(id)
@@ -281,6 +426,8 @@ func TestMalformed(t *testing.T) {
 		"audio/mp4":  fixture(t, "audio.m4a"),
 		"video/webm": fixture(t, "vp9.webm"),
 		"image/jpeg": withExif(jpegOf(t, 40, 30), 6, true),
+		"image/avif": fixture(t, "grid.avif"),
+		"image/jxl":  fixture(t, "turned.jxl"),
 	}
 	for ctype, data := range samples {
 		full := probe(data, ctype)
@@ -310,6 +457,9 @@ func TestMalformed(t *testing.T) {
 		{"unknown-size info", "video/webm", append(ebml(idEBML), unknownSize(idSegment, unknownSize(idInfo, ebmlFloat64(0x4489, 1)))...)},
 		{"pixel width of 9 bytes", "video/webm", webm(videoTrack(ebml(0xb0, make([]byte, 9)), ebmlUint(0xba, 1)))},
 		{"zero display height", "video/webm", webm(videoTrack(ebmlUint(0xb0, 4), ebmlUint(0xba, 4), ebmlUint(0x54b0, 4), ebmlUint(0x54ba, 0), ebmlUint(0x54b2, 3)))},
+		{"many empty boxes in ipco", "image/avif", avif("avif", bytes.Repeat(box("free"), 100000))},
+		{"meta too short for its version", "image/avif", append(box("ftyp", []byte("avif"), be32(0)), box("meta")...)},
+		{"ispe larger than ipco", "image/avif", append(box("ftyp", []byte("avif"), be32(0)), box("meta", be32(0), box("iprp", append(be32(8), "ipco"...), ispe(4, 4)))...)},
 		{"exif offset beyond the segment", "image/jpeg", func() []byte {
 			b := withExif(jpegOf(t, 4, 4), 6, false)
 			b[2+2+2+6+4+3] = 0xff // IFD0 offset
@@ -328,6 +478,28 @@ func FuzzMP4(f *testing.F) {
 	f.Add(mp4(mvhd(1, 1000, 10), box("trak", tkhd(1, 10, 10, turned90))))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if got := probe(data, "video/mp4"); got.Width < 0 || got.Height < 0 || got.Duration < 0 {
+			t.Fatal(got)
+		}
+	})
+}
+
+func FuzzAVIF(f *testing.F) {
+	f.Add(fixture(f, "grid.avif"))
+	f.Add(fixture(f, "anim.avif"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		DetectType(data)
+		if got := probe(data, "image/avif"); got.Width < 0 || got.Height < 0 || got.Duration != 0 {
+			t.Fatal(got)
+		}
+	})
+}
+
+func FuzzJXL(f *testing.F) {
+	f.Add(fixture(f, "turned.jxl"))
+	f.Add(fixture(f, "container.jxl"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		DetectType(data)
+		if got := probe(data, "image/jxl"); got.Width < 0 || got.Height < 0 || got.Duration != 0 {
 			t.Fatal(got)
 		}
 	})
