@@ -15,3 +15,4 @@
 - [ ] [Request ids for manage requests](issues/request-ids.md)
 - [ ] [Mobile apps (Android and iOS) with background calls](issues/mobile-apps.md) (not started)
 - [ ] [Desktop app: links do nothing, videos don't play (Linux)](issues/desktop-links-and-video.md)
+- [ ] [Remember self-mute and deafen across a page refresh](issues/remember-self-mute.md)
