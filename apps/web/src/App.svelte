@@ -287,6 +287,13 @@
   // The audio context lives as long as the user stays: reconnects use it
   // again (a new one would need another click).
   let audio: AudioContext | null = null;
+  // Started without a click (a saved login, a refresh), browsers may hold
+  // it suspended: the first click or key turns the sound on. Not in the
+  // Linux app: it holds the context itself for a while (see startAfter).
+  let audioState = $state<AudioContextState | null>(null);
+  const wakeSound = () => {
+    if (audioState === "suspended") void audio?.resume().catch(() => {});
+  };
   const start = async (credentials: Credentials) => {
     lastCredentials = credentials;
     const mine = ++starts;
@@ -300,9 +307,12 @@
     connection?.close();
     void audio?.close();
     // Created here: browsers allow audio only after a user gesture.
-    audio = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
+    const ctx = voiceSupported() ? new AudioContext({ sampleRate: 48_000, latencyHint: "interactive" }) : null;
+    audio = ctx;
     // Linux app: the capture module first, then the output (see startAfter).
-    if (audio && linuxApp()) startAfter(audio, loadCaptureWorklet(audio));
+    if (ctx && linuxApp()) startAfter(ctx, loadCaptureWorklet(ctx));
+    audioState = linuxApp() ? null : (ctx?.state ?? null);
+    if (ctx && !linuxApp()) ctx.onstatechange = () => audio === ctx && (audioState = ctx.state);
     try {
       const { url, protocols } = await urlFor(credentials);
       if (mine !== starts) return;
@@ -406,7 +416,7 @@
   };
 </script>
 
-<svelte:window ononline={wake} onpagehide={() => place && keepPlace(place, true)} />
+<svelte:window ononline={wake} onpagehide={() => place && keepPlace(place, true)} onpointerdowncapture={wakeSound} onkeydowncapture={wakeSound} />
 <svelte:document onvisibilitychange={wake} />
 
 {#if checking}
@@ -435,7 +445,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} {audioState} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
     {/key}
   </div>
 {:else}

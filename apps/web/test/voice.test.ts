@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadSelfState, micWanted, saveSelfState } from "../src/lib/voice";
+import { loadSelfState, micWanted, saveSelfState, soundHint } from "../src/lib/voice";
 
 describe("micWanted", () => {
   const s = { inVoice: true, selfMute: false, settingsOpen: false, closeWhenMuted: false };
@@ -41,5 +41,15 @@ describe("saved self state", () => {
     storage.setItem("selfState:https://a.example", "{garbage");
     expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: false, selfDeaf: false });
     expect(loadSelfState(undefined, "https://a.example")).toEqual({ selfMute: false, selfDeaf: false });
+  });
+});
+
+describe("soundHint", () => {
+  it("asks for a click only in voice while the browser holds the sound back", () => {
+    expect(soundHint("suspended", true)).toBe(true);
+    expect(soundHint("suspended", false)).toBe(false);
+    expect(soundHint("running", true)).toBe(false);
+    expect(soundHint("closed", true)).toBe(false);
+    expect(soundHint(null, true)).toBe(false);
   });
 });

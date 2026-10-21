@@ -76,7 +76,7 @@
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
-  import { loadSelfState, micWanted, saveSelfState, type SelfState } from "../lib/voice";
+  import { loadSelfState, micWanted, saveSelfState, soundHint, type SelfState } from "../lib/voice";
   import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
@@ -119,6 +119,7 @@
     account,
     resume = null,
     onPlace,
+    audioState = null,
     onLogIn,
     site = location.origin,
     drafts = { value: new Map() },
@@ -131,6 +132,8 @@
     // Reconnects: where to come back to, and where the user is now.
     resume?: Place | null;
     onPlace?: (place: Place) => void;
+    // The audio context's state (see soundHint).
+    audioState?: string | null;
     // Back to the login screen (a guest that may only read).
     onLogIn?: () => void;
     // The server's address, for message and invite links (the desktop app's
@@ -1746,6 +1749,9 @@
             {/if}
           {/each}
         {/if}
+        {#if soundHint(audioState, voiceOn)}
+          <p class="sound-hint" role="status">Click anywhere to turn on sound</p>
+        {/if}
         <VoiceBar
           channel={channelName}
           recording={recorded.has(channelId)}
@@ -1950,6 +1956,14 @@
 </div>
 
 <style>
+  .sound-hint {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--accent);
+    background: var(--bg-input);
+    text-align: center;
+  }
   .layout {
     display: grid;
     grid-template-columns: 72px 240px 1fr;

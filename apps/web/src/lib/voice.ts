@@ -35,3 +35,7 @@ export const micWanted = (s: {
   settingsOpen: boolean;
   closeWhenMuted: boolean;
 }): boolean => (s.inVoice && !(s.selfMute && s.closeWhenMuted)) || s.settingsOpen;
+
+// Browsers may start the audio context suspended until the user clicks or
+// types (after a refresh: no gesture yet). In voice, a hint asks for one.
+export const soundHint = (state: string | null, inVoice: boolean) => inVoice && state === "suspended";
