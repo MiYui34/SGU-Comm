@@ -160,6 +160,11 @@ func run() error {
 		accounts.GuestAccounts = true // the built-in server can remove their registrations
 		accounts.Captcha = mumble.srv.Captcha
 		accounts.EndPasswordLogins = func(acc store.Account) { mumble.srv.EndPasswordLogins(accountCertHash(acc)) }
+		accounts.SetAvatar = func(acc store.Account, avatar []byte, onlyIfNone bool) {
+			if _, err := mumble.srv.SetAccountAvatar(acc.Name, accountCertHash(acc), avatar, onlyIfNone); err != nil {
+				slog.Error("set an account's avatar", "account", acc.Name, "err", err)
+			}
+		}
 		accounts.OnPermanent = func(name string) {
 			mumble.srv.AccountPermanent(name) // its users may write again
 			hub.AccountPermanent(name)

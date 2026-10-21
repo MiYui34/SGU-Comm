@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"kallisti.chat/server/internal/fedi/fedifake"
 )
@@ -17,8 +18,17 @@ import (
 func main() {
 	port := flag.Int("port", 8099, "port on 127.0.0.1")
 	noProfile := flag.Bool("no-profile-scope", false, "act as a server without the profile scope (Mastodon before 4.3)")
+	avatar := flag.String("avatar", "", "a picture file: every user's avatar")
 	flag.Parse()
+	f := &fedifake.Instance{NoProfileScope: *noProfile}
+	if *avatar != "" {
+		data, err := os.ReadFile(*avatar)
+		if err != nil {
+			log.Fatal(err)
+		}
+		f.SetAvatar(data)
+	}
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	log.Printf("fake fediverse instance on http://%s", addr)
-	log.Fatal(http.ListenAndServe(addr, &fedifake.Instance{NoProfileScope: *noProfile}))
+	log.Fatal(http.ListenAndServe(addr, f))
 }

@@ -26,6 +26,7 @@ import (
 
 	"golang.org/x/net/idna"
 
+	"kallisti.chat/server/internal/avatarimg"
 	"kallisti.chat/server/internal/names"
 	"kallisti.chat/server/internal/netguard"
 )
@@ -34,6 +35,8 @@ const (
 	timeout      = 10 * time.Second
 	maxRedirects = 3
 	maxBody      = 64 << 10
+	// maxAvatar: the most bytes of an avatar picture downloaded.
+	maxAvatar = 2 << 20
 )
 
 var (
@@ -270,6 +273,7 @@ func (c *Client) Token(ctx context.Context, inst Instance, app App, redirectURI,
 type Account struct {
 	ID       string // the instance's id: the key, with the host
 	Username string
+	Avatar   string // the URL of its avatar picture ("": none, see avatarURL)
 }
 
 // Handle is @user@host, to show.
@@ -288,8 +292,10 @@ func (c *Client) VerifyCredentials(ctx context.Context, inst Instance, token str
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	var a struct {
-		ID       json.RawMessage `json:"id"`
-		Username string          `json:"username"`
+		ID           json.RawMessage `json:"id"`
+		Username     string          `json:"username"`
+		Avatar       string          `json:"avatar"`
+		AvatarStatic string          `json:"avatar_static"` // not animated
 	}
 	if err := c.do(req, &a); err != nil {
 		return Account{}, err
@@ -301,7 +307,48 @@ func (c *Client) VerifyCredentials(ctx context.Context, inst Instance, token str
 	if !remoteID.MatchString(id) || !validUsername(a.Username) {
 		return Account{}, fmt.Errorf("%w: unexpected account", ErrUnreachable)
 	}
-	return Account{ID: id, Username: a.Username}, nil
+	avatar := a.AvatarStatic
+	if avatar == "" {
+		avatar = a.Avatar
+	}
+	return Account{ID: id, Username: a.Username, Avatar: c.avatarURL(avatar)}, nil
+}
+
+// avatarURL is an avatar's URL if it can be downloaded (https) and is not
+// an instance's default picture for accounts without one; else "".
+func (c *Client) avatarURL(s string) string {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.Scheme != "https" && !(c.allowHTTP && u.Scheme == "http") ||
+		strings.HasSuffix(u.Path, "/missing.png") || u.Path == "/images/avi.png" { // Mastodon's, Pleroma's
+		return ""
+	}
+	return u.String()
+}
+
+// Avatar downloads an account's avatar picture (at most maxAvatar bytes)
+// and makes an avatar of it (see avatarimg.Make).
+func (c *Client) Avatar(ctx context.Context, avatarURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, avatarURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Kallisti")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, &StatusError{Code: res.StatusCode}
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxAvatar+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxAvatar {
+		return nil, avatarimg.ErrTooLarge
+	}
+	return avatarimg.Make(body)
 }
 
 // validUsername: user names as instances make them (letters, digits, _ . -),
