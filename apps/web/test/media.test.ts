@@ -7,6 +7,7 @@ import {
   downloadUrl,
   formatDuration,
   imageBox,
+  lightboxOf,
   mediaKind,
   mediaRatio,
   onlyOne,
@@ -48,6 +49,22 @@ describe("attachments", () => {
     expect(afterImageError("/files/k/a.avif?preview", avif)).toBe("/files/k/a.avif");
     expect(afterImageError("/files/k/a.avif", avif)).toBeNull();
     expect(afterImageError(null, avif)).toBeNull();
+  });
+
+  // JPEG XL: few browsers show it; the server's preview is its picture.
+  const jxl = { type: "image/jxl", name: "a.jxl", url: "/files/k/a.jxl" };
+  const jxlWithPreview = { ...jxl, preview: "/files/k/a.jxl?preview" };
+
+  it("show a JPEG XL picture by its preview only", () => {
+    expect(attachmentView(jxlWithPreview, false)).toBe("image");
+    expect(attachmentView(jxl, false)).toBe("file"); // none (yet)
+    expect(attachmentView(jxlWithPreview, true)).toBe("file");
+    expect(afterImageError(jxlWithPreview.preview, jxlWithPreview)).toBeNull();
+  });
+
+  it("open the preview in the lightbox, with the original as a download", () => {
+    expect(lightboxOf(jxlWithPreview)).toEqual({ url: jxlWithPreview.preview, name: "a.jxl", download: "/files/k/a.jxl?download" });
+    expect(lightboxOf({ ...avif, preview: "/files/k/a.avif?preview" })).toEqual({ url: avif.url, name: "a.avif" });
   });
 });
 

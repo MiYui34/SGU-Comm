@@ -1,7 +1,8 @@
 <script lang="ts">
   // An image large over the app. Closes with Escape, the button, or a
-  // click outside the image; the browser puts focus back.
-  let { url, name, onClose }: { url: string; name: string; onClose: () => void } = $props();
+  // click outside the image; the browser puts focus back. download: the
+  // original of a picture shown by its preview (see lib/media lightboxOf).
+  let { url, name, download, onClose }: { url: string; name: string; download?: string; onClose: () => void } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
   $effect(() => dialog?.showModal());
@@ -26,7 +27,11 @@
   </div>
   <footer>
     <span class="name ellipsis">{name}</span>
-    <a href={url} target="_blank" rel="noopener noreferrer">Open original</a>
+    {#if download}
+      <a href={download}>Download original</a>
+    {:else}
+      <a href={url} target="_blank" rel="noopener noreferrer">Open original</a>
+    {/if}
     <button type="button" class="close" onclick={close} aria-label="Close">×</button>
   </footer>
 </dialog>
