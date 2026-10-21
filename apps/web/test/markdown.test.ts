@@ -93,7 +93,7 @@ describe("channel links with other letters", () => {
 });
 
 describe("spoilers", () => {
-  const spoiler = (html: string) => `<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">${html}</span>`;
+  const spoiler = (html: string) => `<span class="spoiler" role="button" tabindex="0" aria-expanded="false" aria-label="Spoiler">${html}</span>`;
 
   it("hides text between || until clicked", () => {
     expect(md("the end: ||he dies|| sorry")).toBe(`the end: ${spoiler("he dies")} sorry`);

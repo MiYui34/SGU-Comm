@@ -9,7 +9,7 @@
   import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { collapses, MAX_HEIGHT_PX } from "../lib/collapse";
-  import { hideSpoilers, revealSpoiler } from "../lib/markdown";
+  import { hideSpoilers, toggleSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
   import { customEmojiFor, customEntries, jumboEmoji, knownEmoji } from "../lib/customEmoji";
@@ -789,17 +789,18 @@
   {@render stage?.()}
 
   <!-- Clicks on "#name" links open the channel, clicks on spoilers show
-       them (see markdown). -->
+       or hide them (see markdown). -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="scroller"
     bind:this={list}
     onscroll={trackBottom}
     onkeydown={(e) => {
-      if ((e.key === "Enter" || e.key === " ") && revealSpoiler(e.target as Element)) e.preventDefault();
+      if ((e.key === "Enter" || e.key === " ") && toggleSpoiler(e.target as Element)) e.preventDefault();
     }}
     onclick={(e) => {
-      if (revealSpoiler(e.target as Element)) return e.preventDefault();
+      // A click that ends a text selection does not hide a spoiler.
+      if (!document.getSelection()?.toString() && toggleSpoiler(e.target as Element)) return e.preventDefault();
       const href = (e.target as Element).closest("a[href]")?.getAttribute("href");
       const opened = href && !e.ctrlKey && !e.metaKey && !e.shiftKey ? onLink?.(href) : null;
       if (opened) {
@@ -1282,42 +1283,52 @@
 
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
-    {#if m.upload.spoiler && !shownFiles.has(m.upload.url)}
-      {@const upload = m.upload}
+    {@const upload = m.upload}
+    {#if upload.spoiler && !shownFiles.has(upload.url)}
       <button type="button" class="spoiler-file" aria-label="Spoiler, show the attachment" onclick={() => (shownFiles = new Set([...shownFiles, upload.url]))}>
         {#if upload.type.startsWith("image/")}{@render picture(upload, "")}{/if}
         <span>Spoiler</span>
       </button>
-    {:else if m.upload.type.startsWith("image/")}
-      {@const upload = m.upload}
-      <a
-        class="image"
-        href={upload.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="View {upload.name}"
-        onclick={(e) => {
-          if (!opensLightbox(e)) return;
-          e.preventDefault();
-          lightbox = { url: upload.url, name: upload.name };
-        }}
-      >
-        {@render picture(upload, upload.name)}
-      </a>
-    {:else if mediaKind(m.upload) && !unplayable.has(m.upload.url)}
-      {@const u = m.upload}
-      {@const failed = () => (unplayable = new Set([...unplayable, u.url]))}
-      {#if mediaKind(u) === "audio"}
-        <AudioPlayer url={u.url} name={u.name} size={u.size} length={u.duration} onError={failed} />
-      {:else}
-        <VideoPlayer url={u.url} poster={u.preview} name={u.name} size={u.size} width={u.width} height={u.height} length={u.duration} onLoad={keepBottom} onError={failed} />
-      {/if}
+    {:else if upload.spoiler && (upload.type.startsWith("image/") || mediaKind(upload) === "video")}
+      <!-- A shown spoiler can be hidden again. -->
+      <div class="unspoiled">
+        {@render uploadView(upload)}
+        <button type="button" class="rehide" onclick={() => (shownFiles = new Set([...shownFiles].filter((url) => url !== upload.url)))}>Hide</button>
+      </div>
     {:else}
-      <a class="file" href={m.upload.url} rel="noopener noreferrer">
-        <span class="file-name">{m.upload.name}</span>
-        <span class="file-size">{formatSize(m.upload.size)}</span>
-      </a>
+      {@render uploadView(upload)}
     {/if}
+  {/if}
+{/snippet}
+
+{#snippet uploadView(upload: NonNullable<DisplayMessage["upload"]>)}
+  {#if upload.type.startsWith("image/")}
+    <a
+      class="image"
+      href={upload.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="View {upload.name}"
+      onclick={(e) => {
+        if (!opensLightbox(e)) return;
+        e.preventDefault();
+        lightbox = { url: upload.url, name: upload.name };
+      }}
+    >
+      {@render picture(upload, upload.name)}
+    </a>
+  {:else if mediaKind(upload) && !unplayable.has(upload.url)}
+    {@const failed = () => (unplayable = new Set([...unplayable, upload.url]))}
+    {#if mediaKind(upload) === "audio"}
+      <AudioPlayer url={upload.url} name={upload.name} size={upload.size} length={upload.duration} onError={failed} />
+    {:else}
+      <VideoPlayer url={upload.url} poster={upload.preview} name={upload.name} size={upload.size} width={upload.width} height={upload.height} length={upload.duration} onLoad={keepBottom} onError={failed} />
+    {/if}
+  {:else}
+    <a class="file" href={upload.url} rel="noopener noreferrer">
+      <span class="file-name">{upload.name}</span>
+      <span class="file-size">{formatSize(upload.size)}</span>
+    </a>
   {/if}
 {/snippet}
 
@@ -1675,6 +1686,29 @@
     font-size: 14px;
     font-weight: 700;
     text-transform: uppercase;
+  }
+  .unspoiled {
+    position: relative;
+    width: fit-content;
+  }
+  .rehide {
+    position: absolute;
+    top: 12px;
+    right: 8px;
+    z-index: 1;
+    padding: 2px 10px;
+    border: none;
+    border-radius: 12px;
+    background: rgb(0 0 0 / 0.6);
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .rehide:hover {
+    background: rgb(0 0 0 / 0.8);
   }
   .pending-spoiler {
     padding: 2px 8px;

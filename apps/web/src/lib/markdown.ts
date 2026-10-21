@@ -25,7 +25,7 @@ const CUSTOM_EMOJI = new RegExp(`:${CUSTOM_NAME}:`, "g");
 
 // ||text|| (also over lines): hidden until clicked (see ChatPane).
 const SPOILER = /\|\|([^|][\s\S]*?)\|\|/g;
-const SPOILER_HTML = '<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler">$1</span>';
+const SPOILER_HTML = '<span class="spoiler" role="button" tabindex="0" aria-expanded="false" aria-label="Spoiler">$1</span>';
 
 // For plain text that shows the message (reply quotes, notifications,
 // search results). Also an open spoiler at the end: the server cuts reply
@@ -92,14 +92,16 @@ export const markdown = (escaped: string, channels?: ReadonlyMap<string, number>
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[Number(i)]!);
 };
 
-// A click (or Enter) on a hidden spoiler shows it; true: it was hidden, so
-// the click does nothing else (no link opens).
-export const revealSpoiler = (target: Element): boolean => {
-  const spoiler = target.closest(".spoiler:not(.shown)");
+// A click (or Enter) on a spoiler shows or hides it again; true: the click
+// does nothing else. A link in a shown spoiler opens instead.
+export const toggleSpoiler = (target: Element): boolean => {
+  const spoiler = target.closest(".spoiler");
   if (!spoiler) return false;
-  spoiler.classList.add("shown");
-  spoiler.removeAttribute("role");
-  spoiler.removeAttribute("aria-label");
-  spoiler.setAttribute("tabindex", "-1"); // it may have focus: keep it
+  const shown = spoiler.classList.contains("shown");
+  if (shown && target.closest("a[href]")) return false;
+  spoiler.classList.toggle("shown", !shown);
+  spoiler.setAttribute("aria-expanded", String(!shown));
+  if (shown) spoiler.setAttribute("aria-label", "Spoiler");
+  else spoiler.removeAttribute("aria-label"); // the text is read out
   return true;
 };

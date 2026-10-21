@@ -2159,3 +2159,8 @@ From `meta/research/discord-comparison.md`.
   playout re-anchors on the first item after the clock runs again.
 - Checked in headless Chromium: a draft stays after the server restarts
   and the client re-mounts.
+
+## Hide a shown spoiler again
+
+- A second click (or Enter/Space) on a shown text spoiler hides it again (`toggleSpoiler` in lib/markdown). A link in a shown spoiler opens instead, and a click that ends a text selection does nothing. Discord keeps spoilers shown; users asked for a way back.
+- Shown image and video spoilers get a small "Hide" button at the top right. The image itself still opens the viewer.
