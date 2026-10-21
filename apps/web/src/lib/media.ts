@@ -15,6 +15,15 @@ export const mediaKind = (u: { type: string; name: string }): MediaKind | null =
   return AUDIO.test(u.name) ? "audio" : VIDEO.test(u.name) ? "video" : null;
 };
 
+// How an attachment shows: a picture, a player, or a file card (also a
+// picture or player the browser could not load: AVIF in an old WebView).
+export const attachmentView = (u: { type: string; name: string }, failed: boolean): "image" | MediaKind | "file" =>
+  failed ? "file" : u.type.startsWith("image/") ? "image" : (mediaKind(u) ?? "file");
+
+// The source to try after a picture failed to load from src: the picture
+// after its preview; null: none, show the file card.
+export const afterImageError = (src: string | null, u: { url: string }) => (src !== null && src !== u.url ? u.url : null);
+
 export const formatDuration = (seconds: number) => {
   const s = Number.isFinite(seconds) ? Math.floor(seconds) : 0;
   const mm = String(Math.floor(s / 60) % 60);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { autosize } from "../lib/autosize";
-  import { asSpoiler, chatSrc, imageBox, mediaKind } from "../lib/media";
+  import { afterImageError, asSpoiler, attachmentView, chatSrc, imageBox } from "../lib/media";
   import { emojiImages } from "../lib/emojiImages.svelte";
   import Emoji from "./Emoji.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -437,7 +437,7 @@
 
   // The image shown large (see Lightbox).
   let lightbox = $state<{ url: string; name: string } | null>(null);
-  // Media attachments that cannot play: shown as files.
+  // Attachments that cannot play or show (see attachmentView): files.
   let unplayable = $state(new Set<string>());
 
   // Suggestions while typing "@name", "#channel" or ":emoji" (see
@@ -1338,7 +1338,8 @@
 
 <!-- The picture's box before it loads (see imageBox); the loaded picture's
      own ratio wins ("auto"). A large picture shows its preview, else the
-     picture itself (also when the preview fails). -->
+     picture itself (also when the preview fails); one the browser cannot
+     show at all is a file card. -->
 {#snippet picture(u: Attachment, alt: string)}
   {@const box = imageBox(u)}
   <img
@@ -1350,7 +1351,9 @@
     onload={keepBottom}
     onerror={(e) => {
       const img = e.currentTarget as HTMLImageElement;
-      if (img.src !== u.url) img.src = u.url;
+      const next = afterImageError(img.getAttribute("src"), u);
+      if (next) img.src = next;
+      else unplayable = new Set([...unplayable, u.url]);
     }}
   />
 {/snippet}
@@ -1358,12 +1361,13 @@
 {#snippet attachment(m: ChatMessage | DisplayMessage)}
   {#if "upload" in m && m.upload}
     {@const upload = m.upload}
+    {@const view = attachmentView(upload, unplayable.has(upload.url))}
     {#if upload.spoiler && !shownFiles.has(upload.url)}
       <button type="button" class="spoiler-file" aria-label="Spoiler, show the attachment" onclick={() => (shownFiles = new Set([...shownFiles, upload.url]))}>
-        {#if upload.type.startsWith("image/")}{@render picture(upload, "")}{/if}
+        {#if view === "image"}{@render picture(upload, "")}{/if}
         <span>Spoiler</span>
       </button>
-    {:else if upload.spoiler && (upload.type.startsWith("image/") || mediaKind(upload) === "video")}
+    {:else if upload.spoiler && (view === "image" || view === "video")}
       <!-- A shown spoiler can be hidden again. -->
       <div class="unspoiled">
         {@render uploadView(upload)}
@@ -1376,7 +1380,8 @@
 {/snippet}
 
 {#snippet uploadView(upload: NonNullable<DisplayMessage["upload"]>)}
-  {#if upload.type.startsWith("image/")}
+  {@const view = attachmentView(upload, unplayable.has(upload.url))}
+  {#if view === "image"}
     <a
       class="image"
       href={upload.url}
@@ -1391,9 +1396,9 @@
     >
       {@render picture(upload, upload.name)}
     </a>
-  {:else if mediaKind(upload) && !unplayable.has(upload.url)}
+  {:else if view !== "file"}
     {@const failed = () => (unplayable = new Set([...unplayable, upload.url]))}
-    {#if mediaKind(upload) === "audio"}
+    {#if view === "audio"}
       <AudioPlayer url={upload.url} name={upload.name} size={upload.size} length={upload.duration} onError={failed} />
     {:else}
       <VideoPlayer url={upload.url} poster={upload.preview} name={upload.name} size={upload.size} width={upload.width} height={upload.height} length={upload.duration} onLoad={keepBottom} onError={failed} />
