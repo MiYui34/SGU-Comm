@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 
@@ -28,6 +27,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"kallisti.chat/server/internal/mediasize"
+	"kallisti.chat/server/internal/netguard"
 )
 
 const (
@@ -85,13 +85,7 @@ type Fetcher struct {
 func New() *Fetcher {
 	f := &Fetcher{allow: publicAddr, now: time.Now, sem: make(chan struct{}, parallel),
 		pages: map[string]*entry{}, images: map[string]picture{}, maxQueued: maxQueued, maxImageBytes: maxImageBytes}
-	dialer := &net.Dialer{Timeout: timeout, Control: func(_, address string, _ syscall.RawConn) error {
-		ap, err := netip.ParseAddrPort(address)
-		if err != nil || !f.allow(ap) {
-			return errors.New("not a public web address")
-		}
-		return nil
-	}}
+	dialer := &net.Dialer{Timeout: timeout, Control: netguard.Control(func(ap netip.AddrPort) bool { return f.allow(ap) })}
 	f.client = &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
@@ -113,34 +107,10 @@ func New() *Fetcher {
 	return f
 }
 
-var blocked = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT (also VPNs)
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.88.99.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("::/96"),        // IPv4-compatible
-	netip.MustParsePrefix("2001::/32"),    // Teredo: IPv4 inside
-	netip.MustParsePrefix("2002::/16"),    // 6to4: IPv4 inside
-	netip.MustParsePrefix("64:ff9b::/96"), // NAT64: IPv4 behind it
-	netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("2001:db8::/32"),
-	netip.MustParsePrefix("fec0::/10"),
-}
-
-// publicAddr: a global address (no local network, loopback or cloud
-// metadata) on the HTTP or HTTPS port.
+// publicAddr: a public address (see netguard) on the HTTP or HTTPS port.
 func publicAddr(ap netip.AddrPort) bool {
-	ip := ap.Addr()
-	if ip.Is4In6() {
-		return false
-	}
-	if p := ap.Port(); p != 80 && p != 443 {
-		return false
-	}
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() &&
-		!slices.ContainsFunc(blocked, func(p netip.Prefix) bool { return p.Contains(ip) })
+	p := ap.Port()
+	return (p == 80 || p == 443) && netguard.Public(ap.Addr())
 }
 
 func webURL(u *url.URL) error {
