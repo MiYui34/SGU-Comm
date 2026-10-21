@@ -110,7 +110,7 @@ func (c *Conn) deleteEmoji(id mumble.Identity, name string) {
 // before it expires).
 func (h *Hub) RedeemEmojiToken(token string) (author, name string, ok bool) {
 	t, ok := h.redeem(token)
-	if !ok || t.emoji == "" {
+	if !ok || t.emoji == "" || t.personal {
 		return "", "", false
 	}
 	return t.author, t.emoji, true

@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"kallisti.chat/server/internal/emoji"
 	"kallisti.chat/server/internal/msgrules"
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/push"
@@ -263,17 +264,21 @@ type Hub struct {
 	// members online as last told, with their sessions (see members.go).
 	statusMu sync.Mutex
 	online   map[uint32]uint32
-	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time.
+	// Custom emoji (see emoji.go). Under mu; emojiMu: one reload at a time
+	// (also of personal emoji lists, see useremoji.go).
 	emoji   []wireEmoji
 	emojiMu sync.Mutex
 	slow    slowPosts // see slowmode.go
 }
 
-// emoji: a token for adding this custom emoji (not for a file).
+// emoji: a token for adding this custom emoji (not for a file); personal:
+// to the user's own emoji (see useremoji.go).
 type uploadToken struct {
-	author  string
-	emoji   string
-	expires time.Time
+	author   string
+	emoji    string
+	user     uint32
+	personal bool
+	expires  time.Time
 }
 
 func NewHub(s *store.Store, now func() time.Time) (*Hub, error) {
@@ -504,7 +509,8 @@ func toWire(m store.Message) wireMessage {
 
 type request struct {
 	Type      string          `json:"type"`
-	Name      string          `json:"name"`       // create-channel, rename-channel; emoji-token, delete-emoji
+	Name      string          `json:"name"`       // create-channel, rename-channel; emoji-token, delete-emoji; the user-emoji requests
+	To        string          `json:"to"`         // rename-user-emoji: the new name
 	Channels  []int64         `json:"channels"`   // order-channels
 	Category  int64           `json:"category"`   // create-channel, set-category, rename-category, delete-category
 	Cats      []int64         `json:"categories"` // order-categories
@@ -522,7 +528,7 @@ type request struct {
 	Admin     bool            `json:"admin"`     // set-admin
 	Users     []uint32        `json:"users"`     // set-listen-only: who may speak
 	Messages  []int64         `json:"messages"`  // previews
-	Emoji     string          `json:"emoji"`     // react
+	Emoji     string          `json:"emoji"`     // react; add-user-emoji, remove-emoji-image
 	On        bool            `json:"on"`        // react: add (or remove); pin; away; set-guests-read-only
 	Status    string          `json:"status"`    // set-status: "online", "idle" or "dnd"
 	Level     string          `json:"level"`     // set-captcha
@@ -664,6 +670,9 @@ func (c *Conn) Handle(raw []byte) {
 		return
 	case "delete-emoji":
 		c.deleteEmoji(*id, req.Name)
+		return
+	case "user-emoji-token", "add-user-emoji", "rename-user-emoji", "delete-user-emoji", "remove-emoji-image":
+		c.userEmoji(*id, req)
 		return
 	case "stream-token":
 		if c.hub.StreamToken == nil {
@@ -943,9 +952,10 @@ func (c *Conn) post(id mumble.Identity, req request, ch chat) {
 }
 
 // mumbleText is a stored message as Mumble clients see it: an upload as a
-// link (or its name, without a public address).
+// link (or its name, without a public address), personal emoji as
+// ":name:".
 func (h *Hub) mumbleText(m store.Message) string {
-	text := m.Text
+	text := emoji.RefsAsNames(m.Text)
 	if m.Upload != nil {
 		file := "[" + m.Upload.Name + "]"
 		if h.publicBase != "" {
@@ -955,7 +965,7 @@ func (h *Hub) mumbleText(m store.Message) string {
 	}
 	// Mumble clients have no replies: a short quote first.
 	if r := m.Reply; r != nil && r.Author != "" {
-		text = "> " + r.Author + ": " + shorten(r.Text, 60) + " — " + text
+		text = "> " + r.Author + ": " + shorten(emoji.RefsAsNames(r.Text), 60) + " — " + text
 	}
 	return text
 }
@@ -1083,6 +1093,10 @@ func (h *Hub) Overflows() map[uint32]uint64 {
 }
 
 func (h *Hub) issueUploadToken(author, emoji string) string {
+	return h.issueToken(uploadToken{author: author, emoji: emoji})
+}
+
+func (h *Hub) issueToken(t uploadToken) string {
 	b := make([]byte, 24)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
@@ -1094,14 +1108,15 @@ func (h *Hub) issueUploadToken(author, emoji string) string {
 			delete(h.tokens, t)
 		}
 	}
-	h.tokens[token] = uploadToken{author: author, emoji: emoji, expires: now.Add(tokenLifetime)}
+	t.expires = now.Add(tokenLifetime)
+	h.tokens[token] = t
 	return token
 }
 
 // RedeemUploadToken returns the author a file upload token was issued to.
 func (h *Hub) RedeemUploadToken(token string) (string, bool) {
 	t, ok := h.redeem(token)
-	if !ok || t.emoji != "" {
+	if !ok || t.emoji != "" || t.personal {
 		return "", false
 	}
 	return t.author, true
