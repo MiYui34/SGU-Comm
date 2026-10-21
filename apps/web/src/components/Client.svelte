@@ -50,7 +50,7 @@
   import { lastTurnAt } from "../lib/slowMode";
   import { chatKeyOf, type Drafts } from "../lib/composer";
   import type { PendingFiles } from "../lib/pendingFiles";
-  import type { Place, View } from "../lib/place";
+  import { relinkDirect, type Place, type View } from "../lib/place";
   import { rejoinTarget } from "../lib/reconnect";
   import { voiceSession } from "../lib/mediaSession";
   import {
@@ -397,11 +397,20 @@
   });
   const localMuted = $derived(new Set(users.filter((u) => audioOf(u.name).muted).map((u) => u.session)));
 
-  // After a reconnect: back where the user was (read once: this client
-  // reports its own place right away).
+  // After a reconnect or a refresh: back where the user was (read once:
+  // this client reports its own place right away). A message or invite
+  // link in the address wins over the view and thread (see linked, invited).
   const back = untrack(() => resume);
-  let view = $state<View>(back?.view ?? { kind: "voice" });
-  let navigated = back !== null;
+  const linkOpens = untrack(() => !!parseMessageLink(location.href, site) || !!parseInviteLink(location.href, site));
+  let view = $state<View>((!linkOpens && back?.view) || { kind: "voice" });
+  let navigated = back !== null && !linkOpens;
+  // Until the server confirms the restored mute (see below), the place
+  // keeps it: a refresh right then must not come back with a live
+  // microphone.
+  let selfPending = $state(!!back && (back.selfMute || back.selfDeaf));
+  $effect(() => {
+    if (selfPending && me && me.selfMute === back?.selfMute && me.selfDeaf === back?.selfDeaf) selfPending = false;
+  });
   // The voice channel we come back to counts as ours until we are in it
   // (or it failed): a second drop meanwhile keeps it, and so does the
   // media session.
@@ -418,8 +427,8 @@
       view,
       voice: voiceHere,
       thread: threadId,
-      selfMute: me?.selfMute ?? false,
-      selfDeaf: me?.selfDeaf ?? false,
+      selfMute: (selfPending && back?.selfMute) || (me?.selfMute ?? false),
+      selfDeaf: (selfPending && back?.selfDeaf) || (me?.selfDeaf ?? false),
     }),
   );
   // In voice: keeps phones from freezing the page (see lib/mediaSession).
@@ -439,11 +448,16 @@
   $effect(() => {
     if (restored || !me) return;
     restored = true;
-    // A reconnect keeps the state it had, a new page the saved one.
+    // A direct chat: the partner's session now (a refresh or a drop may
+    // have changed it).
+    untrack(() => (view = relinkDirect(view, Object.values(server.users))));
+    // A reconnect or a refresh keeps the state this tab had (another tab
+    // may have saved its own since), a new tab the one saved per server.
     const self = back ?? loadSelfState(storage, site);
     lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
     if (self.selfMute || self.selfDeaf) connection.send(setSelfState(me.session, { selfMute: self.selfMute, selfDeaf: self.selfDeaf }));
+    setTimeout(() => (selfPending = false), REJOIN_MS); // the user changed it meanwhile
     if (!back) return;
     const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id], elsewhere?.session ?? null);
     if (target === null) return void (rejoining = null);
@@ -571,9 +585,9 @@
     return true;
   };
   const openMessage = (link: { chat: number; message: number } | null) => !!link && openChat(link.chat, link.message);
-  // After a reconnect: the thread open before, again (once the channels
+  // After a reconnect or a refresh: the thread open before, again (once the channels
   // are known; an archived one is asked for).
-  let reopen = untrack(() => back?.thread ?? null);
+  let reopen = untrack(() => (linkOpens ? null : (back?.thread ?? null)));
   $effect(() => {
     if (reopen === null || !text.available) return;
     const id = reopen;

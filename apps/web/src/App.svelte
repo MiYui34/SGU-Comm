@@ -19,7 +19,7 @@
   import { httpBase } from "./lib/textChannels";
   import { safeGet, safeSet } from "./lib/storage";
   import { connectionError, proxyUrl } from "./lib/status";
-  import type { Place } from "./lib/place";
+  import { loadPlace, placeKey, savePlace, type Place } from "./lib/place";
   import type { Drafts } from "./lib/composer";
   import { createPendingFiles, indexedDbStore } from "./lib/pendingFiles";
   import { busyName, loggedOut, reconnectDelay, shouldReconnect } from "./lib/reconnect";
@@ -119,7 +119,7 @@
     stopReconnecting();
     connection?.close();
     connection = null;
-    place = null;
+    keepPlace(null);
     void audio?.close();
     audio = null;
   };
@@ -292,7 +292,8 @@
     const mine = ++starts;
     loginNote = null;
     stopReconnecting();
-    place = null;
+    // After a refresh: back where this tab was (see lib/place).
+    place = loadPlace(tabStorage(), placeKeyOf(credentials));
     drafts = { value: new Map() };
     // Per server and user: another account here does not get the files.
     pendingFiles = createPendingFiles(indexedDbStore(), [kallisti ?? location.origin, credentials.server ?? "", credentials.username].join(" "));
@@ -317,6 +318,20 @@
   const ATTEMPT_TIMEOUT_MS = 15_000;
   const BUSY_NAME_TRIES = 5;
   let place = $state<Place | null>(null);
+  // Per tab: a refresh comes back, a new tab starts fresh (two tabs must
+  // not fight over voice). Reading sessionStorage can throw (blocked storage).
+  const tabStorage = () => {
+    try {
+      return sessionStorage;
+    } catch {
+      return undefined;
+    }
+  };
+  const placeKeyOf = (c: Credentials) => placeKey(kallisti ?? location.origin, c.server ?? "", c.username);
+  const keepPlace = (p: Place | null, left = false) => {
+    place = p;
+    if (lastCredentials) savePlace(tabStorage(), placeKeyOf(lastCredentials), p, left);
+  };
   // Unsent texts, kept over reconnects (the Client is new each time); a
   // login starts without.
   let drafts = $state.raw<Drafts>({ value: new Map() });
@@ -391,7 +406,7 @@
   };
 </script>
 
-<svelte:window ononline={wake} />
+<svelte:window ononline={wake} onpagehide={() => place && keepPlace(place, true)} />
 <svelte:document onvisibilitychange={wake} />
 
 {#if checking}
@@ -420,7 +435,7 @@
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
-      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => (place = p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
+      <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
     {/key}
   </div>
 {:else}
