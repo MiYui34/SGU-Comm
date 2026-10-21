@@ -11,6 +11,8 @@ import (
 	"math"
 	"os"
 	"testing"
+
+	"kallisti.chat/server/internal/imagesize"
 )
 
 func probe(data []byte, ctype string) Info {
@@ -208,6 +210,69 @@ func TestMP4(t *testing.T) {
 	}
 }
 
+// avif is a hand-made AVIF header: ftyp with the brands, then meta with
+// the given property boxes (ispe, irot) in iprp/ipco.
+func avif(brands string, props ...[]byte) []byte {
+	ftyp := box("ftyp", []byte(brands[:4]), be32(0), []byte(brands))
+	return append(ftyp, box("meta", []byte{0, 0, 0, 0}, box("hdlr", make([]byte, 24)), box("iprp", box("ipco", props...)))...)
+}
+
+func ispe(w, h uint32) []byte { return box("ispe", []byte{0, 0, 0, 0}, be32(w), be32(h)) }
+func irot(angle byte) []byte  { return box("irot", []byte{angle}) }
+
+func TestAVIF(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want Info
+	}{
+		{"still (ffmpeg)", fixture(t, "still.avif"), Info{64, 48, 0}},
+		{"grid of 2x2 tiles (avifenc)", fixture(t, "grid.avif"), Info{128, 96, 0}},
+		{"turned by 90 degrees (avifenc --irot 1)", fixture(t, "rotated.avif"), Info{96, 128, 0}},
+		{"animated (ffmpeg)", fixture(t, "anim.avif"), Info{48, 32, 0}},
+		{"hand-made", avif("avifmif1", ispe(640, 480)), Info{640, 480, 0}},
+		{"grid: the largest", avif("mif1avif", ispe(512, 512), ispe(1000, 700), ispe(512, 512)), Info{1000, 700, 0}},
+		{"turned 270", avif("avif", ispe(640, 480), irot(3)), Info{480, 640, 0}},
+		{"turned 180", avif("avif", ispe(640, 480), irot(2)), Info{640, 480, 0}},
+		{"sequence without meta: its track", append(box("ftyp", []byte("avis"), be32(0), []byte("avis")), box("moov", mvhd(0, 1000, 500), box("trak", tkhd(0, 320, 240, identity)))...), Info{320, 240, 0}},
+		{"too wide to show", avif("avif", ispe(imagesize.MaxSide+1, 1)), Info{}},
+		{"too many pixels to show", avif("avif", ispe(9000, 9000)), Info{}},
+		{"zero height", avif("avif", ispe(640, 0)), Info{}},
+		{"no ispe", avif("avif"), Info{}},
+		{"ispe too short", avif("avif", box("ispe", []byte{0, 0, 0, 0}, be32(640))), Info{}},
+	} {
+		if got := probe(c.data, "image/avif"); got != c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDetectAVIF(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		head []byte
+		want bool
+	}{
+		{"still", fixture(t, "still.avif"), true},
+		{"animated", fixture(t, "anim.avif"), true},
+		{"compatible brand only", box("ftyp", []byte("mif1"), be32(0), []byte("mif1miafavif")), true},
+		{"major brand only", box("ftyp", []byte("avis"), be32(0)), true},
+		{"mp4", fixture(t, "faststart.mp4"), false},
+		{"HEIC", box("ftyp", []byte("heic"), be32(0), []byte("mif1heic")), false},
+		{"brand in the minor version", box("ftyp", []byte("mif1"), []byte("avif")), false},
+		{"brand after the ftyp box", append(box("ftyp", []byte("mif1"), be32(0)), "avif"...), false},
+		{"ftyp not first", append(box("free"), box("ftyp", []byte("avif"), be32(0))...), false},
+		{"ftyp too short", append(be32(12), "ftypavif"...), false},
+		{"ftyp cut", append(be32(0x20), "ftypmif1\x00\x00\x00\x00av"...), false},
+		{"cut after a brand", append(be32(0x20), "ftypmif1\x00\x00\x00\x00avif"...), true},
+		{"empty", nil, false},
+	} {
+		if got := DetectType(c.head) == "image/avif"; got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+}
+
 // ebml is an element with an 8-byte size.
 func ebml(id uint32, parts ...[]byte) []byte {
 	idb := be32(id)
@@ -281,6 +346,7 @@ func TestMalformed(t *testing.T) {
 		"audio/mp4":  fixture(t, "audio.m4a"),
 		"video/webm": fixture(t, "vp9.webm"),
 		"image/jpeg": withExif(jpegOf(t, 40, 30), 6, true),
+		"image/avif": fixture(t, "grid.avif"),
 	}
 	for ctype, data := range samples {
 		full := probe(data, ctype)
@@ -310,6 +376,9 @@ func TestMalformed(t *testing.T) {
 		{"unknown-size info", "video/webm", append(ebml(idEBML), unknownSize(idSegment, unknownSize(idInfo, ebmlFloat64(0x4489, 1)))...)},
 		{"pixel width of 9 bytes", "video/webm", webm(videoTrack(ebml(0xb0, make([]byte, 9)), ebmlUint(0xba, 1)))},
 		{"zero display height", "video/webm", webm(videoTrack(ebmlUint(0xb0, 4), ebmlUint(0xba, 4), ebmlUint(0x54b0, 4), ebmlUint(0x54ba, 0), ebmlUint(0x54b2, 3)))},
+		{"many empty boxes in ipco", "image/avif", avif("avif", bytes.Repeat(box("free"), 100000))},
+		{"meta too short for its version", "image/avif", append(box("ftyp", []byte("avif"), be32(0)), box("meta")...)},
+		{"ispe larger than ipco", "image/avif", append(box("ftyp", []byte("avif"), be32(0)), box("meta", be32(0), box("iprp", append(be32(8), "ipco"...), ispe(4, 4)))...)},
 		{"exif offset beyond the segment", "image/jpeg", func() []byte {
 			b := withExif(jpegOf(t, 4, 4), 6, false)
 			b[2+2+2+6+4+3] = 0xff // IFD0 offset
@@ -328,6 +397,17 @@ func FuzzMP4(f *testing.F) {
 	f.Add(mp4(mvhd(1, 1000, 10), box("trak", tkhd(1, 10, 10, turned90))))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if got := probe(data, "video/mp4"); got.Width < 0 || got.Height < 0 || got.Duration < 0 {
+			t.Fatal(got)
+		}
+	})
+}
+
+func FuzzAVIF(f *testing.F) {
+	f.Add(fixture(f, "grid.avif"))
+	f.Add(fixture(f, "anim.avif"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		DetectType(data)
+		if got := probe(data, "image/avif"); got.Width < 0 || got.Height < 0 || got.Duration != 0 {
 			t.Fatal(got)
 		}
 	})

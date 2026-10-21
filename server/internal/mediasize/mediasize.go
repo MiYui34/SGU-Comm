@@ -10,6 +10,8 @@ import (
 	"io"
 	"math"
 	"math/bits"
+	"mime"
+	"net/http"
 
 	"kallisti.chat/server/internal/imagesize"
 )
@@ -35,6 +37,8 @@ func Probe(r io.ReaderAt, size int64, ctype string) Info {
 	switch ctype {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":
 		i = picture(r, size, ctype == "image/jpeg")
+	case "image/avif":
+		i = (&walker{r: r, budget: maxHeaders}).avif(size)
 	case "video/mp4", "audio/mp4":
 		i = (&walker{r: r, budget: maxHeaders}).mp4(size)
 	case "video/webm":
@@ -224,6 +228,84 @@ func tkhdSize(b []byte) (w, h int) {
 }
 
 func abs(v int32) int64 { return max(int64(v), -int64(v)) }
+
+// DetectType is http.DetectContentType of a file's start without
+// parameters, and with AVIF, which it does not know.
+func DetectType(head []byte) string {
+	if isAVIF(head) {
+		return "image/avif"
+	}
+	t, _, _ := mime.ParseMediaType(http.DetectContentType(head))
+	return t
+}
+
+// isAVIF: head begins with an ftyp box with the brand avif (picture) or
+// avis (sequence), major or compatible.
+func isAVIF(head []byte) bool {
+	if len(head) < 16 || string(head[4:8]) != "ftyp" {
+		return false
+	}
+	end := min(int64(binary.BigEndian.Uint32(head)), int64(len(head)))
+	for at := int64(8); at+4 <= end; at += 4 {
+		if b := string(head[at : at+4]); at != 12 && (b == "avif" || b == "avis") { // 12: the minor version
+			return true
+		}
+	}
+	return false
+}
+
+// avif: the size from meta → iprp → ipco: the largest ispe (a grid's
+// tiles have their own), swapped if an irot turns it by 90 or 270
+// degrees; a sequence without one: its track's. Only sizes inline
+// pictures may have (see imagesize): one larger ispe refuses all.
+func (w *walker) avif(size int64) Info {
+	var i Info
+	turned, huge := false, false
+	w.boxes(0, size, func(typ string, start, end int64) bool {
+		if typ != "meta" {
+			return true
+		}
+		w.boxes(start+4, end, func(typ string, start, end int64) bool { // after version and flags
+			if typ != "iprp" {
+				return true
+			}
+			w.boxes(start, end, func(typ string, start, end int64) bool {
+				if typ != "ipco" {
+					return true
+				}
+				w.boxes(start, end, func(typ string, start, end int64) bool {
+					switch b := read(w.r, start, end, 12); {
+					case typ == "ispe" && len(b) == 12:
+						pw, ph := int64(binary.BigEndian.Uint32(b[4:])), int64(binary.BigEndian.Uint32(b[8:]))
+						huge = huge || pw > imagesize.MaxSide || ph > imagesize.MaxSide
+						if !huge && pw*ph > int64(i.Width*i.Height) {
+							i.Width, i.Height = int(pw), int(ph)
+						}
+					case typ == "irot" && len(b) > 0:
+						turned = turned || b[0]&1 == 1
+					}
+					return !huge
+				})
+				return false
+			})
+			return false
+		})
+		return false
+	})
+	if huge {
+		return Info{}
+	}
+	if i.Width == 0 {
+		i = w.mp4(size)
+	}
+	if turned {
+		i.Width, i.Height = i.Height, i.Width
+	}
+	if !imagesize.Within(i.Width, i.Height, imagesize.MaxSide, imagesize.MaxPixels) {
+		return Info{}
+	}
+	return Info{Width: i.Width, Height: i.Height}
+}
 
 // EBML ids (Matroska, WebM).
 const (

@@ -35,10 +35,16 @@ func Check(r io.Reader, maxSide, maxPixels int) error {
 // can be turned by their Exif orientation, see mediasize).
 func Size(r io.Reader, maxSide, maxPixels int) (w, h int, err error) {
 	c, _, err := image.DecodeConfig(r)
-	if err == nil && (c.Width > maxSide || c.Height > maxSide || c.Width*c.Height > maxPixels) {
+	if err == nil && !Within(c.Width, c.Height, maxSide, maxPixels) {
 		err = ErrTooLarge
 	}
 	return c.Width, c.Height, err
+}
+
+// Within: a width and height (from a header read elsewhere) are within
+// the limits.
+func Within(w, h, maxSide, maxPixels int) bool {
+	return w <= maxSide && h <= maxSide && w*h <= maxPixels
 }
 
 func Fits(r io.Reader, maxSide, maxPixels int) bool { return Check(r, maxSide, maxPixels) == nil }
