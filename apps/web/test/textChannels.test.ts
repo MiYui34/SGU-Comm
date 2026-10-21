@@ -12,6 +12,7 @@ import {
   reduceText,
   searchRequest,
   sendRequest,
+  sendAnswer,
   toChatMessage,
   unreadTextIds,
   autoSeen,
@@ -152,6 +153,29 @@ describe("requests", () => {
     expect(JSON.parse(sendRequest(2, "yes", undefined, 7))).toEqual({ type: "send", channel: 2, text: "yes", reply: 7 });
     expect(JSON.parse(sendRequest(2, "yes", undefined, 7, true))).toEqual({ type: "send", channel: 2, text: "yes", reply: 7, noPing: true });
     expect(JSON.parse(sendRequest(2, "no reply", undefined, undefined, true))).toEqual({ type: "send", channel: 2, text: "no reply" });
+    expect(JSON.parse(sendRequest(2, "", "k1", undefined, undefined, "n1"))).toEqual({ type: "send", channel: 2, text: "", upload: "k1", nonce: "n1" });
+  });
+});
+
+describe("sendAnswer", () => {
+  const m = { id: 1, channel: 2, author: "me", text: "", at: 0 };
+  it("reads the nonce of our own message", () => {
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: m, nonce: "n1" }))).toEqual({ type: "message", message: m, nonce: "n1" });
+    expect(parseServerEvent(JSON.stringify({ type: "message", message: m, nonce: 5 }))).toEqual({ type: "message", message: m });
+  });
+  it("confirms by the message with the nonce, refuses by an error, ignores the rest", () => {
+    expect(sendAnswer({ type: "message", message: m, nonce: "n1" }, "n1")).toEqual({});
+    expect(sendAnswer({ type: "message", message: m, nonce: "n2" }, "n1")).toBeNull();
+    expect(sendAnswer({ type: "message", message: m }, "n1")).toBeNull();
+    // A server without nonces: our upload's message.
+    const withFile = (url: string) => ({ ...m, upload: { url, name: "a.png", type: "image/png", size: 1 } });
+    expect(sendAnswer({ type: "message", message: withFile("/files/k1/a.png") }, "n1", "k1")).toEqual({});
+    expect(sendAnswer({ type: "message", message: withFile("/files/k10/a.png") }, "n1", "k1")).toBeNull();
+    expect(sendAnswer({ type: "message", message: withFile("/files/k1/a.png"), nonce: "n2" }, "n1", "k1")).toBeNull();
+    expect(sendAnswer({ type: "error", message: "Slow mode", slow: { channel: 2, until: 9 } }, "n1")).toEqual({ error: "Slow mode" });
+    expect(sendAnswer({ type: "error", message: "unknown upload" }, "n1")).toEqual({ error: "unknown upload" });
+    expect(sendAnswer({ type: "error", message: "no emoji", about: "manage" }, "n1")).toBeNull();
+    expect(sendAnswer({ type: "resync" }, "n1")).toBeNull();
   });
 });
 

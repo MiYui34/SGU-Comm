@@ -198,7 +198,8 @@ export type ServerEvent =
   | { type: "thread-archive"; seconds: number }
   | { type: "no-thread"; id: number }
   | { type: "history"; channel: number; messages: TextMessage[]; more: boolean }
-  | { type: "message"; message: TextMessage }
+  // nonce: on our own message, the one we sent it with (see sendAnswer).
+  | { type: "message"; message: TextMessage; nonce?: string }
   | { type: "message-edited"; message: TextMessage }
   // A message was pinned or unpinned (its pinned field says which).
   | { type: "message-pinned"; message: TextMessage }
@@ -636,6 +637,7 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ? { type: "history", channel: v.channel, messages: v.messages, more: v.more === true }
         : null;
     case "message":
+      return isMessage(v.message) ? { type: v.type, message: v.message, ...(isStr(v.nonce) ? { nonce: v.nonce } : {}) } : null;
     case "message-edited":
     case "message-pinned":
       return isMessage(v.message) ? { type: v.type, message: v.message } : null;
@@ -954,8 +956,29 @@ export const pageAnswered = (state: TextState, page: { channel: number; before: 
 export const historyRequest = (channel: number, before?: number) =>
   JSON.stringify(before === undefined ? { type: "history", channel } : { type: "history", channel, before });
 
-export const sendRequest = (channel: number, text: string, upload?: string, reply?: number, noPing?: boolean) =>
-  JSON.stringify({ type: "send", channel, text, ...(upload ? { upload } : {}), ...(reply ? { reply } : {}), ...(reply && noPing ? { noPing } : {}) });
+// nonce: our id for the send, the same on a retry (the server stores the
+// message once and confirms it with the nonce, see sendAnswer).
+export const sendRequest = (channel: number, text: string, upload?: string, reply?: number, noPing?: boolean, nonce?: string) =>
+  JSON.stringify({
+    type: "send",
+    channel,
+    text,
+    ...(upload ? { upload } : {}),
+    ...(reply ? { reply } : {}),
+    ...(reply && noPing ? { noPing } : {}),
+    ...(nonce ? { nonce } : {}),
+  });
+
+// The server's answer to a send with this nonce: our message with it
+// confirms it (from servers without nonces: the message with our upload,
+// its key is in the file's URL), an error (not about channel changes)
+// refuses it; null: not an answer.
+export const sendAnswer = (ev: ServerEvent, nonce: string, upload?: string): { error?: string } | null => {
+  if (ev.type === "error") return ev.about === "manage" ? null : { error: ev.message };
+  if (ev.type !== "message") return null;
+  const ours = ev.nonce === undefined ? !!upload && !!ev.message.upload?.url.startsWith(`/files/${upload}/`) : ev.nonce === nonce;
+  return ours ? {} : null;
+};
 
 export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" });
 // Custom emoji (admins and moderators; the server checks): a token to
