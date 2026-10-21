@@ -241,3 +241,4 @@
 - [x] [Phone: the member drawer pushes the chat aside when it opens](issues/member-drawer-jump.md)
 - [x] [Take over the fediverse avatar](issues/fedi-avatar.md)
 - [x] [Sending an attachment across a dropped connection](issues/send-after-reconnect.md)
+- [x] [A refresh keeps the open channel and voice](issues/refresh-keeps-place.md)
