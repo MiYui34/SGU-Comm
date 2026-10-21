@@ -56,10 +56,7 @@ export const fromRefs = (text: string, mine: readonly PersonalEmoji[], server: N
 
 // A picked emoji for the message box: one of ours as ":name:" when that
 // sends it again.
-export const composerEmoji = (emoji: string, mine: readonly PersonalEmoji[], server: Names) => {
-  const ref = parseRef(emoji);
-  return ref ? fromRefs(emoji, mine, server) : emoji;
-};
+export const composerEmoji = (emoji: string, mine: readonly PersonalEmoji[], server: Names) => (parseRef(emoji) ? fromRefs(emoji, mine, server) : emoji);
 
 // For the picker and the ":" suggestions: our emoji, as references.
 export const personalEntries = (mine: readonly PersonalEmoji[]): EmojiEntry[] =>

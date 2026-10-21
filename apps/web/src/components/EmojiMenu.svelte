@@ -30,6 +30,7 @@
   const actions = $derived(emojiActions(emoji, custom(), { add: !!onAdd, remove: !!onRemove }));
   let name = $state(untrack(() => actions?.add ?? ""));
   let confirming = $state(false);
+  let added = $state(false);
   const save = createSave();
 
   const add = (e: SubmitEvent) => {
@@ -39,6 +40,7 @@
       const problem = personalFormError(n, null, custom().mine, custom().urls, false);
       if (problem) throw new Error(problem);
       await onAdd?.(emoji, n);
+      added = true; // a server emoji stays "not ours"
     });
   };
   const remove = () => save.run(async () => (await onRemove?.(emoji), onClose()));
@@ -55,7 +57,7 @@
     </div>
     {#if onAdd && (actions.add !== null || save.state.phase !== "idle")}
       <form onsubmit={add}>
-        {#if actions.add !== null}
+        {#if actions.add !== null && !added}
           <input bind:value={name} aria-label="Name in your emoji" maxlength="32" />
           <button type="submit" class="primary" disabled={save.busy}>{busyLabel(save.state, "Add to my emoji", "Adding…")}</button>
         {/if}

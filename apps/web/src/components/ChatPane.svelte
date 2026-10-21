@@ -327,7 +327,7 @@
     if (!returned || returned.n <= returnedSeen) return;
     returnedSeen = returned.n;
     const back = returned.text;
-    untrack(() => (draft = refusedDraft(draft, back)));
+    untrack(() => (draft = refusedDraft(draft, fromRefs(back, custom.mine, custom.urls))));
   });
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
@@ -519,9 +519,10 @@
   let emojiMenu = $state<{ x: number; y: number; emoji: string } | null>(null);
   const openEmojiMenu = (emoji: string, e: MouseEvent) => {
     const actions = emojiActions(emoji, custom, { add: !!onAddEmoji, remove: !!onRemoveEmoji });
-    if (!actions || (actions.add === null && actions.remove === null)) return;
+    if (!actions || (actions.add === null && actions.remove === null)) return false;
     e.preventDefault();
     emojiMenu = { x: e.clientX, y: e.clientY, emoji };
+    return true;
   };
   const mineOf = (m: ChatMessage | DisplayMessage, emoji: string) =>
     !!("reactions" in m && m.reactions?.some((r) => sameEmoji(r.emoji, emoji) && reactedBy(r, myId)));
@@ -591,8 +592,8 @@
     const text = "source" in m && m.source ? m.source.text : htmlToText(m.text);
     return [
       ...(may && canReply ? [{ label: "Reply", icon: "reply" as const, run: done(() => startReply(m)) }] : []),
-      ...(may && canThread(may.id) ? [{ label: "Create thread", icon: "thread" as const, run: done(() => onCreateThread?.(may.id, text)) }] : []),
-      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(text, "Text copied")) }] : []),
+      ...(may && canThread(may.id) ? [{ label: "Create thread", icon: "thread" as const, run: done(() => onCreateThread?.(may.id, refsAsNames(text))) }] : []),
+      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(refsAsNames(text), "Text copied")) }] : []),
       ...(may && linkTo ? [{ label: "Copy link", icon: "copy" as const, run: done(() => copy(linkTo(may.id), "Link copied")) }] : []),
       ...(may?.canPin
         ? [{ label: may.pinned ? "Unpin message" : "Pin message", icon: "pin" as const, run: done(() => onPin?.(may.id, !may.pinned)) }]
@@ -1159,8 +1160,9 @@
       use:measure={"source" in m && m.source ? null : key}
       onfocusin={(e) => long && !open && toggleLong(key, e.currentTarget.closest("li"), true)}
       onclick={(e) => {
+        // Not in a hidden spoiler: that click shows it.
         const custom = (e.target as Element).closest?.("img.emoji.custom[data-emoji]");
-        if (custom instanceof HTMLElement) openEmojiMenu(custom.dataset.emoji!, e);
+        if (custom instanceof HTMLElement && !custom.closest(".spoiler:not(.shown)") && openEmojiMenu(custom.dataset.emoji!, e)) return e.stopPropagation();
         const pill = (e.target as Element).closest?.(".mention");
         const name = pill?.textContent?.slice(1) ?? "";
         if (pill instanceof HTMLElement && onMention && name !== "everyone" && name !== "here") onMention(name, pill, e);
@@ -1267,7 +1269,7 @@
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
           {/if}
           {#if canThread(id)}
-            <button type="button" aria-label="Create thread" title="Create thread" onclick={() => onCreateThread?.(id, "source" in m && m.source ? m.source.text : "")}
+            <button type="button" aria-label="Create thread" title="Create thread" onclick={() => onCreateThread?.(id, "source" in m && m.source ? refsAsNames(m.source.text) : "")}
               >Thread</button
             >
           {/if}
