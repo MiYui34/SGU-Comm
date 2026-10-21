@@ -12,6 +12,8 @@
     account,
     onAccountChange,
     onConnect,
+    fediSignup = false,
+    onFediSignupDone,
     desktop = null,
     certificate = null,
     onTrust,
@@ -31,6 +33,10 @@
     account: Account | null;
     onAccountChange: (account: Account | null) => void;
     onConnect: (c: Credentials) => void;
+    // Back from a fediverse login without an account here: choose a name
+    // (see lib/fedi). onFediSignupDone: made, or given up.
+    fediSignup?: boolean;
+    onFediSignupDone?: () => void;
   } = $props();
 
   type Mode = "guest" | "login" | "create";
@@ -102,8 +108,56 @@
       // A Mumble registration (SuperUser, for example) logs in to Mumble with
       // its password.
       if (result.mumble) return connectAs(result.name, false, pw);
-      onAccountChange({ name: result.name, temporary: false });
+      // With its password state and fediverse link, for the settings.
+      onAccountChange((await api.me()) ?? { name: result.name, temporary: false });
       connectAs(result.name, true);
+    } catch (err) {
+      apiError = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  };
+
+  // Fediverse logins: the server's switch; the instance from last time.
+  let fediOn = $state(false);
+  $effect(() => {
+    if (!desktop) void api.fediEnabled().then((on) => (fediOn = on));
+  });
+  let instance = $state(safeGet(localStorage, "fediInstance") ?? "");
+  const fediLogin = async (event: SubmitEvent) => {
+    event.preventDefault();
+    if (!instance.trim()) return;
+    busy = true;
+    apiError = null;
+    try {
+      const url = await api.fediStart(instance.trim());
+      safeSet(localStorage, "fediInstance", instance.trim());
+      location.assign(url); // to the instance, and back to the server
+    } catch (err) {
+      apiError = err instanceof Error ? err.message : String(err);
+      busy = false;
+    }
+  };
+  // The name step: the server suggests the fediverse user name.
+  let signup = $state<{ name: string; handle: string } | null | undefined>(undefined);
+  $effect(() => {
+    if (fediSignup && signup === undefined)
+      void api.fediSignup().then((s) => {
+        signup = s;
+        if (s) username = s.name;
+      });
+  });
+  const createFromFedi = async (event: SubmitEvent) => {
+    event.preventDefault();
+    const name = username.trim();
+    if (!name || !signup) return;
+    busy = true;
+    apiError = null;
+    try {
+      const made = await api.fediCreate(name, await prove());
+      onAccountChange({ name: made, temporary: false, password: false, fedi: { handle: signup.handle, public: false } });
+      onFediSignupDone?.();
+      connectAs(made, true);
     } catch (err) {
       apiError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -156,6 +210,27 @@
       <button class="primary" onclick={() => connectAs(account.name, true)}>Try again</button>
       <button class="link" onclick={logout}>Log out</button>
     </div>
+  {:else if fediSignup}
+    {#if signup}
+      <form class="card" onsubmit={createFromFedi}>
+        <h1>Choose your name</h1>
+        <p class="sub">Welcome, <strong>{signup.handle}</strong>. Choose the name people see here.</p>
+        <label>
+          Name
+          <input bind:value={username} required maxlength="32" autocomplete="username" />
+        </label>
+        {#if apiError}<p class="error" role="alert">{apiError}</p>{/if}
+        {#if checking}<p class="hint" role="status">Checking your browser…</p>{/if}
+        <button class="primary" type="submit" disabled={busy}>Create account</button>
+        <button type="button" class="link" onclick={onFediSignupDone}>Cancel</button>
+      </form>
+    {:else}
+      <div class="card">
+        <h1>Log in with the fediverse</h1>
+        <p class="sub" role="status">{signup === null ? "The fediverse login expired. Please try again." : "Loading…"}</p>
+        {#if signup === null}<button class="primary" onclick={onFediSignupDone}>Back</button>{/if}
+      </div>
+    {/if}
   {:else}
     {#if desktop && !desktop.kind}
     <form class="card" onsubmit={pickServer}>
@@ -224,6 +299,16 @@
       </button>
     </form>
     {/if}
+    {#if fediOn && !desktop}
+      <form class="card fedi" onsubmit={fediLogin}>
+        <label>
+          Or use your fediverse account
+          <input bind:value={instance} placeholder="mastodon.social or @you@mastodon.social" autocomplete="url" aria-describedby="fedi-hint" />
+        </label>
+        <p class="hint" id="fedi-hint">Mastodon, Pleroma, Akkoma, GoToSocial and others. New here? You choose a name next.</p>
+        <button class="secondary" type="submit" disabled={busy || !instance.trim()}>Log in with the fediverse</button>
+      </form>
+    {/if}
   {/if}
 </div>
 
@@ -248,8 +333,12 @@
     font-size: 14px;
   }
   .screen {
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+    justify-content: safe center;
+    overflow-y: auto;
     height: 100%;
     background: var(--bg-rail);
   }
@@ -302,6 +391,16 @@
     background: var(--accent-strong);
     color: white;
     font-weight: 600;
+  }
+  .secondary {
+    padding: 10px;
+    border-radius: 4px;
+    background: var(--bg-rail);
+    font-weight: 600;
+  }
+  .card.fedi {
+    gap: 10px;
+    padding: 20px 32px;
   }
   .link {
     color: var(--text-muted);

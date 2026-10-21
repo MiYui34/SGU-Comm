@@ -39,6 +39,19 @@ brackets.
 - `LINK_PREVIEWS=0`: the server fetches no pages for link previews. By
   default it fetches the first link of a message, only from public
   addresses, so linked sites see the server's address.
+- `FEDI_LOGIN=0`: no "Log in with the fediverse". By default users can
+  log in, create accounts and link accounts with a fediverse account
+  (Mastodon API: Mastodon, Pleroma/Akkoma, GoToSocial, ...). It needs the
+  server's public address: the first `ALLOWED_ORIGINS` entry (not `*`),
+  where instances send the browser back to (`/api/fedi/callback`). The
+  server contacts the instance users name, only on public addresses and
+  HTTPS. A linked fediverse account logs in to its Kallisti account, so
+  the admins of its instance could too: users should link accounts only
+  on instances they trust.
+- `FEDI_INSECURE_DEV_INSTANCES=1`: development and tests only. Fediverse
+  instances may also be local addresses and plain HTTP (for a fake test
+  instance, see `server/cmd/fakefedi`). Never on a public server: users
+  could make the server send requests into its local network.
 - `FFMPEG_PATH` (none: `ffmpeg` on `PATH`) and `MEDIA_PREVIEWS=0`: with
   ffmpeg, videos get a thumbnail (a frame at 1 s, at most 480 px) and large
   pictures (over 1600 px on a side, or over 1 MB) a smaller copy for the

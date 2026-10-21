@@ -29,6 +29,8 @@
   import { loadCaptureWorklet, startAfter } from "./lib/voice/worklet";
   import { settings } from "./lib/settings.svelte";
   import { themeOf } from "./lib/settings";
+  import { fediResult, withoutFediResult } from "./lib/fedi";
+  import Toast from "./components/Toast.svelte";
 
   // The colour theme (see app.css), also before the login.
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
@@ -64,7 +66,6 @@
     // Still "checking" until the connection exists (start is async).
     void start({ username: acc.name, account: true, ...(desktop && { server: desktopServer }) }).finally(() => (checking = false));
   };
-  if (!isDesktop()) void untrack(() => api).me().then(autoLogin);
   // An account connection failed (for example an expired session): ask the
   // server again, so the login form comes back instead of a dead end.
   $effect(() => {
@@ -91,6 +92,25 @@
 
   // Shown on the login screen after leaving (for example a failed logout).
   let loginNote = $state<string | null>(null);
+  // Back from a fediverse login (see lib/fedi): its result, once (a reload
+  // must not show it again).
+  const fediBack = isDesktop() ? null : fediResult(location.search);
+  if (fediBack) history.replaceState(history.state, "", withoutFediResult(location.pathname + location.search + location.hash));
+  let fediSignup = $state(fediBack?.kind === "register");
+  let fediNotice = $state<string | null>(null);
+  if (!isDesktop())
+    void untrack(() => api)
+      .me()
+      .then((acc) => {
+        // Logged in: a notice over the app (and no name step); else errors
+        // on the login screen.
+        if (acc) fediSignup = false;
+        if (fediBack && fediBack.kind !== "register") {
+          if (acc) fediNotice = fediBack.text;
+          else if (fediBack.kind === "error") loginNote = fediBack.text;
+        }
+        autoLogin(acc);
+      });
   const leave = (note: string | null) => {
     loginNote = note;
     stopReconnecting();
@@ -130,7 +150,25 @@
     },
     changePassword: async (old, next) => {
       await api.changePassword(old, next);
-      if (account?.temporary) account = { ...account, temporary: false }; // kept now
+      if (account) account = { ...account, temporary: false, password: true }; // a guest account is kept now
+    },
+    get hasPassword() {
+      return account?.password !== false;
+    },
+    get fedi() {
+      return account?.fedi ?? null;
+    },
+    fediEnabled: () => api.fediEnabled(),
+    fediLink: async (instance, password) => {
+      location.assign(await api.fediStart(instance, password)); // back with ?fedi=linked
+    },
+    fediUnlink: async () => {
+      await api.fediUnlink();
+      if (account) account = { ...account, fedi: null };
+    },
+    fediPublic: async (on) => {
+      await api.fediPublic(on);
+      if (account?.fedi) account = { ...account, fedi: { ...account.fedi, public: on } };
     },
     get whipUrl() {
       return api.whipUrl;
@@ -358,6 +396,8 @@
     desktop={desktop ? { server: desktopServer, kind: desktopKind, onServer: chooseServer, onChangeServer: changeServer } : null}
     onAccountChange={(acc) => (account = acc)}
     onConnect={start}
+    {fediSignup}
+    onFediSignupDone={() => (fediSignup = false)}
   />
 {:else if connection.state.status === "synced"}
   {#if lost}
@@ -375,6 +415,8 @@
 {:else}
   <div class="connecting">Connecting…</div>
 {/if}
+
+{#if fediNotice}<Toast text={fediNotice} />{/if}
 
 {#if updateReady && !updateClosed}
   <div class="update" role="status">

@@ -14,6 +14,7 @@
   import { busyLabel } from "../lib/saveFeedback";
   import { createSave } from "../lib/saveFeedback.svelte";
   import SaveStatus from "./SaveStatus.svelte";
+  import FediAccount from "./FediAccount.svelte";
 
   let {
     settings,
@@ -128,9 +129,13 @@
     event.preventDefault();
     passwordNote = null;
     passwordSave.run(async () => {
-      const kept = account?.temporary;
+      const [kept, first] = [account?.temporary, account?.hasPassword === false];
       await account?.changePassword(oldPassword, newPassword);
-      passwordNote = kept ? "Password set: your account stays." : "Password changed. Other devices are logged out.";
+      passwordNote = kept
+        ? "Password set: your account stays."
+        : first
+          ? "Password set: you can also log in with your name. Other devices are logged out."
+          : "Password changed. Other devices are logged out.";
       oldPassword = newPassword = "";
     });
   };
@@ -450,6 +455,9 @@
           This is a guest account: it is deleted a day after your last visit. With a password it stays, and you can log
           in on other devices.
         </p>
+      {:else if !account.hasPassword}
+        <span class="label">Set a password</span>
+        <p class="hint">You log in with your fediverse account. A password also works in Mumble apps, with your name.</p>
       {:else}
         <span class="label">Change password</span>
         <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
@@ -458,11 +466,12 @@
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
         <button type="submit" class="secondary" disabled={passwordSave.busy}>
-          {busyLabel(passwordSave.state, account.temporary ? "Set password" : "Change password")}
+          {busyLabel(passwordSave.state, account.temporary || !account.hasPassword ? "Set password" : "Change password")}
         </button>
         <SaveStatus save={passwordSave.state} done="" />
       </div>
     </form>
+    <FediAccount {account} />
     <div class="account">
       <span class="label">Log out</span>
       {#if account.temporary}
