@@ -185,7 +185,7 @@ func Open(path string) (*Store, error) {
 	// One writer at a time is all SQLite allows anyway, and an in-memory
 	// database exists only for one connection.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable + ";" + categoriesTable + ";" + threadsTable); err != nil {
+	if _, err := db.Exec(schema + reactionsTable + ";" + statusTable + ";" + emojiTable + ";" + invitesTable + ";" + pushTables + ";" + streamKeysTable + ";" + categoriesTable + ";" + threadsTable + ";" + fediTables); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
@@ -1205,7 +1205,7 @@ var (
 type Account struct {
 	ID           int64
 	Name         string
-	PasswordHash string // empty for temporary accounts
+	PasswordHash string // empty for temporary accounts and fediverse-only ones
 	CertPEM      []byte
 	KeyPEM       []byte
 	CreatedAt    time.Time
@@ -1215,7 +1215,13 @@ type Account struct {
 }
 
 func (s *Store) CreateAccount(a Account, at time.Time) (Account, error) {
-	res, err := s.db.Exec(`INSERT INTO accounts (name, name_key, password_hash, cert_pem, key_pem, created_at, temporary) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	return createAccount(s.db, a, at)
+}
+
+func createAccount(db interface {
+	Exec(string, ...any) (sql.Result, error)
+}, a Account, at time.Time) (Account, error) {
+	res, err := db.Exec(`INSERT INTO accounts (name, name_key, password_hash, cert_pem, key_pem, created_at, temporary) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		a.Name, names.Key(a.Name), a.PasswordHash, a.CertPEM, a.KeyPEM, at.UnixMilli(), a.Temporary)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
