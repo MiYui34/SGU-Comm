@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
   import ProfilePicture from "./ProfilePicture.svelte";
+  import EmojiList from "./EmojiList.svelte";
   import { BIO_MAX, bioToSave } from "../lib/bio";
   import { notifier, permissionNote, type Permission } from "../lib/notify";
   import { browserPushSupport, pushIsOn, turnOffPush, turnOnPush, type PushPrefs } from "../lib/push";
@@ -29,6 +30,7 @@
     push,
     profile,
     bio,
+    emoji,
   }: {
     settings: Settings;
     level: number;
@@ -53,6 +55,8 @@
     profile?: ComponentProps<typeof ProfilePicture>;
     // Our bio as plain text (loading: a long one is not here yet).
     bio?: { text: string; loading: boolean; onSave: (text: string) => void };
+    // Our personal emoji (registered users but guests).
+    emoji?: ComponentProps<typeof EmojiList>;
   } = $props();
 
   // Saved when the field loses focus or the settings close. The draft
@@ -168,6 +172,17 @@
       <textarea rows="3" maxlength={BIO_MAX} disabled={bio.loading && !bioText} bind:value={bioDraft} onblur={saveBio}></textarea>
       <span class="hint">Everyone on the server sees it, in Mumble apps too.</span>
     </label>
+  {/if}
+
+  {#if emoji}
+    <section class="my-emoji" aria-labelledby="my-emoji-title">
+      <h3 id="my-emoji-title">My emoji</h3>
+      <p class="hint">
+        Type :name: to use one. Everyone sees them in your messages and reactions; Mumble apps show :name:. To add one from a
+        message, click it.
+      </p>
+      <EmojiList {...emoji} />
+    </section>
   {/if}
 
   <label>
@@ -654,5 +669,14 @@
     font-weight: normal;
     font-size: 12px;
     color: var(--text-faint);
+  }
+  .my-emoji {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .my-emoji h3 {
+    margin: 0;
+    font-size: 14px;
   }
 </style>

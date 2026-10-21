@@ -27,6 +27,7 @@
   import type { Connection } from "../lib/connection.svelte";
   import { onlinePicture, pictureLookup, setAvatarPictures } from "../lib/avatar";
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
+  import { personalFormError } from "../lib/personalEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, toggleSide, type Panel, type Side } from "../lib/mobile";
@@ -985,6 +986,8 @@
   // A guest that may only read: a way to an account instead of the message
   // box (a guest account gets a password in the settings).
   const guestAccount = $derived(account?.temporary ?? false);
+  // Personal emoji: registered users but guests (the server checks again).
+  const mayAddEmoji = $derived(text.available && me?.userId != null && !guestAccount);
   const readOnly = $derived(!mayWrite(server, text, guestAccount));
   const loginToWrite = $derived(
     readOnly ? { note: readOnlyNote(guestAccount), action: loginAction(guestAccount), onAction: guestAccount ? () => (showSettings = true) : onLogIn } : null,
@@ -1634,6 +1637,16 @@
       loading: commentMissing(me),
       onSave: connection.setComment,
     }}
+    emoji={mayAddEmoji
+      ? {
+          list: customEmoji.mine,
+          formError: (name, file) => personalFormError(name, file, text.myEmoji, customEmoji.urls),
+          onAdd: connection.uploadUserEmoji,
+          onDelete: connection.deleteUserEmoji,
+          onRename: connection.renameUserEmoji,
+          empty: "You have no emoji of your own yet.",
+        }
+      : undefined}
     onClose={() => (showSettings = false)}
   />
 {/if}

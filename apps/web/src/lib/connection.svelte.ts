@@ -26,6 +26,11 @@ import {
 } from "@kallisti/protocol";
 import {
   deleteEmojiRequest,
+  addUserEmojiRequest,
+  deleteUserEmojiRequest,
+  removeEmojiImageRequest,
+  renameUserEmojiRequest,
+  userEmojiTokenRequest,
   deleteMessageRequest,
   editMessageRequest,
   emojiTokenRequest,
@@ -440,6 +445,26 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     },
     deleteEmoji: (name: string) =>
       wait({ via: "text", confirms: (ev) => ev.type === "emoji" && !ev.emoji.some((e) => e.name === name) }, () => ws.send(deleteEmojiRequest(name))),
+    // Our personal emoji (see lib/personalEmoji): a new image, one from a
+    // message (":name:" or "<:name:id>"), rename and delete; the list
+    // comes as an event. Moderators remove an image everywhere.
+    uploadUserEmoji: async (name: string, file: File): Promise<void> => {
+      await upload(userEmojiTokenRequest(name), "/api/emoji/personal", file, true);
+    },
+    addUserEmoji: (emoji: string, name: string) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "my-emoji" && ev.emoji.some((e) => e.name === name) }, () =>
+        ws.send(addUserEmojiRequest(emoji, name)),
+      ),
+    renameUserEmoji: (name: string, to: string) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "my-emoji" && ev.emoji.some((e) => e.name === to) }, () =>
+        ws.send(renameUserEmojiRequest(name, to)),
+      ),
+    deleteUserEmoji: (name: string) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "my-emoji" && !ev.emoji.some((e) => e.name === name) }, () =>
+        ws.send(deleteUserEmojiRequest(name)),
+      ),
+    removeEmojiImage: (emoji: string, id: number) =>
+      wait({ via: "text", confirms: (ev) => ev.type === "removed-emoji" && ev.ids.includes(id) }, () => ws.send(removeEmojiImageRequest(emoji))),
     playback,
     capture,
     streams,
