@@ -76,7 +76,7 @@
     </footer>
   </form>
   {#if picker}
-    <EmojiPicker anchor={picker} onPick={pick} onClose={() => (picker = null)} />
+    <EmojiPicker anchor={picker} personal={false} onPick={pick} onClose={() => (picker = null)} />
   {/if}
 </dialog>
 

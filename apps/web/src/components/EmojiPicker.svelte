@@ -5,25 +5,29 @@
   import { gridMove, loadEmojiData, normalEmoji, searchEmoji, withTone, type EmojiData, type EmojiEntry } from "../lib/emojiPicker";
   import { recentEmoji, skinTone } from "../lib/emojiPrefs.svelte";
   import { customEmojiFor, customEntries } from "../lib/customEmoji";
+  import { personalEntries } from "../lib/personalEmoji";
 
   // All emoji: search, recently used, categories, skin tone. A popup at
   // `anchor` (the button that opened it); on phones a sheet at the bottom.
   // onPick gets the emoji in the server's form (normalEmoji); the caller
   // adds it to the recent ones. selected: emoji to mark (the user's
   // reactions). The cells are reached with the arrow keys, Tab stays in
-  // the dialog.
+  // the dialog. personal: offer our personal emoji ("<:name:id>"; not
+  // for statuses).
   let {
     anchor,
     onPick,
     onClose,
     selected = () => false,
     label = "Emoji",
+    personal = true,
   }: {
     anchor: DOMRect;
     onPick: (emoji: string) => void;
     onClose: () => void;
     selected?: (emoji: string) => boolean;
     label?: string;
+    personal?: boolean;
   } = $props();
 
   // As in the CSS.
@@ -39,26 +43,32 @@
   let search: HTMLInputElement | undefined = $state();
   let grid: HTMLElement | undefined = $state();
 
-  // The server's custom emoji (":name:"), first in the list and in results.
+  // The server's custom emoji (":name:") and ours, first in the list and
+  // in results.
   const customEmoji = customEmojiFor();
   const custom = $derived(customEntries(customEmoji().list));
+  const mine = $derived(personal ? personalEntries(customEmoji().mine) : []);
   // Recent emoji show as they were used (with their skin tone, if any);
-  // custom ones only while this server has them.
+  // custom ones only while this server has them, personal ones while ours.
   const byEmoji = $derived(
     new Map([
       ...custom.map((e) => [e.emoji, e] as const),
+      ...mine.map((e) => [e.emoji, e] as const),
       ...(data?.emoji ?? []).flatMap((e) =>
         [e.emoji, ...(e.skins ?? [])].map((emoji) => [normalEmoji(emoji), { ...e, emoji, skins: undefined }] as const),
       ),
     ]),
   );
-  const results = $derived(data && query.trim() ? [...searchEmoji(custom, query), ...searchEmoji(data.emoji, query)] : null);
+  const results = $derived(
+    data && query.trim() ? [...searchEmoji(custom, query), ...searchEmoji(mine, query), ...searchEmoji(data.emoji, query)] : null,
+  );
   const sections = $derived.by(() => {
     if (!data) return [];
     const recent = recentEmoji.value.flatMap((e) => byEmoji.get(normalEmoji(e)) ?? []);
     const groups = data.groups.map((g, i) => ({ ...g, emoji: data!.emoji.filter((e) => e.group === i) }));
     return [
       ...(custom.length ? [{ name: "Server", icon: custom[0]!.emoji, emoji: custom }] : []),
+      ...(mine.length ? [{ name: "My emoji", icon: mine[0]!.emoji, emoji: mine }] : []),
       ...(recent.length ? [{ name: "Recently used", icon: "🕒", emoji: recent }] : []),
       ...groups,
     ];

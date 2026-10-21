@@ -9,6 +9,7 @@ import { isMentionAll, type MentionAll } from "./mentions";
 import type { SearchQuery } from "./search";
 import { parsePresence, type PresenceView } from "./presence";
 import { parseCustomEmoji, type CustomEmoji } from "./customEmoji";
+import { parsePersonalEmoji, parseRemovedEmoji, type PersonalEmoji } from "./personalEmoji";
 import type { Invite } from "./invites";
 import type { Members, Online } from "./members";
 import { parseConnections, type Connection } from "./connections";
@@ -119,6 +120,9 @@ export type ServerEvent =
       statuses?: SessionStatus[];
       ownStatus?: PresenceView;
       emoji?: CustomEmoji[];
+      // Our personal emoji, and the images moderators removed.
+      myEmoji?: PersonalEmoji[];
+      removedEmoji?: number[];
       // Registered users but guest accounts (see lib/members); picture: a
       // saved one at /api/avatars/<name>.
       members?: (Peer & { picture?: boolean })[];
@@ -143,6 +147,10 @@ export type ServerEvent =
   | ({ type: "own-status" } & PresenceView)
   // The custom emoji changed.
   | { type: "emoji"; emoji: CustomEmoji[] }
+  // Our personal emoji changed (here or on another device); a moderator
+  // removed an image (all removed ones).
+  | { type: "my-emoji"; emoji: PersonalEmoji[] }
+  | { type: "removed-emoji"; ids: number[] }
   | ({ type: "roles" } & Roles)
   // A direct chat with a user (asked for, or a new one's first message).
   | ({ type: "dm" } & DirectChat)
@@ -286,6 +294,9 @@ export type TextState = {
   ownStatus: PresenceView;
   // Custom server emoji (image URLs relative to the server).
   emoji: readonly CustomEmoji[];
+  // Our personal emoji, and the removed images (by id).
+  myEmoji: readonly PersonalEmoji[];
+  removedEmoji: readonly number[];
   // Registered users, and the bios of offline ones once asked for (by
   // user id).
   members: Members;
@@ -340,6 +351,8 @@ export const initialTextState: TextState = {
   statuses: {},
   ownStatus: { status: "online" },
   emoji: [],
+  myEmoji: [],
+  removedEmoji: [],
   members: {},
   pictures: new Set(),
   online: {},
@@ -491,6 +504,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
       const statuses = Array.isArray(v.statuses) ? v.statuses.flatMap((s) => parseSessionStatus(s) ?? []) : undefined;
       const ownStatus = parsePresence(v.ownStatus);
       const emoji = parseCustomEmoji(v.emoji);
+      const myEmoji = parsePersonalEmoji(v.myEmoji);
+      const removedEmoji = parseRemovedEmoji(v.removedEmoji);
       return {
         type: "ready",
         channels: v.channels,
@@ -513,6 +528,8 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         ...(statuses ? { statuses } : {}),
         ...(ownStatus ? { ownStatus } : {}),
         ...(emoji ? { emoji } : {}),
+        ...(myEmoji ? { myEmoji } : {}),
+        ...(removedEmoji ? { removedEmoji } : {}),
         ...(Array.isArray(v.members) && v.members.every(isSpeaker) ? { members: v.members } : {}),
         ...(isObj(v.online) && Object.values(v.online).every(isNum) ? { online: v.online as Online } : {}),
         ...(isThreads(v.threads) ? { threads: v.threads } : {}),
@@ -531,6 +548,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
     case "emoji": {
       const emoji = parseCustomEmoji(v.emoji);
       return emoji && { type: "emoji", emoji };
+    }
+    case "my-emoji": {
+      const emoji = parsePersonalEmoji(v.emoji);
+      return emoji && { type: "my-emoji", emoji };
+    }
+    case "removed-emoji": {
+      const ids = parseRemovedEmoji(v.ids);
+      return ids && { type: "removed-emoji", ids };
     }
     case "roles": {
       const roles = parseRoles(v);
@@ -693,6 +718,8 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
         avatars: event.avatars === true,
         roles: event.roles ?? initialTextState.roles,
         emoji: event.emoji ?? [],
+        myEmoji: event.myEmoji ?? [],
+        removedEmoji: event.removedEmoji ?? [],
         members: Object.fromEntries((event.members ?? []).map((p) => [p.id, p.name])),
         pictures: new Set((event.members ?? []).flatMap((p) => (p.picture === true ? [p.id] : []))),
         online: event.online ?? {},
@@ -726,6 +753,10 @@ export const reduceText = (state: TextState, event: ServerEvent): TextState => {
       return { ...state, roles: { admins: event.admins, moderators: event.moderators, ...(event.channelMods ? { channelMods: event.channelMods } : {}) } };
     case "emoji":
       return { ...state, emoji: event.emoji };
+    case "my-emoji":
+      return { ...state, myEmoji: event.emoji };
+    case "removed-emoji":
+      return { ...state, removedEmoji: event.ids };
     case "member": {
       if ("picture" in event) return { ...state, pictures: toggled(state.pictures, event.id, event.picture) };
       const { [event.id]: _, ...rest } = state.members;
@@ -931,6 +962,14 @@ export const uploadTokenRequest = () => JSON.stringify({ type: "upload-token" })
 // upload one, and deleting one.
 export const emojiTokenRequest = (name: string) => JSON.stringify({ type: "emoji-token", name });
 export const deleteEmojiRequest = (name: string) => JSON.stringify({ type: "delete-emoji", name });
+// Personal emoji (registered users): a token to upload a new one, one
+// from a message (":name:" or "<:name:id>") under our name, rename and
+// delete; moderators remove an image everywhere.
+export const userEmojiTokenRequest = (name: string) => JSON.stringify({ type: "user-emoji-token", name });
+export const addUserEmojiRequest = (emoji: string, name: string) => JSON.stringify({ type: "add-user-emoji", emoji, name });
+export const renameUserEmojiRequest = (name: string, to: string) => JSON.stringify({ type: "rename-user-emoji", name, to });
+export const deleteUserEmojiRequest = (name: string) => JSON.stringify({ type: "delete-user-emoji", name });
+export const removeEmojiImageRequest = (emoji: string) => JSON.stringify({ type: "remove-emoji-image", emoji });
 
 export const voiceChatRequest = (voice: number) => JSON.stringify({ type: "voice-chat", voice });
 

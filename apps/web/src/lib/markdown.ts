@@ -1,4 +1,4 @@
-import { CUSTOM_NAME } from "./customEmoji";
+import { CUSTOM_NAME, PERSONAL_REF, refsAsNames } from "./customEmoji";
 
 // A small Markdown subset for chat messages, on text that is already
 // escaped: the only tags in the result are the ones made here.
@@ -21,7 +21,8 @@ export const linkify = (escaped: string) =>
   });
 
 const NUL = "\u0000";
-const CUSTOM_EMOJI = new RegExp(`:${CUSTOM_NAME}:`, "g");
+// Server emoji, and personal ones (escaped: "&lt;:name:id&gt;").
+const CUSTOM_EMOJI = new RegExp(`${PERSONAL_REF.replace("<", "&lt;").replace(">", "&gt;")}|:${CUSTOM_NAME}:`, "g");
 
 // ||text|| (also over lines): hidden until clicked (see ChatPane).
 const SPOILER = /\|\|([^|][\s\S]*?)\|\|/g;
@@ -31,6 +32,8 @@ const SPOILER_HTML = '<span class="spoiler" role="button" tabindex="0" aria-expa
 // search results). Also an open spoiler at the end: the server cuts reply
 // quotes.
 export const hideSpoilers = (text: string) => text.replace(SPOILER, "▒▒▒▒").replace(/(?<!\|)\|\|[^|][\s\S]*$/, "▒▒▒▒");
+// The same, with personal emoji as ":name:".
+export const previewText = (text: string) => refsAsNames(hideSpoilers(text));
 // Links in spoilers do not count for link previews (as on the server).
 export const withoutSpoilers = (text: string) => text.replace(SPOILER, " ");
 

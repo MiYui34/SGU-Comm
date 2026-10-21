@@ -101,16 +101,18 @@ func run() error {
 		return fmt.Errorf("create upload directory: %w", err)
 	}
 	fileHandler := &files.Handler{
-		Store:          db,
-		Dir:            cfg.UploadDir,
-		MaxBytes:       cfg.UploadMaxBytes,
-		QuotaBytes:     cfg.UploadQuotaBytes,
-		AllowedOrigins: cfg.AllowedOrigins,
-		Now:            time.Now,
-		Redeem:         hub.RedeemUploadToken,
-		RedeemEmoji:    hub.RedeemEmojiToken,
-		OnEmoji:        hub.EmojiChanged,
-		OnPreview:      hub.UploadPreview,
+		Store:           db,
+		Dir:             cfg.UploadDir,
+		MaxBytes:        cfg.UploadMaxBytes,
+		QuotaBytes:      cfg.UploadQuotaBytes,
+		AllowedOrigins:  cfg.AllowedOrigins,
+		Now:             time.Now,
+		Redeem:          hub.RedeemUploadToken,
+		RedeemEmoji:     hub.RedeemEmojiToken,
+		OnEmoji:         hub.EmojiChanged,
+		RedeemUserEmoji: hub.RedeemUserEmojiToken,
+		OnUserEmoji:     hub.UserEmojiChanged,
+		OnPreview:       hub.UploadPreview,
 	}
 	// Once: uploads from before sizes were kept.
 	if err := db.MeasureUploads(fileHandler.Measure); err != nil {

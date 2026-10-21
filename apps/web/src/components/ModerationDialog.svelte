@@ -3,8 +3,8 @@
   import { untrack } from "svelte";
   import type { CaptchaLevel } from "../lib/captcha";
   import { ARCHIVE_TIMES } from "../lib/threads";
-  import { EMOJI_TYPES, emojiFormError, emojiNameFromFile, type CustomEmoji } from "../lib/customEmoji";
-  import EmojiImage from "./EmojiImage.svelte";
+  import { emojiFormError, type CustomEmoji } from "../lib/customEmoji";
+  import EmojiList from "./EmojiList.svelte";
   import {
     connectionLevel,
     formatOnline,
@@ -110,8 +110,6 @@
   const saves = {
     bans: createSave(),
     users: createSave(),
-    emoji: createSave(),
-    add: createSave(),
     guests: createSave(),
     captcha: createSave(),
     archive: createSave(),
@@ -178,26 +176,6 @@
     saves.rules.run(() => onSaveMessageRules(rules));
   };
 
-  // A new emoji: name and image; the add's status says what is wrong.
-  let emojiName = $state("");
-  let emojiFile = $state<File | null>(null);
-  let confirmingEmoji = $state<string | null>(null);
-  let fileInput: HTMLInputElement | undefined = $state();
-  let emojiImage: EmojiImage | undefined = $state();
-  const addEmoji = (e: SubmitEvent) => {
-    e.preventDefault();
-    const name = emojiName.trim();
-    saves.add.run(async () => {
-      // Checked as uploaded: still images are scaled down first.
-      const file = (await emojiImage?.output()) ?? null;
-      const problem = emojiFormError(name, file, emoji);
-      if (problem || !file) throw new Error(problem ?? "Choose an image.");
-      await onAddEmoji(name, file);
-      emojiName = "";
-      emojiFile = null;
-      if (fileInput) fileInput.value = "";
-    });
-  };
 
   const duration = (seconds: number) =>
     seconds === 0 ? "for ever" : seconds >= 86400 ? `${Math.round(seconds / 86400)} days` : `${Math.round(seconds / 3600)} hours`;
@@ -408,50 +386,13 @@
       <p class="note">A zip with one Ogg Opus file per speaker. All files start when the recording started, so they line up in an audio editor.</p>
     {/if}
   {:else if tab === "emoji"}
-    <form class="add-emoji" onsubmit={addEmoji}>
-      <input
-        bind:this={fileInput}
-        type="file"
-        disabled={saves.add.busy}
-        accept={EMOJI_TYPES.join(",")}
-        aria-label="Emoji image"
-        onchange={(e) => {
-          emojiFile = e.currentTarget.files?.[0] ?? null;
-          if (emojiFile && !emojiName) emojiName = emojiNameFromFile(emojiFile.name);
-        }}
-      />
-      <input bind:value={emojiName} placeholder="name" aria-label="Emoji name" maxlength="32" />
-      <button type="submit" disabled={saves.add.busy}>{busyLabel(saves.add.state, "Add", "Adding…")}</button>
-      <SaveStatus save={saves.add.state} done="Added" />
-    </form>
-    <p class="note">PNG, GIF, WebP or JPEG; still images are scaled to fit 96×96 px. Names: 2 to 32 lower case letters, digits or _.</p>
-    <EmojiImage bind:this={emojiImage} file={emojiFile} name={emojiName.trim()} />
-    {#if emoji.length === 0}
-      <p class="note">This server has no custom emoji yet.</p>
-    {:else}
-      <ul>
-        {#each emoji as e (e.name)}
-          <li>
-            <img class="emoji-image" src={e.url} alt="" />
-            <div class="what"><strong>:{e.name}:</strong></div>
-            {#if confirmingEmoji === e.name}
-              <button
-                type="button"
-                class="danger"
-                disabled={saves.emoji.busy}
-                onclick={() => (saves.emoji.run(() => onDeleteEmoji(e.name)), (confirmingEmoji = null))}
-              >
-                Delete
-              </button>
-              <button type="button" onclick={() => (confirmingEmoji = null)}>Cancel</button>
-            {:else}
-              <button type="button" onclick={() => (confirmingEmoji = e.name)}>Delete…</button>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    <SaveStatus save={saves.emoji.state} done="Deleted" />
+    <EmojiList
+      list={emoji}
+      formError={(name, file) => emojiFormError(name, file, emoji)}
+      onAdd={onAddEmoji}
+      onDelete={onDeleteEmoji}
+      empty="This server has no custom emoji yet."
+    />
   {:else if registered === null}
     <p class="note">Loading…</p>
   {:else}
@@ -608,31 +549,6 @@
     background: var(--bg-input);
     color: var(--text);
     font: inherit;
-  }
-  .add-emoji {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
-  .add-emoji input:not([type="file"]) {
-    flex: 1;
-    min-width: 8em;
-    padding: 6px 8px;
-    border: none;
-    border-radius: 4px;
-    background: var(--bg-rail);
-    color: var(--text);
-    font: inherit;
-  }
-  .add-emoji input[type="file"] {
-    max-width: 100%;
-  }
-  .add-emoji button {
-    padding: 6px 10px;
-    border-radius: 4px;
-    background: var(--bg-input);
-    color: var(--text);
   }
   .error {
     color: var(--danger);

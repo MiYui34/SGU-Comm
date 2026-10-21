@@ -56,6 +56,9 @@ type Handler struct {
 	// emoji. OnEmoji: one was added.
 	RedeemEmoji func(token string) (author, name string, ok bool)
 	OnEmoji     func()
+	// The same for personal emoji: whose and which, and whose changed.
+	RedeemUserEmoji func(token string) (user uint32, name string, ok bool)
+	OnUserEmoji     func(user uint32)
 	// Previews makes previews (nil: none, see previews.go); OnPreview: an
 	// upload got one.
 	Previews  *thumbs.Maker
@@ -72,6 +75,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.post(w, r, h.upload)
 	case r.URL.Path == "/api/emoji" && h.RedeemEmoji != nil:
 		h.post(w, r, h.uploadEmoji)
+	case r.URL.Path == "/api/emoji/personal" && h.RedeemUserEmoji != nil:
+		h.post(w, r, h.uploadUserEmoji)
 	case strings.HasPrefix(r.URL.Path, "/files/") && get:
 		h.serve(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/emoji/") && get:

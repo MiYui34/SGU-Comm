@@ -27,13 +27,14 @@
   import type { Connection } from "../lib/connection.svelte";
   import { onlinePicture, pictureLookup, setAvatarPictures } from "../lib/avatar";
   import { customEmojiSet, setCustomEmoji } from "../lib/customEmoji";
+  import { personalFormError } from "../lib/personalEmoji";
   import { isDesktop, registerGlobalPtt } from "../lib/desktop";
   import { menuAnchor } from "../lib/menu";
   import { nextPanel, swipeDirection, toggleSide, type Panel, type Side } from "../lib/mobile";
   import { pttAction, pttBlocksDefault } from "../lib/settings";
   import { unreadCounts } from "../lib/chat";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
-  import { hideSpoilers } from "../lib/markdown";
+  import { previewText } from "../lib/markdown";
   import { parseSearch, type SearchPlace } from "../lib/search";
   import { directChatWith, toChatMessage, type DisplayMessage, type Peer, type TextMessage, type UserTarget } from "../lib/textChannels";
   import { hiddenMembers, offlineMembers, pictureNames, readerGroups } from "../lib/members";
@@ -491,8 +492,9 @@
   });
   const statusOf = (session: number) =>
     statusOfSession({ statuses: text.statuses, own: text.ownStatus, me: server.session, away, now: statusNow }, session);
-  // Custom server emoji, for messages, reactions and pickers below.
-  const customEmoji = $derived(customEmojiSet(text.emoji, connection.httpBase));
+  // Custom server emoji and our personal ones, for messages, reactions and
+  // pickers below.
+  const customEmoji = $derived(customEmojiSet(text.emoji, connection.httpBase, text.myEmoji, text.removedEmoji));
   setCustomEmoji(() => customEmoji);
   const textId = $derived(view.kind === "text" ? view.id : null);
   // A voice channel's stored chat (built-in server): the channel that holds
@@ -754,7 +756,7 @@
       const peer = text.directs[m.channel];
       if (peer) {
         if (isMuted(prefIn(m.channel), Date.now())) return;
-        notify(peer.name, notificationBody(hideSpoilers(m.text)), chatId === m.channel, () => openDirect(peer));
+        notify(peer.name, notificationBody(previewText(m.text)), chatId === m.channel, () => openDirect(peer));
         return;
       }
       // By the chat's setting (see lib/channelPrefs); not our own.
@@ -762,7 +764,7 @@
       if (!notifies(prefIn(m.channel), mentioned, Date.now())) return;
       const textChannel = text.channels.find((c) => c.id === m.channel);
       const t = text.threads[m.channel];
-      notify(`${m.author || "Server"} in ${whereOf(m)}`, hideSpoilers(m.text).trim().slice(0, 140), chatId === m.channel || threadId === m.channel, () => {
+      notify(`${m.author || "Server"} in ${whereOf(m)}`, previewText(m.text).trim().slice(0, 140), chatId === m.channel || threadId === m.channel, () => {
         if (textChannel) show({ kind: "text", id: textChannel.id });
         else if (t) openThread(t);
       });
@@ -984,6 +986,8 @@
   // A guest that may only read: a way to an account instead of the message
   // box (a guest account gets a password in the settings).
   const guestAccount = $derived(account?.temporary ?? false);
+  // Personal emoji: registered users but guests (the server checks again).
+  const mayAddEmoji = $derived(text.available && me?.userId != null && !guestAccount);
   const readOnly = $derived(!mayWrite(server, text, guestAccount));
   const loginToWrite = $derived(
     readOnly ? { note: readOnlyNote(guestAccount), action: loginAction(guestAccount), onAction: guestAccount ? () => (showSettings = true) : onLogIn } : null,
@@ -1050,6 +1054,8 @@
     },
     onReact: readOnly ? undefined : connection.react,
     myId: me?.userId ?? null,
+    onAddEmoji: mayAddEmoji ? connection.addUserEmoji : undefined,
+    onRemoveEmoji: moderation.emoji ? connection.removeEmojiImage : undefined,
     previewOf: (id: number) => text.previews[id] ?? null,
     httpBase: connection.httpBase,
   } satisfies Partial<ComponentProps<typeof ChatPane>>);
@@ -1633,6 +1639,16 @@
       loading: commentMissing(me),
       onSave: connection.setComment,
     }}
+    emoji={mayAddEmoji
+      ? {
+          list: customEmoji.mine,
+          formError: (name, file) => personalFormError(name, file, text.myEmoji, customEmoji.urls),
+          onAdd: connection.uploadUserEmoji,
+          onDelete: connection.deleteUserEmoji,
+          onRename: connection.renameUserEmoji,
+          empty: "You have no emoji of your own yet.",
+        }
+      : undefined}
     onClose={() => (showSettings = false)}
   />
 {/if}
@@ -1802,7 +1818,7 @@
                 jumpTarget = t.start;
               }}>
               <strong>{t.quote.author}</strong>
-              {hideSpoilers(t.quote.text)}
+              {previewText(t.quote.text)}
             </button>
           {:else}
             <p><em>The original message was deleted.</em></p>

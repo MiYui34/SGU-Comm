@@ -9,10 +9,11 @@
   import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { collapses, MAX_HEIGHT_PX } from "../lib/collapse";
-  import { hideSpoilers, toggleSpoiler } from "../lib/markdown";
+  import { previewText, toggleSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
-  import { customEmojiFor, customEntries, jumboEmoji, knownEmoji } from "../lib/customEmoji";
+  import { customEmojiFor, customEntries, jumboEmoji, knownEmoji, refsAsNames } from "../lib/customEmoji";
+  import { composerEmoji, emojiActions, fromRefs, personalEntries, sameEmoji, toRefs } from "../lib/personalEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -39,6 +40,7 @@
   import { tick, untrack, type Snippet } from "svelte";
   import { isChannelLink, sanitize as safe } from "../lib/sanitize";
   import Avatar from "./Avatar.svelte";
+  import EmojiMenu from "./EmojiMenu.svelte";
   import Icon from "./Icon.svelte";
 
   let {
@@ -89,6 +91,8 @@
     onTyping,
     onReact,
     myId = null,
+    onAddEmoji,
+    onRemoveEmoji,
     previewOf,
     httpBase = "",
     cannotWrite = null,
@@ -169,6 +173,10 @@
     // user id (null: not registered, no reactions).
     onReact?: (id: number, emoji: string, on: boolean) => void;
     myId?: number | null;
+    // A custom emoji in a message or reaction: add it to ours (registered
+    // users but guests), remove a personal one everywhere (moderators).
+    onAddEmoji?: (emoji: string, name: string) => Promise<void>;
+    onRemoveEmoji?: (emoji: string) => Promise<void>;
     // Link previews of stored messages; images are on the server (httpBase).
     previewOf?: (id: number) => LinkPreview | null;
     httpBase?: string;
@@ -319,7 +327,7 @@
     if (!returned || returned.n <= returnedSeen) return;
     returnedSeen = returned.n;
     const back = returned.text;
-    untrack(() => (draft = refusedDraft(draft, back)));
+    untrack(() => (draft = refusedDraft(draft, fromRefs(back, custom.mine, custom.urls))));
   });
   // Another conversation: drop a waiting file, the reply and the edit (the
   // ids are of the old chat). The typed text is kept per chat (see
@@ -379,7 +387,7 @@
       const { file, spoiler } = pending;
       const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
-      void onUpload(asSpoiler(file, spoiler), text, sent.reply, replying ? !replying.ping : undefined).then((ok) => {
+      void onUpload(asSpoiler(file, spoiler), withRefs(text), sent.reply, replying ? !replying.ping : undefined).then((ok) => {
         const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
         if (done.file) cancelPending();
         if (done.caption) draft = "";
@@ -389,7 +397,7 @@
       return;
     }
     if (!text || !onSend) return;
-    onSend(text, replying?.id, replying ? !replying.ping : undefined);
+    onSend(withRefs(text), replying?.id, replying ? !replying.ping : undefined);
     sentAway ||= away;
     replying = null;
     draft = "";
@@ -408,9 +416,11 @@
   // a failure, again only for the next ":" word.
   let emojiData = $state.raw<EmojiData | null>(null);
   let emojiFailedAt = $state<number | null>(null);
-  // Custom server emoji (see Client).
+  // Custom server emoji and ours (see Client). We type ":name:"; ours go
+  // out as references (see lib/personalEmoji).
   const customEmoji = customEmojiFor();
   const custom = $derived(customEmoji());
+  const withRefs = (text: string) => toRefs(text, custom.mine, custom.urls);
   const box = createCombobox({
     id: listId,
     text: () => draft,
@@ -419,13 +429,16 @@
     build: (typed): Suggestion[] => {
       if (typed.kind === "@") return suggestNames(people, typed.query, me).map((n) => ({ key: n, label: n, insert: `@${n}`, kind: "user" }));
       if (typed.kind === "#") return suggestNames(channelNames, typed.query, "").map((n) => ({ key: n, label: n, insert: `#${n}`, kind: "channel" }));
-      // Custom emoji first; they go in as ":name:".
-      return [...searchEmoji(customEntries(custom.list), typed.query), ...searchEmoji(emojiData?.emoji ?? [], typed.query)]
-        .slice(0, SUGGESTIONS)
-        .map((e) => {
-          const emoji = normalEmoji(withTone(e, skinTone.value));
-          return { key: e.emoji, label: e.name, insert: emoji, kind: "emoji", emoji };
-        });
+      // Custom emoji first, then ours; they go in as ":name:".
+      const found = [
+        ...searchEmoji(customEntries(custom.list), typed.query),
+        ...searchEmoji(personalEntries(custom.mine), typed.query),
+        ...searchEmoji(emojiData?.emoji ?? [], typed.query),
+      ];
+      return found.slice(0, SUGGESTIONS).map((e) => {
+        const emoji = normalEmoji(withTone(e, skinTone.value));
+        return { key: e.emoji, label: e.name, insert: composerEmoji(emoji, custom.mine, custom.urls), kind: "emoji", emoji };
+      });
     },
     setText: (text, at) => setDraft(text, at),
     onPick: (s) => s.kind === "emoji" && s.emoji && usedEmoji(s.emoji),
@@ -455,13 +468,13 @@
   let cancelButton: HTMLButtonElement | undefined = $state();
   const startEdit = async (m: ChatMessage | DisplayMessage) => {
     if (!("source" in m) || !m.source) return;
-    editing = { id: m.source.id, text: m.source.text, old: m.source.text, upload: !!("upload" in m && m.upload) };
+    editing = { id: m.source.id, text: fromRefs(m.source.text, custom.mine, custom.urls), old: m.source.text, upload: !!("upload" in m && m.upload) };
     await tick();
     editInput?.focus();
   };
   const saveEdit = () => {
     if (!editing) return;
-    const text = editing.text.trim();
+    const text = withRefs(editing.text.trim());
     // A message with an attachment may lose its caption.
     if (text !== editing.old && (text || editing.upload)) onEdit?.(editing.id, text);
     editing = null;
@@ -487,7 +500,8 @@
     draftEmoji = null;
     const from = messageInput?.selectionStart ?? draft.length;
     const to = messageInput?.selectionEnd ?? draft.length;
-    void setDraft(draft.slice(0, from) + emoji + draft.slice(to), from + emoji.length);
+    const text = composerEmoji(emoji, custom.mine, custom.urls);
+    void setDraft(draft.slice(0, from) + text + draft.slice(to), from + text.length);
   };
   // The quick reactions; "+" opens all emoji (allEmoji: for that message).
   const quick = $derived(
@@ -500,8 +514,18 @@
   let allEmoji = $state.raw<{ id: number; anchor: DOMRect } | null>(null);
   // The current message (its reactions change while the picker is open).
   const allEmojiFor = $derived(allEmoji && messages.find((m) => idOf(m) === allEmoji!.id));
+  // The menu of a custom emoji in a message or reaction (see EmojiMenu):
+  // only when there is something to do with it.
+  let emojiMenu = $state<{ x: number; y: number; emoji: string } | null>(null);
+  const openEmojiMenu = (emoji: string, e: MouseEvent) => {
+    const actions = emojiActions(emoji, custom, { add: !!onAddEmoji, remove: !!onRemoveEmoji });
+    if (!actions || (actions.add === null && actions.remove === null)) return false;
+    e.preventDefault();
+    emojiMenu = { x: e.clientX, y: e.clientY, emoji };
+    return true;
+  };
   const mineOf = (m: ChatMessage | DisplayMessage, emoji: string) =>
-    !!("reactions" in m && m.reactions?.some((r) => r.emoji === emoji && reactedBy(r, myId)));
+    !!("reactions" in m && m.reactions?.some((r) => sameEmoji(r.emoji, emoji) && reactedBy(r, myId)));
   const react = (m: ChatMessage | DisplayMessage, id: number, emoji: string) => {
     usedEmoji(emoji);
     onReact?.(id, emoji, !mineOf(m, emoji));
@@ -568,8 +592,8 @@
     const text = "source" in m && m.source ? m.source.text : htmlToText(m.text);
     return [
       ...(may && canReply ? [{ label: "Reply", icon: "reply" as const, run: done(() => startReply(m)) }] : []),
-      ...(may && canThread(may.id) ? [{ label: "Create thread", icon: "thread" as const, run: done(() => onCreateThread?.(may.id, text)) }] : []),
-      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(text, "Text copied")) }] : []),
+      ...(may && canThread(may.id) ? [{ label: "Create thread", icon: "thread" as const, run: done(() => onCreateThread?.(may.id, refsAsNames(text))) }] : []),
+      ...(text ? [{ label: "Copy text", icon: "copy" as const, run: done(() => copy(refsAsNames(text), "Text copied")) }] : []),
       ...(may && linkTo ? [{ label: "Copy link", icon: "copy" as const, run: done(() => copy(linkTo(may.id), "Link copied")) }] : []),
       ...(may?.canPin
         ? [{ label: may.pinned ? "Unpin message" : "Pin message", icon: "pin" as const, run: done(() => onPin?.(may.id, !may.pinned)) }]
@@ -1018,6 +1042,9 @@
   </form>
 </main>
 
+{#if emojiMenu}
+  <EmojiMenu {...emojiMenu} onAdd={onAddEmoji} onRemove={onRemoveEmoji} onClose={() => (emojiMenu = null)} />
+{/if}
 {#if sheetMessage}
   {@const m = sheetMessage}
   {@const id = idOf(m)}
@@ -1093,7 +1120,7 @@
     {@const quote = m.reply}
     <button type="button" class="quote" onclick={() => quote.author && (seeking = quote.id)}>
       {#if blockedUsers.has(quote.author)}<em>A message from a blocked user.</em>
-      {:else if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{hideSpoilers(quote.text)}</span>
+      {:else if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{previewText(quote.text)}</span>
       {:else}<em>The original message was deleted.</em>{/if}
     </button>
   {/if}
@@ -1127,18 +1154,21 @@
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="text"
-      class:jumbo={jumboEmoji(m.text, custom.urls)}
+      class:jumbo={jumboEmoji("source" in m && m.source ? m.source.text : m.text, custom)}
       class:collapsed={long && !open}
       id={long ? `${listId}-${key}` : undefined}
       use:measure={"source" in m && m.source ? null : key}
       onfocusin={(e) => long && !open && toggleLong(key, e.currentTarget.closest("li"), true)}
       onclick={(e) => {
+        // Not in a hidden spoiler: that click shows it.
+        const custom = (e.target as Element).closest?.("img.emoji.custom[data-emoji]");
+        if (custom instanceof HTMLElement && !custom.closest(".spoiler:not(.shown)") && openEmojiMenu(custom.dataset.emoji!, e)) return e.stopPropagation();
         const pill = (e.target as Element).closest?.(".mention");
         const name = pill?.textContent?.slice(1) ?? "";
         if (pill instanceof HTMLElement && onMention && name !== "everyone" && name !== "here") onMention(name, pill, e);
       }}
     >
-      {@html safe(highlightMentions(m.text, me, allOf(m), knownNames), emojiImages.ok, custom.urls)}
+      {@html safe(highlightMentions(m.text, me, allOf(m), knownNames), emojiImages.ok, custom)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
@@ -1177,9 +1207,10 @@
           class="reaction"
           class:mine
           aria-pressed={mine}
-          aria-label="{r.emoji} {r.users.length}, from {r.users.join(', ')}"
+          aria-label="{refsAsNames(r.emoji)} {r.users.length}, from {r.users.join(', ')}"
           title={r.users.join(", ")}
           disabled={!canReact}
+          oncontextmenu={(e) => openEmojiMenu(r.emoji, e)}
           onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji"><Emoji text={r.emoji} /></span>{r.users.length}</button
         >
       {/each}
@@ -1215,7 +1246,7 @@
               type="button"
               class="emoji"
               class:mine={mineOf(m, emoji)}
-              aria-label="React with {emoji}"
+              aria-label="React with {refsAsNames(emoji)}"
               onclick={() => react(m, id, emoji)}><Emoji text={emoji} /></button
             >
           {/each}
@@ -1238,7 +1269,7 @@
             <button type="button" aria-label="Reply" title="Reply" onclick={() => startReply(m)}>Reply</button>
           {/if}
           {#if canThread(id)}
-            <button type="button" aria-label="Create thread" title="Create thread" onclick={() => onCreateThread?.(id, "source" in m && m.source ? m.source.text : "")}
+            <button type="button" aria-label="Create thread" title="Create thread" onclick={() => onCreateThread?.(id, "source" in m && m.source ? refsAsNames(m.source.text) : "")}
               >Thread</button
             >
           {/if}
@@ -1568,6 +1599,10 @@
   }
   .text :global(a) {
     color: var(--link);
+  }
+  /* A click opens its menu (see EmojiMenu). */
+  .text :global(img.emoji.custom) {
+    cursor: pointer;
   }
   /* Only emoji: large, as in Discord (48px). */
   .text.jumbo :global(img.emoji) {
