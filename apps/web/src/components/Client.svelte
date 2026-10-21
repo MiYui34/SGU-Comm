@@ -74,7 +74,7 @@
   import { previewKey, previewsToAsk } from "../lib/linkPreview";
   import { shouldSendTyping, stoppedTyping, typed, typingNames, typingText, type Typers } from "../lib/typing";
   import { gainOf, userAudioFor } from "../lib/userAudio";
-  import { micWanted, type SelfState } from "../lib/voice";
+  import { loadSelfState, micWanted, saveSelfState, type SelfState } from "../lib/voice";
   import { listenOnlySessions } from "../lib/listenOnly";
   import ChannelDialog from "./ChannelDialog.svelte";
   import StreamPreview from "./StreamPreview.svelte";
@@ -422,16 +422,25 @@
   let soundState: VoiceSnapshot | null = null;
   let lastSound = -Infinity;
   let restored = false;
+  const storage = typeof localStorage === "undefined" ? undefined : localStorage;
   $effect(() => {
-    if (restored || !back || !me) return;
+    if (restored || !me) return;
     restored = true;
+    // A reconnect keeps the state it had, a new page the saved one.
+    const self = back ?? loadSelfState(storage, site);
     lastSound = performance.now() + 2500;
     // Mute first, then into voice: no moment with a live microphone.
-    if (back.selfMute || back.selfDeaf) connection.send(setSelfState(me.session, { selfMute: back.selfMute, selfDeaf: back.selfDeaf }));
+    if (self.selfMute || self.selfDeaf) connection.send(setSelfState(me.session, { selfMute: self.selfMute, selfDeaf: self.selfDeaf }));
+    if (!back) return;
     const target = rejoinTarget(back, me.channelId, (id) => !!server.channels[id], elsewhere?.session ?? null);
     if (target === null) return void (rejoining = null);
     connection.send(joinChannel(me.session, target));
     setTimeout(() => (rejoining = null), REJOIN_MS); // refused: not in voice after all
+  });
+  // Saved once the state above is restored (it starts unmuted).
+  $effect(() => {
+    const self = { selfMute: me?.selfMute ?? false, selfDeaf: me?.selfDeaf ?? false };
+    if (me && untrack(() => restored)) saveSelfState(storage, site, self);
   });
   $effect(() => {
     const next = snapshotOf(server);

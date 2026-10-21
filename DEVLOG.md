@@ -2164,3 +2164,7 @@ From `meta/research/discord-comparison.md`.
 
 - A second click (or Enter/Space) on a shown text spoiler hides it again (`toggleSpoiler` in lib/markdown). A link in a shown spoiler opens instead, and a click that ends a text selection does nothing. Discord keeps spoilers shown; users asked for a way back.
 - Shown image and video spoilers get a small "Hide" button at the top right. The image itself still opens the viewer.
+
+## Self-mute survives a refresh
+
+- Self-mute and deafen are saved per server in localStorage ("muted", "deaf" or "") and sent right after connecting, before any voice join, as Mumble keeps them across restarts. A reconnect still uses the in-memory place. Saving starts only after the restore, since a new session starts unmuted. Checked headless: mute, deafen and unmute each survive a reload.

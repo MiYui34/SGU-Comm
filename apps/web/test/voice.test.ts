@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { micWanted } from "../src/lib/voice";
+import { loadSelfState, micWanted, saveSelfState } from "../src/lib/voice";
 
 describe("micWanted", () => {
   const s = { inVoice: true, selfMute: false, settingsOpen: false, closeWhenMuted: false };
@@ -15,5 +15,31 @@ describe("micWanted", () => {
     expect(micWanted({ ...s, closeWhenMuted: true })).toBe(true);
     expect(micWanted({ ...s, closeWhenMuted: true, selfMute: true })).toBe(false);
     expect(micWanted({ ...s, closeWhenMuted: true, selfMute: true, settingsOpen: true })).toBe(true);
+  });
+});
+
+describe("saved self state", () => {
+  const memory = () => {
+    const items = new Map<string, string>();
+    return { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) };
+  };
+
+  it("keeps mute and deafen per server", () => {
+    const storage = memory();
+    expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: false, selfDeaf: false });
+    saveSelfState(storage, "https://a.example", { selfMute: true, selfDeaf: false });
+    expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: true, selfDeaf: false });
+    expect(loadSelfState(storage, "https://b.example")).toEqual({ selfMute: false, selfDeaf: false });
+    saveSelfState(storage, "https://a.example", { selfMute: true, selfDeaf: true });
+    expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: true, selfDeaf: true });
+  });
+
+  it("reads deaf as also muted, and anything odd as neither", () => {
+    const storage = memory();
+    storage.setItem("selfState:https://a.example", "deaf");
+    expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: true, selfDeaf: true });
+    storage.setItem("selfState:https://a.example", "{garbage");
+    expect(loadSelfState(storage, "https://a.example")).toEqual({ selfMute: false, selfDeaf: false });
+    expect(loadSelfState(undefined, "https://a.example")).toEqual({ selfMute: false, selfDeaf: false });
   });
 });
