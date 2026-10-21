@@ -110,6 +110,7 @@
   import VoiceBar from "./VoiceBar.svelte";
   import ObsDialog from "./ObsDialog.svelte";
   import { mayRecord } from "../lib/recording";
+  import { fetchFediHandle } from "../lib/fedi";
 
   let {
     connection,
@@ -1487,6 +1488,7 @@
     onBlock={() => blockedUsers.toggle(menuUser.name)}
     onMessage={readOnly ? undefined : () => show({ kind: "dm", session: menuUser.session, name: menuUser.name, userId: menuUser.userId })}
     onSettings={() => (showSettings = true)}
+    fediHandle={menuUser.userId === null ? undefined : (name) => fetchFediHandle(connection.httpBase, name)}
     role={roleOf(text.roles, menuUser.userId)}
     status={statusOf(menuUser.session)}
     moderator={moderatorAction(server, text, menuUser)}
@@ -1536,6 +1538,7 @@
     onBlock={() => blockedUsers.toggle(p.name)}
     onMessage={me?.userId != null && !readOnly ? () => openDirect(p) : undefined}
     onSettings={() => {}}
+    fediHandle={(name) => fetchFediHandle(connection.httpBase, name)}
     role={roleOf(text.roles, p.id)}
     moderator={moderatorAction(server, text, { userId: p.id })}
     onModerator={(on) => connection.manage({ moderator: p.id, on })}

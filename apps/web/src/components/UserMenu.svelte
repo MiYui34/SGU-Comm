@@ -9,6 +9,7 @@
   import RoleTag from "./RoleTag.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import { htmlToLines } from "../lib/htmlText";
+  import { untrack } from "svelte";
 
   let {
     user,
@@ -34,6 +35,7 @@
     onModerate,
     onConfirm,
     onDeleteMessages,
+    fediHandle,
     onClose,
   }: {
     user: Pick<User, "name" | "comment" | "mute" | "deaf">;
@@ -70,8 +72,19 @@
     onConfirm?: (kind: "kick" | "ban" | "timeout" | "channelTimeout") => void;
     // Asks before deleting their recent messages (staff; offline too).
     onDeleteMessages?: () => void;
+    // Their verified fediverse handle, if they show it ("": none).
+    fediHandle?: (name: string) => Promise<string>;
     onClose: () => void;
   } = $props();
+
+  let handle = $state("");
+  $effect(() => {
+    const name = user.name;
+    let current = true;
+    handle = "";
+    void untrack(() => fediHandle)?.(name).then((h) => current && (handle = h)); // per name, not per new prop function
+    return () => (current = false);
+  });
 
   // The comment as text, never as HTML.
   const bio = $derived(htmlToLines(user.comment));
@@ -87,6 +100,9 @@
     <Avatar name={user.name} size={32} status={status?.presence} registered={byId} />
     <span class="names">
       <span class="line"><span>{user.name}</span><RoleTag {role} /></span>
+      {#if handle}
+        <span class="handle" title="Verified: linked with a fediverse login"><span aria-hidden="true">✓</span> {handle}</span>
+      {/if}
       {#if status?.custom}
         <span class="custom"><Emoji text={status.custom.emoji} /> {status.custom.text}</span>
       {/if}
@@ -232,6 +248,17 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .handle {
+    max-width: 220px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+  }
+  .handle span {
+    color: var(--online);
+    font-weight: 700;
   }
   .custom {
     max-width: 220px;
