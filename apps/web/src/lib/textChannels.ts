@@ -216,7 +216,15 @@ export type ServerEvent =
   // returned: a refused send's text, for the composer of its chat.
   // about "rate": a background request over the server's rate limit (not
   // shown as an error; a send comes back as "refused").
-  | { type: "error"; message: string; about?: "manage" | "rate"; slow?: { channel: number; until: number }; returned?: { channel: number; text: string } }
+  // nonce: the refused send's (see sendAnswer).
+  | {
+      type: "error";
+      message: string;
+      about?: "manage" | "rate";
+      slow?: { channel: number; until: number };
+      returned?: { channel: number; text: string };
+      nonce?: string;
+    }
   | { type: "upload-token"; token: string }
   // A message's reactions changed (all of them).
   | { type: "reactions"; channel: number; message: number; reactions: Reaction[] }
@@ -655,13 +663,14 @@ export const parseServerEvent = (raw: string): ServerEvent | null => {
         : null;
     case "read":
       return isNum(v.channel) && isNum(v.message) ? { type: "read", channel: v.channel, message: v.message } : null;
-    case "error":
+    case "error": {
       if (!isStr(v.message)) return null;
+      const error = { type: "error" as const, message: v.message, ...(isStr(v.nonce) ? { nonce: v.nonce } : {}) };
       const returned = isNum(v.channel) && isStr(v.text) ? { returned: { channel: v.channel, text: v.text } } : {};
-      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until))
-        return { type: "error", message: v.message, slow: { channel: v.channel, until: v.until }, ...returned };
-      if (v.about === "refused") return { type: "error", message: v.message, ...returned };
-      return v.about === "manage" || v.about === "rate" ? { type: "error", message: v.message, about: v.about } : { type: "error", message: v.message };
+      if (v.about === "slow-mode" && isNum(v.channel) && isNum(v.until)) return { ...error, slow: { channel: v.channel, until: v.until }, ...returned };
+      if (v.about === "refused") return { ...error, ...returned };
+      return v.about === "manage" || v.about === "rate" ? { ...error, about: v.about } : error;
+    }
     case "upload-token":
       return isStr(v.token) ? { type: "upload-token", token: v.token } : null;
     case "resync":
@@ -971,10 +980,10 @@ export const sendRequest = (channel: number, text: string, upload?: string, repl
 
 // The server's answer to a send with this nonce: our message with it
 // confirms it (from servers without nonces: the message with our upload,
-// its key is in the file's URL), an error (not about channel changes)
-// refuses it; null: not an answer.
+// its key is in the file's URL), an error with it refuses it; null: not an
+// answer (errors of other requests; servers without nonces: it times out).
 export const sendAnswer = (ev: ServerEvent, nonce: string, upload?: string): { error?: string } | null => {
-  if (ev.type === "error") return ev.about === "manage" ? null : { error: ev.message };
+  if (ev.type === "error") return ev.nonce === nonce ? { error: ev.message } : null;
   if (ev.type !== "message") return null;
   const ours = ev.nonce === undefined ? !!upload && !!ev.message.upload?.url.startsWith(`/files/${upload}/`) : ev.nonce === nonce;
   return ours ? {} : null;

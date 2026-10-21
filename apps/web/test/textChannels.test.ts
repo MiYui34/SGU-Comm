@@ -163,7 +163,14 @@ describe("sendAnswer", () => {
     expect(parseServerEvent(JSON.stringify({ type: "message", message: m, nonce: "n1" }))).toEqual({ type: "message", message: m, nonce: "n1" });
     expect(parseServerEvent(JSON.stringify({ type: "message", message: m, nonce: 5 }))).toEqual({ type: "message", message: m });
   });
-  it("confirms by the message with the nonce, refuses by an error, ignores the rest", () => {
+  it("reads the nonce of a refused send", () => {
+    const slow = { type: "error", message: "wait", about: "slow-mode", channel: 3, until: 5, text: "hi", nonce: "n1" };
+    expect(parseServerEvent(JSON.stringify(slow))).toMatchObject({ slow: { channel: 3, until: 5 }, returned: { channel: 3, text: "hi" }, nonce: "n1" });
+    expect(parseServerEvent(JSON.stringify({ type: "error", message: "no", about: "refused", nonce: "n1" }))).toEqual({ type: "error", message: "no", nonce: "n1" });
+    expect(parseServerEvent(JSON.stringify({ type: "error", message: "unknown upload", nonce: "n1" }))).toEqual({ type: "error", message: "unknown upload", nonce: "n1" });
+    expect(parseServerEvent(JSON.stringify({ type: "error", message: "x", nonce: 1 }))).toEqual({ type: "error", message: "x" });
+  });
+  it("confirms by the message with the nonce, refuses by an error with it, ignores the rest", () => {
     expect(sendAnswer({ type: "message", message: m, nonce: "n1" }, "n1")).toEqual({});
     expect(sendAnswer({ type: "message", message: m, nonce: "n2" }, "n1")).toBeNull();
     expect(sendAnswer({ type: "message", message: m }, "n1")).toBeNull();
@@ -172,9 +179,13 @@ describe("sendAnswer", () => {
     expect(sendAnswer({ type: "message", message: withFile("/files/k1/a.png") }, "n1", "k1")).toEqual({});
     expect(sendAnswer({ type: "message", message: withFile("/files/k10/a.png") }, "n1", "k1")).toBeNull();
     expect(sendAnswer({ type: "message", message: withFile("/files/k1/a.png"), nonce: "n2" }, "n1", "k1")).toBeNull();
-    expect(sendAnswer({ type: "error", message: "Slow mode", slow: { channel: 2, until: 9 } }, "n1")).toEqual({ error: "Slow mode" });
-    expect(sendAnswer({ type: "error", message: "unknown upload" }, "n1")).toEqual({ error: "unknown upload" });
-    expect(sendAnswer({ type: "error", message: "no emoji", about: "manage" }, "n1")).toBeNull();
+    expect(sendAnswer({ type: "error", message: "Slow mode", slow: { channel: 2, until: 9 }, nonce: "n1" }, "n1")).toEqual({ error: "Slow mode" });
+    expect(sendAnswer({ type: "error", message: "unknown upload", nonce: "n1" }, "n1")).toEqual({ error: "unknown upload" });
+    // Errors of other requests, or of other sends, are not the answer
+    // (servers without nonces: the send times out).
+    expect(sendAnswer({ type: "error", message: "unknown upload" }, "n1")).toBeNull();
+    expect(sendAnswer({ type: "error", message: "too many requests", about: "rate" }, "n1")).toBeNull();
+    expect(sendAnswer({ type: "error", message: "Slow mode", nonce: "n2" }, "n1")).toBeNull();
     expect(sendAnswer({ type: "resync" }, "n1")).toBeNull();
   });
 });
