@@ -6,8 +6,6 @@ import (
 	"net/netip"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 )
@@ -96,15 +94,14 @@ func TestAccountAvatarOfAnOnlineAccount(t *testing.T) {
 		t.Fatalf("set: %v %v", set, err)
 	}
 	for _, c := range []*testClient{web, other} {
-		for {
-			var m pb.UserState
-			proto.Unmarshal(c.expect(mumble.TypeUserState), &m)
-			if m.GetSession() == web.session && m.Texture != nil {
-				if !bytes.Equal(m.Texture, png) {
-					t.Fatalf("texture %d bytes", len(m.Texture))
-				}
-				break
-			}
+		m := c.waitForState(web.session, func(m *pb.UserState) bool { return m.TextureHash != nil })
+		if !bytes.Equal(m.TextureHash, blobHash(png)) || m.Texture != nil {
+			t.Fatalf("avatar announcement: %v", m)
+		}
+		c.send(mumble.TypeRequestBlob, &pb.RequestBlob{SessionTexture: []uint32{web.session}})
+		m = c.waitForState(web.session, func(m *pb.UserState) bool { return m.Texture != nil })
+		if !bytes.Equal(m.Texture, png) {
+			t.Fatalf("texture %d bytes", len(m.Texture))
 		}
 	}
 	eventually(t, func() bool { return bytes.Equal(s.savedTexture(t, "cert-carol"), png) })
