@@ -397,7 +397,14 @@ func (c *Conn) SetIdentity(id mumble.Identity) {
 }
 
 // Fail tells the client that text channels do not work on this connection.
-func (c *Conn) Fail(reason string) { c.sendError(reason) }
+// It comes from the bridge's other goroutine: not a map, so it never
+// carries the nonce of a send being handled (see send).
+func (c *Conn) Fail(reason string) {
+	c.send(struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}{"error", reason})
+}
 
 type wireChannel struct {
 	ID   int64  `json:"id"`
@@ -1087,15 +1094,15 @@ func (c *Conn) manageError(msg string) {
 
 var resync = []byte(`{"type":"resync"}`)
 
-// send never blocks: a client that does not read its outbox loses messages
-// instead of holding up everyone else. It gets a "resync" (reload what you
-// show) as soon as there is room again.
 func (c *Conn) setAnswering(nonce string) {
 	c.mu.Lock()
 	c.answering = nonce
 	c.mu.Unlock()
 }
 
+// send never blocks: a client that does not read its outbox loses messages
+// instead of holding up everyone else. It gets a "resync" (reload what you
+// show) as soon as there is room again.
 func (c *Conn) send(v any) {
 	if m, ok := v.(map[string]any); ok && m["type"] == "error" {
 		c.mu.Lock()
