@@ -234,3 +234,4 @@
 - [x] [Fixes from the follow-up review](issues/review-4-fixes.md)
 - [x] [Old media plays again; stream audio piles up while audio is frozen](issues/stale-media-playback.md)
 - [x] [Hide a shown spoiler again](issues/rehide-spoilers.md)
+- [x] [Remember self-mute and deafen across a page refresh](issues/remember-self-mute.md)
