@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"slices"
 	"testing"
 
 	"kallisti.chat/server/internal/imagesize"
@@ -273,6 +274,85 @@ func TestDetectAVIF(t *testing.T) {
 	}
 }
 
+// bitWriter writes bits as JPEG XL reads them: the lowest first.
+type bitWriter struct {
+	b []byte
+	n int
+}
+
+func (w *bitWriter) put(v uint32, n int) *bitWriter {
+	for i := range n {
+		if w.n%8 == 0 {
+			w.b = append(w.b, 0)
+		}
+		w.b[len(w.b)-1] |= byte(v>>i&1) << (w.n % 8)
+		w.n++
+	}
+	return w
+}
+
+// jxlOf is a JPEG XL codestream's start: the size (30-bit fields), and
+// the orientation (0: all metadata the default).
+func jxlOf(w, h, orientation uint32) []byte {
+	var b bitWriter
+	b.put(0, 1).put(3, 2).put(h-1, 30).put(0, 3).put(3, 2).put(w-1, 30)
+	if orientation == 0 {
+		b.put(1, 1)
+	} else {
+		b.put(0, 1).put(1, 1).put(orientation-1, 3)
+	}
+	return append([]byte{0xff, 0x0a}, b.b...)
+}
+
+var jxlSignature = append(be32(12), "JXL \r\n\x87\n"...)
+
+func TestJXL(t *testing.T) {
+	var small bitWriter // multiples of 8: 64 x 32
+	small.put(1, 1).put(3, 5).put(0, 3).put(7, 5).put(1, 1)
+	for _, c := range []struct {
+		name string
+		data []byte
+		want Info
+	}{
+		{"codestream (cjxl)", fixture(t, "codestream.jxl"), Info{40, 30, 0}},
+		{"container (cjxl)", fixture(t, "container.jxl"), Info{40, 30, 0}},
+		{"turned by Exif, in jxlp boxes (cjxl from a JPEG)", fixture(t, "turned.jxl"), Info{30, 40, 0}},
+		{"hand-made", jxlOf(640, 480, 0), Info{640, 480, 0}},
+		{"small sizes", append([]byte{0xff, 0x0a}, small.b...), Info{64, 32, 0}},
+		{"turned 90", jxlOf(640, 480, 6), Info{480, 640, 0}},
+		{"upside down", jxlOf(640, 480, 3), Info{640, 480, 0}},
+		{"codestream in jxlp boxes split in the size", slices.Concat(jxlSignature, box("jxlp", be32(0), jxlOf(64, 48, 0)[:4]), box("jxlp", be32(1<<31|1), jxlOf(64, 48, 0)[4:])), Info{64, 48, 0}},
+		{"too wide to show", jxlOf(imagesize.MaxSide+1, 1, 0), Info{}},
+		{"too many pixels to show", jxlOf(9000, 9000, 0), Info{}},
+		{"the largest size", jxlOf(1<<30, 1<<30, 0), Info{}},
+		{"only the signature", []byte{0xff, 0x0a}, Info{}},
+		{"cut in the size", jxlOf(640, 480, 0)[:5], Info{}},
+		{"container without codestream", slices.Concat(jxlSignature, box("ftyp", []byte("jxl "), be32(0), []byte("jxl "))), Info{}},
+	} {
+		if got := probe(c.data, "image/jxl"); got != c.want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDetectJXL(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		head []byte
+		want string
+	}{
+		{"codestream", fixture(t, "codestream.jxl"), "image/jxl"},
+		{"container", fixture(t, "container.jxl"), "image/jxl"},
+		{"PNG", pngOf(t, 2, 2), "image/png"},
+		{"other bytes", []byte("\xff\x0b hello"), "application/octet-stream"},
+		{"signature cut", jxlSignature[:11], "application/octet-stream"},
+	} {
+		if got := DetectType(c.head); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // ebml is an element with an 8-byte size.
 func ebml(id uint32, parts ...[]byte) []byte {
 	idb := be32(id)
@@ -347,6 +427,7 @@ func TestMalformed(t *testing.T) {
 		"video/webm": fixture(t, "vp9.webm"),
 		"image/jpeg": withExif(jpegOf(t, 40, 30), 6, true),
 		"image/avif": fixture(t, "grid.avif"),
+		"image/jxl":  fixture(t, "turned.jxl"),
 	}
 	for ctype, data := range samples {
 		full := probe(data, ctype)
@@ -408,6 +489,17 @@ func FuzzAVIF(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		DetectType(data)
 		if got := probe(data, "image/avif"); got.Width < 0 || got.Height < 0 || got.Duration != 0 {
+			t.Fatal(got)
+		}
+	})
+}
+
+func FuzzJXL(f *testing.F) {
+	f.Add(fixture(f, "turned.jxl"))
+	f.Add(fixture(f, "container.jxl"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		DetectType(data)
+		if got := probe(data, "image/jxl"); got.Width < 0 || got.Height < 0 || got.Duration != 0 {
 			t.Fatal(got)
 		}
 	})

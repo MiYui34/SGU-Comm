@@ -5,6 +5,7 @@
 package mediasize
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/binary"
 	"io"
@@ -39,6 +40,8 @@ func Probe(r io.ReaderAt, size int64, ctype string) Info {
 		i = picture(r, size, ctype == "image/jpeg")
 	case "image/avif":
 		i = (&walker{r: r, budget: maxHeaders}).avif(size)
+	case "image/jxl":
+		i = (&walker{r: r, budget: maxHeaders}).jxl(size)
 	case "video/mp4", "audio/mp4":
 		i = (&walker{r: r, budget: maxHeaders}).mp4(size)
 	case "video/webm":
@@ -232,8 +235,11 @@ func abs(v int32) int64 { return max(int64(v), -int64(v)) }
 // DetectType is http.DetectContentType of a file's start without
 // parameters, and with AVIF, which it does not know.
 func DetectType(head []byte) string {
-	if isAVIF(head) {
+	switch {
+	case isAVIF(head):
 		return "image/avif"
+	case bytes.HasPrefix(head, jxlCodestream) || bytes.HasPrefix(head, jxlContainer):
+		return "image/jxl"
 	}
 	t, _, _ := mime.ParseMediaType(http.DetectContentType(head))
 	return t
@@ -305,6 +311,97 @@ func (w *walker) avif(size int64) Info {
 		return Info{}
 	}
 	return Info{Width: i.Width, Height: i.Height}
+}
+
+// JPEG XL signatures: a bare codestream, or one in boxes.
+var (
+	jxlCodestream = []byte{0xff, 0x0a}
+	jxlContainer  = []byte("\x00\x00\x00\x0cJXL \r\n\x87\n")
+)
+
+// jxl: the size from the codestream's SizeHeader, turned by the
+// orientation in the ImageMetadata after it (as Exif's: 5 to 8 turn by 90
+// or 270 degrees). Only sizes inline pictures may have (see imagesize).
+func (w *walker) jxl(size int64) Info {
+	head := read(w.r, 0, size, 32)
+	if !bytes.HasPrefix(head, jxlCodestream) {
+		head = w.jxlBoxes(size)
+	}
+	if !bytes.HasPrefix(head, jxlCodestream) {
+		return Info{}
+	}
+	b := bitReader{b: head[2:]}
+	small := b.u(1) == 1
+	height := b.jxlSize(small)
+	var width uint64
+	if ratio := b.u(3); ratio == 0 {
+		width = b.jxlSize(small)
+	} else {
+		r := jxlRatios[ratio]
+		width = height * r[0] / r[1]
+	}
+	orientation := uint32(1)
+	if allDefault := b.u(1) == 1; !allDefault && b.u(1) == 1 { // extra fields
+		orientation = 1 + b.u(3)
+	}
+	if b.short || width > imagesize.MaxSide || height > imagesize.MaxSide ||
+		!imagesize.Within(int(width), int(height), imagesize.MaxSide, imagesize.MaxPixels) {
+		return Info{}
+	}
+	if Turned(uint16(orientation)) {
+		width, height = height, width
+	}
+	return Info{Width: int(width), Height: int(height)}
+}
+
+// jxlBoxes: the codestream's first bytes from a container (a jxlc box,
+// or jxlp boxes after their index).
+func (w *walker) jxlBoxes(size int64) []byte {
+	var head []byte
+	w.boxes(0, size, func(typ string, start, end int64) bool {
+		switch typ {
+		case "jxlc":
+			head = read(w.r, start, end, 32)
+			return false
+		case "jxlp":
+			head = append(head, read(w.r, start+4, end, int64(32-len(head)))...)
+		}
+		return len(head) < 32
+	})
+	return head
+}
+
+// Width to height for SizeHeader.ratio 1 to 7.
+var jxlRatios = [8][2]uint64{{}, {1, 1}, {12, 10}, {4, 3}, {3, 2}, {16, 9}, {5, 4}, {2, 1}}
+
+// bitReader reads bits the lowest first; past the end it reads zeros and
+// is short.
+type bitReader struct {
+	b     []byte
+	pos   int
+	short bool
+}
+
+func (r *bitReader) u(n int) uint32 {
+	var v uint32
+	for i := range n {
+		if r.pos >= 8*len(r.b) {
+			r.short = true
+			return 0
+		}
+		v |= uint32(r.b[r.pos/8]>>(r.pos%8)&1) << i
+		r.pos++
+	}
+	return v
+}
+
+// jxlSize is a SizeHeader dimension: in multiples of 8 if small, else
+// U32(1 + 9, 13, 18 or 30 bits).
+func (r *bitReader) jxlSize(small bool) uint64 {
+	if small {
+		return uint64(r.u(5)+1) * 8
+	}
+	return uint64(r.u([4]int{9, 13, 18, 30}[r.u(2)])) + 1
 }
 
 // EBML ids (Matroska, WebM).
