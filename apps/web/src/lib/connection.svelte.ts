@@ -50,6 +50,7 @@ import {
   resyncRequest,
   forgetStatus,
   sendRequest,
+  sendAnswer,
   uploadTokenRequest,
   voiceChatRequest,
   type ManageAction,
@@ -78,6 +79,8 @@ import { answer, ANSWER_MS, confirmsManage, type Via } from "./saveFeedback";
 const PING_INTERVAL_MS = 5_000;
 // Without ready by then, the server has no text channels (see fetchTextures).
 const NO_READY_MS = 3_000;
+// How long a send with a nonce waits for its message (see sendConfirmed).
+const SEND_ANSWER_MS = 15_000;
 
 // account: logged in to a Kallisti account (the server connects with the
 // account's certificate, and the client registers it on Murmur).
@@ -146,6 +149,9 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
       awaiting = [...awaiting, waiter];
       request();
     });
+  // Sends waiting for their message (see sendAnswer); null: the
+  // connection closed. Errors still reach the text state.
+  const confirming = new Set<(ev: ServerEvent | null) => void>();
   // Settles the waiters an answer is for; true if one took the refusal.
   const settleWaiters = (via: Via, refusal: string | null, matches: (w: Waiter) => boolean) => {
     if (!awaiting.some((w) => w.via === via)) return false;
@@ -251,6 +257,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
         text = reduceText(text, ev);
       if (ev?.type === "ready") fetchTextures();
       if (ev?.type === "resync") ws.send(resyncRequest); // lost events: the state comes again
+      if (ev) confirming.forEach((fn) => fn(ev));
       if (ev) textListeners.forEach((fn) => fn(ev));
       return;
     }
@@ -283,6 +290,7 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     clearInterval(timer);
     tokenWaiter?.reject(new Error("connection closed"));
     awaiting.forEach((w) => w.done("Not connected"));
+    confirming.forEach((fn) => fn(null));
     capture?.close();
     streams?.close();
     playback?.close(); // the audio context stays: the app may reconnect with it
@@ -431,6 +439,26 @@ export const connect = (url: string, credentials: Credentials, audio: AudioConte
     sendToTextChannel: (channel: number, message: string, upload?: string, reply?: number, noPing?: boolean) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(sendRequest(channel, message, upload, reply, noPing));
     },
+    // Sends a message (with an uploaded file: its key) with a nonce; settles
+    // once the server stored it (our message came), refused it, or did not
+    // answer. A retry with the same nonce cannot post it twice.
+    sendConfirmed: (channel: number, message: string, nonce: string, upload?: string, reply?: number, noPing?: boolean) =>
+      new Promise<void>((resolve, reject) => {
+        if (ws.readyState !== WebSocket.OPEN) return reject(new Error("Not connected"));
+        const done = (error?: string) => {
+          clearTimeout(timeout);
+          confirming.delete(check);
+          if (error === undefined) resolve();
+          else reject(new Error(error));
+        };
+        const timeout = setTimeout(() => done("No answer from the server"), SEND_ANSWER_MS);
+        const check = (ev: ServerEvent | null) => {
+          const a = ev ? sendAnswer(ev, nonce, upload) : { error: "Not connected" };
+          if (a) done(a.error);
+        };
+        confirming.add(check);
+        ws.send(sendRequest(channel, message, upload, reply, noPing, nonce));
+      }),
     // The server's HTTP origin (uploads and files).
     httpBase: base,
     // Uploads a file and returns its key, to attach with sendToTextChannel.

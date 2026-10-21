@@ -69,6 +69,39 @@ type NewMessage struct {
 	ReplyTo    int64  // 0: not a reply; else a message in the same channel
 	MentionAll string // "", "here" or "everyone" (see Message)
 	NoPing     bool   // see Message
+	// The sender's id for this send ("": none), the same on each retry: a
+	// second send with it finds the first (see MessageByNonce).
+	Nonce string
+}
+
+// NonceTTL is how long a nonce finds its message.
+const NonceTTL = 24 * time.Hour
+
+// nonceAuthor is who a nonce is unique for: registered users by id (also
+// after a rename), guests by name.
+func nonceAuthor(n NewMessage) string {
+	if n.Verified {
+		return fmt.Sprintf("id:%d", n.AuthorID)
+	}
+	return "name:" + n.Author
+}
+
+// MessageByNonce is the author's message sent with n.Nonce in the day
+// before n.At (ErrNotFound: none, or n has no nonce).
+func (s *Store) MessageByNonce(n NewMessage) (Message, error) {
+	if n.Nonce == "" {
+		return Message{}, ErrNotFound
+	}
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM messages WHERE nonce_author = ? AND nonce = ? AND created_at >= ?`,
+		nonceAuthor(n), n.Nonce, n.At.Add(-NonceTTL).UnixMilli()).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Message{}, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, err
+	}
+	return s.MessageByID(id)
 }
 
 // Upload is a stored file. Key is the random, unguessable part of its URL.
@@ -353,7 +386,12 @@ func migrate(db *sql.DB) error {
 		{"pinned_at", "INTEGER"},
 		{"mention_all", "TEXT NOT NULL DEFAULT ''"},
 		{"no_ping", "INTEGER NOT NULL DEFAULT 0"},
+		{"nonce", "TEXT"},        // the sender's id for the send (see MessageByNonce)
+		{"nonce_author", "TEXT"}, // see nonceAuthor
 	}); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS messages_nonce ON messages (nonce_author, nonce) WHERE nonce IS NOT NULL`); err != nil {
 		return err
 	}
 	if err := byUserID(db); err != nil {
@@ -692,8 +730,17 @@ func (s *Store) AddMessage(n NewMessage) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to, mention_all, no_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply, n.MentionAll, n.NoPing); err != nil {
+	var nonce, nonceBy sql.NullString
+	if n.Nonce != "" {
+		nonce, nonceBy = sql.NullString{String: n.Nonce, Valid: true}, sql.NullString{String: nonceAuthor(n), Valid: true}
+		// An expired use of the nonce no longer counts.
+		if _, err := tx.Exec(`UPDATE messages SET nonce = NULL, nonce_author = NULL WHERE nonce_author = ? AND nonce = ? AND created_at < ?`,
+			nonceBy, nonce, n.At.Add(-NonceTTL).UnixMilli()); err != nil {
+			return Message{}, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO messages (id, channel_id, author, verified, author_id, text, created_at, upload_id, reply_to, mention_all, no_ping, nonce, nonce_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, n.ChannelID, n.Author, n.Verified, authorID, n.Text, n.At.UnixMilli(), upload, reply, n.MentionAll, n.NoPing, nonce, nonceBy); err != nil {
 		return Message{}, err
 	}
 	m := Message{ID: id, ChannelID: n.ChannelID, Author: n.Author, Verified: n.Verified, AuthorID: authorID, Text: n.Text, CreatedAt: n.At, Reply: quote, MentionAll: n.MentionAll, NoPing: n.NoPing}

@@ -208,8 +208,10 @@
     onThreads?: () => void;
     threadsOpen?: boolean;
     // Text channels: attach a file (button, paste or drop), with a caption.
-    // ok: the upload worked (false: busy or failed; the file stays).
-    onUpload?: (file: File, caption: string, reply?: number, noPing?: boolean) => Promise<boolean>;
+    // Settles once the server confirmed the message; fails with why (busy,
+    // upload failed, refused, no answer, disconnected: the file stays).
+    // nonce: the same for each retry of this file (see lib/pendingFiles).
+    onUpload?: (file: File, caption: string, nonce: string, reply?: number, noPing?: boolean) => Promise<void>;
     uploading?: boolean;
     uploadMax?: number; // the server's limit per file (bytes)
     // A send the server refused, back for the box (n: which refusal).
@@ -348,6 +350,16 @@
   // this pane closes; draftFor: the chat of `draft`. A waiting file stays
   // in pendingFiles and comes back with its chat.
   const chat = $derived(chatKey ?? target);
+  // The waiting file's send (also one a pane before a reconnect started):
+  // sending, or why it failed. A send that ends elsewhere takes it here too.
+  let filesChanged = $state(0);
+  $effect(() =>
+    pendingFiles.watch(() => {
+      filesChanged++;
+      if (pending && !pendingFiles.holds(chat, pending.file)) showPending(null);
+    }),
+  );
+  const sendStatus = $derived((void filesChanged, pending && pendingFiles.status(chat, pending.file)));
   let draftFor = "";
   $effect(() => {
     const to = chat;
@@ -402,13 +414,13 @@
     if (slowWait > 0 && (text || pending)) return void notify(`Slow mode: wait ${waitText}`);
     if (pending && onUpload) {
       // The file waits while another one is sent (see canAttach).
-      if (uploading) return void notify(WAIT_UPLOAD);
+      if (uploading || sendStatus?.sending) return void notify(WAIT_UPLOAD);
       const { file, spoiler } = pending;
       const sent = { chat, caption: text, file, reply: replying?.id };
       sentAway ||= away;
-      void onUpload(asSpoiler(file, spoiler), withRefs(text), sent.reply, replying ? !replying.ping : undefined).then((ok) => {
+      const [upload, caption, noPing] = [onUpload, withRefs(text), replying ? !replying.ping : undefined];
+      void pendingFiles.send(chat, file, (nonce) => upload(asSpoiler(file, spoiler), caption, nonce, sent.reply, noPing)).then((ok) => {
         const done = afterUpload(ok, sent, { chat: closed ? "" : chat, draft, file: pending?.file, drafts: drafts.value });
-        if (ok) pendingFiles.clear(sent.chat, file);
         if (done.file) showPending(null);
         if (done.caption) draft = "";
         drafts.value = done.drafts;
@@ -958,6 +970,11 @@
           {/if}
           <span class="pending-name ellipsis">{pending.file.name}</span>
           <span class="file-size">{formatSize(pending.file.size)}</span>
+          {#if sendStatus}
+            <span class="pending-status ellipsis" class:failed={!sendStatus.sending} role="status"
+              >{sendStatus.sending ? "Sending…" : `Not sent: ${sendStatus.error}`}</span
+            >
+          {/if}
           <button type="button" class="pending-spoiler" aria-pressed={pending.spoiler} onclick={togglePendingSpoiler}
             >Spoiler</button
           >
@@ -2156,6 +2173,14 @@
   }
   .pending-name {
     flex: 1;
+  }
+  .pending-status {
+    max-width: 40%;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .pending-status.failed {
+    color: var(--danger);
   }
   .pending-cancel {
     font-size: 20px;

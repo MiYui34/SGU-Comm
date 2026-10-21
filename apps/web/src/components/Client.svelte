@@ -317,8 +317,8 @@
     more: id !== null && (text.more[id] ?? false),
     loadingOlder: textView.loadingOlder(id),
     onLoadOlder: () => textView.loadOlder(id),
-    error: uploadError ?? (text.quietError ? null : text.lastError),
-    onUpload: id === null ? undefined : (file: File, caption: string, reply?: number, noPing?: boolean) => upload(file, caption, reply, noPing, id),
+    error: text.quietError ? null : text.lastError,
+    onUpload: id === null ? undefined : (file: File, caption: string, nonce: string, reply?: number, noPing?: boolean) => upload(file, caption, nonce, reply, noPing, id),
     uploading,
     uploadMax: text.uploadMax,
     returned: id !== null && text.returned?.channel === id ? text.returned : null,
@@ -880,20 +880,14 @@
     ...new Set([...users.map((u) => u.name), ...textChat.flatMap((m) => (m.actorName ? [m.actorName] : []))]),
     ...((textId ?? voiceChatId) !== null && canManageText(server, text) ? MENTION_ALL : []),
   ]);
-  // One upload at a time. Errors show where server errors show. True:
-  // sent (the message box then lets the file go).
+  // One upload at a time. Settles once the server stored the message, or
+  // fails (the message box keeps the file and shows why).
   let uploading = $state(false);
-  let uploadError = $state<string | null>(null);
-  const upload = async (file: File, caption: string, reply?: number, noPing?: boolean, channel = chatId) => {
-    if (channel === null || uploading) return false;
+  const upload = async (file: File, caption: string, nonce: string, reply: number | undefined, noPing: boolean | undefined, channel: number) => {
+    if (uploading) throw new Error("Wait for the upload to finish");
     uploading = true;
-    uploadError = null;
     try {
-      connection.sendToTextChannel(channel, caption, await connection.uploadFile(file), reply, noPing);
-      return true;
-    } catch (err) {
-      uploadError = err instanceof Error ? err.message : String(err);
-      return false;
+      await connection.sendConfirmed(channel, caption, nonce, await connection.uploadFile(file), reply, noPing);
     } finally {
       uploading = false;
     }
@@ -1027,13 +1021,7 @@
     const user = dm && dm.session !== null ? server.users[dm.session] : undefined;
     return user && user.name === dm?.name ? user : undefined;
   });
-  // A new message or another view clears an old upload error.
-  $effect(() => {
-    void view;
-    uploadError = null;
-  });
   const send = (message: string, reply?: number, noPing?: boolean) => {
-    uploadError = null;
     if (chatId !== null) connection.sendToTextChannel(chatId, message, undefined, reply, noPing);
     else if (dm === null) connection.sendText({ channelId }, message);
     else if (dm.session !== null) connection.sendText({ session: dm.session }, message);
@@ -1807,10 +1795,7 @@
       messages={threadChat}
       welcomeText=""
       {...storedPane(t.id)}
-      onSend={(message, reply, noPing) => {
-        uploadError = null;
-        connection.sendToTextChannel(t.id, message, undefined, reply, noPing);
-      }}
+      onSend={(message, reply, noPing) => connection.sendToTextChannel(t.id, message, undefined, reply, noPing)}
       {...chatCommon}
       {...(readOnly ? { onSend: undefined, onUpload: undefined } : {})}
       chatKey="thread {t.id}"
