@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import { addEmojiImages } from "./emoji";
-import { addCustomEmojiImages } from "./customEmoji";
+import { addCustomEmojiImages, type EmojiImages } from "./customEmoji";
 
 // Mumble messages are HTML from other users. On top of the default
 // (XSS-safe) config: links open in a new tab, so clicking one does not drop
@@ -22,11 +22,11 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 
 // emoji: emoji become Twemoji images, added after sanitizing (into text
 // only), so nothing from the message can make or change them. The same for
-// custom emoji (":name:" -> image URL).
-export const sanitize = (html: string, emoji = false, custom: ReadonlyMap<string, string> = new Map()) => {
-  if (!emoji && custom.size === 0) return DOMPurify.sanitize(html);
+// custom emoji (":name:" and "<:name:id>" -> image URL).
+export const sanitize = (html: string, emoji = false, custom?: EmojiImages) => {
+  if (!emoji && !custom) return DOMPurify.sanitize(html);
   const fragment = DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
-  addCustomEmojiImages(fragment, custom);
+  if (custom) addCustomEmojiImages(fragment, custom);
   if (emoji) addEmojiImages(fragment);
   const div = document.createElement("div");
   div.append(fragment);

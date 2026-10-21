@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TextMessage } from "../lib/textChannels";
-  import { hideSpoilers } from "../lib/markdown";
+  import { previewText } from "../lib/markdown";
   import { spoilerUpload } from "../lib/media";
   import { formatTimestamp } from "../lib/chat";
   import Avatar from "./Avatar.svelte";
@@ -60,7 +60,7 @@
             <Avatar name={m.author} size={24} />
             <span class="body">
               <span class="meta"><strong>{m.author}</strong> in {where(m)} · {formatTimestamp(m.at, now)}</span>
-              <span class="text">{hideSpoilers(m.text) || (m.upload ? spoilerUpload(m.upload).name : "")}</span>
+              <span class="text">{previewText(m.text) || (m.upload ? spoilerUpload(m.upload).name : "")}</span>
             </span>
           </button>
         </li>

@@ -9,10 +9,10 @@
   import { createHoldTalk } from "../lib/holdTalk";
   import { htmlToLines, htmlToText } from "../lib/htmlText";
   import { collapses, MAX_HEIGHT_PX } from "../lib/collapse";
-  import { hideSpoilers, toggleSpoiler } from "../lib/markdown";
+  import { previewText, toggleSpoiler } from "../lib/markdown";
   import { loadEmojiData, normalEmoji, quickReactions, searchEmoji, withTone, type EmojiData } from "../lib/emojiPicker";
   import { recentEmoji, skinTone, usedEmoji } from "../lib/emojiPrefs.svelte";
-  import { customEmojiFor, customEntries, jumboEmoji, knownEmoji } from "../lib/customEmoji";
+  import { customEmojiFor, customEntries, jumboEmoji, knownEmoji, refsAsNames } from "../lib/customEmoji";
   import { blockedUsers } from "../lib/settings.svelte";
   import AudioPlayer from "./AudioPlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
@@ -1093,7 +1093,7 @@
     {@const quote = m.reply}
     <button type="button" class="quote" onclick={() => quote.author && (seeking = quote.id)}>
       {#if blockedUsers.has(quote.author)}<em>A message from a blocked user.</em>
-      {:else if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{hideSpoilers(quote.text)}</span>
+      {:else if quote.author}<strong>{quote.author}</strong> <span class="ellipsis">{previewText(quote.text)}</span>
       {:else}<em>The original message was deleted.</em>{/if}
     </button>
   {/if}
@@ -1127,7 +1127,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="text"
-      class:jumbo={jumboEmoji(m.text, custom.urls)}
+      class:jumbo={jumboEmoji("source" in m && m.source ? m.source.text : m.text, custom)}
       class:collapsed={long && !open}
       id={long ? `${listId}-${key}` : undefined}
       use:measure={"source" in m && m.source ? null : key}
@@ -1138,7 +1138,7 @@
         if (pill instanceof HTMLElement && onMention && name !== "everyone" && name !== "here") onMention(name, pill, e);
       }}
     >
-      {@html safe(highlightMentions(m.text, me, allOf(m), knownNames), emojiImages.ok, custom.urls)}
+      {@html safe(highlightMentions(m.text, me, allOf(m), knownNames), emojiImages.ok, custom)}
       {#if "edited" in m && m.edited}<span class="edited" title={new Date(m.edited).toLocaleString()}>(edited)</span>{/if}
       <!-- Styled as the edited mark. -->
       {#if "pinned" in m && m.pinned}<span class="edited">(pinned)</span>{/if}
@@ -1177,7 +1177,7 @@
           class="reaction"
           class:mine
           aria-pressed={mine}
-          aria-label="{r.emoji} {r.users.length}, from {r.users.join(', ')}"
+          aria-label="{refsAsNames(r.emoji)} {r.users.length}, from {r.users.join(', ')}"
           title={r.users.join(", ")}
           disabled={!canReact}
           onclick={() => onReact?.(id, r.emoji, !mine)}><span class="emoji"><Emoji text={r.emoji} /></span>{r.users.length}</button
@@ -1215,7 +1215,7 @@
               type="button"
               class="emoji"
               class:mine={mineOf(m, emoji)}
-              aria-label="React with {emoji}"
+              aria-label="React with {refsAsNames(emoji)}"
               onclick={() => react(m, id, emoji)}><Emoji text={emoji} /></button
             >
           {/each}

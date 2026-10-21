@@ -70,9 +70,9 @@ describe("customName", () => {
 });
 
 describe("custom emoji in messages", () => {
-  const html = (text: string) => sanitize(markdown(escapeHtml(text)), false, set.urls);
+  const html = (text: string) => sanitize(markdown(escapeHtml(text)), false, set);
   const img = (name: string, id: number) =>
-    `<img class="emoji custom" draggable="false" title=":${name}:" alt=":${name}:" src="https://chat.example/api/emoji/${id}">`;
+    `<img class="emoji custom" draggable="false" title=":${name}:" alt=":${name}:" src="https://chat.example/api/emoji/${id}" data-emoji=":${name}:">`;
 
   it("become images, known names only", () => {
     expect(html("hi :party: :nope: :top10::party:")).toBe(`hi ${img("party", 1)} :nope: ${img("top10", 2)}${img("party", 1)}`);
@@ -86,14 +86,14 @@ describe("custom emoji in messages", () => {
     expect(markdown(":_ok_: _a_")).toBe(":_ok_: <em>a</em>");
   });
   it("cannot be forged by message HTML (images are added after sanitizing, into text only)", () => {
-    const out = sanitize('<img class="emoji custom" src="https://chat.example/api/emoji/1"><a title=":party:">x</a>', false, set.urls);
+    const out = sanitize('<img class="emoji custom" src="https://chat.example/api/emoji/1"><a title=":party:">x</a>', false, set);
     expect(out).not.toContain("src=");
     expect(out).toContain('title=":party:"');
   });
   it("addCustomEmojiImages leaves a DOM without names alone", () => {
     const div = document.createElement("div");
     div.textContent = "plain";
-    addCustomEmojiImages(div, set.urls);
+    addCustomEmojiImages(div, set);
     expect(div.innerHTML).toBe("plain");
   });
 });
@@ -135,16 +135,16 @@ describe("adding custom emoji", () => {
 describe("jumboEmoji", () => {
   const urls = new Map([["cat", "/e/cat.png"]]);
   it("is true for a text of only emoji", () => {
-    expect(jumboEmoji("🎉", urls)).toBe(true);
-    expect(jumboEmoji(" :cat: 👍🏽 ", urls)).toBe(true);
-    expect(jumboEmoji("❤️:cat:", urls)).toBe(true);
+    expect(jumboEmoji("🎉", { urls })).toBe(true);
+    expect(jumboEmoji(" :cat: 👍🏽 ", { urls })).toBe(true);
+    expect(jumboEmoji("❤️:cat:", { urls })).toBe(true);
   });
   it("is false with other text, unknown custom names or too many", () => {
-    expect(jumboEmoji("nice 🎉", urls)).toBe(false);
-    expect(jumboEmoji(":dog:", urls)).toBe(false);
-    expect(jumboEmoji("", urls)).toBe(false);
-    expect(jumboEmoji("   ", urls)).toBe(false);
-    expect(jumboEmoji("🎉".repeat(27), urls)).toBe(true);
-    expect(jumboEmoji("🎉".repeat(28), urls)).toBe(false);
+    expect(jumboEmoji("nice 🎉", { urls })).toBe(false);
+    expect(jumboEmoji(":dog:", { urls })).toBe(false);
+    expect(jumboEmoji("", { urls })).toBe(false);
+    expect(jumboEmoji("   ", { urls })).toBe(false);
+    expect(jumboEmoji("🎉".repeat(27), { urls })).toBe(true);
+    expect(jumboEmoji("🎉".repeat(28), { urls })).toBe(false);
   });
 });
