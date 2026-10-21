@@ -237,3 +237,4 @@
 - [x] [Remember self-mute and deafen across a page refresh](issues/remember-self-mute.md)
 - [x] [Personal emoji](issues/personal-emoji.md)
 - [x] [Log in with a fediverse account](issues/fediverse-login.md)
+- [x] [A picked attachment survives a reconnect and a reload](issues/pending-attachment-survives.md)
