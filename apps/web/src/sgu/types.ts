@@ -35,6 +35,9 @@ export interface Player {
 // 玩家页上一行能做的事（静音、踢出、封禁…），由外面按权限算好。
 export type PersonAction = { key: string; label: string; run: () => void };
 
+// 房间卡片上的菜单（改名字、删掉），同样由外面按权限算。
+export type RoomAction = PersonAction;
+
 export interface Person {
   name: string;
   /** 所在频道的 id；大厅是 "0"。 */

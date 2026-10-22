@@ -154,6 +154,49 @@ describe("creating a room", () => {
   });
 });
 
+describe("what I may do to a room", () => {
+  it("opens a menu on the card and runs what was picked", async () => {
+    const ran: string[] = [];
+    const { target, done } = draw(RoomGrid, {
+      rooms,
+      joinedId: null,
+      meName: "我",
+      onJoin: () => {},
+      actions: (id: string) => [
+        { key: "edit", label: "改名字和说明", run: () => ran.push(`edit ${id}`) },
+        { key: "delete", label: "删除房间", run: () => ran.push(`delete ${id}`) },
+      ],
+    });
+
+    target.querySelector<HTMLButtonElement>(".slot .more")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const items = [...target.querySelectorAll<HTMLButtonElement>(".menu button")];
+    expect(items.map((one) => one.textContent?.trim())).toEqual(["改名字和说明", "删除房间"]);
+
+    items[1]?.click();
+    expect(ran).toEqual(["delete 1"]);
+
+    // 选完就收起菜单。
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(target.querySelector(".menu")).toBeNull();
+    done();
+  });
+
+  it("leaves the card alone when there is nothing to manage", () => {
+    const { target, done } = draw(RoomGrid, {
+      rooms,
+      joinedId: null,
+      meName: "我",
+      onJoin: () => {},
+      actions: () => [],
+    });
+    expect(target.querySelector(".more")).toBeNull();
+    expect(target.textContent).toContain("主城");
+    done();
+  });
+});
+
 describe("what I may do to someone", () => {
   it("opens a menu on a row and runs what was picked", async () => {
     const ran: string[] = [];
@@ -226,5 +269,32 @@ describe("the settings page", () => {
     });
     expect(staff.target.textContent).toContain("服务器管理");
     staff.done();
+  });
+
+  it("offers the search panel only when there is something to open", () => {
+    const plain = draw(SettingsView, {
+      meName: "我",
+      micOn: true,
+      soundOn: true,
+      onToggleMic: () => {},
+      onToggleSound: () => {},
+    });
+    expect(plain.target.textContent).not.toContain("搜索或跳转");
+    plain.done();
+
+    let opened = 0;
+    const withPalette = draw(SettingsView, {
+      meName: "我",
+      micOn: true,
+      soundOn: true,
+      onToggleMic: () => {},
+      onToggleSound: () => {},
+      onOpenPalette: () => (opened += 1),
+    });
+    expect(withPalette.target.textContent).toContain("Ctrl K");
+    const row = [...withPalette.target.querySelectorAll<HTMLButtonElement>("button.more")].at(-1);
+    row?.click();
+    expect(opened).toBe(1);
+    withPalette.done();
   });
 });

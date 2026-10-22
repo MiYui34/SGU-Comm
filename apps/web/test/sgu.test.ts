@@ -7,6 +7,18 @@ import RoomGrid from "../src/sgu/RoomGrid.svelte";
 import Shell from "../src/sgu/Shell.svelte";
 import StatusRail from "../src/sgu/StatusRail.svelte";
 import { mockState } from "../src/sgu/mock";
+
+// jsdom 没有滚动，只有真浏览器才有；跳转面板会用到它。
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
+// jsdom 的 <dialog> 还没有模态方法，跳转面板一开就调它。
+HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+  this.open = true;
+};
+HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+  this.open = false;
+  this.dispatchEvent(new Event("close"));
+};
 import { joinRoom, leaveRooms } from "../src/sgu/rooms";
 import { probe, readStatus, summarise } from "../src/sgu/live";
 import { formatMinutes, qualityOf, playerOfName, type VoiceRoom } from "../src/sgu/types";
@@ -244,6 +256,19 @@ describe("components", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("opens the quick switcher with Ctrl K", async () => {
+    const { target, done } = draw(Shell, { snapshot: mockState });
+    // 快捷键是 onMount 里挂的，等它挂上再按。
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
+    await settle(() => target.querySelector("dialog") !== null);
+
+    const list = target.querySelector("dialog")?.textContent ?? "";
+    expect(list).toContain("大厅");
+    expect(list).toContain("挖矿");
+    done();
   });
 });
 

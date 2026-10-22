@@ -8,6 +8,7 @@
     onToggleSound,
     onOpenSettings,
     onOpenShortcuts,
+    onOpenPalette,
     onOpenModeration,
     canModerate = false,
   }: {
@@ -20,6 +21,8 @@
     onOpenSettings?: () => void;
     // 键位表。
     onOpenShortcuts?: () => void;
+    // 搜索与跳转面板（Ctrl K），没有就不显示这一行。
+    onOpenPalette?: () => void;
     // 服务器管理（封禁、注册用户、访客只读、验证码），有权限才给。
     onOpenModeration?: () => void;
     canModerate?: boolean;
@@ -107,6 +110,15 @@
         </div>
         <button type="button" class="more" onclick={() => onOpenShortcuts?.()}>查看</button>
       </div>
+      {#if onOpenPalette}
+        <div class="row">
+          <div class="what">
+            <span class="label">搜索或跳转</span>
+            <span class="hint">Ctrl K 找频道，回车就过去</span>
+          </div>
+          <button type="button" class="more" onclick={() => onOpenPalette?.()}>打开</button>
+        </div>
+      {/if}
     </div>
   </section>
 </div>

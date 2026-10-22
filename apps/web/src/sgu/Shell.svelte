@@ -8,6 +8,7 @@
   import VoiceBar from "./VoiceBar.svelte";
   import ChatView from "./ChatView.svelte";
   import Drawer from "./Drawer.svelte";
+  import QuickSwitcher, { type Place } from "../components/QuickSwitcher.svelte";
   import SearchPanel from "../components/SearchPanel.svelte";
   import ThreadList from "../components/ThreadList.svelte";
   import { threadList, type Thread } from "../lib/threads";
@@ -15,12 +16,14 @@
   import { watchConnection, watchStatus, type LiveStatus } from "./live";
   import { joinRoom, leaveRooms } from "./rooms";
   import type { TextMessage, TextState } from "../lib/textChannels";
+  import type { ConnectionInfo } from "../lib/connectionInfo.svelte";
   import {
     playerOfName,
     type ConnectionStats,
     type NavKey,
     type Person,
     type PersonAction,
+    type RoomAction,
     type SguState,
     type VoiceRoom,
   } from "./types";
@@ -39,6 +42,7 @@
     rooms: roomsFromOutside,
     joinedRoomId: joinedFromOutside,
     stats,
+    connectionInfo,
     controls,
     onJoin,
     onLeave,
@@ -63,6 +67,7 @@
     onOpenModeration,
     canModerateServer = false,
     personActions,
+    roomActions,
     myId = null,
   }: {
     snapshot: SguState;
@@ -70,6 +75,8 @@
     rooms?: VoiceRoom[];
     joinedRoomId?: string | null;
     stats?: ConnectionStats | null;
+    // 语音连接自己的统计，给顶栏那个小信号图标用。
+    connectionInfo?: ConnectionInfo | null;
     controls?: Controls | null;
     onJoin?: (id: string) => void;
     onLeave?: () => void;
@@ -110,6 +117,8 @@
     canModerateServer?: boolean;
     // 玩家页每一行能做的事（静音、踢出、封禁…）。
     personActions?: (session: number) => PersonAction[];
+    // 房间卡片上的菜单（改名字、删掉）。
+    roomActions?: (roomId: string) => RoomAction[];
   } = $props();
 
   let active = $state<NavKey>("voice");
@@ -118,6 +127,8 @@
   let localMic = $state(true);
   let localSound = $state(true);
   let unread = $state(0);
+  // Ctrl+K 打开的那个跳转面板。
+  let palette = $state(false);
 
   // 聊天页拉出来的抽屉：搜索、置顶、话题。
   let panel = $state<"search" | "pins" | "threads" | null>(null);
@@ -132,11 +143,22 @@
   // 延迟由浏览器自己测（每秒三次请求的空回答）；还没测出来时用示例数据。
   let measured = $state<ConnectionStats | null>(null);
   onMount(() => {
+    // Ctrl+K / ⌘K，和上游一样。
+    const hot = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        palette = true;
+      }
+    };
+    window.addEventListener("keydown", hot);
     const stops: (() => void)[] = [];
     // 接上真实语音时延迟已经有人测了，不用再发一遍。
     if (!stats) stops.push(watchConnection((stats) => (measured = stats)));
     stops.push(watchStatus((status) => (live = status)));
-    return () => stops.forEach((stop) => stop());
+    return () => {
+      stops.forEach((stop) => stop());
+      window.removeEventListener("keydown", hot);
+    };
   });
 
   const connection = $derived(stats ?? measured ?? snapshot.connection);
@@ -226,6 +248,28 @@
   }
 
   // 没接上服务器时建房间只加在页面上，免得按钮点了没反应。
+  // 跳转面板里的入口：文字频道跳聊天，语音房间直接进。
+  const places = $derived<Place[]>([
+    ...(chat ? Object.values(chat.channels).map((channel) => ({
+      key: `text-${channel.id}`,
+      name: channel.name,
+      kind: "text" as const,
+      category: "文字频道",
+      run: () => {
+        openThread = null;
+        chatChannel = channel.id;
+        active = "chat";
+      },
+    })) : []),
+    ...rooms.map((room) => ({
+      key: `voice-${room.id}`,
+      name: room.name,
+      kind: "voice" as const,
+      category: "语音房间",
+      run: () => join(room.id),
+    })),
+  ]);
+
   function createRoom(name: string) {
     if (onCreate) {
       onCreate(name);
@@ -246,7 +290,7 @@
 </script>
 
 <div class="sgu-app">
-  <Header server={server} me={snapshot.me} />
+  <Header server={server} me={snapshot.me} info={connectionInfo ?? null} />
 
   <NavRail {active} roomCount={rooms.length} {unread} onSelect={(key) => (active = key)} />
 
@@ -367,6 +411,7 @@
         {onOpenShortcuts}
         {onOpenModeration}
         canModerate={canModerateServer}
+        onOpenPalette={() => (palette = true)}
       />
     {:else}
       <div class="head-row">
@@ -374,11 +419,23 @@
         <span>{rooms.length} 个</span>
       </div>
 
-      <RoomGrid {rooms} {joinedId} {meName} onJoin={join} onCreate={createRoom} canCreate={canCreate ?? true} />
+      <RoomGrid
+        {rooms}
+        {joinedId}
+        {meName}
+        onJoin={join}
+        onCreate={createRoom}
+        canCreate={canCreate ?? true}
+        actions={roomActions}
+      />
     {/if}
   </main>
 
-  {#if threadAsk !== null}
+  {#if palette}
+  <QuickSwitcher {places} onClose={() => (palette = false)} />
+{/if}
+
+{#if threadAsk !== null}
     <button type="button" class="ask-backdrop" aria-label="取消" onclick={() => (threadAsk = null)}></button>
     <form
       class="ask"

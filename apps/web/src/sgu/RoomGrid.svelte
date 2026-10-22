@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { VoiceRoom } from "./types";
+  import type { RoomAction, VoiceRoom } from "./types";
 
   let {
     rooms,
@@ -9,6 +9,7 @@
     onJoin,
     onCreate,
     canCreate = true,
+    actions,
   }: {
     rooms: VoiceRoom[];
     joinedId: string | null;
@@ -18,7 +19,12 @@
     onCreate?: (name: string) => void;
     // 服务器上的权限位说不能建就不显示入口，免得点了没反应。
     canCreate?: boolean;
+    // 这个房间能改什么；返回空数组就不显示菜单。
+    actions?: (roomId: string) => RoomAction[];
   } = $props();
+
+  // 哪张卡片的菜单摊开着。
+  let menuFor = $state<string | null>(null);
 
   let creating = $state(false);
   let draft = $state("");
@@ -43,26 +49,56 @@
 
 <section class="rooms" aria-label="语音房间">
   {#each rooms as room (room.id)}
-    <button type="button" class="room" class:on={room.id === joinedId} onclick={() => onJoin(room.id)}>
-      <div class="top">
-        <span class="name">{room.name}</span>
-        <span class="count">{room.members.length} 人</span>
-      </div>
+    <div class="slot">
+      <button type="button" class="room" class:on={room.id === joinedId} onclick={() => onJoin(room.id)}>
+        <div class="top">
+          <span class="name">{room.name}</span>
+          <span class="count">{room.members.length} 人</span>
+        </div>
 
-      {#if room.members.length === 0}
-        <div class="empty">还没有人</div>
-      {:else}
-        <div class="members">
-          {#each room.members as member, i (member)}
-            {#if i > 0}<span class="sep">、</span>{/if}<span class:me-in={member === meName}>{member === meName ? "你" : member}</span>
-          {/each}
+        {#if room.members.length === 0}
+          <div class="empty">还没有人</div>
+        {:else}
+          <div class="members">
+            {#each room.members as member, i (member)}
+              {#if i > 0}<span class="sep">、</span>{/if}<span class:me-in={member === meName}>{member === meName ? "你" : member}</span>
+            {/each}
+          </div>
+        {/if}
+
+        {#if room.id === joinedId}
+          <div class="tag">你在这个房间</div>
+        {/if}
+      </button>
+
+      {#if (actions?.(room.id) ?? []).length > 0}
+        <div class="ops">
+          <button
+            type="button"
+            class="more"
+            aria-label="管理这个房间"
+            onclick={() => (menuFor = menuFor === room.id ? null : room.id)}
+          >
+            ⋯
+          </button>
+          {#if menuFor === room.id}
+            <div class="menu">
+              {#each actions?.(room.id) ?? [] as action (action.key)}
+                <button
+                  type="button"
+                  onclick={() => {
+                    menuFor = null;
+                    action.run();
+                  }}
+                >
+                  {action.label}
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
-
-      {#if room.id === joinedId}
-        <div class="tag">你在这个房间</div>
-      {/if}
-    </button>
+    </div>
   {/each}
 
   {#if canCreate}
@@ -90,6 +126,71 @@
 </section>
 
 <style>
+  .slot {
+    position: relative;
+    display: flex;
+  }
+
+  .slot .room {
+    flex: 1;
+  }
+
+  .ops {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+  }
+
+  .more {
+    padding: 1px 6px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--sg-muted);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .slot:hover .more,
+  .more:focus-visible {
+    opacity: 1;
+  }
+
+  .menu {
+    position: absolute;
+    top: 24px;
+    right: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    min-width: 118px;
+    padding: 4px;
+    background: var(--sg-card);
+    border: 1px solid var(--sg-line);
+    border-radius: 9px;
+    box-shadow: 0 12px 28px rgb(44 38 29 / 14%);
+  }
+
+  .menu button {
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-text);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .menu button:hover {
+    background: var(--sg-panel);
+  }
+
   .rooms {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

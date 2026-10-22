@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { Me, ServerInfo } from "./types";
 
-  let { server, me }: { server: ServerInfo; me: Me } = $props();
+  import ConnectionInfo from "../components/ConnectionInfo.svelte";
+  import type { ConnectionInfo as Info } from "../lib/connectionInfo.svelte";
+
+  let { server, me, info }: { server: ServerInfo; me: Me; info?: Info | null } = $props();
 </script>
 
 <header class="head">
@@ -13,6 +16,9 @@
       <div class="online"><span class="dot"></span><b>{server.online}</b> / {server.slots} 在线</div>
     {:else}
       <div class="off">游戏服未连接</div>
+    {/if}
+    {#if info}
+      <ConnectionInfo info={info} />
     {/if}
     <div class="me">
       <span class="av">{me.initial}</span>

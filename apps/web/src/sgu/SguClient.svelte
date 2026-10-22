@@ -13,10 +13,13 @@
     unregister,
   } from "@kallisti/protocol";
   import type { Connection } from "../lib/connection.svelte";
+  import ChannelDialog from "../components/ChannelDialog.svelte";
+  import MembersDialog from "../components/MembersDialog.svelte";
   import ModerationDialog from "../components/ModerationDialog.svelte";
   import UserActionDialog from "../components/UserActionDialog.svelte";
   import SettingsDialog from "../components/SettingsDialog.svelte";
   import Shortcuts from "../components/Shortcuts.svelte";
+  import { createChannelManagement } from "../lib/channelManagement.svelte";
   import { mayChangeGuests } from "../lib/guests";
   import { moderationRequests, moderationRights, userModeration } from "../lib/moderation";
   import { parseSearch } from "../lib/search";
@@ -24,7 +27,7 @@
   import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
   import Shell from "./Shell.svelte";
   import "./theme.css";
-  import type { ConnectionStats, PersonAction, SguState } from "./types";
+  import type { ConnectionStats, PersonAction, RoomAction, SguState } from "./types";
 
   // 把真实的 Mumble 连接接到中文外壳上：房间是语音频道，人是频道里的人，
   // 延迟用这条连接自己的 ping，进出房间就是移动频道。
@@ -105,6 +108,22 @@
   // 正在确认的那个人（踢出/封禁/禁言要再问一次）。
   let asking = $state<{ session: number; name: string; kind: "kick" | "ban" | "timeout" } | null>(null);
 
+  // 房间的改名/说明/删除走上游那套频道管理，表单也是它的。
+  const channels = createChannelManagement(() => connection);
+
+  function roomActions(id: string): RoomAction[] {
+    const channel = Number(id);
+    if (!may(server, channel, Perm.Write)) return [];
+    const out: RoomAction[] = [
+      { key: "edit", label: "改名字和说明", run: () => channels.startEdit("voice", channel) },
+    ];
+    if (channels.menu?.canMembers) {
+      out.push({ key: "members", label: "谁能进来", run: () => channels.startMembers("voice", channel) });
+    }
+    out.push({ key: "delete", label: "删除房间", run: () => channels.startDelete("voice", channel) });
+    return out;
+  }
+
   // 玩家页每一行能做什么，按权限和对方身份算。
   function personActions(session: number): PersonAction[] {
     const user = server.users[session];
@@ -152,6 +171,7 @@
     {rooms}
     joinedRoomId={joinedId}
     {stats}
+    connectionInfo={connection.info}
     {controls}
     onJoin={join}
     onLeave={leave}
@@ -177,6 +197,7 @@
     onOpenShortcuts={() => (keysOpen = true)}
     canModerateServer={rights.any}
     {personActions}
+    {roomActions}
     onOpenModeration={() => (modOpen = true)}
 
   />
@@ -194,6 +215,33 @@
 
 {#if keysOpen}
   <Shortcuts onClose={() => (keysOpen = false)} />
+{/if}
+
+{#if channels.form !== null}
+  <ChannelDialog form={channels.form.form} onSubmit={channels.submit} onClose={channels.closeForm} />
+{/if}
+
+{#if channels.members !== null && text !== null}
+  <MembersDialog
+    name={channels.members.name}
+    members={channels.members.members}
+    registered={server.registered}
+    invites={text.invites[channels.members.access] ?? null}
+    onLoad={() => {
+      const open = channels.members;
+      if (open === null) return;
+      connection.send(queryRegistered());
+      connection.manage({ invites: open.access });
+    }}
+    onSubmit={channels.submitMembers}
+    onCreateInvite={(seconds, uses) => {
+      const open = channels.members;
+      if (open === null) return Promise.resolve();
+      return connection.request({ createInvite: open.access, seconds, uses });
+    }}
+    onDeleteInvite={(id) => connection.request({ deleteInvite: id })}
+    onClose={channels.closeMembers}
+  />
 {/if}
 
 {#if asking !== null}

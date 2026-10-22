@@ -18,7 +18,23 @@
   --sg-green: #1f6b4a;
   --sg-green-soft: rgb(31 107 74 / 10%);
   --sg-red: #b8442f;
-  --sg-radius: 10px;
+  /* 上游组件用的是这一套名字，这里翻译成纸色，免得弹窗套着 Discord 的灰。 */
+  --bg-rail: var(--sg-panel);
+  --bg-main: var(--sg-card);
+  --bg-input: #fff;
+  --bg-hover: #f6f2e9;
+  --bg-active: #eae4d6;
+  --bg-menu: var(--sg-card);
+  --border: var(--sg-line);
+  --text: var(--sg-text);
+  --text-muted: var(--sg-muted);
+  --text-faint: var(--sg-faint);
+  --link: var(--sg-green);
+  --accent-strong: var(--sg-green);
+  --danger: var(--sg-red);
+  --online: #3f9c6d;
+  --idle: #c9a227;
+  --dnd: var(--sg-red);  --sg-radius: 10px;
   --sg-font:
     "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
     system-ui, sans-serif;
