@@ -4,6 +4,7 @@
   import { COMMON_EMOJI } from "../lib/reactions";
   import Lightbox from "../components/Lightbox.svelte";
   import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload } from "../lib/media";
+  import type { LinkPreview } from "../lib/linkPreview";
   import { recentLines, sizeOf, timeOf, type ChatLine } from "./chat";
 
   // 文字频道：上面一排频道，中间是消息，下面是输入框。
@@ -25,8 +26,14 @@
     onRead,
     focusChannel = null,
     thread = null,
+    tabs = true,
     myName = "",
     myId = null,
+    typing = [],
+    onTyping,
+    extraChannels = [],
+    previewOf,
+    httpBase = "",
     canWrite = () => true,
   }: {
     text: TextState;
@@ -35,8 +42,9 @@
     onUpload?: (file: File) => Promise<string>;
     // 这个频道的旧消息还没读，去要一下（每个频道只问一次）。
     onOpen?: (channelId: number) => void;
-    // 别的频道来了几条没看的，外面的导航上要挂个数字。
-    onUnread?: (total: number) => void;
+    // 别的频道来了几条没看的，外面的导航上要挂个数字；
+    // 第二个参数是每个频道各剩几条，左边栏用它点绿点。
+    onUnread?: (total: number, perChannel: Record<number, number>) => void;
     // 贴/取消一个表情。
     onReact?: (messageId: number, emoji: string, on: boolean) => void;
     // 改自己发过的话。
@@ -56,6 +64,8 @@
     onRead?: (channelId: number, messageId: number) => void;
     // 外面指定看哪个频道（搜索结果、话题点过来）。
     focusChannel?: number | null;
+    // 频道列表放在左边栏时不在这里再排一遍。
+    tabs?: boolean;
     // 展开中的话题：它的 id 就是一个聊天 id，当成临时频道列出来。
     thread?: { id: number; name: string } | null;
     // 置顶/取消置顶（要有权限，服务器会拒绝不该做的）。
@@ -64,6 +74,16 @@
     myName?: string;
     // 我的用户 id：用来知道自己贴过哪些表情。
     myId?: number | null;
+    // 谁正在这个频道里打字（名字已经筛过、排过）。
+    typing?: readonly string[];
+    // 私信这类不在 text.channels 里的聊天，也要能切过去。
+    extraChannels?: readonly { id: number; name: string }[];
+    // 我开始打字了：外面隔几秒报一次给服务器。
+    onTyping?: () => void;
+    // 消息里的链接由服务器抓成一张小卡；null 表示这个页面没有卡。
+    previewOf?: (messageId: number) => LinkPreview | null;
+    // 卡片上的图在服务器上，拼绝对地址要用它。
+    httpBase?: string;
     // 没发言权限的频道不给输入框。
     canWrite?: (channelId: number) => boolean;
   } = $props();
@@ -86,9 +106,11 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   // 哪一条下面摊开了表情盘。
   let emojiFor = $state<number | null>(null);
 
-  const channels = $derived(
-    thread === null ? text.channels : [...text.channels, { id: thread.id, name: thread.name }],
-  );
+  const channels = $derived([
+    ...text.channels,
+    ...extraChannels,
+    ...(thread === null ? [] : [{ id: thread.id, name: thread.name }]),
+  ]);
 
   // 外面换了频道（点了搜索结果、打开了话题）就跟着切。
   $effect(() => {
@@ -137,8 +159,13 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
 
   $effect(() => {
     let total = 0;
-    for (const channel of channels) total += countOf(channel.id);
-    onUnread?.(total);
+    const per: Record<number, number> = {};
+    for (const channel of channels) {
+      const left = countOf(channel.id);
+      per[channel.id] = left;
+      total += left;
+    }
+    onUnread?.(total, per);
   });
 
   function send() {
@@ -213,6 +240,14 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
     editing = null;
     emojiFor = null;
   }
+
+  // 「小明正在输入…」。上游的文案是英文的，这里自己拼。
+  function typingLine(names: readonly string[]): string {
+    if (names.length === 0) return "";
+    if (names.length === 1) return `${names[0]} 正在输入…`;
+    if (names.length <= 3) return `${names.join("、")} 正在输入…`;
+    return "好几个人正在输入…";
+  }
 </script>
 
 <div class="chat">
@@ -239,16 +274,18 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
     </div>
   {/if}
 
-  <div class="channels">
-    {#each channels as channel (channel.id)}
-      <button type="button" class="tab" class:on={channel.id === selected?.id} onclick={() => pick(channel.id)}>
-        {channel.name}
-        {#if countOf(channel.id) > 0}
-          <span class="dot">{countOf(channel.id)}</span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  {#if tabs}
+    <div class="channels">
+      {#each channels as channel (channel.id)}
+        <button type="button" class="tab" class:on={channel.id === selected?.id} onclick={() => pick(channel.id)}>
+          {channel.name}
+          {#if countOf(channel.id) > 0}
+            <span class="dot">{countOf(channel.id)}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <div class="lines">
     {#if lines.length === 0}
@@ -324,6 +361,19 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
                   {/each}
                 </div>
               {/if}
+              {#if previewOf?.(line.id)}
+                {@const card = previewOf(line.id)!}
+                <a class="preview" href={card.url} target="_blank" rel="noopener noreferrer">
+                  <span class="preview-text">
+                    {#if card.site}<span class="preview-site">{card.site}</span>{/if}
+                    <span class="preview-title">{card.title}</span>
+                    {#if card.description}<span class="preview-description">{card.description}</span>{/if}
+                  </span>
+                  {#if card.image}
+                    <img src={httpBase + card.image} alt="" loading="lazy" onerror={(e) => e.currentTarget.remove()} />
+                  {/if}
+                </a>
+              {/if}
             {/if}
           </div>
           <span class="when">{timeOf(line.at)}</span>
@@ -397,6 +447,9 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
           rows="1"
           placeholder={selected === null ? "先选一个频道" : `在 ${selected.name} 里说点什么`}
           disabled={selected === null}
+          oninput={() => {
+            if (draft.trim() !== "") onTyping?.();
+          }}
           onkeydown={onKey}
         ></textarea>
         <button
@@ -408,6 +461,9 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
           {busy ? "上传中" : "发送"}
         </button>
       </div>
+      {#if typing.length > 0}
+        <p class="typing" aria-live="polite">{typingLine(typing)}</p>
+      {/if}
     </div>
   {:else}
     <p class="no-write">这个频道你不能发言</p>
@@ -481,7 +537,11 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   }
 
   .tab {
+    flex: 0 0 auto;
+    max-width: 190px;
+    overflow: hidden;
     padding: 5px 10px;
+    text-overflow: ellipsis;
     font: inherit;
     font-size: 13px;
     color: var(--sg-muted);
@@ -665,6 +725,66 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   .react span {
     font-size: 11px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .preview {
+    display: flex;
+    gap: 10px;
+    max-width: 460px;
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: var(--sg-bg);
+    border-left: 3px solid var(--sg-green);
+    border-radius: 4px;
+    color: var(--sg-text);
+    text-decoration: none;
+  }
+
+  .preview-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .preview-site {
+    font-size: 11.5px;
+    color: var(--sg-muted);
+  }
+
+  .preview-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--sg-green);
+  }
+
+  .preview:hover .preview-title {
+    text-decoration: underline;
+  }
+
+  .preview-description {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12.5px;
+    color: var(--sg-muted);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .preview img {
+    flex-shrink: 0;
+    width: 64px;
+    height: 64px;
+    border-radius: 4px;
+    object-fit: cover;
+  }
+
+  .typing {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--sg-muted);
   }
 
   .acts {

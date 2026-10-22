@@ -3,6 +3,7 @@
   import { mockChat } from "./mockChat";
   import { mockState } from "./mock";
   import Shell from "./Shell.svelte";
+  import Ask from "./Ask.svelte";
   import type { RoomAction } from "./types";
   import "./theme.css";
 
@@ -33,12 +34,16 @@
     }));
   }
 
+  // 改名走站内的问询框，不弹浏览器自己的 prompt。
+  let renaming = $state<string | null>(null);
+
   function renameRoom(id: string) {
-    const room = rooms.find((one) => one.id === id);
-    if (room === undefined) return;
-    const name = window.prompt("房间的新名字", room.name)?.trim();
-    if (!name) return;
+    renaming = id;
+  }
+
+  function applyName(id: string, name: string) {
     rooms = rooms.map((one) => (one.id === id ? { ...one, name } : one));
+    renaming = null;
   }
 
   function deleteRoom(id: string) {
@@ -123,3 +128,16 @@
   onPinText={pin}
   onUploadText={async (file) => `preview-${file.size}`}
 />
+
+{#if renaming !== null}
+  <Ask
+    title="房间的新名字"
+    label="只改这一页里的示例数据。"
+    value={rooms.find((one) => one.id === renaming)?.name ?? ""}
+    ok="改名"
+    onDone={(name) => {
+      if (renaming !== null) applyName(renaming, name);
+    }}
+    onCancel={() => (renaming = null)}
+  />
+{/if}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mount, unmount } from "svelte";
 import type { Component } from "svelte";
 import PlayersView from "../src/sgu/PlayersView.svelte";
+import ChannelList from "../src/sgu/ChannelList.svelte";
 import RoomGrid from "../src/sgu/RoomGrid.svelte";
 import SettingsView from "../src/sgu/SettingsView.svelte";
 import { playerOfName, type Person, type VoiceRoom } from "../src/sgu/types";
@@ -270,31 +271,38 @@ describe("the settings page", () => {
     expect(staff.target.textContent).toContain("服务器管理");
     staff.done();
   });
+});
 
-  it("offers the search panel only when there is something to open", () => {
-    const plain = draw(SettingsView, {
-      meName: "我",
-      micOn: true,
-      soundOn: true,
-      onToggleMic: () => {},
-      onToggleSound: () => {},
-    });
-    expect(plain.target.textContent).not.toContain("搜索或跳转");
-    plain.done();
 
-    let opened = 0;
-    const withPalette = draw(SettingsView, {
+describe("the channel list", () => {
+  const drew = () =>
+    draw(ChannelList, {
+      channels: [{ id: 1, name: "综合" }],
+      unread: { 9: 2 },
+      selected: 1,
+      onSelect: (id: number) => picked.push(id),
+      directs: [{ id: 9, name: "Ender" }],
+      rooms: [],
+      joinedId: null,
       meName: "我",
-      micOn: true,
-      soundOn: true,
-      onToggleMic: () => {},
-      onToggleSound: () => {},
-      onOpenPalette: () => (opened += 1),
+      onJoin: () => {},
     });
-    expect(withPalette.target.textContent).toContain("Ctrl K");
-    const row = [...withPalette.target.querySelectorAll<HTMLButtonElement>("button.more")].at(-1);
-    row?.click();
-    expect(opened).toBe(1);
-    withPalette.done();
+  const picked: number[] = [];
+
+  it("puts private chats under their own heading", () => {
+    const { target, done } = drew();
+    expect(target.textContent).toContain("私信");
+    const row = [...target.querySelectorAll("button.row")].find((button) => button.textContent?.includes("Ender"));
+    expect(row).toBeTruthy();
+    (row as HTMLButtonElement).click();
+    expect(picked).toContain(9);
+    done();
+  });
+
+  it("shows how many are waiting in a private chat", () => {
+    const { target, done } = drew();
+    const row = [...target.querySelectorAll("button.row")].find((button) => button.textContent?.includes("Ender"));
+    expect(row?.querySelector(".dot")?.textContent).toBe("2");
+    done();
   });
 });

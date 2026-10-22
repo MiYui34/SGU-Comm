@@ -86,15 +86,16 @@ describe("the Chinese shell on a real connection", () => {
     expect(target.querySelector(".sgu-app")).not.toBeNull();
     expect(target.textContent).toContain("大厅");
     expect(target.textContent).toContain("挖矿");
-    expect(target.textContent).toContain("你在这个房间");
+    // 左边栏里我自己在大厅，所以那一行右边写「你」。
+    expect(target.querySelector("button.voice.on")?.textContent).toContain("你");
     done();
   });
 
   it("walks into another room by moving the connection", () => {
     const sent: Uint8Array[] = [];
     const { target, done } = draw(serverOf([user(7, "Kernel", 1)]), sent);
-    // 第一张是还在的大厅，第二张是挖矿。
-    target.querySelectorAll<HTMLButtonElement>("button.room")[1]?.click();
+    // 第一行是还在的大厅，第二行是挖矿。
+    target.querySelectorAll<HTMLButtonElement>("button.voice")[1]?.click();
     expect(sent).toHaveLength(1);
     expect(sent[0]?.length).toBeGreaterThan(0);
     done();

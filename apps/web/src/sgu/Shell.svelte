@@ -1,6 +1,7 @@
 <script lang="ts">
   import Header from "./Header.svelte";
-  import NavRail from "./NavRail.svelte";
+  import ChannelList from "./ChannelList.svelte";
+  import Ask from "./Ask.svelte";
   import PlayersView from "./PlayersView.svelte";
   import RoomGrid from "./RoomGrid.svelte";
   import SettingsView from "./SettingsView.svelte";
@@ -8,10 +9,11 @@
   import VoiceBar from "./VoiceBar.svelte";
   import ChatView from "./ChatView.svelte";
   import Drawer from "./Drawer.svelte";
-  import QuickSwitcher, { type Place } from "../components/QuickSwitcher.svelte";
   import SearchPanel from "../components/SearchPanel.svelte";
   import ThreadList from "../components/ThreadList.svelte";
   import { threadList, type Thread } from "../lib/threads";
+  import type { LinkPreview } from "../lib/linkPreview";
+  import { typingNames } from "../lib/typing";
   import { onMount, untrack } from "svelte";
   import { watchConnection, watchStatus, type LiveStatus } from "./live";
   import { joinRoom, leaveRooms } from "./rooms";
@@ -63,6 +65,12 @@
     onOpenThread,
     onSearchText,
     onPinsText,
+    typers,
+    typingNow,
+    onTypingText,
+    previewOf,
+    httpBase = "",
+    directs = [],
     onOpenSettings,
     onOpenShortcuts,
     onOpenModeration,
@@ -113,6 +121,17 @@
     // 搜索消息、要某个频道的置顶列表。
     onSearchText?: (text: string) => void;
     onPinsText?: (channelId: number) => void;
+    // 谁在哪个频道打字（上游 lib/typing 的结构），和它算过期用的时刻。
+    typers?: Readonly<Record<number, Readonly<Record<string, number>>>>;
+    typingNow?: number;
+    // 我开始打字了，报给服务器。
+    onTypingText?: (channelId: number) => void;
+    // 消息里的链接卡：服务器抓好的结果按消息 id 查。
+    previewOf?: (messageId: number) => LinkPreview | null;
+    // 卡片上的图在服务器上，要拼绝对地址。
+    httpBase?: string;
+    // 私信：和某个人的一对一聊天，跟文字频道一样列在左栏。
+    directs?: { id: number; name: string }[];
     // 设置页里两扇门：上游的声音设置、键位表。
     onOpenSettings?: () => void;
     onOpenShortcuts?: () => void;
@@ -124,14 +143,15 @@
     roomActions?: (roomId: string) => RoomAction[];
   } = $props();
 
-  let active = $state<NavKey>("voice");
+  // 默认落在聊天上：中间是消息，左边是频道。
+  let active = $state<NavKey>("chat");
   // 下面这几处只取挂载时的初值；之后的连接状态由 Shell 自己维护。
   let localJoined = $state<string | null>(untrack(() => snapshot.joinedRoomId));
   let localMic = $state(true);
   let localSound = $state(true);
   let unread = $state(0);
-  // Ctrl+K 打开的那个跳转面板。
-  let palette = $state(false);
+  // 每个频道各剩几条没看，左边栏的绿点用它。
+  let unreadOf = $state<Record<number, number>>({});
 
   // 聊天页拉出来的抽屉：搜索、置顶、话题。
   let panel = $state<"search" | "pins" | "threads" | null>(null);
@@ -139,29 +159,17 @@
   let openThread = $state<Thread | null>(null);
   // 从某条消息开话题时先问名字。
   let threadAsk = $state<number | null>(null);
-  let threadName = $state("");
 
   // 后端配了游戏服才有真实人数；没有时页面用示例数据，方便做界面。
   let live = $state<LiveStatus | null>(null);
   // 延迟由浏览器自己测（每秒三次请求的空回答）；还没测出来时用示例数据。
   let measured = $state<ConnectionStats | null>(null);
   onMount(() => {
-    // Ctrl+K / ⌘K，和上游一样。
-    const hot = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        palette = true;
-      }
-    };
-    window.addEventListener("keydown", hot);
     const stops: (() => void)[] = [];
     // 接上真实语音时延迟已经有人测了，不用再发一遍。
     if (!stats) stops.push(watchConnection((stats) => (measured = stats)));
     stops.push(watchStatus((status) => (live = status)));
-    return () => {
-      stops.forEach((stop) => stop());
-      window.removeEventListener("keydown", hot);
-    };
+    return () => stops.forEach((stop) => stop());
   });
 
   const connection = $derived(stats ?? measured ?? snapshot.connection);
@@ -192,6 +200,16 @@
   const players = $derived(live ? live.players.map((name, index) => playerOfName(name, index)) : snapshot.players);
 
   const meName = untrack(() => snapshot.me.name);
+
+  // 中间显示哪个文字频道：先看选中的，还没选就用第一个。
+  const shownChannel = $derived(chatChannel ?? chat?.channels[0]?.id ?? null);
+
+  // 正在当前频道里打字的人（已经去掉我自己、过期的）。
+  const typingHere = $derived(
+    shownChannel === null || typers === undefined
+      ? []
+      : typingNames(typers, shownChannel, typingNow ?? Date.now(), meName),
+  );
 
   // 抽屉里要用「这条在哪个频道」「这个频道有什么」。
   const textChannels = $derived(chat?.channels ?? []);
@@ -250,29 +268,6 @@
     localJoined = null;
   }
 
-  // 没接上服务器时建房间只加在页面上，免得按钮点了没反应。
-  // 跳转面板里的入口：文字频道跳聊天，语音房间直接进。
-  const places = $derived<Place[]>([
-    ...(chat ? Object.values(chat.channels).map((channel) => ({
-      key: `text-${channel.id}`,
-      name: channel.name,
-      kind: "text" as const,
-      category: "文字频道",
-      run: () => {
-        openThread = null;
-        chatChannel = channel.id;
-        active = "chat";
-      },
-    })) : []),
-    ...rooms.map((room) => ({
-      key: `voice-${room.id}`,
-      name: room.name,
-      kind: "voice" as const,
-      category: "语音房间",
-      run: () => join(room.id),
-    })),
-  ]);
-
   function createRoom(name: string) {
     if (onCreate) {
       onCreate(name);
@@ -293,9 +288,34 @@
 </script>
 
 <div class="sgu-app">
-  <Header server={server} me={snapshot.me} info={connectionInfo ?? null} />
+  <Header
+    server={server}
+    me={snapshot.me}
+    info={connectionInfo ?? null}
+    {active}
+    roomCount={rooms.length}
+    {unread}
+    onSelect={(key) => (active = key)}
+  />
 
-  <NavRail {active} roomCount={rooms.length} {unread} onSelect={(key) => (active = key)} />
+  <ChannelList
+    channels={textChannels.map((channel) => ({ id: channel.id, name: channel.name }))}
+    unread={unreadOf}
+    selected={shownChannel}
+    onSelect={(id) => {
+      openThread = null;
+      chatChannel = id;
+      active = "chat";
+    }}
+    {rooms}
+    {joinedId}
+    {meName}
+    onJoin={join}
+    {directs}
+    canCreate={canCreate ?? true}
+    onCreate={createRoom}
+    {roomActions}
+  />
 
   <main class="main">
     {#if active === "chat"}
@@ -306,13 +326,22 @@
           onUpload={onUploadText}
           onOpen={onOpenChat}
         onRead={onReadText}
-          onUnread={(total) => (unread = total)}
+          onUnread={(total, counts) => {
+            unread = total;
+            unreadOf = counts;
+          }}
           onReact={onReactText}
           onEdit={onEditText}
           onPin={onPinText}
           myName={meName}
           {myId}
+          typing={typingHere}
+          onTyping={shownChannel === null ? undefined : () => onTypingText?.(shownChannel)}
+          {previewOf}
+          {httpBase}
+          extraChannels={directs}
           focusChannel={chatChannel}
+          tabs={false}
           thread={openThread}
           onChannelChange={(id) => {
             chatChannel = id;
@@ -333,10 +362,7 @@
             panel = "threads";
           }}
           onDelete={onDeleteText}
-          onThread={(id) => {
-            threadAsk = id;
-            threadName = "";
-          }}
+          onThread={(id) => (threadAsk = id)}
         />
 
         <Drawer
@@ -415,7 +441,6 @@
         {onOpenShortcuts}
         {onOpenModeration}
         canModerate={canModerateServer}
-        onOpenPalette={() => (palette = true)}
       />
     {:else}
       <div class="head-row">
@@ -435,28 +460,18 @@
     {/if}
   </main>
 
-  {#if palette}
-  <QuickSwitcher {places} onClose={() => (palette = false)} />
-{/if}
-
-{#if threadAsk !== null}
-    <button type="button" class="ask-backdrop" aria-label="取消" onclick={() => (threadAsk = null)}></button>
-    <form
-      class="ask"
-      onsubmit={(event) => {
-        event.preventDefault();
-        const name = threadName.trim();
-        if (name !== "" && threadAsk !== null) onCreateThread?.(threadAsk, name);
+  {#if threadAsk !== null}
+    <Ask
+      title="新话题"
+      label="话题从你选的那条消息开始，之后的消息都在话题里。"
+      placeholder="话题名字"
+      ok="创建"
+      onDone={(name) => {
+        if (threadAsk !== null) onCreateThread?.(threadAsk, name);
         threadAsk = null;
       }}
-    >
-      <h3>新话题</h3>
-      <input bind:value={threadName} maxlength="60" placeholder="话题名字" />
-      <div class="ask-acts">
-        <button type="submit" class="ok">创建</button>
-        <button type="button" onclick={() => (threadAsk = null)}>取消</button>
-      </div>
-    </form>
+      onCancel={() => (threadAsk = null)}
+    />
   {/if}
 
   <StatusRail
@@ -512,73 +527,4 @@
     font-size: 13px;
   }
 
-  .ask-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 70;
-    padding: 0;
-    background: rgb(20 16 10 / 24%);
-    border: 0;
-  }
-
-  .ask {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    z-index: 71;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: min(340px, 88vw);
-    padding: 18px;
-    background: var(--sg-card);
-    border: 1px solid var(--sg-line);
-    border-radius: 12px;
-    box-shadow: 0 24px 60px rgb(44 38 29 / 18%);
-    transform: translate(-50%, -50%);
-  }
-
-  .ask h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 650;
-  }
-
-  .ask input {
-    padding: 8px 10px;
-    font: inherit;
-    font-size: 13px;
-    color: var(--sg-text);
-    background: var(--sg-bg);
-    border: 1px solid var(--sg-line);
-    border-radius: 8px;
-  }
-
-  .ask input:focus {
-    outline: none;
-    border-color: var(--sg-green);
-  }
-
-  .ask-acts {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  .ask-acts button {
-    padding: 6px 14px;
-    font: inherit;
-    font-size: 12.5px;
-    color: var(--sg-muted);
-    background: var(--sg-bg);
-    border: 1px solid var(--sg-line);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-
-  .ask-acts .ok {
-    color: var(--sg-card);
-    background: var(--sg-green);
-    border-color: var(--sg-green);
-  }
 </style>

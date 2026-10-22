@@ -23,6 +23,8 @@
   import { mayChangeGuests } from "../lib/guests";
   import { moderationRequests, moderationRights, userModeration } from "../lib/moderation";
   import { parseSearch } from "../lib/search";
+  import { previewKey, previewsToAsk, type LinkPreview } from "../lib/linkPreview";
+  import { stoppedTyping, typed, type Typers } from "../lib/typing";
   import { settings } from "../lib/settings.svelte";
   import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
   import Shell from "./Shell.svelte";
@@ -111,6 +113,43 @@
   // 房间的改名/说明/删除走上游那套频道管理，表单也是它的。
   const channels = createChannelManagement(() => connection);
 
+  // 谁在打字：上游发的是短命事件，这里攒起来，过几秒自己过期。
+  let typers = $state.raw<Typers>({});
+  let typingNow = $state(Date.now());
+  $effect(() =>
+    connection.onTextEvent((ev) => {
+      if (ev.type === "typing") {
+        typingNow = Date.now();
+        typers = typed(typers, ev.channel, ev.name, typingNow);
+      } else if (ev.type === "message") typers = stoppedTyping(typers, ev.message.channel, ev.message.author);
+    }),
+  );
+  // 有人还在打字时每秒走一次钟，名字才会自己消失。
+  $effect(() => {
+    if (Object.keys(typers).length === 0) return;
+    const tick = setInterval(() => (typingNow = Date.now()), 1000);
+    return () => clearInterval(tick);
+  });
+
+  // 链接预览：服务器抓页面，抓过的不再问（同一条消息改了链接会再问一次）。
+  const previewAsked = new Set<string>();
+  $effect(() => {
+    const text = connection.text;
+    if (text === null) return;
+    const recent = Object.values(text.messages).flat().slice(-120);
+    const asks = previewsToAsk(recent, text.previews, previewAsked);
+    if (asks.length === 0) return;
+    for (const message of asks) previewAsked.add(previewKey(message));
+    const ids = asks.map((message) => message.id);
+    for (let i = 0; i < ids.length; i += 30) connection.previews(ids.slice(i, i + 30));
+  });
+  const previewOf = (messageId: number): LinkPreview | null => connection.text?.previews[messageId] ?? null;
+
+  // 私信：服务器给的一对一聊天，左栏单独一段。
+  const directs = $derived(
+    Object.entries(connection.text?.directs ?? {}).map(([id, peer]) => ({ id: Number(id), name: peer.name })),
+  );
+
   function roomActions(id: string): RoomAction[] {
     const channel = Number(id);
     if (!may(server, channel, Perm.Write)) return [];
@@ -127,11 +166,18 @@
   // 玩家页每一行能做什么，按权限和对方身份算。
   function personActions(session: number): PersonAction[] {
     const user = server.users[session];
-    const held = text;
-    if (user === undefined || held === null) return [];
-    const m = userModeration(server, held, user, null);
-    if (m === null) return [];
+    if (user === undefined) return [];
     const out: PersonAction[] = [];
+    // 私信谁都能发：只要对方是注册用户，而且不是我自己。
+    const mine = me?.userId ?? null;
+    if (user.userId !== null && user.userId !== mine) {
+      const peer = user.userId;
+      out.push({ key: "dm", label: "发私信", run: () => connection.requestDirect(peer) });
+    }
+    const held = text;
+    if (held === null) return out;
+    const m = userModeration(server, held, user, null);
+    if (m === null) return out;
     if (m.mute) {
       out.push({
         key: "mute",
@@ -196,6 +242,12 @@
     onOpenThread={(id) => connection.thread({ get: id })}
     onOpenSettings={() => (prefsOpen = true)}
     onOpenShortcuts={() => (keysOpen = true)}
+    {typers}
+    {typingNow}
+    onTypingText={(id) => connection.typing(id)}
+    {previewOf}
+    httpBase={connection.httpBase}
+    {directs}
     canModerateServer={rights.any}
     {personActions}
     {roomActions}

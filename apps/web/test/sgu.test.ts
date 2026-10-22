@@ -201,7 +201,14 @@ describe("components", () => {
   });
 
   it("shows the server name and the counts in the header", () => {
-    const { target, done } = draw(Header, { server: mockState.server, me: mockState.me });
+    const { target, done } = draw(Header, {
+      server: mockState.server,
+      me: mockState.me,
+      active: "chat",
+      roomCount: 3,
+      unread: 2,
+      onSelect: () => {},
+    });
     expect(target.textContent).toContain("SGU 生存服");
     expect(target.textContent).toContain("12");
     expect(target.textContent).toContain("50 在线");
@@ -258,18 +265,7 @@ describe("components", () => {
     }
   });
 
-  it("opens the quick switcher with Ctrl K", async () => {
-    const { target, done } = draw(Shell, { snapshot: mockState });
-    // 快捷键是 onMount 里挂的，等它挂上再按。
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
-    await settle(() => target.querySelector("dialog") !== null);
 
-    const list = target.querySelector("dialog")?.textContent ?? "";
-    expect(list).toContain("大厅");
-    expect(list).toContain("挖矿");
-    done();
-  });
 });
 
 // Svelte 的更新在微任务里，等界面自己刷出来再断言。

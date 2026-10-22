@@ -503,3 +503,39 @@ describe("read marks", () => {
     done();
   });
 });
+describe("while someone types", () => {
+  it("says who is typing and hides it when nobody is", () => {
+    const text = textOf({ 1: [{ id: 1, channel: 1, author: "Kernel", text: "早", at: 1000 }] });
+    const typing = draw({ text, typing: ["Ender"] });
+    expect(typing.target.textContent).toContain("Ender 正在输入");
+    typing.done();
+
+    const quiet = draw({ text, typing: [] });
+    expect(quiet.target.querySelector(".typing")).toBeNull();
+    quiet.done();
+  });
+
+  it("tells the caller that I started typing", async () => {
+    let told = 0;
+    const { target, done } = draw({ onTyping: () => (told += 1) });
+    const box = target.querySelector("textarea") as HTMLTextAreaElement;
+    box.value = "在吗";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    expect(told).toBe(1);
+    done();
+  });
+});
+
+describe("links in a message", () => {
+  it("draws the card the server made for it", () => {
+    const text = textOf({ 1: [{ id: 5, channel: 1, author: "Kernel", text: "https://example.com/x", at: 1000 }] });
+    const card = { url: "https://example.com/x", title: "一篇教程", description: "讲了怎么建刷石机", site: "example.com" };
+    const { target, done } = draw({ text, previewOf: (id: number) => (id === 5 ? card : null), httpBase: "https://voice.example" });
+    const link = target.querySelector("a.preview") as HTMLAnchorElement | null;
+    expect(link?.getAttribute("href")).toBe("https://example.com/x");
+    expect(target.textContent).toContain("一篇教程");
+    expect(target.textContent).toContain("example.com");
+    done();
+  });
+});
