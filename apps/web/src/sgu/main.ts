@@ -1,7 +1,5 @@
 import { mount } from "svelte";
-import { mockState } from "./mock";
-import Shell from "./Shell.svelte";
-import "./theme.css";
+import Preview from "./Preview.svelte";
 
 const target = document.getElementById("sgu");
-if (target) mount(Shell, { target, props: { snapshot: mockState } });
+if (target) mount(Preview, { target });

@@ -1,4 +1,5 @@
 import type { TextState } from "../lib/textChannels";
+import { reactedBy } from "../lib/reactions";
 
 // 聊天里能显示的一行。
 export type ChatLine = {
@@ -10,6 +11,10 @@ export type ChatLine = {
   reply?: { author: string; text: string };
   // 带了一个文件。url 是服务器上的地址，点开就能下。
   upload?: { url: string; name: string; size: string };
+  // 别人贴的表情：同一个表情合成一个，mine 表示我贴过。
+  reactions: { emoji: string; count: number; mine: boolean }[];
+  edited: boolean;
+  pinned: boolean;
 };
 
 // 消息正文是 HTML（Mumble 允许粗体、链接、换行）：列表里按纯文本显示，
@@ -38,7 +43,13 @@ export function sizeOf(bytes: number): string {
 }
 
 // 最近的几条，老的在上，和聊天软件一样。
-export function recentLines(state: TextState, channel: number, take = 60): ChatLine[] {
+// myId 是我在服务器上的用户 id：没有就不知道自己贴过哪些表情。
+export function recentLines(
+  state: TextState,
+  channel: number,
+  take = 60,
+  myId: number | null = null,
+): ChatLine[] {
   const messages = state.messages[channel] ?? [];
   return messages.slice(-take).map((message) => ({
     id: message.id,
@@ -55,6 +66,13 @@ export function recentLines(state: TextState, channel: number, take = 60): ChatL
           },
         }
       : {}),
+    reactions: (message.reactions ?? []).map((reaction) => ({
+      emoji: reaction.emoji,
+      count: reaction.users.length,
+      mine: reactedBy(reaction, myId),
+    })),
+    edited: message.edited !== undefined,
+    pinned: message.pinned !== undefined,
   }));
 }
 

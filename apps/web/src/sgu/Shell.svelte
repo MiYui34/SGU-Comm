@@ -45,6 +45,10 @@
     onOpenChat,
     onUploadText,
     canWriteText,
+    onReactText,
+    onEditText,
+    onPinText,
+    myId = null,
   }: {
     snapshot: SguState;
     // 接上真实语音时由外面给房间和当前房间；不给就自己管示例数据。
@@ -71,6 +75,11 @@
     onUploadText?: (file: File) => Promise<string>;
     // 没有发言权限的频道，输入框换成一句提示。
     canWriteText?: (channelId: number) => boolean;
+    onReactText?: (messageId: number, emoji: string, on: boolean) => void;
+    onEditText?: (messageId: number, body: string) => void;
+    onPinText?: (messageId: number, on: boolean) => void;
+    // 我在服务器上的用户 id：用来认出自己贴过的表情。
+    myId?: number | null;
   } = $props();
 
   let active = $state<NavKey>("voice");
@@ -195,10 +204,18 @@
       {#if chat && chat.available}
         <ChatView
           text={chat}
-          onSend={(id, body) => onSendText?.(id, body)}
+          onSend={(id, body, extra) => onSendText?.(id, body, extra)}
+          onUpload={onUploadText}
           onOpen={onOpenChat}
           onUnread={(total) => (unread = total)}
+          onReact={onReactText}
+          onEdit={onEditText}
+          onPin={onPinText}
+          myName={meName}
+          {myId}
         />
+      {:else if chat}
+        <p class="todo">这个服务器没有开文字频道</p>
       {:else}
         <p class="todo">聊天还没接上</p>
       {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { TextState } from "../lib/textChannels";
+  import { COMMON_EMOJI } from "../lib/reactions";
   import { recentLines, sizeOf, timeOf, type ChatLine } from "./chat";
 
   // 文字频道：上面一排频道，中间是消息，下面是输入框。
@@ -10,6 +11,11 @@
     onUpload,
     onOpen,
     onUnread,
+    onReact,
+    onEdit,
+    onPin,
+    myName = "",
+    myId = null,
     canWrite = () => true,
   }: {
     text: TextState;
@@ -20,6 +26,16 @@
     onOpen?: (channelId: number) => void;
     // 别的频道来了几条没看的，外面的导航上要挂个数字。
     onUnread?: (total: number) => void;
+    // 贴/取消一个表情。
+    onReact?: (messageId: number, emoji: string, on: boolean) => void;
+    // 改自己发过的话。
+    onEdit?: (messageId: number, body: string) => void;
+    // 置顶/取消置顶（要有权限，服务器会拒绝不该做的）。
+    onPin?: (messageId: number, on: boolean) => void;
+    // 我的名字：和自己发的话对得上，才给「编辑」。
+    myName?: string;
+    // 我的用户 id：用来知道自己贴过哪些表情。
+    myId?: number | null;
     // 没发言权限的频道不给输入框。
     canWrite?: (channelId: number) => boolean;
   } = $props();
@@ -33,10 +49,15 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let picker = $state<HTMLInputElement | null>(null);
+  // 正在改的那条，和改到一半的内容。
+  let editing = $state<number | null>(null);
+  let editingText = $state("");
+  // 哪一条下面摊开了表情盘。
+  let emojiFor = $state<number | null>(null);
 
   const channels = $derived(text.channels);
   const selected = $derived(channels.find((channel) => channel.id === current) ?? channels[0] ?? null);
-  const lines = $derived(selected === null ? [] : recentLines(text, selected.id));
+  const lines = $derived(selected === null ? [] : recentLines(text, selected.id, 60, myId));
   const writable = $derived(selected !== null && canWrite(selected.id));
 
   function countOf(channelId: number): number {
@@ -109,22 +130,43 @@
       busy = false;
     }
   }
+
+  function mine(line: ChatLine): boolean {
+    return myName !== "" && line.author === myName;
+  }
+
+  function startEdit(line: ChatLine) {
+    editing = line.id;
+    editingText = line.text;
+  }
+
+  function saveEdit() {
+    if (editing === null) return;
+    const body = editingText.trim();
+    if (body !== "") onEdit?.(editing, body);
+    editing = null;
+  }
+
+  function toggle(line: ChatLine, emoji: string) {
+    const already = line.reactions.find((reaction) => reaction.emoji === emoji);
+    onReact?.(line.id, emoji, !(already?.mine ?? false));
+    emojiFor = null;
+  }
+
+  function pick(channelId: number) {
+    current = channelId;
+    replyTo = null;
+    pending = null;
+    error = null;
+    editing = null;
+    emojiFor = null;
+  }
 </script>
 
 <div class="chat">
   <div class="channels">
     {#each channels as channel (channel.id)}
-      <button
-        type="button"
-        class="tab"
-        class:on={channel.id === selected?.id}
-        onclick={() => {
-          current = channel.id;
-          replyTo = null;
-          pending = null;
-          error = null;
-        }}
-      >
+      <button type="button" class="tab" class:on={channel.id === selected?.id} onclick={() => pick(channel.id)}>
         {channel.name}
         {#if countOf(channel.id) > 0}
           <span class="dot">{countOf(channel.id)}</span>
@@ -138,28 +180,86 @@
       <p class="empty">这里还没有消息</p>
     {:else}
       {#each lines as line (line.id)}
-        <div class="line">
+        <div class="line" class:pinned={line.pinned}>
           <span class="who">{line.author}</span>
           <div class="body">
+            {#if line.pinned}
+              <span class="tag">置顶</span>
+            {/if}
             {#if line.reply}
               <div class="quote">
                 <span>{line.reply.author === "" ? "原来的消息" : line.reply.author}</span>
                 {line.reply.text}
               </div>
             {/if}
-            {#if line.text !== ""}
-              <span class="what">{line.text}</span>
-            {/if}
-            {#if line.upload}
-              <a class="file" href={line.upload.url} target="_blank" rel="noreferrer">
-                {line.upload.name}
-                <span>{line.upload.size}</span>
-              </a>
+
+            {#if editing === line.id}
+              <div class="edit">
+                <textarea bind:value={editingText} rows="2"></textarea>
+                <div class="edit-acts">
+                  <button type="button" class="save" onclick={saveEdit}>保存</button>
+                  <button type="button" onclick={() => (editing = null)}>取消</button>
+                </div>
+              </div>
+            {:else}
+              {#if line.text !== ""}
+                <span class="what">
+                  {line.text}
+                  {#if line.edited}<span class="was">已编辑</span>{/if}
+                </span>
+              {/if}
+              {#if line.upload}
+                <a class="file" href={line.upload.url} target="_blank" rel="noreferrer">
+                  {line.upload.name}
+                  <span>{line.upload.size}</span>
+                </a>
+              {/if}
+              {#if line.reactions.length > 0}
+                <div class="reacts">
+                  {#each line.reactions as reaction (reaction.emoji)}
+                    <button
+                      type="button"
+                      class="react"
+                      class:mine={reaction.mine}
+                      onclick={() => onReact?.(line.id, reaction.emoji, !reaction.mine)}
+                    >
+                      {reaction.emoji} <span>{reaction.count}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </div>
           <span class="when">{timeOf(line.at)}</span>
-          <button type="button" class="reply" onclick={() => (replyTo = line)}>回复</button>
+          <div class="acts">
+            <button type="button" class="reply" onclick={() => (replyTo = line)}>回复</button>
+            {#if onReact}
+              <button
+                type="button"
+                class="more"
+                onclick={() => (emojiFor = emojiFor === line.id ? null : line.id)}
+                aria-label="贴个表情"
+              >
+                表情
+              </button>
+            {/if}
+            {#if onEdit && mine(line)}
+              <button type="button" class="edit-btn" onclick={() => startEdit(line)}>编辑</button>
+            {/if}
+            {#if onPin}
+              <button type="button" class="pin" onclick={() => onPin(line.id, !line.pinned)}>
+                {line.pinned ? "取消置顶" : "置顶"}
+              </button>
+            {/if}
+          </div>
         </div>
+        {#if emojiFor === line.id}
+          <div class="palette">
+            {#each COMMON_EMOJI as emoji (emoji)}
+              <button type="button" onclick={() => toggle(line, emoji)}>{emoji}</button>
+            {/each}
+          </div>
+        {/if}
       {/each}
     {/if}
   </div>
@@ -281,6 +381,11 @@
     font-size: 13px;
   }
 
+  .line.pinned .body {
+    padding-left: 8px;
+    border-left: 2px solid var(--sg-green);
+  }
+
   .who {
     color: var(--sg-green);
     font-weight: 600;
@@ -296,9 +401,24 @@
     min-width: 0;
   }
 
+  .tag {
+    align-self: flex-start;
+    padding: 0 6px;
+    color: var(--sg-green);
+    font-size: 10.5px;
+    background: var(--sg-green-soft);
+    border-radius: 4px;
+  }
+
   .what {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .was {
+    margin-left: 6px;
+    color: var(--sg-faint);
+    font-size: 11px;
   }
 
   .quote {
@@ -339,30 +459,131 @@
     border-color: var(--sg-green);
   }
 
-  .when {
-    color: var(--sg-faint);
-    font-size: 11.5px;
+  .reacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .react {
+    display: inline-flex;
+    gap: 4px;
+    align-items: baseline;
+    padding: 1px 7px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--sg-muted);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .react.mine {
+    color: var(--sg-green);
+    background: var(--sg-green-soft);
+    border-color: var(--sg-green);
+  }
+
+  .react span {
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
 
-  .reply {
+  .acts {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    opacity: 0;
+  }
+
+  .line:hover .acts,
+  .acts:focus-within {
+    opacity: 1;
+  }
+
+  .acts button {
     padding: 0;
     color: var(--sg-faint);
     font: inherit;
     font-size: 11.5px;
     background: none;
     border: 0;
-    opacity: 0;
     cursor: pointer;
   }
 
-  .line:hover .reply,
-  .reply:focus-visible {
-    opacity: 1;
+  .acts button:hover {
+    color: var(--sg-green);
   }
 
-  .reply:hover {
-    color: var(--sg-green);
+  .when {
+    color: var(--sg-faint);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-left: 122px;
+    padding: 4px;
+    align-self: flex-start;
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 8px;
+  }
+
+  .palette button {
+    padding: 2px 5px;
+    font-size: 15px;
+    background: none;
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  .palette button:hover {
+    background: var(--sg-green-soft);
+  }
+
+  .edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .edit textarea {
+    padding: 6px 9px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--sg-text);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-green);
+    border-radius: 8px;
+    resize: vertical;
+  }
+
+  .edit-acts {
+    display: flex;
+    gap: 8px;
+  }
+
+  .edit-acts button {
+    padding: 3px 10px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--sg-muted);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .edit-acts .save {
+    color: var(--sg-card);
+    background: var(--sg-green);
+    border-color: var(--sg-green);
   }
 
   .empty {

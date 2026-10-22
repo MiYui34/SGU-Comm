@@ -92,6 +92,10 @@
       connection.sendToTextChannel(id, body, extra?.upload, extra?.reply)}
     onUploadText={(file) => connection.uploadFile(file)}
     canWriteText={(id) => may(server, id, Perm.Write)}
+    onReactText={(id, emoji, on) => connection.react(id, emoji, on)}
+    onEditText={(id, body) => connection.editMessage(id, body)}
+    onPinText={(id, on) => connection.pin(id, on)}
+    myId={me?.userId ?? null}
     onOpenChat={(id) => connection.requestHistory(id)}
   />
 </div>

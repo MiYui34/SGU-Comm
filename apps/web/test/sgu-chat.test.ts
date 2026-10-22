@@ -216,3 +216,129 @@ describe("the chat tab", () => {
     done();
   });
 });
+
+const said = (id: number, text: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  channel: 1,
+  author: "Kernel",
+  text,
+  at: 1000,
+  ...extra,
+});
+
+describe("reactions, edits and pins", () => {
+  it("counts a reaction and knows whether it is mine", () => {
+    const text = textOf({
+      1: [said(1, "早", { reactions: [{ emoji: "👍", users: ["Kernel", "Ender"], ids: [7, 8] }] })],
+    });
+    expect(recentLines(text, 1, 60, 8)[0]?.reactions).toEqual([{ emoji: "👍", count: 2, mine: true }]);
+    expect(recentLines(text, 1, 60, 9)[0]?.reactions?.[0]?.mine).toBe(false);
+  });
+
+  it("marks a message that was edited or pinned", () => {
+    const text = textOf({ 1: [said(1, "改过", { edited: 2000, pinned: 3000 })] });
+    const [line] = recentLines(text, 1);
+    expect(line?.edited).toBe(true);
+    expect(line?.pinned).toBe(true);
+  });
+
+  it("shows the marks on the line itself", () => {
+    const text = textOf({ 1: [said(1, "别忘带火把", { pinned: 3000, edited: 4000 })] });
+    const { target, done } = draw({ text });
+    expect(target.querySelector(".line.pinned")).not.toBeNull();
+    expect(target.textContent).toContain("置顶");
+    expect(target.textContent).toContain("已编辑");
+    done();
+  });
+
+  it("adds a reaction from the palette", async () => {
+    const calls: unknown[] = [];
+    const { target, done } = draw({
+      text: textOf({ 1: [said(1, "早")] }),
+      onReact: (id: number, emoji: string, on: boolean) => calls.push([id, emoji, on]),
+    });
+    target.querySelector<HTMLButtonElement>("button.more")?.click();
+    await flush();
+    const palette = target.querySelector(".palette");
+    expect(palette).not.toBeNull();
+    palette?.querySelector("button")?.click();
+    await flush();
+    expect(calls).toEqual([[1, "👍", true]]);
+    expect(target.querySelector(".palette")).toBeNull();
+    done();
+  });
+
+  it("takes back a reaction I already gave", async () => {
+    const calls: unknown[] = [];
+    const text = textOf({
+      1: [said(1, "早", { reactions: [{ emoji: "👍", users: ["Ender"], ids: [8] }] })],
+    });
+    const { target, done } = draw({
+      text,
+      myId: 8,
+      onReact: (id: number, emoji: string, on: boolean) => calls.push([id, emoji, on]),
+    });
+    const chip = target.querySelector<HTMLButtonElement>("button.react");
+    expect(chip?.classList.contains("mine")).toBe(true);
+    chip?.click();
+    await flush();
+    expect(calls).toEqual([[1, "👍", false]]);
+    done();
+  });
+
+  it("edits a line I wrote", async () => {
+    const edited: unknown[] = [];
+    const { target, done } = draw({
+      text: textOf({ 1: [said(1, "旧话")] }),
+      myName: "Kernel",
+      onEdit: (id: number, body: string) => edited.push([id, body]),
+    });
+    target.querySelector<HTMLButtonElement>("button.edit-btn")?.click();
+    await flush();
+    const box = target.querySelector<HTMLTextAreaElement>(".edit textarea");
+    if (box === null) throw new Error("no edit box");
+    box.value = "  新话  ";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    target.querySelector<HTMLButtonElement>(".edit-acts .save")?.click();
+    await flush();
+    expect(edited).toEqual([[1, "新话"]]);
+    expect(target.querySelector(".edit")).toBeNull();
+    done();
+  });
+
+  it("hides editing on somebody else's line", () => {
+    const { target, done } = draw({
+      text: textOf({ 1: [said(1, "别人的话")] }),
+      myName: "Steve_SGU",
+      onEdit: () => {},
+    });
+    expect(target.querySelector("button.edit-btn")).toBeNull();
+    done();
+  });
+
+  it("pins and unpins a line", async () => {
+    const calls: unknown[] = [];
+    const loose = draw({
+      text: textOf({ 1: [said(1, "要记的")] }),
+      onPin: (id: number, on: boolean) => calls.push([id, on]),
+    });
+    loose.target.querySelector<HTMLButtonElement>("button.pin")?.click();
+    await flush();
+    loose.done();
+
+    const pinned = draw({
+      text: textOf({ 1: [said(1, "要记的", { pinned: 3000 })] }),
+      onPin: (id: number, on: boolean) => calls.push([id, on]),
+    });
+    const button = pinned.target.querySelector<HTMLButtonElement>("button.pin");
+    expect(button?.textContent?.trim()).toBe("取消置顶");
+    button?.click();
+    await flush();
+    pinned.done();
+    expect(calls).toEqual([
+      [1, true],
+      [1, false],
+    ]);
+  });
+});
