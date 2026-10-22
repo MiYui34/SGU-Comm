@@ -353,20 +353,19 @@
     padding-right: 30px;
   }
 
-  /* 房间里有谁：头像加名字，排不下就换行，名字长的截断。 */
+  /* 房间里有谁：一行一个人，头像在最前面，名字长的截断。 */
   .people {
     display: flex;
-    flex-wrap: wrap;
-    gap: 2px 10px;
-    padding: 1px 9px 5px 31px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 1px 9px 6px 31px;
   }
 
   .person {
-    display: inline-flex;
-    gap: 5px;
+    display: flex;
+    gap: 6px;
     align-items: center;
     min-width: 0;
-    max-width: 100%;
   }
 
   .face {
