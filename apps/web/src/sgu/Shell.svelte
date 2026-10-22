@@ -20,6 +20,7 @@
     type ConnectionStats,
     type NavKey,
     type Person,
+    type PersonAction,
     type SguState,
     type VoiceRoom,
   } from "./types";
@@ -57,6 +58,11 @@
     onOpenThread,
     onSearchText,
     onPinsText,
+    onOpenSettings,
+    onOpenShortcuts,
+    onOpenModeration,
+    canModerateServer = false,
+    personActions,
     myId = null,
   }: {
     snapshot: SguState;
@@ -97,6 +103,13 @@
     // 搜索消息、要某个频道的置顶列表。
     onSearchText?: (text: string) => void;
     onPinsText?: (channelId: number) => void;
+    // 设置页里两扇门：上游的声音设置、键位表。
+    onOpenSettings?: () => void;
+    onOpenShortcuts?: () => void;
+    onOpenModeration?: () => void;
+    canModerateServer?: boolean;
+    // 玩家页每一行能做的事（静音、踢出、封禁…）。
+    personActions?: (session: number) => PersonAction[];
   } = $props();
 
   let active = $state<NavKey>("voice");
@@ -188,6 +201,8 @@
           roomName: room.name,
           muted: false,
           deaf: false,
+          session: -1,
+          userId: null,
         })),
       ),
   );
@@ -334,6 +349,7 @@
       {/if}
     {:else if active === "players"}
       <PlayersView
+        actions={personActions}
         {people}
         game={players}
         {meName}
@@ -341,7 +357,17 @@
         onJoin={onJoin ? join : undefined}
       />
     {:else if active === "settings"}
-      <SettingsView {meName} {micOn} {soundOn} onToggleMic={toggleMic} onToggleSound={toggleSound} />
+      <SettingsView
+        {meName}
+        {micOn}
+        {soundOn}
+        onToggleMic={toggleMic}
+        onToggleSound={toggleSound}
+        {onOpenSettings}
+        {onOpenShortcuts}
+        {onOpenModeration}
+        canModerate={canModerateServer}
+      />
     {:else}
       <div class="head-row">
         <h2>语音房间</h2>

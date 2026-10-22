@@ -6,12 +6,23 @@
     soundOn,
     onToggleMic,
     onToggleSound,
+    onOpenSettings,
+    onOpenShortcuts,
+    onOpenModeration,
+    canModerate = false,
   }: {
     meName: string;
     micOn: boolean;
     soundOn: boolean;
     onToggleMic: () => void;
     onToggleSound: () => void;
+    // 上游那套完整的声音设置（设备、降噪、回声消除）。
+    onOpenSettings?: () => void;
+    // 键位表。
+    onOpenShortcuts?: () => void;
+    // 服务器管理（封禁、注册用户、访客只读、验证码），有权限才给。
+    onOpenModeration?: () => void;
+    canModerate?: boolean;
   } = $props();
 </script>
 
@@ -70,6 +81,34 @@
       </div>
     </div>
   </section>
+  <section>
+    <h2>更多</h2>
+    <div class="card">
+      <div class="row">
+        <div class="what">
+          <span class="label">声音与设备</span>
+          <span class="hint">输入输出、降噪、回声消除</span>
+        </div>
+        <button type="button" class="more" onclick={() => onOpenSettings?.()}>打开</button>
+      </div>
+      {#if canModerate}
+        <div class="row">
+          <div class="what">
+            <span class="label">服务器管理</span>
+            <span class="hint">封禁、注册用户、访客权限、验证码</span>
+          </div>
+          <button type="button" class="more" onclick={() => onOpenModeration?.()}>打开</button>
+        </div>
+      {/if}
+      <div class="row">
+        <div class="what">
+          <span class="label">键盘快捷键</span>
+          <span class="hint">按住说话、静音、切换频道</span>
+        </div>
+        <button type="button" class="more" onclick={() => onOpenShortcuts?.()}>查看</button>
+      </div>
+    </div>
+  </section>
 </div>
 
 <style>
@@ -123,6 +162,22 @@
   .value {
     margin-left: auto;
     color: var(--sg-muted);
+  }
+
+  .more {
+    margin-left: auto;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-text);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line-hi);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .more:hover {
+    background: var(--sg-panel);
   }
 
   .switch {

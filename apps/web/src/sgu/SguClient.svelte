@@ -1,11 +1,30 @@
 <script lang="ts">
-  import { createChannel, joinChannel, may, Perm, setSelfState } from "@kallisti/protocol";
+  import {
+    createChannel,
+    joinChannel,
+    may,
+    Perm,
+    queryBans,
+    queryRegistered,
+    renameRegistered,
+    setBans,
+    moderateUser,
+    setSelfState,
+    unregister,
+  } from "@kallisti/protocol";
   import type { Connection } from "../lib/connection.svelte";
+  import ModerationDialog from "../components/ModerationDialog.svelte";
+  import UserActionDialog from "../components/UserActionDialog.svelte";
+  import SettingsDialog from "../components/SettingsDialog.svelte";
+  import Shortcuts from "../components/Shortcuts.svelte";
+  import { mayChangeGuests } from "../lib/guests";
+  import { moderationRequests, moderationRights, userModeration } from "../lib/moderation";
   import { parseSearch } from "../lib/search";
+  import { settings } from "../lib/settings.svelte";
   import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
   import Shell from "./Shell.svelte";
   import "./theme.css";
-  import type { ConnectionStats, SguState } from "./types";
+  import type { ConnectionStats, PersonAction, SguState } from "./types";
 
   // 把真实的 Mumble 连接接到中文外壳上：房间是语音频道，人是频道里的人，
   // 延迟用这条连接自己的 ping，进出房间就是移动频道。
@@ -73,6 +92,42 @@
     return chats;
   }
 
+  // 设置与键位表是上游现成的两个弹窗，直接挂上来。
+  let prefsOpen = $state(false);
+  let keysOpen = $state(false);
+  const prefs = $derived(settings.value);
+  const level = $derived(connection.capture?.level ?? -100);
+
+  // 服务器管理：封禁、注册用户、访客只读、验证码，权限位由服务器给。
+  const text = $derived(connection.text);
+  const rights = $derived(moderationRights(server));
+  let modOpen = $state(false);
+  // 正在确认的那个人（踢出/封禁/禁言要再问一次）。
+  let asking = $state<{ session: number; name: string; kind: "kick" | "ban" | "timeout" } | null>(null);
+
+  // 玩家页每一行能做什么，按权限和对方身份算。
+  function personActions(session: number): PersonAction[] {
+    const user = server.users[session];
+    const held = text;
+    if (user === undefined || held === null) return [];
+    const m = userModeration(server, held, user, null);
+    if (m === null) return [];
+    const out: PersonAction[] = [];
+    if (m.mute) {
+      out.push({
+        key: "mute",
+        label: user.mute ? "取消静音" : "静音",
+        run: () => connection.send(moderateUser(session, { mute: !user.mute })),
+      });
+    }
+    if (m.kick) out.push({ key: "kick", label: "踢出", run: () => (asking = { session, name: user.name, kind: "kick" }) });
+    if (m.ban) out.push({ key: "ban", label: "封禁", run: () => (asking = { session, name: user.name, kind: "ban" }) });
+    if (m.timeout) {
+      out.push({ key: "timeout", label: "禁言一段时间", run: () => (asking = { session, name: user.name, kind: "timeout" }) });
+    }
+    return out;
+  }
+
   function join(id: string) {
     const session = server.session;
     if (session === null) return;
@@ -118,9 +173,72 @@
     onDeleteText={(id) => connection.deleteMessage(id)}
     onCreateThread={(id, name) => connection.thread({ create: id, name })}
     onOpenThread={(id) => connection.thread({ get: id })}
+    onOpenSettings={() => (prefsOpen = true)}
+    onOpenShortcuts={() => (keysOpen = true)}
+    canModerateServer={rights.any}
+    {personActions}
+    onOpenModeration={() => (modOpen = true)}
 
   />
 </div>
+
+{#if prefsOpen}
+  <SettingsDialog
+    settings={prefs}
+    {level}
+    onChange={settings.update}
+    onEcho={connection.capture ? (on: boolean) => connection.capture?.setEcho(on) : undefined}
+    onClose={() => (prefsOpen = false)}
+  />
+{/if}
+
+{#if keysOpen}
+  <Shortcuts onClose={() => (keysOpen = false)} />
+{/if}
+
+{#if asking !== null}
+  <UserActionDialog
+    kind={asking.kind}
+    name={asking.name}
+    onSubmit={(action) => {
+      const who = asking;
+      if (who === null) return;
+      for (const request of moderationRequests({ session: who.session }, action)) {
+        if ("mumble" in request) connection.send(request.mumble);
+        else connection.manage(request.manage);
+      }
+      asking = null;
+    }}
+    onClose={() => (asking = null)}
+  />
+{/if}
+
+{#if modOpen && text !== null}
+  <ModerationDialog
+    bans={server.bans}
+    registered={server.registered}
+    rights={{ ...rights, emoji: may(server, 0, Perm.MakeChannel) }}
+    onLoad={(what) => connection.send(what === "bans" ? queryBans() : queryRegistered())}
+    onSetBans={(bans) =>
+      connection.sendAwait([setBans(bans), queryBans()], (state) => state.bans?.length === bans.length)}
+    onRename={(id, name) =>
+      connection.sendAwait([renameRegistered(id, name), queryRegistered()], (state) =>
+        state.registered?.some((user) => user.userId === id && user.name === name) === true,
+      )}
+    onUnregister={(id) =>
+      connection.sendAwait([unregister(id), queryRegistered()], (state) =>
+        state.registered?.some((user) => user.userId === id) === false,
+      )}
+    emoji={[]}
+    onAddEmoji={connection.uploadEmoji}
+    onDeleteEmoji={connection.deleteEmoji}
+    guestsReadOnly={mayChangeGuests(server, text) ? text.guestsReadOnly : null}
+    onGuestsReadOnly={(on) => connection.request({ guestsReadOnly: on })}
+    captcha={text.captcha}
+    onCaptcha={(level) => connection.request({ captcha: level })}
+    onClose={() => (modOpen = false)}
+  />
+{/if}
 
 <style>
   /* 接进真实客户端时铺满整屏（App.svelte 用 ?ui=sgu 切过来）。 */

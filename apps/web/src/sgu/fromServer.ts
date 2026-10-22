@@ -59,6 +59,8 @@ export function voicePeople(server: ServerState): Person[] {
       // 是管理员按住的，也说不了话。
       muted: user.mute || user.selfMute || user.suppress,
       deaf: user.deaf || user.selfDeaf,
+      session: user.session,
+      userId: user.userId,
     }));
 }
 

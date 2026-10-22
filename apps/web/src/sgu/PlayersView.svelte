@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { playerColor, type Person, type Player } from "./types";
+  import { playerColor, type Person, type PersonAction, type Player } from "./types";
 
   // 玩家页：语音里每个频道有谁，加上游戏里在线的人。
   let {
@@ -8,6 +8,7 @@
     meName,
     joinedId,
     onJoin,
+    actions,
   }: {
     people: Person[];
     game: Player[];
@@ -15,7 +16,12 @@
     joinedId?: string | null;
     // 点「进入」就换到那个频道；没有权限或不需要时不给这个函数。
     onJoin?: (roomId: string) => void;
+    // 对这一行的人能做的事；返回空数组就不显示那个按钮。
+    actions?: (session: number) => PersonAction[];
   } = $props();
+
+  // 谁的操作菜单摊开着（用会话号记）。
+  let menuFor = $state<number | null>(null);
 
   // people 已经按频道排好，同一个频道的连着，切成段就是分组。
   const groups = $derived.by(() => {
@@ -60,6 +66,33 @@
               {#if person.name === meName}<span class="you">你</span>{/if}
               {#if person.muted}<span class="state">麦克风已关</span>{/if}
               {#if person.deaf}<span class="state">耳机静音</span>{/if}
+              {#if (actions?.(person.session) ?? []).length > 0}
+                <div class="ops">
+                  <button
+                    type="button"
+                    class="more"
+                    aria-label="对他做什么"
+                    onclick={() => (menuFor = menuFor === person.session ? null : person.session)}
+                  >
+                    ⋯
+                  </button>
+                  {#if menuFor === person.session}
+                    <div class="menu">
+                      {#each actions?.(person.session) ?? [] as action (action.key)}
+                        <button
+                          type="button"
+                          onclick={() => {
+                            menuFor = null;
+                            action.run();
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -88,6 +121,58 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .ops {
+    position: relative;
+    margin-left: auto;
+  }
+
+  .more {
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--sg-muted);
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .more:hover {
+    background: var(--sg-panel);
+  }
+
+  .menu {
+    position: absolute;
+    top: 24px;
+    right: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    min-width: 108px;
+    padding: 4px;
+    background: var(--sg-card);
+    border: 1px solid var(--sg-line);
+    border-radius: 9px;
+    box-shadow: 0 12px 28px rgb(44 38 29 / 14%);
+  }
+
+  .menu button {
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-text);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .menu button:hover {
+    background: var(--sg-panel);
   }
 
   .head-row {

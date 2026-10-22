@@ -19,9 +19,9 @@ function draw<Props extends Record<string, unknown>>(component: Component<Props>
 }
 
 const people: Person[] = [
-  { name: "Kernel", roomId: "0", roomName: "大厅", muted: false, deaf: false },
-  { name: "Ender", roomId: "1", roomName: "主城", muted: true, deaf: false },
-  { name: "我", roomId: "1", roomName: "主城", muted: false, deaf: true },
+  { name: "Kernel", roomId: "0", roomName: "大厅", muted: false, deaf: false, session: 2, userId: 2 },
+  { name: "Ender", roomId: "1", roomName: "主城", muted: true, deaf: false, session: 3, userId: 3 },
+  { name: "我", roomId: "1", roomName: "主城", muted: false, deaf: true, session: 1, userId: 1 },
 ];
 
 const rooms: VoiceRoom[] = [
@@ -63,7 +63,7 @@ describe("players page", () => {
     const joined: string[] = [];
     const more: Person[] = [
       ...people,
-      { name: "Mia", roomId: "3", roomName: "挖矿", muted: false, deaf: false },
+      { name: "Mia", roomId: "3", roomName: "挖矿", muted: false, deaf: false, session: 4, userId: 4 },
     ];
     const { target, done } = draw(PlayersView, {
       people: more,
@@ -151,5 +151,80 @@ describe("creating a room", () => {
     });
     expect(target.querySelector(".create")).toBeNull();
     done();
+  });
+});
+
+describe("what I may do to someone", () => {
+  it("opens a menu on a row and runs what was picked", async () => {
+    const ran: string[] = [];
+    const { target, done } = draw(PlayersView, {
+      people,
+      game: [],
+      meName: "我",
+      actions: (session: number) => [
+        { key: "mute", label: "静音", run: () => ran.push(`mute ${session}`) },
+        { key: "kick", label: "踢出", run: () => ran.push(`kick ${session}`) },
+      ],
+    });
+    const more = target.querySelector<HTMLButtonElement>("button.more");
+    if (more === null) throw new Error("no menu button");
+    more.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const items = [...target.querySelectorAll<HTMLButtonElement>(".menu button")];
+    expect(items.map((item) => item.textContent?.trim())).toEqual(["静音", "踢出"]);
+    items[1]?.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(ran).toEqual(["kick 2"]);
+    done();
+  });
+
+  it("keeps the menu away when there is nothing to do", () => {
+    const { target, done } = draw(PlayersView, { people, game: [], meName: "我", actions: () => [] });
+    expect(target.querySelector("button.more")).toBeNull();
+    done();
+  });
+});
+
+describe("the settings page", () => {
+  it("opens the full voice settings and the key list", async () => {
+    const opened: string[] = [];
+    const { target, done } = draw(SettingsView, {
+      meName: "我",
+      micOn: true,
+      soundOn: true,
+      onToggleMic: () => {},
+      onToggleSound: () => {},
+      onOpenSettings: () => opened.push("settings"),
+      onOpenShortcuts: () => opened.push("keys"),
+    });
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>("button.more")];
+    for (const button of buttons) button.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(opened).toEqual(["settings", "keys"]);
+    done();
+  });
+
+  it("offers the server management only to those who may use it", () => {
+    const plain = draw(SettingsView, {
+      meName: "我",
+      micOn: true,
+      soundOn: true,
+      onToggleMic: () => {},
+      onToggleSound: () => {},
+    });
+    expect(plain.target.textContent).not.toContain("服务器管理");
+    plain.done();
+
+    const staff = draw(SettingsView, {
+      meName: "我",
+      micOn: true,
+      soundOn: true,
+      onToggleMic: () => {},
+      onToggleSound: () => {},
+      canModerate: true,
+      onOpenModeration: () => {},
+    });
+    expect(staff.target.textContent).toContain("服务器管理");
+    staff.done();
   });
 });

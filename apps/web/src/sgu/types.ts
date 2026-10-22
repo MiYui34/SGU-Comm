@@ -32,6 +32,9 @@ export interface Player {
 }
 
 /** 语音里的一个人：玩家页按频道列出所有人时用。 */
+// 玩家页上一行能做的事（静音、踢出、封禁…），由外面按权限算好。
+export type PersonAction = { key: string; label: string; run: () => void };
+
 export interface Person {
   name: string;
   /** 所在频道的 id；大厅是 "0"。 */
@@ -41,6 +44,10 @@ export interface Person {
   muted: boolean;
   /** 耳机静音：听不到别人说话。 */
   deaf: boolean;
+  /** Mumble 的会话号：要对他做事（静音、踢出）得用它。 */
+  session: number;
+  /** 注册用户 id；游客是 null。 */
+  userId: number | null;
 }
 
 /** 「你的延迟」：浏览器自己测出来的，不是玩家的游戏内 ping。 */
