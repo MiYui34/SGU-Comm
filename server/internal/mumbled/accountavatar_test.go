@@ -6,8 +6,6 @@ import (
 	"net/netip"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	"kallisti.chat/server/internal/mumble"
 	"kallisti.chat/server/internal/mumble/pb"
 )
@@ -95,16 +93,23 @@ func TestAccountAvatarOfAnOnlineAccount(t *testing.T) {
 	if set, err := s.SetAccountAvatar("carol", "cert-carol", png, true); !set || err != nil {
 		t.Fatalf("set: %v %v", set, err)
 	}
+	expectedHash := blobHash(png)
 	for _, c := range []*testClient{web, other} {
-		for {
-			var m pb.UserState
-			proto.Unmarshal(c.expect(mumble.TypeUserState), &m)
-			if m.GetSession() == web.session && m.Texture != nil {
-				if !bytes.Equal(m.Texture, png) {
-					t.Fatalf("texture %d bytes", len(m.Texture))
-				}
-				break
+		m := c.waitForState(web.session, func(m *pb.UserState) bool {
+			return m.Texture != nil || m.TextureHash != nil
+		})
+		if !bytes.Equal(m.TextureHash, expectedHash) {
+			t.Fatalf("avatar hash %x, want %x", m.TextureHash, expectedHash)
+		}
+		if expectedHash != nil {
+			if m.Texture != nil {
+				t.Fatalf("hashed avatar was sent inline: %v", m)
 			}
+			c.send(mumble.TypeRequestBlob, &pb.RequestBlob{SessionTexture: []uint32{web.session}})
+			m = c.waitForState(web.session, func(m *pb.UserState) bool { return m.Texture != nil })
+		}
+		if !bytes.Equal(m.Texture, png) {
+			t.Fatalf("texture %d bytes", len(m.Texture))
 		}
 	}
 	eventually(t, func() bool { return bytes.Equal(s.savedTexture(t, "cert-carol"), png) })

@@ -6,7 +6,7 @@
 
 - A LoadBalancer implementation that supports TCP 80/443 and TCP plus UDP 64738 on the **same Service and external IP**. Verify this with the chosen provider before installing. Point one public DNS name at that IP; both web and native Mumble clients use it. Public ports 80 and 443 must reach Caddy for ACME issuance and renewal; native clients use 64738 directly. No ingress controller, host networking, privileged container or host path is required.
 - A default StorageClass, or a specific class in `storage.className`, with two ReadWriteOnce claims on the same node: app data (SQLite, uploads, local backups and fallback Mumble identity) and Caddy's ACME account and certificates. The deployment has exactly one replica and a Recreate update strategy to avoid two SQLite writers. The storage driver must honor pod `fsGroup: 1000` or provision both volumes writable by UID/GID 1000. Test attach/detach and a restore before relying on the deployment.
-- A registry containing **both** images: the root `Dockerfile` for Kallisti and `deploy/docker/Dockerfile.cert-sync` for the certificate copier. Set `images.app` and `images.certSync` to immutable published references, preferably digests. Caddy is pinned to `caddy:2.11.3-alpine` by default. Supply image-pull credentials through the cluster's normal mechanism if the registry is private; the chart does not create secrets.
+- A registry containing **both** images: the root `Dockerfile` for Kallisti and `deploy/docker/Dockerfile.cert-sync` for the certificate copier. Set `images.app` and `images.certSync` to immutable published references, preferably digests. Caddy is pinned to `caddy:2.11.3-alpine` by default. For a private registry, reference existing namespace-local image-pull Secrets as shown below; the chart does not create them.
 - An existing namespace-local Secret named by `superuserSecretName`, with key `password`. Create it through your normal secret manager, not a plaintext file committed to Git. The password is still exposed to authorized cluster administrators and to the app process as an environment variable.
 - An **off-cluster** backup of the app claim (or a consistent database snapshot plus uploads and identity files), Caddy state, and the Secret/configuration, with a tested restore. Kallisti's own daily SQLite snapshots are on the app claim and do not protect against storage loss. Set `backup.confirmed=true` only after this exists. Size both claims and each container's CPU/memory requests and limits for measured load; the chart will refuse missing values.
 
@@ -15,6 +15,15 @@ All three containers run as UID 1000 with read-only root filesystems. Caddy alon
 ## Prepare and check
 
 Create a private values file outside this repository based on `chart/values.yaml` and fill every required field. The chart does not install a backup controller, registry or load balancer. Confirm the DNS name, image digests, storage class and actual capacity, backup destination and measured CPU/memory needs before setting `backup.confirmed=true`.
+
+For private images, add only references to existing registry Secrets in the **same namespace as the release's Pods**:
+
+```yaml
+imagePullSecrets:
+  - name: regcred
+```
+
+The usual type is `kubernetes.io/dockerconfigjson`; manage the Secret content separately through your secret manager (for example SOPS or External Secrets). A Secret in another namespace cannot be used here. The chart does not create or own `regcred`, and uninstalling the chart does not remove it. These references authenticate kubelet image pulls for all three containers, not the app's `superuserSecretName`; they do not require enabling Pod API token automount. You can list multiple Secrets. Leave the list empty for public images or when pull authentication is supplied outside this chart.
 
 ```sh
 helm lint deploy/kubernetes/chart -f /secure/path/kallisti-values.yaml --strict

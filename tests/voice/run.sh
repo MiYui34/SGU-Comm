@@ -26,7 +26,8 @@ for _ in $(seq 50); do
   sleep 0.2
 done
 
-"$work/voicecheck" -server 127.0.0.1:$mumble -insecure -channel General -for 45s -spurts 4 &
+# WebDriver startup can take over 30s; leave time for all four voice spurts.
+"$work/voicecheck" -server 127.0.0.1:$mumble -insecure -channel General -for 75s -spurts 4 &
 check=$!
 sleep 2
 node "$root/tests/voice/drive.mjs" "$browser" "$driver" "http://localhost:$port/"
