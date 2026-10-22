@@ -2,8 +2,8 @@
   import { untrack } from "svelte";
   import type { TextState } from "../lib/textChannels";
   import { COMMON_EMOJI } from "../lib/reactions";
-import Lightbox from "../components/Lightbox.svelte";
-import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload } from "../lib/media";
+  import Lightbox from "../components/Lightbox.svelte";
+  import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload } from "../lib/media";
   import { recentLines, sizeOf, timeOf, type ChatLine } from "./chat";
 
   // 文字频道：上面一排频道，中间是消息，下面是输入框。
@@ -22,6 +22,7 @@ import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload
     onPins,
     onThreads,
     onChannelChange,
+    onRead,
     focusChannel = null,
     thread = null,
     myName = "",
@@ -51,6 +52,8 @@ import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload
     onThreads?: (channelId: number) => void;
     // 换了频道就报给外面，抽屉里要跟着变。
     onChannelChange?: (channelId: number) => void;
+    // 看到哪条了，告诉服务器（下次登录就不会再算成没读）。
+    onRead?: (channelId: number, messageId: number) => void;
     // 外面指定看哪个频道（搜索结果、话题点过来）。
     focusChannel?: number | null;
     // 展开中的话题：它的 id 就是一个聊天 id，当成临时频道列出来。
@@ -97,7 +100,14 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   // 外面的抽屉要知道现在看的是哪个频道。
   $effect(() => {
     const channel = selected;
-    if (channel !== null) untrack(() => onChannelChange?.(channel.id));
+    if (channel !== null) {
+      untrack(() => {
+        onChannelChange?.(channel.id);
+        // 把这一屏最后一条报上去，服务端记住读到哪了。
+        const last = (text.messages[channel.id] ?? []).at(-1);
+        if (last !== undefined) onRead?.(channel.id, last.id);
+      });
+    }
   });
   const lines = $derived(selected === null ? [] : recentLines(text, selected.id, 60, myId));
   const writable = $derived(selected !== null && canWrite(selected.id));

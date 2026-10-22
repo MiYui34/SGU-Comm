@@ -52,6 +52,7 @@
     chat,
     onSendText,
     onOpenChat,
+    onReadText,
     onUploadText,
     canWriteText,
     onReactText,
@@ -93,6 +94,8 @@
       extra?: { reply?: number; upload?: string },
     ) => void;
     onOpenChat?: (channelId: number) => void;
+    // 读到哪条了，交给服务器记下来。
+    onReadText?: (channelId: number, messageId: number) => void;
     // 传了才有「附件」按钮：把这个文件交上去，换回一个 key。
     onUploadText?: (file: File) => Promise<string>;
     // 没有发言权限的频道，输入框换成一句提示。
@@ -302,6 +305,7 @@
           onSend={(id, body, extra) => onSendText?.(id, body, extra)}
           onUpload={onUploadText}
           onOpen={onOpenChat}
+        onRead={onReadText}
           onUnread={(total) => (unread = total)}
           onReact={onReactText}
           onEdit={onEditText}

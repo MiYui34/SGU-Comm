@@ -429,7 +429,7 @@ describe("pictures, sound and video", () => {
         height: 600,
       }),
     });
-    const shot = target.querySelector("button.shot");
+    const shot = target.querySelector<HTMLButtonElement>("button.shot");
     expect(shot).not.toBeNull();
     const img = target.querySelector<HTMLImageElement>(".shot img");
     expect(img?.getAttribute("src")).toBe("/files/a/sunset.png");
@@ -484,6 +484,22 @@ describe("pictures, sound and video", () => {
     });
     expect(target.querySelector("a.file")?.getAttribute("href")).toBe("/files/a/world.zip");
     expect(target.textContent).toContain("5.0 MB");
+    done();
+  });
+});
+describe("read marks", () => {
+  it("tells the server which message was seen last", async () => {
+    const read: [number, number][] = [];
+    const text = textOf({
+      1: [
+        { id: 1, channel: 1, author: "Kernel", text: "早", at: 1000 },
+        { id: 7, channel: 1, author: "Ender", text: "来了", at: 2000 },
+      ],
+    });
+    const { target, done } = draw({ text, onRead: (id: number, message: number) => read.push([id, message]) });
+    await flush();
+    expect(read).toContainEqual([1, 7]);
+    expect(target.textContent).toContain("来了");
     done();
   });
 });

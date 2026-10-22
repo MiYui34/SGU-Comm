@@ -188,6 +188,7 @@
     onPinText={(id, on) => connection.pin(id, on)}
     myId={me?.userId ?? null}
     onOpenChat={(id) => connection.requestHistory(id)}
+    onReadText={(id, message) => connection.markRead(id, message)}
     onSearchText={(query) => connection.search(parseSearch(query, searchChats()))}
     onPinsText={(id) => connection.requestPins(id)}
     onDeleteText={(id) => connection.deleteMessage(id)}
