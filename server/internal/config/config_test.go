@@ -115,12 +115,26 @@ func TestErrors(t *testing.T) {
 		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_MAX_MINUTES": "0"}, "RECORDING_MAX_MINUTES must be a positive integer"},
 		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_MAX_MB": "x"}, "RECORDING_MAX_MB must be a positive integer"},
 		{map[string]string{"ALLOWED_ORIGINS": "*", "RECORDING_KEEP_DAYS": "-1"}, "RECORDING_KEEP_DAYS must be a positive integer"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MC_STATUS_ADDR": "play.example.org"}, "MC_STATUS_ADDR must be host:port"},
+		{map[string]string{"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MC_STATUS_ADDR": "play.example.org:0"}, "MC_STATUS_ADDR must be host:port"},
 	}
 	for _, c := range cases {
 		_, err := Parse(env(c.vars))
 		if err == nil || err.Error() != c.want {
 			t.Errorf("Parse(%v): got error %v, want %q", c.vars, err, c.want)
 		}
+	}
+}
+
+func TestMinecraftAddr(t *testing.T) {
+	got, err := Parse(env(map[string]string{
+		"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "MC_STATUS_ADDR": "play.example.org:25565",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MinecraftAddr != "play.example.org:25565" {
+		t.Errorf("MC_STATUS_ADDR %q", got.MinecraftAddr)
 	}
 }
 

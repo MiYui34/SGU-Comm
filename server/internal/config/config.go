@@ -64,6 +64,9 @@ type Config struct {
 	// The built web app, served from the same origin. Empty: not served
 	// (development, where Vite serves it).
 	WebDir string
+	// The Minecraft server, as players reach it (host:port): the status card
+	// reads its player count over the server list ping. Empty: no card data.
+	MinecraftAddr string
 }
 
 // list splits a comma-separated value, trims and drops empty and repeated
@@ -233,6 +236,14 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	c.WebDir = getenv("WEB_DIR")
 	c.DBPath = cmp.Or(getenv("DB_PATH"), "kallisti.db")
+	// Refused before a start rather than shown as a card that never fills.
+	if c.MinecraftAddr = getenv("MC_STATUS_ADDR"); c.MinecraftAddr != "" {
+		if _, port, err := net.SplitHostPort(c.MinecraftAddr); err != nil {
+			return Config{}, errors.New("MC_STATUS_ADDR must be host:port")
+		} else if n, err := strconv.Atoi(port); err != nil || n <= 0 || n > 65535 {
+			return Config{}, errors.New("MC_STATUS_ADDR must be host:port")
+		}
+	}
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}
 	}

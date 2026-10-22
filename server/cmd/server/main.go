@@ -27,6 +27,8 @@ import (
 	"kallisti.chat/server/internal/emoji"
 	"kallisti.chat/server/internal/fedi"
 	"kallisti.chat/server/internal/files"
+	"kallisti.chat/server/internal/latency"
+	"kallisti.chat/server/internal/mcstatus"
 	"kallisti.chat/server/internal/mumbled"
 	"kallisti.chat/server/internal/preview"
 	"kallisti.chat/server/internal/push"
@@ -251,6 +253,8 @@ func run() error {
 	}
 	// WebSocket upgrades (the client uses /ws) go to the bridge, everything
 	// else to the web app.
+	mux.Handle("/api/mc/status", &mcstatus.Status{Addr: cfg.MinecraftAddr})
+	mux.Handle("/api/ping", latency.Handler())
 	mux.Handle("/", site.New(b, cfg.WebDir))
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ListenPort))

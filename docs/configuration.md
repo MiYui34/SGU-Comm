@@ -62,6 +62,15 @@ brackets.
   start whether previews are on. Without ffmpeg, or with
   `MEDIA_PREVIEWS=0`, there are none. The Docker image has ffmpeg (about
   110 MB more).
+- `MC_STATUS_ADDR` (none): the Minecraft server as players reach it,
+  `host:port`, for the status card of the web app. The server asks it over
+  the server list ping (the exchange the game client does), not over RCON:
+  no password is stored, and no other port has to be open. The answer is
+  cached for 5 seconds, so a page that polls it cannot flood the game
+  server. It also carries the round trip this server sees to the game
+  server, which the web app adds to the player's own round trip to show an
+  estimated game delay (the browser cannot speak the game protocol, so the
+  real figure is out of reach). Without it the card has nothing to show.
 
 ## The built-in Mumble server
 
