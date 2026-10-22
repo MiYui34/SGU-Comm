@@ -471,6 +471,8 @@
   <div class="connecting">Connecting…</div>
 {/if}
 
+<div class="status-bar" aria-hidden="true"></div>
+
 {#if fediNotice}<Toast text={fediNotice} />{/if}
 
 {#if updateReady && !updateClosed}
@@ -482,6 +484,26 @@
 {/if}
 
 <style>
+  /* The installed iOS app (iOS 26 and later): the system blurs the top of
+     the web view unless a fixed, nearly full-width box with one opaque
+     background colour sits there (WebKit's
+     LocalFrameView::fixedContainerEdges); then it uses that colour. */
+  .status-bar {
+    display: none;
+  }
+  @supports (-webkit-touch-callout: none) {
+    @media (display-mode: standalone) {
+      .status-bar {
+        display: block;
+        position: fixed;
+        inset: 0 0 auto;
+        z-index: 40;
+        height: var(--safe-top);
+        background: var(--bg-main);
+        pointer-events: none;
+      }
+    }
+  }
   .update {
     position: fixed;
     top: calc(8px + var(--safe-top));

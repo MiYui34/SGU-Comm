@@ -2270,3 +2270,7 @@ From `meta/research/discord-comparison.md`.
 - While hidden, app.css hides `img` and `video` with `visibility: hidden` (layout and scroll stay, a playing video keeps its sound) and pauses CSS animations. The stream canvas stays: it feeds picture-in-picture. Chat videos only play when the user starts them, so none are paused.
 - Wayland does not tell apps that they are minimised, and WebKitGTK keeps the page visible there: on Wayland nothing changes. X11, Windows and macOS work (not tried on real desktops yet).
 - CSS has no unit tests (no TDD there); the watcher has (fakes for the document and the window). Checked headless: a hidden page sets the attribute, hides pictures and pauses animations; shown again, all comes back.
+
+## iOS 26 edge blur: a fixed strip, not extra space
+
+- The 2.5rem clearance hid the blur, but the gap above the header was too large. WebKit's source (`LocalFrameView::fixedContainerEdges`) has the rule: it samples 4px inside each edge, and if a fixed box at least 90% of the viewport wide and over 10px tall with one opaque background colour is there, it uses that colour and draws no blur. Apple documents none of this. The installed app now has a fixed `.status-bar` strip of `--safe-top` height in `--bg-main`, and the clearance is gone. Needs a check on an iPhone.
