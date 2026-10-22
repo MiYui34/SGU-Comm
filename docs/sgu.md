@@ -121,7 +121,7 @@ MC_STATUS_ADDR=127.0.0.1:25566 ALLOWED_ORIGINS=* LISTEN_PORT=8099 \
 ```sh
 cd apps/web
 pnpm typecheck        # svelte-check，0 错 0 警
-npx vitest run        # 全量：114 个文件 1067 个用例
+npx vitest run        # 全量：114 个文件 1071 个用例
 pnpm build            # 产物含 index.html 和 sgu.html
 ```
 
@@ -138,6 +138,8 @@ pnpm build            # 产物含 index.html 和 sgu.html
 - 房间：改名与说明、谁能进来（成员与邀请链接）、删除，都走上游那套表单。
 - 跳转：`Ctrl K` 搜索频道与房间。
 - 顶栏的信号图标能展开连接详情（延迟、抖动、丢包、传输方式、播放缓冲）。
+- 附件按类型显示成图片、音频、视频或下载链接；图片点开是大图（`Lightbox`），
+  视频有大图时先只显示封面，点播放才去要。
 
 ## 还没做完
 

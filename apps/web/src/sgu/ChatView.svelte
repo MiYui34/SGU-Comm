@@ -2,6 +2,8 @@
   import { untrack } from "svelte";
   import type { TextState } from "../lib/textChannels";
   import { COMMON_EMOJI } from "../lib/reactions";
+import Lightbox from "../components/Lightbox.svelte";
+import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload } from "../lib/media";
   import { recentLines, sizeOf, timeOf, type ChatLine } from "./chat";
 
   // 文字频道：上面一排频道，中间是消息，下面是输入框。
@@ -69,7 +71,9 @@
   // 每个频道看到第几条了；新消息按条数算，不用管服务器给的消息 id。
   let seen = $state<Record<number, number>>({});
   let replyTo = $state<ChatLine | null>(null);
-  let pending = $state<{ key: string; name: string; size: string } | null>(null);
+  // 点开的大图。
+let viewing = $state<{ url: string; name: string; download?: string } | null>(null);
+let pending = $state<{ key: string; name: string; size: string } | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
   let picker = $state<HTMLInputElement | null>(null);
@@ -270,10 +274,31 @@
                 </span>
               {/if}
               {#if line.upload}
-                <a class="file" href={line.upload.url} target="_blank" rel="noreferrer">
-                  {line.upload.name}
-                  <span>{line.upload.size}</span>
-                </a>
+                {@const upload = line.upload}
+                {@const view = attachmentView(upload, false)}
+                {#if view === "image"}
+                  {@const box = imageBox(upload)}
+                  <button type="button" class="shot" onclick={() => (viewing = lightboxOf(upload))}>
+                    <img src={chatSrc(upload)} alt={upload.name} width={box?.width} height={box?.height} loading="lazy" />
+                  </button>
+                {:else if view === "audio"}
+                  <audio class="sound" controls preload="metadata" src={upload.url}></audio>
+                {:else if view === "video"}
+                  <!-- svelte-ignore a11y_media_has_caption -->
+                  <video
+                    class="clip"
+                    controls
+                    preload={videoPreload(upload.preview)}
+                    poster={upload.preview}
+                    src={upload.url}
+                    style:aspect-ratio={mediaRatio(upload)}
+                  ></video>
+                {:else}
+                  <a class="file" href={upload.url} target="_blank" rel="noreferrer">
+                    {upload.name}
+                    <span>{upload.size}</span>
+                  </a>
+                {/if}
               {/if}
               {#if line.reactions.length > 0}
                 <div class="reacts">
@@ -378,6 +403,10 @@
     <p class="no-write">这个频道你不能发言</p>
   {/if}
 </div>
+
+{#if viewing}
+  <Lightbox url={viewing.url} name={viewing.name} download={viewing.download} onClose={() => (viewing = null)} />
+{/if}
 
 <style>
   .chat {
@@ -542,6 +571,36 @@
   .quote span {
     color: var(--sg-muted);
     font-weight: 600;
+  }
+
+  .shot {
+    padding: 0;
+    margin-top: 6px;
+    background: none;
+    border: 1px solid var(--sg-line);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: zoom-in;
+    line-height: 0;
+  }
+
+  .shot img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .sound {
+    display: block;
+    margin-top: 6px;
+    width: min(320px, 100%);
+  }
+
+  video.clip {
+    display: block;
+    margin-top: 6px;
+    width: min(360px, 100%);
+    border-radius: 8px;
   }
 
   .file {

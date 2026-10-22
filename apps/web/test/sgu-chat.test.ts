@@ -5,6 +5,15 @@ import ChatView from "../src/sgu/ChatView.svelte";
 import { plainText, recentLines, sizeOf, timeOf } from "../src/sgu/chat";
 import type { TextState } from "../src/lib/textChannels";
 
+// jsdom 的 <dialog> 还没有模态方法，大图一开就调它。
+HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+  this.open = true;
+};
+HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+  this.open = false;
+  this.dispatchEvent(new Event("close"));
+};
+
 const textOf = (messages: Record<number, unknown[]>, loaded: Record<number, boolean> = {}) =>
   ({
     available: true,
@@ -60,7 +69,7 @@ describe("chat text", () => {
     });
     const [line] = recentLines(text, 1);
     expect(line?.reply).toEqual({ author: "Kernel", text: "谁有圆石" });
-    expect(line?.upload).toEqual({ url: "/files/abc/cobble.png", name: "cobble.png", size: "2 KB" });
+    expect(line?.upload).toEqual({ url: "/files/abc/cobble.png", name: "cobble.png", type: "image/png", size: "2 KB" });
   });
 
   it("says sizes the way people read them", () => {
@@ -158,10 +167,10 @@ describe("the chat tab", () => {
     });
     const { target, done } = draw({ text });
     expect(target.textContent).toContain("谁有圆石");
-    const link = target.querySelector<HTMLAnchorElement>("a.file");
-    expect(link?.getAttribute("href")).toBe("/files/abc/cobble.png");
-    expect(link?.textContent).toContain("cobble.png");
-    expect(link?.textContent).toContain("2 KB");
+    // 图片就当图片显示，不再是一个下载链接。
+    const img = target.querySelector<HTMLImageElement>(".shot img");
+    expect(img?.getAttribute("src")).toBe("/files/abc/cobble.png");
+    expect(img?.getAttribute("alt")).toBe("cobble.png");
     done();
   });
 
@@ -402,6 +411,79 @@ describe("searching, pins and threads", () => {
     first.click();
     await flush();
     expect(started).toEqual([1]);
+    done();
+  });
+});
+describe("pictures, sound and video", () => {
+  const withFile = (upload: Record<string, unknown>) =>
+    textOf({ 1: [{ id: 9, channel: 1, author: "Ender", text: "", at: 1000, upload }] });
+
+  it("shows a picture and opens it bigger", async () => {
+    const { target, done } = draw({
+      text: withFile({
+        url: "/files/a/sunset.png",
+        name: "sunset.png",
+        type: "image/png",
+        size: 4096,
+        width: 800,
+        height: 600,
+      }),
+    });
+    const shot = target.querySelector("button.shot");
+    expect(shot).not.toBeNull();
+    const img = target.querySelector<HTMLImageElement>(".shot img");
+    expect(img?.getAttribute("src")).toBe("/files/a/sunset.png");
+    // 800x600 缩到 400x300 的框里。
+    expect(img?.getAttribute("width")).toBe("400");
+    shot?.click();
+    await flush();
+    expect(target.querySelector("dialog")).not.toBeNull();
+    done();
+  });
+
+  it("keeps a big picture small until it is opened", async () => {
+    const { target, done } = draw({
+      text: withFile({
+        url: "/files/a/big.png",
+        name: "big.png",
+        type: "image/png",
+        size: 900000,
+        preview: "/files/a/big.preview.png",
+        width: 2000,
+        height: 1000,
+      }),
+    });
+    expect(target.querySelector(".shot img")?.getAttribute("src")).toBe("/files/a/big.preview.png");
+    done();
+  });
+
+  it("plays sound and video in place", () => {
+    const sound = draw({
+      text: withFile({ url: "/files/a/take.mp3", name: "take.mp3", type: "audio/mpeg", size: 90000 }),
+    });
+    expect(sound.target.querySelector("audio.sound")).not.toBeNull();
+    sound.done();
+
+    const video = draw({
+      text: withFile({
+        url: "/files/a/ride.mp4",
+        name: "ride.mp4",
+        type: "video/mp4",
+        size: 900000,
+        width: 1280,
+        height: 720,
+      }),
+    });
+    expect(video.target.querySelector("video.clip")).not.toBeNull();
+    video.done();
+  });
+
+  it("leaves everything else as a download", () => {
+    const { target, done } = draw({
+      text: withFile({ url: "/files/a/world.zip", name: "world.zip", type: "application/zip", size: 5242880 }),
+    });
+    expect(target.querySelector("a.file")?.getAttribute("href")).toBe("/files/a/world.zip");
+    expect(target.textContent).toContain("5.0 MB");
     done();
   });
 });

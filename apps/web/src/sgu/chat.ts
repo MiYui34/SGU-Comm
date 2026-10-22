@@ -9,8 +9,17 @@ export type ChatLine = {
   at: number;
   // 这条在回复谁。被回复的那条要是删了，服务器给的名字会是空的。
   reply?: { author: string; text: string };
-  // 带了一个文件。url 是服务器上的地址，点开就能下。
-  upload?: { url: string; name: string; size: string };
+  // 带了一个文件。type 与尺寸用来决定当图片、音频、视频还是下载链接显示；
+  // preview 是服务器给的小图（视频的封面）。
+  upload?: {
+    url: string;
+    name: string;
+    type: string;
+    preview?: string;
+    width?: number;
+    height?: number;
+    size: string;
+  };
   // 别人贴的表情：同一个表情合成一个，mine 表示我贴过。
   reactions: { emoji: string; count: number; mine: boolean }[];
   edited: boolean;
@@ -62,6 +71,10 @@ export function recentLines(
           upload: {
             url: message.upload.url,
             name: message.upload.name,
+            type: message.upload.type,
+            ...(message.upload.preview === undefined ? {} : { preview: message.upload.preview }),
+            ...(message.upload.width === undefined ? {} : { width: message.upload.width }),
+            ...(message.upload.height === undefined ? {} : { height: message.upload.height }),
             size: sizeOf(message.upload.size),
           },
         }
