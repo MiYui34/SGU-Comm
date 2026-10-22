@@ -1,7 +1,7 @@
 {
-  "name": "Kallisti",
-  "short_name": "Kallisti",
-  "description": "Voice and text chat",
+  "name": "SGU 语音",
+  "short_name": "SGU 语音",
+  "description": "生存服的语音与文字聊天",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -26,6 +26,10 @@ Minecraft 服务器用：语音还是 Mumble 那一套（浏览器里直接说�
 
 原来的 Discord 风格界面没有被删掉：地址不带 `?ui=sgu` 就还是它。
 
+登录页（`apps/web/src/components/Login.svelte`）也是中文的，页面标题和 PWA 的
+`manifest.json` 一起改成了「SGU 语音」。服务端返回的错误提示（比如名字被占用）还是
+上游给的英文原文，没有另做映射。
+
 ### 2. 游戏服务器状态（`GET /api/mc/status`）
 
 用 Minecraft 的服务器列表 ping 拿在线人数、人数上限、版本和玩家名单，不用 RCON：

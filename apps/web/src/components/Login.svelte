@@ -41,9 +41,9 @@
 
   type Mode = "guest" | "login" | "create";
   const MODES: [Mode, string][] = [
-    ["guest", "Guest"],
-    ["login", "Log in"],
-    ["create", "Create account"],
+    ["guest", "游客"],
+    ["login", "登录"],
+    ["create", "注册"],
   ];
   // A guest who tried an account's name gets the Log in tab right away.
   let mode = $state<Mode>(untrack(() => modeForError(error)));
@@ -175,80 +175,79 @@
   {#if certificate}
     <div class="card">
       {#if certificate.kind === "unknown"}
-        <h1>New server</h1>
+        <h1>新服务器</h1>
         <p class="sub">
-          First connection to <strong>{certificate.server}</strong>. Its certificate fingerprint is:
+          第一次连 <strong>{certificate.server}</strong>，它的证书指纹是：
         </p>
       {:else}
-        <h1>Certificate changed</h1>
+        <h1>证书变了</h1>
         <p class="error" role="alert">
-          The certificate of <strong>{certificate.server}</strong> is not the one you trusted before. This can mean
-          that someone is listening in. Continue only if the server admin told you about a new certificate.
+          服务器的证书和你上次信任的不一样。可能有人在中间监听。只有管理员确认换了证书，才继续。
         </p>
       {/if}
       <code class="fingerprint">{formatFingerprint(certificate.fingerprint)}</code>
-      <p class="hint">If you can, compare it with the server admin.</p>
+      <p class="hint">方便的话，跟服务器管理员核对一下。</p>
       {#if certificate.kind === "unknown"}
-        <button class="primary" onclick={onTrust}>Trust and connect</button>
-        <button class="link" onclick={onCancelTrust}>Cancel</button>
+        <button class="primary" onclick={onTrust}>信任并连接</button>
+        <button class="link" onclick={onCancelTrust}>取消</button>
       {:else}
         <!-- A changed certificate: the safe choice is the main button. -->
-        <button class="primary" onclick={onCancelTrust}>Cancel</button>
-        <button class="link danger" onclick={onTrust}>Trust the new certificate anyway</button>
+        <button class="primary" onclick={onCancelTrust}>取消</button>
+        <button class="link danger" onclick={onTrust}>仍然信任新证书</button>
       {/if}
     </div>
   {:else if account}
     <div class="card">
-      <h1>{(apiError ?? error) ? "Could not connect" : "Welcome back"}</h1>
+      <h1>{(apiError ?? error) ? "连不上服务器" : "欢迎回来"}</h1>
       {@render serverLine()}
       <p class="sub">
-        {account.temporary ? "Your guest account" : "Logged in as"} <strong>{account.name}</strong>
+        {account.temporary ? "当前是游客身份" : "已登录"} <strong>{account.name}</strong>
       </p>
       {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
       <!-- Shown after a failed connection (a saved session connects by
            itself, see App): again by hand, not in a loop. -->
-      <button class="primary" onclick={() => connectAs(account.name, true)}>Try again</button>
-      <button class="link" onclick={logout}>Log out</button>
+      <button class="primary" onclick={() => connectAs(account.name, true)}>再试一次</button>
+      <button class="link" onclick={logout}>退出登录</button>
     </div>
   {:else if fediSignup}
     {#if signup}
       <form class="card" onsubmit={createFromFedi}>
-        <h1>Choose your name</h1>
-        <p class="sub">Welcome, <strong>{signup.handle}</strong>. Choose the name people see here.</p>
+        <h1>起个名字</h1>
+        <p class="sub">欢迎，<strong>{signup.handle}</strong>。这个名字别人都会看到。</p>
         <label>
-          Name
+          名字
           <input bind:value={username} required maxlength="32" autocomplete="username" />
         </label>
         {#if apiError}<p class="error" role="alert">{apiError}</p>{/if}
-        {#if checking}<p class="hint" role="status">Checking your browser…</p>{/if}
-        <button class="primary" type="submit" disabled={busy}>Create account</button>
-        <button type="button" class="link" onclick={onFediSignupDone}>Cancel</button>
+        {#if checking}<p class="hint" role="status">正在检查浏览器…</p>{/if}
+        <button class="primary" type="submit" disabled={busy}>注册</button>
+        <button type="button" class="link" onclick={onFediSignupDone}>取消</button>
       </form>
     {:else}
       <div class="card">
-        <h1>Log in with the fediverse</h1>
-        <p class="sub" role="status">{signup === null ? "The fediverse login expired. Please try again." : "Loading…"}</p>
-        {#if signup === null}<button class="primary" onclick={onFediSignupDone}>Back</button>{/if}
+        <h1>用 fediverse 账号登录</h1>
+        <p class="sub" role="status">{signup === null ? "登录超时了，再试一次。" : "正在加载…"}</p>
+        {#if signup === null}<button class="primary" onclick={onFediSignupDone}>返回</button>{/if}
       </div>
     {/if}
   {:else}
     {#if desktop && !desktop.kind}
     <form class="card" onsubmit={pickServer}>
-      <h1>Welcome to Kallisti</h1>
+      <h1>欢迎来到 SGU 语音</h1>
       <label>
-        Server address
+        服务器地址
         <input bind:value={server} required placeholder="chat.example.org" autocomplete="url" />
       </label>
-      <p class="hint">A Kallisti server, or any Mumble server (voice.example.org:64738).</p>
+      <p class="hint">填 Kallisti 服务器，或任意 Mumble 服务器（voice.example.org:64738）。</p>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <button class="primary" type="submit" disabled={busy}>{busy ? "Looking…" : "Continue"}</button>
+      <button class="primary" type="submit" disabled={busy}>{busy ? "正在连接…" : "继续"}</button>
     </form>
     {:else}
     <form class="card" onsubmit={submit}>
-      <h1>Welcome to Kallisti</h1>
+      <h1>欢迎来到 SGU 语音</h1>
       {@render serverLine()}
       {#if !mumbleOnly}
-      <div class="tabs" role="group" aria-label="How to join">
+      <div class="tabs" role="group" aria-label="加入方式">
         {#each MODES as [value, label] (value)}
           <button
             type="button"
@@ -263,17 +262,17 @@
       </div>
       {/if}
       <label>
-        Name
+        名字
         <input bind:value={username} required maxlength="32" autocomplete="username" />
       </label>
       {#if mumbleOnly}
         <label>
-          Password <span class="optional">(if the server or your name needs one)</span>
+          密码 <span class="optional">（服务器或名字有密码时才填）</span>
           <input bind:value={password} type="password" autocomplete="current-password" />
         </label>
       {:else if mode !== "guest"}
         <label>
-          Password
+          密码
           <input
             bind:value={password}
             type="password"
@@ -285,28 +284,28 @@
       {/if}
       {#if !mumbleOnly}
       <label>
-        Server password <span class="optional">(only if the server has one)</span>
+        服务器密码 <span class="optional">（服务器设了才填）</span>
         <input bind:value={serverPassword} type="password" autocomplete="off" />
       </label>
       {/if}
       {#if apiError ?? error}<p class="error" role="alert">{apiError ?? error}</p>{/if}
       {#if mode === "create"}
-        <p class="hint">An account keeps your name: nobody else can use it.</p>
+        <p class="hint">注册之后这个名字就归你了，别人不能用。</p>
       {/if}
-      {#if checking}<p class="hint" role="status">Checking your browser…</p>{/if}
+      {#if checking}<p class="hint" role="status">正在检查浏览器…</p>{/if}
       <button class="primary" type="submit" disabled={busy}>
-        {mumbleOnly ? "Connect" : mode === "guest" ? "Join as guest" : mode === "login" ? "Log in" : "Create account"}
+        {mumbleOnly ? "连接" : mode === "guest" ? "游客加入" : mode === "login" ? "登录" : "注册"}
       </button>
     </form>
     {/if}
     {#if fediOn && !desktop}
       <form class="card fedi" onsubmit={fediLogin}>
         <label>
-          Or use your fediverse account
+          也可以用 fediverse 账号
           <input bind:value={instance} placeholder="mastodon.social or @you@mastodon.social" autocomplete="url" aria-describedby="fedi-hint" />
         </label>
-        <p class="hint" id="fedi-hint">Mastodon, Pleroma, Akkoma, GoToSocial and others. New here? You choose a name next.</p>
-        <button class="secondary" type="submit" disabled={busy || !instance.trim()}>Log in with the fediverse</button>
+        <p class="hint" id="fedi-hint">支持 Mastodon、Pleroma、Akkoma、GoToSocial 等。第一次来还要再起个名字。</p>
+        <button class="secondary" type="submit" disabled={busy || !instance.trim()}>用 fediverse 登录</button>
       </form>
     {/if}
   {/if}
@@ -316,8 +315,8 @@
 {#snippet serverLine()}
   {#if desktop}
     <p class="server">
-      <span class="ellipsis">{desktop.server}{mumbleOnly ? " (Mumble server)" : ""}</span>
-      <button type="button" class="link" onclick={desktop.onChangeServer}>Change</button>
+      <span class="ellipsis">{desktop.server}{mumbleOnly ? "（Mumble 服务器）" : ""}</span>
+      <button type="button" class="link" onclick={desktop.onChangeServer}>换一个</button>
     </p>
   {/if}
 {/snippet}
