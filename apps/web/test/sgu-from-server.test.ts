@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Channel, ServerState, User } from "@kallisti/protocol";
-import { myChannelOf, myNameOf, voiceRooms } from "../src/sgu/fromServer";
+import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "../src/sgu/fromServer";
 
 const channel = (id: number, name: string, parent: number | null, position = 0): Channel => ({
   id,
@@ -12,7 +12,7 @@ const channel = (id: number, name: string, parent: number | null, position = 0):
   temporary: false,
 });
 
-const user = (session: number, name: string, channelId: number): User => ({
+const user = (session: number, name: string, channelId: number, extra: Partial<User> = {}): User => ({
   session,
   name,
   channelId,
@@ -28,6 +28,7 @@ const user = (session: number, name: string, channelId: number): User => ({
   textureHash: null,
   comment: "",
   commentHash: null,
+  ...extra,
 });
 
 const stateOf = (channels: Channel[], users: User[], session: number | null = 7): ServerState => ({
@@ -88,6 +89,48 @@ describe("voice rooms from the server", () => {
 
   it("has no rooms before the server says what they are", () => {
     expect(voiceRooms(stateOf([], []))).toEqual([]);
+  });
+});
+
+describe("everyone in every channel", () => {
+  it("lists people in the rooms and in the lobby, room by room", () => {
+    const server = stateOf(
+      [channel(0, "服务器", null), channel(1, "挖矿", 0, 1), channel(2, "建筑", 0, 2)],
+      [user(1, "Zoe", 2), user(2, "Kernel", 0), user(3, "Adam", 1)],
+    );
+    expect(voicePeople(server).map((person) => [person.name, person.roomName])).toEqual([
+      ["Kernel", "大厅"],
+      ["Adam", "挖矿"],
+      ["Zoe", "建筑"],
+    ]);
+  });
+
+  it("keeps people of one room together and sorts them by name", () => {
+    const server = stateOf(
+      [channel(0, "服务器", null), channel(1, "主城", 0)],
+      [user(1, "Zoe", 1), user(2, "Adam", 1), user(3, "Mia", 0)],
+    );
+    expect(voicePeople(server).map((person) => person.name)).toEqual(["Mia", "Adam", "Zoe"]);
+  });
+
+  it("knows who has the microphone off and who is not listening", () => {
+    const server = stateOf(
+      [channel(0, "服务器", null), channel(1, "主城", 0)],
+      [
+        user(1, "Self", 1, { selfMute: true }),
+        user(2, "Server", 1, { mute: true }),
+        user(3, "Held", 1, { suppress: true }),
+        user(4, "Deaf", 1, { selfDeaf: true }),
+        user(5, "Fine", 1),
+      ],
+    );
+    expect(voicePeople(server).map((person) => [person.name, person.muted, person.deaf])).toEqual([
+      ["Deaf", false, true],
+      ["Fine", false, false],
+      ["Held", true, false],
+      ["Self", true, false],
+      ["Server", true, false],
+    ]);
   });
 });
 

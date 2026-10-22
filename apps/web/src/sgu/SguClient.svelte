@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { joinChannel, setSelfState } from "@kallisti/protocol";
+  import { createChannel, joinChannel, may, Perm, setSelfState } from "@kallisti/protocol";
   import type { Connection } from "../lib/connection.svelte";
-  import { myChannelOf, myNameOf, voiceRooms } from "./fromServer";
+  import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
   import Shell from "./Shell.svelte";
   import "./theme.css";
   import type { ConnectionStats, SguState } from "./types";
@@ -12,8 +12,11 @@
 
   const server = $derived(connection.state);
   const rooms = $derived(voiceRooms(server));
+  const people = $derived(voicePeople(server));
   const name = $derived(myNameOf(server));
   const me = $derived(server.session === null ? null : (server.users[server.session] ?? null));
+  // 建频道要看服务器给的权限位，没有就不显示那个入口。
+  const canCreate = $derived(may(server, 0, Perm.MakeChannel));
 
   // 根频道（0）是没语音的大厅，界面上等于「不在任何房间」。
   const here = $derived(myChannelOf(server));
@@ -46,7 +49,7 @@
   // 人数、版本由外壳自己去问游戏服；这里给空，免得没配的时候显示示例数据。
   const snapshot = $derived<SguState>({
     server: { online: 0, slots: 0, version: "" },
-    me: { name: name ?? "我", initial: (name ?? "我").slice(0, 1), linked: false },
+    me: { name: name ?? "我", initial: (name ?? "我").slice(0, 1) },
     rooms,
     joinedRoomId: joinedId,
     players: [],
@@ -65,6 +68,11 @@
     if (session === null) return;
     connection.send(joinChannel(session, 0));
   }
+
+  // 新房间挂在根频道下面，和服务器自带的那几个平级。
+  function create(name: string) {
+    connection.send(createChannel(0, name));
+  }
 </script>
 
 <div class="sgu-host">
@@ -76,6 +84,9 @@
     {controls}
     onJoin={join}
     onLeave={leave}
+    {people}
+    {canCreate}
+    onCreate={create}
     chat={connection.text}
     onSendText={(id, body) => connection.sendText({ channelId: id }, body)}
     onOpenChat={(id) => connection.requestHistory(id)}

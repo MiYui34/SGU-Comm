@@ -31,6 +31,18 @@ export interface Player {
   color: string;
 }
 
+/** 语音里的一个人：玩家页按频道列出所有人时用。 */
+export interface Person {
+  name: string;
+  /** 所在频道的 id；大厅是 "0"。 */
+  roomId: string;
+  roomName: string;
+  /** 麦克风关着：自己关的，或者被服务器禁了。 */
+  muted: boolean;
+  /** 耳机静音：听不到别人说话。 */
+  deaf: boolean;
+}
+
 /** 「你的延迟」：浏览器自己测出来的，不是玩家的游戏内 ping。 */
 export interface ConnectionStats {
   rtt: number;
@@ -48,8 +60,6 @@ export interface Activity {
 export interface Me {
   name: string;
   initial: string;
-  /** 是否已绑定 MC 账号。 */
-  linked: boolean;
 }
 
 export interface SguState {

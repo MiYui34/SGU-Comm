@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { VoiceRoom } from "./types";
 
   let {
@@ -7,13 +8,37 @@
     meName,
     onJoin,
     onCreate,
+    canCreate = true,
   }: {
     rooms: VoiceRoom[];
     joinedId: string | null;
     meName: string;
     onJoin: (id: string) => void;
-    onCreate: () => void;
+    // 新建房间：接上真实服务器后真的开一个频道，没接上就只加在页面上。
+    onCreate?: (name: string) => void;
+    // 服务器上的权限位说不能建就不显示入口，免得点了没反应。
+    canCreate?: boolean;
   } = $props();
+
+  let creating = $state(false);
+  let draft = $state("");
+  let field = $state<HTMLInputElement | null>(null);
+
+  async function startCreating() {
+    creating = true;
+    draft = "";
+    await tick();
+    field?.focus();
+  }
+
+  function submit(event: SubmitEvent) {
+    event.preventDefault();
+    const name = draft.trim();
+    if (name === "") return;
+    onCreate?.(name);
+    creating = false;
+    draft = "";
+  }
 </script>
 
 <section class="rooms" aria-label="语音房间">
@@ -40,10 +65,28 @@
     </button>
   {/each}
 
-  <button type="button" class="room create" onclick={onCreate}>
-    <span class="plus">＋</span>
-    创建房间
-  </button>
+  {#if canCreate}
+    {#if creating}
+      <form class="room create on" onsubmit={submit}>
+        <input
+          bind:this={field}
+          bind:value={draft}
+          placeholder="房间名字"
+          maxlength="24"
+          aria-label="房间名字"
+        />
+        <div class="actions">
+          <button type="submit" class="ok" disabled={draft.trim() === ""}>创建</button>
+          <button type="button" class="no" onclick={() => (creating = false)}>取消</button>
+        </div>
+      </form>
+    {:else}
+      <button type="button" class="room create" onclick={startCreating}>
+        <span class="plus">＋</span>
+        创建房间
+      </button>
+    {/if}
+  {/if}
 </section>
 
 <style>
@@ -143,5 +186,52 @@
   .plus {
     font-size: 19px;
     line-height: 1;
+  }
+
+  .create input {
+    width: 100%;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--sg-text);
+    background: var(--sg-card);
+    border: 1px solid var(--sg-line-hi);
+    border-radius: 7px;
+  }
+
+  .create input:focus {
+    outline: none;
+    border-color: var(--sg-green);
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .actions button {
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  .ok {
+    color: #fdfbf6;
+    background: var(--sg-green);
+    border: 0;
+  }
+
+  .ok:disabled {
+    color: var(--sg-faint);
+    background: var(--sg-panel);
+    cursor: default;
+  }
+
+  .no {
+    color: var(--sg-muted);
+    background: transparent;
+    border: 1px solid var(--sg-line-hi);
   }
 </style>

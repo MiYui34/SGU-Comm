@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { TextState } from "../lib/textChannels";
   import { recentLines, timeOf } from "./chat";
 
@@ -7,19 +8,29 @@
     text,
     onSend,
     onOpen,
+    onUnread,
   }: {
     text: TextState;
     onSend: (channelId: number, body: string) => void;
     // 这个频道的旧消息还没读，去要一下（每个频道只问一次）。
     onOpen?: (channelId: number) => void;
+    // 别的频道来了几条没看的，外面的导航上要挂个数字。
+    onUnread?: (total: number) => void;
   } = $props();
 
   let current = $state<number | null>(null);
   let draft = $state("");
+  // 每个频道看到第几条了；新消息按条数算，不用管服务器给的消息 id。
+  let seen = $state<Record<number, number>>({});
 
   const channels = $derived(text.channels);
   const selected = $derived(channels.find((channel) => channel.id === current) ?? channels[0] ?? null);
   const lines = $derived(selected === null ? [] : recentLines(text, selected.id));
+
+  function countOf(channelId: number): number {
+    const total = (text.messages[channelId] ?? []).length;
+    return Math.max(0, total - (seen[channelId] ?? 0));
+  }
 
   const asked = new Set<number>();
   $effect(() => {
@@ -27,6 +38,22 @@
     if (channel === null || text.loaded[channel.id] || asked.has(channel.id)) return;
     asked.add(channel.id);
     onOpen?.(channel.id);
+  });
+
+  // 正在看的频道就算读过了；别的频道的条数会留着，直到切过去。
+  $effect(() => {
+    const channel = selected;
+    if (channel === null) return;
+    const total = (text.messages[channel.id] ?? []).length;
+    untrack(() => {
+      if ((seen[channel.id] ?? 0) !== total) seen = { ...seen, [channel.id]: total };
+    });
+  });
+
+  $effect(() => {
+    let total = 0;
+    for (const channel of channels) total += countOf(channel.id);
+    onUnread?.(total);
   });
 
   function send() {
@@ -49,6 +76,9 @@
     {#each channels as channel (channel.id)}
       <button type="button" class="tab" class:on={channel.id === selected?.id} onclick={() => (current = channel.id)}>
         {channel.name}
+        {#if countOf(channel.id) > 0}
+          <span class="dot">{countOf(channel.id)}</span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -120,6 +150,16 @@
   .tab.on {
     color: var(--sg-card);
     background: var(--sg-green);
+  }
+
+  .dot {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--sg-card);
+    background: var(--sg-red, #b8442f);
+    border-radius: 999px;
   }
 
   .lines {

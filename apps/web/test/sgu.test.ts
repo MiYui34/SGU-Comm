@@ -170,7 +170,6 @@ describe("components", () => {
       connection: { rtt: 28, jitter: 3.2, loss: 0 },
       server: mockState.server,
       activity: mockState.activity,
-      linked: false,
       predicted: 58,
     });
     expect(target.textContent).toContain("预计游戏延迟");
@@ -183,7 +182,6 @@ describe("components", () => {
       connection: { rtt: 28, jitter: 3.2, loss: 0 },
       server: mockState.server,
       activity: mockState.activity,
-      linked: false,
       predicted: null,
     });
     expect(target.textContent).not.toContain("预计游戏延迟");
@@ -220,8 +218,8 @@ describe("components", () => {
     expect(target.textContent).toContain("你的延迟");
     expect(target.textContent).toContain("28");
     expect(target.textContent).toContain("最近动态");
-    expect(target.textContent).toContain("在线玩家");
-    expect(target.textContent).toContain("4 小时 12 分");
+    expect(target.textContent).toContain("语音房间");
+    expect(target.textContent).toContain("4 天 12 小时");
     done();
   });
 
@@ -235,8 +233,13 @@ describe("components", () => {
       const { target, done } = draw(Shell, { snapshot: mockState });
       await settle(() => (target.textContent ?? "").includes("7 / 20"));
       expect(target.textContent).toContain("7 / 20");
-      expect(target.textContent).toContain("LiveOnly");
       expect(target.textContent).not.toContain("12 / 50");
+
+      // 游戏里的人名在玩家页上，不在语音页。
+      const nav = [...target.querySelectorAll<HTMLButtonElement>("nav button")];
+      nav[2]?.click();
+      await settle(() => (target.textContent ?? "").includes("LiveOnly"));
+      expect(target.textContent).toContain("LiveOnly");
       done();
     } finally {
       globalThis.fetch = original;

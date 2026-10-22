@@ -5,13 +5,11 @@
     connection,
     server,
     activity,
-    linked,
     predicted = null,
   }: {
     connection: ConnectionStats;
     server: ServerInfo;
     activity: Activity[];
-    linked: boolean;
     /** 预计游戏延迟（毫秒）：两段都测到才有。 */
     predicted?: number | null;
   } = $props();
@@ -31,38 +29,34 @@
     {/if}
   </div>
 
-  <div class="card">
-    <h3>服务器</h3>
-    <div class="kv"><span>在线</span><b>{server.online} / {server.slots}</b></div>
-    {#if server.uptime}
-      <div class="kv"><span>运行时间</span><b>{server.uptime}</b></div>
-    {/if}
-    <div class="kv"><span>版本</span><b>{server.version}</b></div>
-  </div>
-
-  <div class="card">
-    <h3>最近动态</h3>
-    <div class="events">
-      {#each activity as item (item.id)}
-        <div class="ev">
-          <span><span class="k">{item.who}</span> {item.what}</span>
-          <time>{item.at}</time>
-        </div>
-      {/each}
+  {#if server.slots > 0 || server.uptime || server.version}
+    <div class="card">
+      <h3>服务器</h3>
+      {#if server.slots > 0}
+        <div class="kv"><span>在线</span><b>{server.online} / {server.slots}</b></div>
+      {/if}
+      {#if server.uptime}
+        <div class="kv"><span>运行时间</span><b>{server.uptime}</b></div>
+      {/if}
+      {#if server.version}
+        <div class="kv"><span>版本</span><b>{server.version}</b></div>
+      {/if}
     </div>
-  </div>
+  {/if}
 
-  <div class="card">
-    <h3>账号绑定</h3>
-    {#if linked}
-      <div class="kv"><span>状态</span><b>已绑定</b></div>
-    {:else}
-      <div class="link-box">
-        <span>绑定后可使用游戏头像</span>
-        <code>/link</code>
+  {#if activity.length > 0}
+    <div class="card">
+      <h3>最近动态</h3>
+      <div class="events">
+        {#each activity as item (item.id)}
+          <div class="ev">
+            <span><span class="k">{item.who}</span> {item.what}</span>
+            <time>{item.at}</time>
+          </div>
+        {/each}
       </div>
-    {/if}
-  </div>
+    </div>
+  {/if}
 </aside>
 
 <style>
@@ -190,25 +184,4 @@
     font-size: 12px;
   }
 
-  .link-box {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 11px;
-    border-radius: 8px;
-    background: var(--sg-green-soft);
-  }
-
-  .link-box span {
-    color: var(--sg-muted);
-    font-size: 12.5px;
-  }
-
-  .link-box code {
-    color: var(--sg-green);
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-  }
 </style>

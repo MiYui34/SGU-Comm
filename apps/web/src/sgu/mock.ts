@@ -6,7 +6,7 @@ import type { SguState } from "./types";
  */
 export const mockState: SguState = {
   server: { online: 12, slots: 50, uptime: "4 天 12 小时", version: "1.21.4" },
-  me: { name: "Steve_SGU", initial: "我", linked: false },
+  me: { name: "Steve_SGU", initial: "我" },
   joinedRoomId: "lobby",
   rooms: [
     { id: "lobby", name: "主城大厅", members: ["Kernel", "小樱", "Alex_Craft", "Steve_SGU"] },

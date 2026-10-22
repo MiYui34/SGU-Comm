@@ -9,7 +9,11 @@
   <div class="brand">SGU 生存服</div>
 
   <div class="right">
-    <div class="online"><span class="dot"></span><b>{server.online}</b> / {server.slots} 在线</div>
+    {#if server.slots > 0}
+      <div class="online"><span class="dot"></span><b>{server.online}</b> / {server.slots} 在线</div>
+    {:else}
+      <div class="off">游戏服未连接</div>
+    {/if}
     <div class="me">
       <span class="av">{me.initial}</span>
       <span class="name">{me.name}</span>
@@ -73,6 +77,12 @@
     height: 7px;
     border-radius: 50%;
     background: var(--sg-green);
+  }
+
+  .off {
+    color: var(--sg-muted);
+    font-size: 13px;
+    opacity: 0.75;
   }
 
   .me {
