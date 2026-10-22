@@ -246,3 +246,4 @@
 - [x] [Show AVIF and JPEG XL images](issues/avif-images.md)
 - [x] [iOS PWA: content runs under the status bar](issues/ios-safe-area.md)
 - [x] [Phone: a simpler top bar with a channel sheet](issues/phone-header.md)
+- [x] [Desktop: GPU use while the window is minimised](issues/hidden-window-gpu.md)
