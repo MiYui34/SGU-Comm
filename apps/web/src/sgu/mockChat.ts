@@ -47,7 +47,15 @@ export const mockChat = {
         author: "Ender",
         text: "图我放这里，照着挖就行。",
         at: now - 9 * 60_000,
-        upload: { url: "/files/mock/mine.png", name: "矿洞路线.png", size: 1_800_000, type: "image/png" },
+        // 张示例图，放在 public 里；/files/ 是上传目录，别撞上。
+        upload: {
+          url: "/mock-mine.png",
+          name: "矿洞路线.png",
+          size: 9_466,
+          type: "image/png",
+          width: 320,
+          height: 200,
+        },
       },
     ],
     2: [

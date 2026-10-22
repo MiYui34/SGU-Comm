@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { playerColor, type Person, type PersonAction, type Player } from "./types";
+  import { initialOf, playerColor, type Person, type PersonAction, type Player } from "./types";
 
   // 玩家页：语音里每个频道有谁，加上游戏里在线的人。
   let {
@@ -33,10 +33,6 @@
     }
     return out;
   });
-
-  function initialOf(name: string): string {
-    return [...name][0] ?? "?";
-  }
 </script>
 
 <div class="players">

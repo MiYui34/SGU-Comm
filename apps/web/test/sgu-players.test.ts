@@ -306,3 +306,56 @@ describe("the channel list", () => {
     done();
   });
 });
+
+describe("who is in a voice room", () => {
+  const crowd = Array.from({ length: 25 }, (_, index) => `P${index + 1}`);
+  const rooms: VoiceRoom[] = [
+    { id: "1", name: "主城", members: ["Ender", "我"] },
+    { id: "2", name: "挖矿", members: crowd },
+  ];
+
+  const drew = (onJoin: (roomId: string) => void = () => {}) =>
+    draw(ChannelList, {
+      channels: [],
+      unread: {},
+      selected: null,
+      onSelect: () => {},
+      rooms,
+      joinedId: null,
+      meName: "我",
+      onJoin,
+    });
+
+  it("puts the people of a room under its name, with an initial", () => {
+    const { target, done } = drew();
+    const first = target.querySelectorAll(".people")[0];
+    expect(first?.textContent).toContain("Ender");
+    expect(first?.querySelector(".face")?.textContent).toBe("E");
+    done();
+  });
+
+  it("folds a crowded room after twenty people and opens it again", async () => {
+    const { target, done } = drew();
+    const second = target.querySelectorAll(".people")[1];
+    expect(second?.querySelectorAll(".person")).toHaveLength(20);
+    const fold = second?.querySelector<HTMLButtonElement>("button.fold");
+    expect(fold?.textContent).toContain("还有 5 人");
+    fold?.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(second?.querySelectorAll(".person")).toHaveLength(25);
+    expect(second?.querySelector("button.fold")?.textContent).toContain("收起");
+    done();
+  });
+
+  it("enters voice on a double click, not on a single one", () => {
+    const joined: string[] = [];
+    const { target, done } = drew((roomId) => joined.push(roomId));
+    const row = target.querySelectorAll<HTMLButtonElement>("button.voice")[1];
+    // 真点一下（detail 是 1）：不算数。
+    row?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(joined).toEqual([]);
+    row?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(joined).toEqual(["2"]);
+    done();
+  });
+});

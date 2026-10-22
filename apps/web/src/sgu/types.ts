@@ -109,6 +109,11 @@ export function playerColor(name: string): string {
   return avatarColors[hash % avatarColors.length] ?? "#1f6b4a";
 }
 
+/** 头像里那个字：取名字的第一个字，中文名字就是一个字。 */
+export function initialOf(name: string): string {
+  return [...name][0] ?? "?";
+}
+
 /** 服务器只报了名字：表格里就只用名字，不编造位置和时长。 */
 export function playerOfName(name: string, index: number): Player {
   return { id: `live-${index}-${name}`, name, color: playerColor(name) };

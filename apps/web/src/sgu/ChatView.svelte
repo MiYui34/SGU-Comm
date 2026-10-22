@@ -581,8 +581,9 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   }
 
   .line {
+    position: relative;
     display: grid;
-    grid-template-columns: 112px minmax(0, 1fr) auto auto;
+    grid-template-columns: 112px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: baseline;
     font-size: 13px;
@@ -644,6 +645,7 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   }
 
   .shot {
+    align-self: flex-start;
     padding: 0;
     margin-top: 6px;
     background: none;
@@ -787,16 +789,33 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
     color: var(--sg-muted);
   }
 
+  /* 操作按钮浮在时间戳上面，不再占一列：否则「编辑」「删除」只出现在自己的
+     消息里，那一列的行宽就不一样，时间戳会跟着左右跳。 */
   .acts {
+    position: absolute;
+    top: -3px;
+    right: 0;
     display: flex;
     gap: 8px;
     align-items: baseline;
+    padding: 2px 7px;
+    background: var(--sg-card);
+    border: 1px solid var(--sg-line);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgb(44 38 29 / 10%);
     opacity: 0;
+    visibility: hidden;
   }
 
   .line:hover .acts,
-  .acts:focus-within {
+  .line:focus-within .acts {
     opacity: 1;
+    visibility: visible;
+  }
+
+  .line:hover .when,
+  .line:focus-within .when {
+    visibility: hidden;
   }
 
   .acts button {
@@ -817,6 +836,8 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
     color: var(--sg-faint);
     font-size: 11.5px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-align: right;
   }
 
   .palette {

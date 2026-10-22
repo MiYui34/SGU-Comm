@@ -94,8 +94,11 @@ describe("the Chinese shell on a real connection", () => {
   it("walks into another room by moving the connection", () => {
     const sent: Uint8Array[] = [];
     const { target, done } = draw(serverOf([user(7, "Kernel", 1)]), sent);
-    // 第一行是还在的大厅，第二行是挖矿。
-    target.querySelectorAll<HTMLButtonElement>("button.voice")[1]?.click();
+    // 第一行是还在的大厅，第二行是挖矿；点一下不算，双击才进去。
+    const room = target.querySelectorAll<HTMLButtonElement>("button.voice")[1];
+    room?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(sent).toHaveLength(0);
+    room?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(sent).toHaveLength(1);
     expect(sent[0]?.length).toBeGreaterThan(0);
     done();

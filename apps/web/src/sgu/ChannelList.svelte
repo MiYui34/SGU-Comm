@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { RoomAction, VoiceRoom } from "./types";
+  import { initialOf, playerColor, type RoomAction, type VoiceRoom } from "./types";
 
   // 左栏：文字频道在上，语音房间在下。点文字频道换中间的消息，
   // 点语音房间就是走进去说话。
@@ -38,6 +38,8 @@
   let creating = $state(false);
   let draft = $state("");
   let field = $state<HTMLInputElement | null>(null);
+  // 人多的房间默认只列前二十个，展开过的记在这里。
+  let opened = $state<Record<string, boolean>>({});
 
   async function startCreating() {
     creating = true;
@@ -62,6 +64,21 @@
       : room.members.length === 0
         ? ""
         : `${room.members.length} 人`;
+
+  // 一个房间最多先列出这么多人，多出来的折起来。
+  const foldAfter = 20;
+
+  // 双击才进语音；键盘的回车/空格算数（那种点击 detail 是 0）。
+  function pick(event: MouseEvent, room: VoiceRoom) {
+    if (event.detail === 0) onJoin(room.id);
+  }
+
+  const shownIn = (room: VoiceRoom) =>
+    opened[room.id] === true ? room.members : room.members.slice(0, foldAfter);
+
+  function fold(room: VoiceRoom) {
+    opened = { ...opened, [room.id]: opened[room.id] !== true };
+  }
 </script>
 
 <aside class="side">
@@ -126,7 +143,9 @@
           type="button"
           class="row voice"
           class:on={room.id === joinedId}
-          onclick={() => onJoin(room.id)}
+          title={room.id === joinedId ? "你在这个房间" : "双击加入语音"}
+          onclick={(event) => pick(event, room)}
+          ondblclick={() => onJoin(room.id)}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 5 6 9H3v6h3l5 4V5Z" />
@@ -160,6 +179,22 @@
               {/each}
             </div>
           {/if}
+        {/if}
+
+        {#if room.members.length > 0}
+          <div class="people">
+            {#each shownIn(room) as name (name)}
+              <span class="person">
+                <span class="face" style:background={playerColor(name)}>{initialOf(name)}</span>
+                <span class="name">{name}</span>
+              </span>
+            {/each}
+            {#if room.members.length > foldAfter}
+              <button type="button" class="fold" onclick={() => fold(room)}>
+                {opened[room.id] === true ? "收起" : `还有 ${room.members.length - foldAfter} 人`}
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
     {/each}
@@ -310,15 +345,65 @@
   .slot {
     position: relative;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 1px;
   }
 
   .slot .row {
     padding-right: 30px;
   }
 
+  /* 房间里有谁：头像加名字，排不下就换行，名字长的截断。 */
+  .people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    padding: 1px 9px 5px 31px;
+  }
+
+  .person {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .face {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    color: #fdfbf6;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 50%;
+  }
+
+  .name {
+    overflow: hidden;
+    color: var(--sg-muted);
+    font-size: 11.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fold {
+    padding: 0;
+    color: var(--sg-green);
+    font-size: 11.5px;
+  }
+
+  .fold:hover {
+    text-decoration: underline;
+  }
+
   .more {
     position: absolute;
+    top: 3px;
     right: 5px;
     padding: 0 5px;
     color: var(--sg-muted);
