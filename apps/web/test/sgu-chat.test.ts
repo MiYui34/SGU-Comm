@@ -342,3 +342,66 @@ describe("reactions, edits and pins", () => {
     ]);
   });
 });
+
+describe("searching, pins and threads", () => {
+  const withOne = () =>
+    textOf({
+      1: [{ id: 1, channel: 1, author: "Kernel", text: "早", at: 1000 }],
+      2: [{ id: 2, channel: 2, author: "Ender", text: "在", at: 2000 }],
+    });
+
+  it("asks the server to search when the box is entered", async () => {
+    const seen: string[] = [];
+    const { target, done } = draw({ text: withOne(), onSearch: (query: string) => seen.push(query) });
+    const box = target.querySelector<HTMLInputElement>(".find");
+    if (box === null) throw new Error("no search box");
+    box.value = "from:Kernel 圆石";
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    expect(seen).toEqual(["from:Kernel 圆石"]);
+    done();
+  });
+
+  it("opens pins and threads for the channel it is looking at", async () => {
+    const pins: number[] = [];
+    const threads: number[] = [];
+    const { target, done } = draw({
+      text: withOne(),
+      onPins: (id: number) => pins.push(id),
+      onThreads: (id: number) => threads.push(id),
+    });
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".tools button")];
+    buttons[0]?.click();
+    buttons[1]?.click();
+    await flush();
+    expect(pins).toEqual([1]);
+    expect(threads).toEqual([1]);
+    done();
+  });
+
+  it("only offers to delete what I said", async () => {
+    const removed: number[] = [];
+    const { target, done } = draw({
+      text: withOne(),
+      myName: "Kernel",
+      onDelete: (id: number) => removed.push(id),
+    });
+    const dels = [...target.querySelectorAll<HTMLButtonElement>(".del")];
+    expect(dels.length).toBe(1);
+    dels[0]?.click();
+    await flush();
+    expect(removed).toEqual([1]);
+    done();
+  });
+
+  it("starts a thread from a message", async () => {
+    const started: number[] = [];
+    const { target, done } = draw({ text: withOne(), onThread: (id: number) => started.push(id) });
+    const first = target.querySelector<HTMLButtonElement>("button.thread");
+    if (first === null) throw new Error("no thread button");
+    first.click();
+    await flush();
+    expect(started).toEqual([1]);
+    done();
+  });
+});

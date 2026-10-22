@@ -7,10 +7,14 @@
   import StatusRail from "./StatusRail.svelte";
   import VoiceBar from "./VoiceBar.svelte";
   import ChatView from "./ChatView.svelte";
+  import Drawer from "./Drawer.svelte";
+  import SearchPanel from "../components/SearchPanel.svelte";
+  import ThreadList from "../components/ThreadList.svelte";
+  import { threadList, type Thread } from "../lib/threads";
   import { onMount, untrack } from "svelte";
   import { watchConnection, watchStatus, type LiveStatus } from "./live";
   import { joinRoom, leaveRooms } from "./rooms";
-  import type { TextState } from "../lib/textChannels";
+  import type { TextMessage, TextState } from "../lib/textChannels";
   import {
     playerOfName,
     type ConnectionStats,
@@ -48,6 +52,11 @@
     onReactText,
     onEditText,
     onPinText,
+    onDeleteText,
+    onCreateThread,
+    onOpenThread,
+    onSearchText,
+    onPinsText,
     myId = null,
   }: {
     snapshot: SguState;
@@ -80,6 +89,14 @@
     onPinText?: (messageId: number, on: boolean) => void;
     // 我在服务器上的用户 id：用来认出自己贴过的表情。
     myId?: number | null;
+    // 删掉自己发的一条消息。
+    onDeleteText?: (messageId: number) => void;
+    // 从一条消息开一个话题，和打开某个话题。
+    onCreateThread?: (messageId: number, name: string) => void;
+    onOpenThread?: (threadId: number) => void;
+    // 搜索消息、要某个频道的置顶列表。
+    onSearchText?: (text: string) => void;
+    onPinsText?: (channelId: number) => void;
   } = $props();
 
   let active = $state<NavKey>("voice");
@@ -88,6 +105,14 @@
   let localMic = $state(true);
   let localSound = $state(true);
   let unread = $state(0);
+
+  // 聊天页拉出来的抽屉：搜索、置顶、话题。
+  let panel = $state<"search" | "pins" | "threads" | null>(null);
+  let chatChannel = $state<number | null>(null);
+  let openThread = $state<Thread | null>(null);
+  // 从某条消息开话题时先问名字。
+  let threadAsk = $state<number | null>(null);
+  let threadName = $state("");
 
   // 后端配了游戏服才有真实人数；没有时页面用示例数据，方便做界面。
   let live = $state<LiveStatus | null>(null);
@@ -129,6 +154,17 @@
   const players = $derived(live ? live.players.map((name, index) => playerOfName(name, index)) : snapshot.players);
 
   const meName = untrack(() => snapshot.me.name);
+
+  // 抽屉里要用「这条在哪个频道」「这个频道有什么」。
+  const textChannels = $derived(chat?.channels ?? []);
+  const channelName = (id: number) => textChannels.find((channel) => channel.id === id)?.name ?? String(id);
+  const whereOf = (message: TextMessage) => `#${channelName(message.channel)}`;
+  const pinsOf = $derived(chatChannel === null ? [] : (chat?.pins[chatChannel] ?? []));
+  const threadsOf = $derived.by(() => {
+    const text = chat;
+    if (!text || chatChannel === null) return [];
+    return threadList(text.threads, text.archived[chatChannel]?.threads ?? [], chatChannel);
+  });
 
   let localRooms = $state<VoiceRoom[]>(
     untrack(() => snapshot.rooms.map((room) => ({ ...room, members: [...room.members] }))),
@@ -213,7 +249,84 @@
           onPin={onPinText}
           myName={meName}
           {myId}
+          focusChannel={chatChannel}
+          thread={openThread}
+          onChannelChange={(id) => {
+            chatChannel = id;
+            if (panel === "pins") onPinsText?.(id);
+            if (openThread !== null && openThread.channel !== id) openThread = null;
+          }}
+          onSearch={(query) => {
+            onSearchText?.(query);
+            panel = "search";
+          }}
+          onPins={(id) => {
+            chatChannel = id;
+            onPinsText?.(id);
+            panel = "pins";
+          }}
+          onThreads={(id) => {
+            chatChannel = id;
+            panel = "threads";
+          }}
+          onDelete={onDeleteText}
+          onThread={(id) => {
+            threadAsk = id;
+            threadName = "";
+          }}
         />
+
+        <Drawer
+          open={panel !== null}
+          title={panel === "pins" ? "置顶消息" : panel === "threads" ? "话题" : "搜索"}
+          onClose={() => (panel = null)}
+          bare
+        >
+          {#if panel === "search"}
+            <SearchPanel
+              text={chat.search?.text ?? ""}
+              messages={chat.search?.messages ?? []}
+              where={whereOf}
+              canOpen={() => true}
+              onOpen={(message) => {
+                chatChannel = message.channel;
+                panel = null;
+              }}
+              onClose={() => (panel = null)}
+            />
+          {:else if panel === "pins"}
+            <SearchPanel
+              text=""
+              heading="置顶消息"
+              label="置顶消息"
+              none="这个频道还没有置顶消息。"
+              messages={pinsOf}
+              where={whereOf}
+              canOpen={() => true}
+              onOpen={(message) => {
+                chatChannel = message.channel;
+                panel = null;
+              }}
+              onClose={() => (panel = null)}
+            />
+          {:else if panel === "threads"}
+            <ThreadList
+              channel={chatChannel === null ? "" : channelName(chatChannel)}
+              threads={threadsOf}
+              more={false}
+              unread={new Set<number>()}
+              mentions={{}}
+              onOpen={(thread) => {
+                openThread = thread;
+                chatChannel = thread.id;
+                onOpenThread?.(thread.id);
+                panel = null;
+              }}
+              onMore={() => {}}
+              onClose={() => (panel = null)}
+            />
+          {/if}
+        </Drawer>
       {:else if chat}
         <p class="todo">这个服务器没有开文字频道</p>
       {:else}
@@ -238,6 +351,26 @@
       <RoomGrid {rooms} {joinedId} {meName} onJoin={join} onCreate={createRoom} canCreate={canCreate ?? true} />
     {/if}
   </main>
+
+  {#if threadAsk !== null}
+    <button type="button" class="ask-backdrop" aria-label="取消" onclick={() => (threadAsk = null)}></button>
+    <form
+      class="ask"
+      onsubmit={(event) => {
+        event.preventDefault();
+        const name = threadName.trim();
+        if (name !== "" && threadAsk !== null) onCreateThread?.(threadAsk, name);
+        threadAsk = null;
+      }}
+    >
+      <h3>新话题</h3>
+      <input bind:value={threadName} maxlength="60" placeholder="话题名字" />
+      <div class="ask-acts">
+        <button type="submit" class="ok">创建</button>
+        <button type="button" onclick={() => (threadAsk = null)}>取消</button>
+      </div>
+    </form>
+  {/if}
 
   <StatusRail
     connection={connection}
@@ -290,5 +423,75 @@
     margin: 0;
     color: var(--sg-muted);
     font-size: 13px;
+  }
+
+  .ask-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    padding: 0;
+    background: rgb(20 16 10 / 24%);
+    border: 0;
+  }
+
+  .ask {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 71;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(340px, 88vw);
+    padding: 18px;
+    background: var(--sg-card);
+    border: 1px solid var(--sg-line);
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgb(44 38 29 / 18%);
+    transform: translate(-50%, -50%);
+  }
+
+  .ask h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  .ask input {
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--sg-text);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 8px;
+  }
+
+  .ask input:focus {
+    outline: none;
+    border-color: var(--sg-green);
+  }
+
+  .ask-acts {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .ask-acts button {
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-muted);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .ask-acts .ok {
+    color: var(--sg-card);
+    background: var(--sg-green);
+    border-color: var(--sg-green);
   }
 </style>

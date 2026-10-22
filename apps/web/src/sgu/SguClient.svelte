@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createChannel, joinChannel, may, Perm, setSelfState } from "@kallisti/protocol";
   import type { Connection } from "../lib/connection.svelte";
+  import { parseSearch } from "../lib/search";
   import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
   import Shell from "./Shell.svelte";
   import "./theme.css";
@@ -57,6 +58,21 @@
     activity: [],
   });
 
+  // 搜索框里的 `from:某某` / `in:#频道` 交给上游的解析器认，认不出的
+  // 频道名按它的规矩变成 -1（搜所有频道）。
+  function searchChats(): Map<string, number> {
+    const text = connection.text;
+    if (text === null) return new Map();
+    const chats = new Map<string, number>();
+    for (const channel of text.channels) chats.set(channel.name.toLowerCase(), channel.id);
+    for (const [voice, chat] of Object.entries(text.voiceChannels)) {
+      const name = server.channels[Number(voice)]?.name ?? voice;
+      chats.set(name.toLowerCase(), chat);
+    }
+    for (const [id, peer] of Object.entries(text.directs)) chats.set(peer.name.toLowerCase(), Number(id));
+    return chats;
+  }
+
   function join(id: string) {
     const session = server.session;
     if (session === null) return;
@@ -97,6 +113,12 @@
     onPinText={(id, on) => connection.pin(id, on)}
     myId={me?.userId ?? null}
     onOpenChat={(id) => connection.requestHistory(id)}
+    onSearchText={(query) => connection.search(parseSearch(query, searchChats()))}
+    onPinsText={(id) => connection.requestPins(id)}
+    onDeleteText={(id) => connection.deleteMessage(id)}
+    onCreateThread={(id, name) => connection.thread({ create: id, name })}
+    onOpenThread={(id) => connection.thread({ get: id })}
+
   />
 </div>
 

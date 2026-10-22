@@ -14,6 +14,14 @@
     onReact,
     onEdit,
     onPin,
+    onDelete,
+    onThread,
+    onSearch,
+    onPins,
+    onThreads,
+    onChannelChange,
+    focusChannel = null,
+    thread = null,
     myName = "",
     myId = null,
     canWrite = () => true,
@@ -30,6 +38,21 @@
     onReact?: (messageId: number, emoji: string, on: boolean) => void;
     // 改自己发过的话。
     onEdit?: (messageId: number, body: string) => void;
+    // 删掉一条我自己的消息（服务器还会再查一次权限）。
+    onDelete?: (messageId: number) => void;
+    // 从一条消息开会话，名字由外面问。
+    onThread?: (messageId: number) => void;
+    // 搜索框回车。
+    onSearch?: (text: string) => void;
+    // 打开当前频道的置顶/话题抽屉。
+    onPins?: (channelId: number) => void;
+    onThreads?: (channelId: number) => void;
+    // 换了频道就报给外面，抽屉里要跟着变。
+    onChannelChange?: (channelId: number) => void;
+    // 外面指定看哪个频道（搜索结果、话题点过来）。
+    focusChannel?: number | null;
+    // 展开中的话题：它的 id 就是一个聊天 id，当成临时频道列出来。
+    thread?: { id: number; name: string } | null;
     // 置顶/取消置顶（要有权限，服务器会拒绝不该做的）。
     onPin?: (messageId: number, on: boolean) => void;
     // 我的名字：和自己发的话对得上，才给「编辑」。
@@ -42,6 +65,7 @@
 
   let current = $state<number | null>(null);
   let draft = $state("");
+
   // 每个频道看到第几条了；新消息按条数算，不用管服务器给的消息 id。
   let seen = $state<Record<number, number>>({});
   let replyTo = $state<ChatLine | null>(null);
@@ -55,8 +79,22 @@
   // 哪一条下面摊开了表情盘。
   let emojiFor = $state<number | null>(null);
 
-  const channels = $derived(text.channels);
+  const channels = $derived(
+    thread === null ? text.channels : [...text.channels, { id: thread.id, name: thread.name }],
+  );
+
+  // 外面换了频道（点了搜索结果、打开了话题）就跟着切。
+  $effect(() => {
+    const want = focusChannel;
+    if (want !== null && want !== untrack(() => current)) untrack(() => (current = want));
+  });
   const selected = $derived(channels.find((channel) => channel.id === current) ?? channels[0] ?? null);
+
+  // 外面的抽屉要知道现在看的是哪个频道。
+  $effect(() => {
+    const channel = selected;
+    if (channel !== null) untrack(() => onChannelChange?.(channel.id));
+  });
   const lines = $derived(selected === null ? [] : recentLines(text, selected.id, 60, myId));
   const writable = $derived(selected !== null && canWrite(selected.id));
 
@@ -164,6 +202,29 @@
 </script>
 
 <div class="chat">
+  {#if onSearch || onPins || onThreads}
+    <div class="tools">
+      {#if onSearch}
+        <input
+          class="find"
+          type="search"
+          placeholder="搜索消息"
+          onkeydown={(event) => {
+            if (event.key !== "Enter") return;
+            const query = event.currentTarget.value.trim();
+            if (query !== "") onSearch(query);
+          }}
+        />
+      {/if}
+      {#if onPins}
+        <button type="button" onclick={() => selected && onPins(selected.id)}>置顶</button>
+      {/if}
+      {#if onThreads}
+        <button type="button" onclick={() => selected && onThreads(selected.id)}>话题</button>
+      {/if}
+    </div>
+  {/if}
+
   <div class="channels">
     {#each channels as channel (channel.id)}
       <button type="button" class="tab" class:on={channel.id === selected?.id} onclick={() => pick(channel.id)}>
@@ -251,6 +312,12 @@
                 {line.pinned ? "取消置顶" : "置顶"}
               </button>
             {/if}
+            {#if onThread}
+              <button type="button" class="thread" onclick={() => onThread(line.id)}>话题</button>
+            {/if}
+            {#if onDelete && mine(line)}
+              <button type="button" class="del" onclick={() => onDelete(line.id)}>删除</button>
+            {/if}
           </div>
         </div>
         {#if emojiFor === line.id}
@@ -322,6 +389,47 @@
     border: 1px solid var(--sg-line);
     border-radius: var(--sg-radius);
     overflow: hidden;
+  }
+
+  .tools {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--sg-line);
+    background: var(--sg-card);
+  }
+
+  .find {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-text);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 7px;
+  }
+
+  .find:focus {
+    outline: none;
+    border-color: var(--sg-green);
+  }
+
+  .tools button {
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--sg-muted);
+    background: var(--sg-bg);
+    border: 1px solid var(--sg-line);
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  .tools button:hover {
+    color: var(--sg-text);
+    border-color: var(--sg-green);
   }
 
   .channels {
