@@ -88,7 +88,10 @@
     {canCreate}
     onCreate={create}
     chat={connection.text}
-    onSendText={(id, body) => connection.sendText({ channelId: id }, body)}
+    onSendText={(id, body, extra) =>
+      connection.sendToTextChannel(id, body, extra?.upload, extra?.reply)}
+    onUploadText={(file) => connection.uploadFile(file)}
+    canWriteText={(id) => may(server, id, Perm.Write)}
     onOpenChat={(id) => connection.requestHistory(id)}
   />
 </div>

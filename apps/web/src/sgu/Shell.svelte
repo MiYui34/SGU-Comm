@@ -43,6 +43,8 @@
     chat,
     onSendText,
     onOpenChat,
+    onUploadText,
+    canWriteText,
   }: {
     snapshot: SguState;
     // 接上真实语音时由外面给房间和当前房间；不给就自己管示例数据。
@@ -59,8 +61,16 @@
     onCreate?: (name: string) => void;
     // 文字频道：接上真实连接才有，没接上时聊天入口显示占位。
     chat?: TextState | null;
-    onSendText?: (channelId: number, body: string) => void;
+    onSendText?: (
+      channelId: number,
+      body: string,
+      extra?: { reply?: number; upload?: string },
+    ) => void;
     onOpenChat?: (channelId: number) => void;
+    // 传了才有「附件」按钮：把这个文件交上去，换回一个 key。
+    onUploadText?: (file: File) => Promise<string>;
+    // 没有发言权限的频道，输入框换成一句提示。
+    canWriteText?: (channelId: number) => boolean;
   } = $props();
 
   let active = $state<NavKey>("voice");
