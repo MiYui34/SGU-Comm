@@ -3,6 +3,9 @@
 Voice and text chat on top of Mumble, with a Discord-like interface. Web first.
 https://kallisti.chat
 
+> 这个仓库是 SGU 服务器用的分支：在 Kallisti 上加了一套中文界面、游戏服务器
+> 状态卡片和延迟测量。中文说明见 [docs/sgu.md](docs/sgu.md)。
+
 ![Kallisti in the browser: a chat about noise suppression with a link preview, a code snippet, a reply and a mention, people in voice channels, and someone typing](docs/screenshot.png)
 
 - `packages/protocol`: Mumble protocol (framing, protobuf codec, state, voice packets)
