@@ -1,0 +1,72 @@
+/*
+ * SGU 中文界面：纸面主题与布局。
+ *
+ * 独立的 token 前缀（--sg-）作用域限定在 .sgu-app 内，不会动到 app.css
+ * 里 Kallisti 原有的深色 token；将来整屏替换时只要把 .sgu-app 挂到
+ * 顶层容器上即可。
+ */
+.sgu-app {
+  --sg-bg: #f4f1ea;
+  --sg-panel: #efebe2;
+  --sg-card: #fffdf8;
+  --sg-card-hi: #ffffff;
+  --sg-line: rgb(44 38 29 / 10%);
+  --sg-line-hi: rgb(44 38 29 / 18%);
+  --sg-text: #211e19;
+  --sg-muted: #6b6357;
+  --sg-faint: #9a9182;
+  --sg-green: #1f6b4a;
+  --sg-green-soft: rgb(31 107 74 / 10%);
+  --sg-red: #b8442f;
+  --sg-radius: 10px;
+  --sg-font:
+    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    system-ui, sans-serif;
+
+  display: grid;
+  height: 100%;
+  grid-template-columns: 214px minmax(0, 1fr) 300px;
+  grid-template-rows: 60px minmax(0, 1fr) 64px;
+  grid-template-areas:
+    "head head head"
+    "nav main rail"
+    "voice voice voice";
+  overflow: hidden;
+  background: var(--sg-bg);
+  color: var(--sg-text);
+  font-family: var(--sg-font);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sgu-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sgu-app ::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgb(44 38 29 / 14%);
+}
+
+.sgu-app button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 独立预览页（sgu.html）只需要这两条。 */
+html.sgu-page,
+html.sgu-page body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #f4f1ea;
+}
+
+html.sgu-page #sgu {
+  height: 100%;
+}

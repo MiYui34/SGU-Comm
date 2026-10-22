@@ -1,6 +1,7 @@
 <script lang="ts">
   import Client from "./components/Client.svelte";
   import Login from "./components/Login.svelte";
+  import SguClient from "./sgu/SguClient.svelte";
   import { createAccountsApi, type Account, type AccountActions } from "./lib/accounts";
   import { connect, type Connection, type Credentials } from "./lib/connection.svelte";
   import {
@@ -51,6 +52,9 @@
   });
 
   const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? proxyUrl(location);
+
+  // 中文外壳（原型）接在这条真连接上：地址带 ?ui=sgu 时整屏换成它。
+  const sgu = new URLSearchParams(location.search).get("ui") === "sgu";
 
   let connection = $state<Connection | null>(null);
   // The account API lives on the Kallisti server (same host as the bridge).
@@ -461,12 +465,16 @@
       <button type="button" onclick={() => void tryNow()}>Retry now</button>
     </div>
   {/if}
+  {#if sgu && connection}
+    <SguClient {connection} />
+  {:else}
   <!-- While lost, the old view stays readable but takes no input (it would be lost). -->
   <div class="client" inert={lost}>
     {#key connection}
       <Client {connection} account={account ? accountActions : undefined} resume={place} onPlace={(p) => keepPlace(p)} {audioState} onRestartAudio={restartAudio} onLogIn={() => leave(null)} site={kallisti ?? location.origin} {drafts} {pendingFiles} openSettings={reopenSettings} onSettingsOpened={() => (reopenSettings = false)} />
     {/key}
   </div>
+  {/if}
 {:else}
   <div class="connecting">Connecting…</div>
 {/if}
