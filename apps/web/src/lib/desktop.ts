@@ -40,6 +40,9 @@ export const openInBrowser = async (url: string) => {
   await openUrl(url);
 };
 
+// The app's window (see lib/windowHidden).
+export const currentWindow = async () => (await import("@tauri-apps/api/window")).getCurrentWindow();
+
 export const getBridge = async (): Promise<BridgeInfo> => {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<BridgeInfo>("bridge_info");

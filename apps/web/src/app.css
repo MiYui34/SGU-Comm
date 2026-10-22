@@ -194,3 +194,17 @@ img.emoji {
 img.emoji.custom {
   object-fit: contain;
 }
+
+/* The window is hidden or minimised (lib/windowHidden.ts): no painting of
+   animated pictures, emoji, avatars or CSS animations. The desktop app keeps
+   painting in the background (for voice). visibility keeps the layout (no
+   scroll jump), and a playing video keeps its sound. Not the stream's
+   canvas: it feeds picture-in-picture (StreamStage). */
+html[data-window-hidden] :is(img, video) {
+  visibility: hidden !important;
+}
+html[data-window-hidden] *,
+html[data-window-hidden] *::before,
+html[data-window-hidden] *::after {
+  animation-play-state: paused !important;
+}

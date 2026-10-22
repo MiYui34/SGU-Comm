@@ -1,7 +1,8 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
-import { isDesktop, openInBrowser } from "./lib/desktop";
+import { currentWindow, isDesktop, openInBrowser } from "./lib/desktop";
 import { openLinksOutside } from "./lib/externalLinks";
+import { watchWindowHidden } from "./lib/windowHidden";
 import "./app.css";
 
 const app = mount(App, { target: document.getElementById("app")! });
@@ -9,6 +10,11 @@ const app = mount(App, { target: document.getElementById("app")! });
 // After mount: Svelte's own document listener (for elements outside the
 // app's root) must see clicks first.
 if (isDesktop()) openLinksOutside((url) => openInBrowser(url).catch((err) => console.error("link not opened", err)));
+
+// Animated content stops painting while the window is hidden (app.css).
+void (isDesktop() ? currentWindow() : Promise.resolve(null))
+  .catch(() => null)
+  .then((win) => watchWindowHidden((hidden) => document.documentElement.toggleAttribute("data-window-hidden", hidden), { doc: document, win }));
 
 // iOS lets the installed app pinch-zoom despite touch-action (app.css):
 // its own gesture events stop it there.
