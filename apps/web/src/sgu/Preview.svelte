@@ -3,6 +3,7 @@
   import { mockChat } from "./mockChat";
   import { mockState } from "./mock";
   import Shell from "./Shell.svelte";
+  import type { RoomAction } from "./types";
   import "./theme.css";
 
   // 预览页自己拿着这份聊天数据，表情、编辑、置顶就在这里改，
@@ -20,6 +21,35 @@
 
   let chat = $state<Chat>(mockChat as unknown as Chat);
   let next = 1000;
+  // 房间也由这一页自己改：页面不该为了演示去连服务器。
+  let rooms = $state(mockState.rooms);
+  let joined = $state<string | null>(mockState.joinedRoomId);
+
+  function join(id: string) {
+    joined = id;
+    rooms = rooms.map((room) => ({
+      ...room,
+      members: room.id === id ? [...room.members.filter((one) => one !== myName), myName] : room.members.filter((one) => one !== myName),
+    }));
+  }
+
+  function renameRoom(id: string) {
+    const room = rooms.find((one) => one.id === id);
+    if (room === undefined) return;
+    const name = window.prompt("房间的新名字", room.name)?.trim();
+    if (!name) return;
+    rooms = rooms.map((one) => (one.id === id ? { ...one, name } : one));
+  }
+
+  function deleteRoom(id: string) {
+    rooms = rooms.filter((one) => one.id !== id);
+    if (joined === id) joined = null;
+  }
+
+  const roomActions = (id: string): RoomAction[] => [
+    { key: "edit", label: "改名字和说明", run: () => renameRoom(id) },
+    { key: "delete", label: "删除房间", run: () => deleteRoom(id) },
+  ];
 
   function find(messageId: number): TextMessage | undefined {
     for (const list of Object.values(chat.messages)) {
@@ -80,6 +110,11 @@
 
 <Shell
   snapshot={mockState}
+  {rooms}
+  joinedRoomId={joined}
+  onJoin={join}
+  onLeave={() => (joined = null)}
+  {roomActions}
   chat={chat as unknown as TextState}
   {myId}
   onSendText={send}
