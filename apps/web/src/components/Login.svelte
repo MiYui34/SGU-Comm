@@ -331,7 +331,15 @@
     color: var(--text-muted);
     font-size: 14px;
   }
+  /* 和登录之后的界面同一套纸色：淡米底、暖白卡片、苔绿主按钮。 */
   .screen {
+    --bg-rail: #f4f1ea;
+    --bg-main: #fffdf8;
+    --bg-active: #e8e3d6;
+    --text: #221d16;
+    --text-muted: #6f6857;
+    --accent-strong: #1f6b4a;
+    --danger: #b8442f;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -341,6 +349,7 @@
     height: 100%;
     padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
     background: var(--bg-rail);
+    color: var(--text);
   }
   .card {
     display: flex;
@@ -348,12 +357,16 @@
     gap: 16px;
     width: min(400px, 90vw);
     padding: 32px;
-    border-radius: 8px;
+    border: 1px solid rgb(44 38 29 / 10%);
+    border-radius: 14px;
     background: var(--bg-main);
+    box-shadow: 0 18px 40px rgb(44 38 29 / 8%);
   }
   h1 {
     margin: 0;
     font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
     text-align: center;
   }
   .sub {
@@ -375,28 +388,41 @@
     font-weight: normal;
   }
   input {
-    padding: 10px;
-    border: none;
-    border-radius: 4px;
-    background: var(--bg-rail);
+    padding: 10px 12px;
+    border: 1px solid rgb(44 38 29 / 16%);
+    border-radius: 9px;
+    background: #fff;
     outline: none;
     /* Not the label's small caps; 16px also keeps phones from zooming in. */
     font-size: 16px;
     font-weight: normal;
     color: var(--text);
   }
+  input:focus {
+    border-color: var(--accent-strong);
+  }
   .primary {
     padding: 12px;
-    border-radius: 4px;
+    border-radius: 9px;
     background: var(--accent-strong);
     color: white;
     font-weight: 600;
+    cursor: pointer;
+  }
+  .primary:hover {
+    background: #1a5a3e;
+  }
+  .primary:disabled {
+    background: #b9b3a4;
+    cursor: default;
   }
   .secondary {
     padding: 10px;
-    border-radius: 4px;
-    background: var(--bg-rail);
+    border: 1px solid rgb(44 38 29 / 16%);
+    border-radius: 9px;
+    background: var(--bg-main);
     font-weight: 600;
+    cursor: pointer;
   }
   .card.fedi {
     gap: 10px;
