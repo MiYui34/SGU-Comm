@@ -20,6 +20,13 @@ export interface VoiceRoom {
   members: string[];
 }
 
+/** 一组房间：分类底下的房间，或者直接挂在根频道下的那一批（name 为空）。 */
+export interface ChannelGroup {
+  id: string;
+  name: string;
+  rooms: VoiceRoom[];
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -37,6 +44,7 @@ export type PersonAction = { key: string; label: string; run: () => void };
 
 // 房间卡片上的菜单（改名字、删掉），同样由外面按权限算。
 export type RoomAction = PersonAction;
+
 
 export interface Person {
   name: string;

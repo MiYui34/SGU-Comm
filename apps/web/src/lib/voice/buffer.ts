@@ -6,7 +6,8 @@ import type { PlayoutConfig } from "./schedule";
 export type PlaybackBuffer = "low" | "medium" | "high";
 export const BUFFER_MS: Record<PlaybackBuffer, number> = { low: 60, medium: 120, high: 250 };
 export const BUFFERS: readonly PlaybackBuffer[] = ["low", "medium", "high"];
-export const bufferLabel = (b: PlaybackBuffer) => `${b[0]!.toUpperCase()}${b.slice(1)} (${BUFFER_MS[b]} ms)`;
+const BUFFER_NAMES: Record<PlaybackBuffer, string> = { low: "低", medium: "中", high: "高" };
+export const bufferLabel = (b: PlaybackBuffer) => `${BUFFER_NAMES[b]}（${BUFFER_MS[b]} ms）`;
 const MUSIC_MS = 500;
 // The queue may grow this much beyond the start delay before chunks are
 // dropped (a burst after a stall, or clock drift).

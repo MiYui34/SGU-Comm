@@ -1,5 +1,5 @@
 import type { ServerState } from "@kallisti/protocol";
-import type { Person, VoiceRoom } from "./types";
+import type { ChannelGroup, Person, VoiceRoom } from "./types";
 
 // 根频道是没语音的大厅（id 0）：能进的房间都在它下面，而且自己不再带子
 // 频道（带子频道的是分类，点进去没地方可坐）。
@@ -30,6 +30,49 @@ export function voiceRooms(server: ServerState): VoiceRoom[] {
 function roomNameOf(server: ServerState, channelId: number): string {
   if (channelId === 0) return "大厅";
   return server.channels[channelId]?.name ?? "未知频道";
+}
+
+const byPosition = (a: { position: number; name: string }, b: { position: number; name: string }) =>
+  a.position - b.position || a.name.localeCompare(b.name, "zh-CN");
+
+// 按分类分组：带子频道的频道是分类，分类下面是能进去的房间。
+// 直接挂在根频道下的房间归到一组（id "0"，没有标题），排在最前面；
+// 分类按位置排，组里的房间也一样。
+export function channelGroups(server: ServerState): ChannelGroup[] {
+  const all = Object.values(server.channels).filter((channel) => channel.id !== 0);
+  const children = new Map<number, typeof all>();
+  for (const channel of all) {
+    const parent = channel.parent ?? 0;
+    const list = children.get(parent) ?? [];
+    list.push(channel);
+    children.set(parent, list);
+  }
+  for (const list of children.values()) list.sort(byPosition);
+
+  const roomsIn = (id: number): VoiceRoom[] =>
+    (children.get(id) ?? [])
+      // 自己还带着子频道的，是分类，不是能坐进去的房间。
+      .filter((channel) => !children.has(channel.id))
+      .map((channel) => ({
+        id: String(channel.id),
+        name: channel.name,
+        members: Object.values(server.users)
+          .filter((user) => user.channelId === channel.id)
+          .map((user) => user.name)
+          .sort((a, b) => a.localeCompare(b, "zh-CN")),
+      }));
+
+  const groups: ChannelGroup[] = [];
+  const loose = roomsIn(0);
+  if (loose.length > 0) groups.push({ id: "0", name: "", rooms: loose });
+
+  const categories = all.filter((channel) => children.has(channel.id)).sort(byPosition);
+  for (const category of categories) {
+    const rooms = roomsIn(category.id);
+    // 空的分类也列出来：不然刚建好的分类会像没建成一样消失。
+    groups.push({ id: String(category.id), name: category.name, rooms });
+  }
+  return groups;
 }
 
 // 所有频道里的所有人，按频道顺序排：玩家页要的是「谁在哪儿」，不只是

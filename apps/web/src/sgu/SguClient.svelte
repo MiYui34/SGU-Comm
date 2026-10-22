@@ -13,6 +13,7 @@
     unregister,
   } from "@kallisti/protocol";
   import type { Connection } from "../lib/connection.svelte";
+  import { onMount, untrack } from "svelte";
   import ChannelDialog from "../components/ChannelDialog.svelte";
   import MembersDialog from "../components/MembersDialog.svelte";
   import ModerationDialog from "../components/ModerationDialog.svelte";
@@ -25,9 +26,12 @@
   import { parseSearch } from "../lib/search";
   import { previewKey, previewsToAsk, type LinkPreview } from "../lib/linkPreview";
   import { stoppedTyping, typed, type Typers } from "../lib/typing";
+  import { isBlocked, parseBlocked, toggleBlocked, type Blocked } from "../lib/blocked";
+  import { safeGet, safeSet } from "../lib/storage";
   import { settings } from "../lib/settings.svelte";
-  import { myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
-  import Shell from "./Shell.svelte";
+  import { channelGroups, myChannelOf, myNameOf, voicePeople, voiceRooms } from "./fromServer";
+  import { readConfig } from "./live";
+import Shell from "./Shell.svelte";
   import "./theme.css";
   import type { ConnectionStats, PersonAction, RoomAction, SguState } from "./types";
 
@@ -37,6 +41,7 @@
 
   const server = $derived(connection.state);
   const rooms = $derived(voiceRooms(server));
+  const groups = $derived(channelGroups(server));
   const people = $derived(voicePeople(server));
   const name = $derived(myNameOf(server));
   const me = $derived(server.session === null ? null : (server.users[server.session] ?? null));
@@ -110,11 +115,25 @@
   // 正在确认的那个人（踢出/封禁/禁言要再问一次）。
   let asking = $state<{ session: number; name: string; kind: "kick" | "ban" | "timeout" } | null>(null);
 
+  // 屏蔽名单只存在这台浏览器里，刷新还在。
+  const BLOCKED_KEY = "sgu-blocked";
+  let blocked = $state<Blocked>(parseBlocked(safeGet(localStorage, BLOCKED_KEY)));
+  $effect(() => {
+    const list = blocked;
+    untrack(() => safeSet(localStorage, BLOCKED_KEY, JSON.stringify(list)));
+  });
+
+
   // 房间的改名/说明/删除走上游那套频道管理，表单也是它的。
   const channels = createChannelManagement(() => connection);
 
   // 谁在打字：上游发的是短命事件，这里攒起来，过几秒自己过期。
   let typers = $state.raw<Typers>({});
+// 这个部署开了共享页没有：地址由服务器给，页面不知道就只显示说明。
+let screenShare = $state<string | null>(null);
+onMount(() => {
+  void readConfig().then((config) => (screenShare = config.screenShare));
+});
   let typingNow = $state(Date.now());
   $effect(() =>
     connection.onTextEvent((ev) => {
@@ -168,6 +187,9 @@
     const user = server.users[session];
     if (user === undefined) return [];
     const out: PersonAction[] = [];
+    // 屏蔽只在本地：只看自己，不告诉服务器，也不打扰别人。
+    const hidden = isBlocked(blocked, user.name);
+    out.push({ key: "block", label: hidden ? "取消屏蔽" : "屏蔽", run: () => (blocked = toggleBlocked(blocked, user.name)) });
     // 私信谁都能发：只要对方是注册用户，而且不是我自己。
     const mine = me?.userId ?? null;
     if (user.userId !== null && user.userId !== mine) {
@@ -209,10 +231,16 @@
   function create(name: string) {
     connection.send(createChannel(0, name));
   }
+
+  // 在某个频道底下建：频道有了子频道就变成分类。
+  function createIn(parentId: string, name: string) {
+    connection.send(createChannel(Number(parentId), name));
+  }
 </script>
 
 <div class="sgu-host">
   <Shell
+    screenShare={screenShare}
     {snapshot}
     {rooms}
     joinedRoomId={joinedId}
@@ -223,7 +251,9 @@
     onLeave={leave}
     {people}
     {canCreate}
+    {groups}
     onCreate={create}
+    onCreateIn={createIn}
     chat={connection.text}
     onSendText={(id, body, extra) =>
       connection.sendToTextChannel(id, body, extra?.upload, extra?.reply)}
@@ -250,6 +280,7 @@
     {directs}
     canModerateServer={rights.any}
     {personActions}
+    {blocked}
     {roomActions}
     onOpenModeration={() => (modOpen = true)}
 

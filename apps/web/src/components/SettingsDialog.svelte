@@ -87,7 +87,7 @@
       async () => {
         const note = on ? await turnOnPush(base, name, prefs) : (await turnOffPush(base), null);
         pushOn = await pushIsOn(base, name);
-        if (note || pushOn !== on) throw new Error(note ?? "The browser did not change it.");
+        if (note || pushOn !== on) throw new Error(note ?? "浏览器没有改成。");
       },
       () => (el.checked = pushOn),
     );
@@ -169,8 +169,8 @@
   }}
   aria-labelledby="settings-title">
   <header>
-    <h2 id="settings-title">Settings</h2>
-    <button class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
+    <h2 id="settings-title">设置</h2>
+    <button class="close" onclick={() => dialog?.close()} aria-label="关闭">×</button>
   </header>
   {#if voiceError}
     <p class="hint warn voice-error" role="status">{voiceError}</p>
@@ -180,123 +180,121 @@
 
   {#if bio}
     <label class="bio">
-      <span class="label-row">About me <span class="count">{bioDraft.length}/{BIO_MAX}</span></span>
+      <span class="label-row">关于我 <span class="count">{bioDraft.length}/{BIO_MAX}</span></span>
       <textarea rows="3" maxlength={BIO_MAX} disabled={bio.loading && !bioText} bind:value={bioDraft} onblur={saveBio}></textarea>
-      <span class="hint">Everyone on the server sees it, in Mumble apps too.</span>
+      <span class="hint">服务器上的人都看得到，Mumble 客户端里也会显示。</span>
     </label>
   {/if}
 
   {#if emoji}
     <section class="my-emoji" aria-labelledby="my-emoji-title">
-      <h3 id="my-emoji-title">My emoji</h3>
+      <h3 id="my-emoji-title">我的表情</h3>
       <p class="hint">
-        Type :name: to use one. Everyone sees them in your messages and reactions; Mumble apps show :name:. To add one from a
-        message, click it.
+        打 :名字: 就能用一个。别人在消息和表态里看得到，Mumble 客户端里显示成 :名字:。想加一个，点消息上的表情即可。
       </p>
       <EmojiList {...emoji} />
     </section>
   {/if}
 
   <label>
-    Theme
+    主题
     <select value={settings.theme} onchange={(e) => onChange({ theme: e.currentTarget.value as ThemeSetting })}>
-      <option value="dark">Dark</option>
-      <option value="light">Light</option>
-      <option value="system">As the system</option>
+      <option value="dark">深色</option>
+      <option value="light">浅色</option>
+      <option value="system">跟随系统</option>
     </select>
   </label>
 
   <label>
-    Input device
+    输入设备
     <select
       value={settings.inputDeviceId ?? ""}
       onchange={(e) => onChange({ inputDeviceId: e.currentTarget.value || null })}
     >
-      <option value="">Default</option>
+      <option value="">默认</option>
       {#each inputs as d (d.deviceId)}
         {#if d.deviceId !== "default"}
-          <option value={d.deviceId}>{d.label || "Microphone"}</option>
+          <option value={d.deviceId}>{d.label || "麦克风"}</option>
         {/if}
       {/each}
     </select>
     {#if fellBack}
       <span class="hint warn" role="status">
-        The chosen microphone is not available. Using {deviceLabel || "the default microphone"}.
+        选中的麦克风现在用不了，改用 {deviceLabel || "默认麦克风"}.
       </span>
     {:else if deviceLabel}
-      <span class="hint">In use: {deviceLabel}</span>
+      <span class="hint">正在用：{deviceLabel}</span>
     {/if}
   </label>
 
   {#if hasCamera}
     <label>
-      Camera
+      摄像头
       <select value={settings.cameraDeviceId ?? ""} onchange={(e) => onChange({ cameraDeviceId: e.currentTarget.value || null })}>
-        <option value="">Default</option>
+        <option value="">默认</option>
         {#each cameras as d, i (d.deviceId)}
-          <option value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>
+          <option value={d.deviceId}>{d.label || `摄像头 ${i + 1}`}</option>
         {/each}
       </select>
-      {#if !cameras.length}<span class="hint">The list fills once you have turned the camera on in voice.</span>{/if}
+      {#if !cameras.length}<span class="hint">在语音里打开摄像头之后，这里才会有列表。</span>{/if}
     </label>
   {/if}
 
   <label>
-    Noise suppression
+    降噪
     <select
       value={settings.noiseSuppression}
       disabled={settings.musicMode}
       onchange={(e) => onChange({ noiseSuppression: e.currentTarget.value as NoiseMode })}
     >
-      <option value="browser">Standard (the browser's)</option>
-      <option value="strong">Strong (RNNoise)</option>
-      <option value="strongest">Strongest (DeepFilterNet3)</option>
+      <option value="browser">标准（浏览器自带）</option>
+      <option value="strong">强（RNNoise）</option>
+      <option value="strongest">最强（DeepFilterNet3）</option>
     </select>
     {#if settings.musicMode}
-      <span class="hint">Off in music mode.</span>
+      <span class="hint">音乐模式下不用。</span>
     {:else if noiseError}
       <span class="hint warn" role="status">{noiseError}</span>
     {:else if noiseRunning && noiseRunning === settings.noiseSuppression}
-      <span class="hint" role="status">{noiseLabel(noiseRunning)} is running.</span>
+      <span class="hint" role="status">{noiseLabel(noiseRunning)} 正在运行。</span>
     {:else if settings.noiseSuppression === "strongest"}
-      <span class="hint" role="status">Loading DeepFilterNet3 (about 12 MB, once)…</span>
+      <span class="hint" role="status">正在加载 DeepFilterNet3（约 12 MB，只下一次）……</span>
     {:else}
       <span class="hint">
-        Strong removes fan and other steady noise; typing alone does not start sending. Strongest also removes most
-        typing, but loads about 12 MB, uses more CPU and adds a little delay.
+        「强」会滤掉风扇这类持续噪声，光打字不会触发发送。「最强」连打字声也滤掉，但要下约 12 MB，更费 CPU，会多一点点延迟。
       </span>
     {/if}
   </label>
   {#if onEcho}
     <div class="row">
-      <span class="label">Hear yourself</span>
+      <span class="label">听听自己</span>
       <div class="buttons">
         <button type="button" class="secondary" aria-pressed={echo} onclick={() => (echo = !echo)}>
-          {echo ? "Stop" : "Start echo test"}
+          {echo ? "停止" : "开始回声测试"}
         </button>
       </div>
-      <p class="hint">Plays your microphone as the others hear it, after noise suppression. Use headphones.</p>
+      <p class="hint">按别人听到的效果放一遍你的麦克风（已经过降噪）。请戴耳机。</p>
     </div>
   {/if}
 
   {#if outputSupported}
     <label>
-      Output device
+      输出设备
       <select
         value={settings.outputDeviceId ?? ""}
         onchange={(e) => onChange({ outputDeviceId: e.currentTarget.value || null })}
       >
-        <option value="">Default</option>
+        <option value="">默认</option>
         {#each outputs as d (d.deviceId)}
           {#if d.deviceId !== "default"}
-            <option value={d.deviceId}>{d.label || "Speakers"}</option>
+            <option value={d.deviceId}>{d.label || "扬声器"}</option>
           {/if}
         {/each}
       </select>
     </label>
   {/if}
   <label>
-    Playback buffer
+    播放缓冲
     <select
       value={settings.playbackBuffer}
       onchange={(e) => onChange({ playbackBuffer: e.currentTarget.value as PlaybackBuffer })}
@@ -306,18 +304,17 @@
       {/each}
     </select>
     <span class="hint">
-      How long others' voices wait before they play. More fills gaps on a bad connection, but adds delay. Music
-      always gets at least 500 ms.
+      别人的声音先等多久再放。连接差的时候缓冲长一点能填补空档，但延迟更大。音乐至少 500 ms。
     </span>
   </label>
   <label class="check">
     <input type="checkbox" checked={settings.sounds} onchange={(e) => onChange({ sounds: e.currentTarget.checked })} />
-    <span>Sounds</span>
-    <span class="hint">When you mute or deafen yourself, and undeafen.</span>
+    <span>提示音</span>
+    <span class="hint">静音、取消静音、关掉耳机的时候响一下。</span>
   </label>
   {#if settings.sounds}
     <label>
-      Sound volume
+      提示音音量
       <input
         type="range"
         min="0"
@@ -331,7 +328,7 @@
   {/if}
 
   <fieldset>
-    <legend>Input mode</legend>
+    <legend>说话方式</legend>
     <label class="radio">
       <input
         type="radio"
@@ -339,7 +336,7 @@
         checked={settings.mode === "vad"}
         onchange={() => onChange({ mode: "vad" })}
       />
-      Voice activity
+      自动（听到说话就开）
     </label>
     <label class="radio">
       <input
@@ -348,30 +345,30 @@
         checked={settings.mode === "ptt"}
         onchange={() => onChange({ mode: "ptt" })}
       />
-      Push to talk
+      按住某个键
     </label>
   </fieldset>
 
   {#if settings.mode === "ptt"}
     <div class="row">
-      <span class="label">Push-to-talk key</span>
+      <span class="label">按住说话的键</span>
       <button
         class="key"
         class:recording={recordingKey}
         aria-pressed={recordingKey}
         onclick={() => (recordingKey = true)}
       >
-        {recordingKey ? "Press a key… (Esc to cancel)" : keyLabel(settings.pttKey)}
+        {recordingKey ? "按下要用的键……（Esc 取消）" : keyLabel(settings.pttKey)}
       </button>
       <p class="hint">
         {isDesktop()
-          ? "Works in the background too. The key is reserved for Kallisti while the app runs."
-          : "Works only while this tab has focus."}
+          ? "后台也管用。应用开着的时候这个键归 Kallisti。"
+          : "只在这个标签页在前台时管用。"}
       </p>
     </div>
   {:else}
     <div class="row">
-      <span class="label">Sensitivity</span>
+      <span class="label">灵敏度</span>
       <div class="meter" aria-hidden="true">
         <div
           class="level"
@@ -386,11 +383,11 @@
         step="1"
         value={settings.vadThresholdDb}
         oninput={(e) => onChange({ vadThresholdDb: Number(e.currentTarget.value) })}
-        aria-label="Voice activity threshold"
+        aria-label="说话的灵敏度"
         aria-valuetext="{settings.vadThresholdDb} dB"
       />
       <p class="hint">
-        Speak normally: the bar should turn green when you talk, and stay grey when you are quiet.
+        正常说话时这条应该变绿，安静的时候是灰的。
       </p>
     </div>
   {/if}
@@ -401,13 +398,13 @@
       disabled={settings.musicMode}
       onchange={(e) => onChange({ echoCancellation: e.currentTarget.checked })}
     />
-    <span>Echo cancellation</span>
-    <span class="hint">Needed with speakers. With a headset you can turn it off: on a Mac, the desktop app and Safari otherwise switch Bluetooth headsets to their call mode, with worse sound.</span>
+    <span>回声消除</span>
+    <span class="hint">用外放时需要。戴耳机可以关掉：Mac、桌面版和 Safari 会把蓝牙耳机切到通话模式，声音更差。</span>
   </label>
   <label class="check">
     <input type="checkbox" checked={settings.musicMode} onchange={(e) => onChange({ musicMode: e.currentTarget.checked })} />
-    <span>Music mode</span>
-    <span class="hint">For playing music: no noise suppression, echo cancellation or automatic volume, and better sound (stereo if the microphone has two channels). Use a headset.</span>
+    <span>音乐模式</span>
+    <span class="hint">用来放音乐：不降噪、不消回声、不自动调音量，声音更好（麦克风是双声道就出立体声）。请戴耳机。</span>
   </label>
   <label class="check">
     <input
@@ -415,13 +412,13 @@
       checked={settings.closeMicWhenMuted}
       onchange={(e) => onChange({ closeMicWhenMuted: e.currentTarget.checked })}
     />
-    <span>Close the microphone when muted</span>
-    <span class="hint">The browser then stops showing it as recording, but the sound stops for a moment when you mute or unmute.</span>
+    <span>静音时关掉麦克风</span>
+    <span class="hint">浏览器就不再显示正在录音，但静音和取消静音的一瞬间声音会断一下。</span>
   </label>
   <label class="check">
     <input type="checkbox" checked={settings.streamPreviews} onchange={(e) => onChange({ streamPreviews: e.currentTarget.checked })} />
-    <span>Show a preview of my screen share and camera</span>
-    <span class="hint">People who are not watching see a small picture, updated every few seconds.</span>
+    <span>共享屏幕或摄像头时给别人看小画面</span>
+    <span class="hint">没在看的人每隔几秒会收到一张小图。</span>
   </label>
   <label class="check">
     <input
@@ -438,42 +435,40 @@
         onChange({ notifications: on });
       }}
     />
-    <span>Desktop notifications (mentions and direct messages; per channel in its menu)</span>
+    <span>桌面通知（被提及和私信；每个频道可以在它的菜单里单独设）</span>
     {#if notificationNote}<span class="hint warn" role="status">{notificationNote}</span>{/if}
   </label>
   {#if push && pushSupport === "ok"}
     <label class="check">
       <input type="checkbox" checked={pushOn} disabled={pushSave.busy} onchange={(e) => setPush(e.currentTarget)} />
-      <span>Push notifications on this device</span>
-      <span class="hint">Mentions and direct messages also while Kallisti is closed. They say who and where, not the message.</span>
+      <span>在这台设备上收推送</span>
+      <span class="hint">应用关着也能收到被提及和私信。只告诉你是谁、在哪，不带内容。</span>
       <SaveStatus save={pushSave.state} />
     </label>
   {:else if push && pushSupport === "install"}
     <p class="hint">
-      For push notifications on this iPhone or iPad: tap Share, then "Add to Home Screen", and open Kallisti from there
-      (iOS 16.4 or later).
+      想在 iPhone 或 iPad 上收推送：点「分享」，选「添加到主屏幕」，再从那里打开 Kallisti（要 iOS 16.4 以上）。
     </p>
   {/if}
   {#if account}
     <form class="account" onsubmit={changePassword}>
       {#if account.temporary}
-        <span class="label">Keep this account</span>
+        <span class="label">保留这个账号</span>
         <p class="hint">
-          This is a guest account: it is deleted a day after your last visit. With a password it stays, and you can log
-          in on other devices.
+          这是游客账号：最后一次登录之后一天就会被删。设了密码就能留住，还能在别的设备上登录。
         </p>
       {:else if !account.hasPassword}
-        <span class="label">Set a password</span>
-        <p class="hint">You log in with your fediverse account. A password also works in Mumble apps, with your name. First you confirm with your fediverse server.</p>
+        <span class="label">设一个密码</span>
+        <p class="hint">你现在用 fediverse 账号登录。设了密码之后，也能用这个名字登录 Mumble。先要在 fediverse 服务器上确认一次。</p>
       {:else}
-        <span class="label">Change password</span>
-        <input type="password" bind:value={oldPassword} placeholder="Current password" autocomplete="current-password" required />
+        <span class="label">改密码</span>
+        <input type="password" bind:value={oldPassword} placeholder="现在的密码" autocomplete="current-password" required />
       {/if}
-      <input type="password" bind:value={newPassword} placeholder="New password (8 or more characters)" autocomplete="new-password" minlength="8" required />
+      <input type="password" bind:value={newPassword} placeholder="新密码（至少 8 位）" autocomplete="new-password" minlength="8" required />
       {#if passwordNote}<p class="hint" role="status">{passwordNote}</p>{/if}
       <div class="buttons">
         <button type="submit" class="secondary" disabled={passwordSave.busy}>
-          {busyLabel(passwordSave.state, account.temporary || !account.hasPassword ? "Set password" : "Change password")}
+          {busyLabel(passwordSave.state, account.temporary || !account.hasPassword ? "设密码" : "改密码")}
         </button>
         <SaveStatus save={passwordSave.state} done="" />
       </div>
@@ -483,7 +478,7 @@
       {#if (reauth || (!account.hasPassword && !account.temporary)) && account.fedi && !isDesktop()}
         <div class="buttons">
           <button type="button" class="secondary" disabled={reauthSave.busy} onclick={() => reauthSave.run(account.fediReauth)}>
-            Confirm with {handleHost(account.fedi.handle)}
+            去 {handleHost(account.fedi.handle)} 确认
           </button>
           <SaveStatus save={reauthSave.state} done="" />
         </div>
@@ -491,22 +486,22 @@
     </form>
     <FediAccount {account} />
     <div class="account">
-      <span class="label">Log out</span>
+      <span class="label">退出登录</span>
       {#if account.temporary}
-        <p class="hint">Logging out ends this guest account (set a password above to keep it).</p>
+        <p class="hint">退出会结束这个游客账号（在上面设个密码就能留住）。</p>
       {:else}
-        <p class="hint">"Everywhere" also logs out your other browsers and devices, for example after you used a shared computer.</p>
+        <p class="hint">「所有设备」会把你别的浏览器和设备也退掉，比如用过公用电脑之后。</p>
       {/if}
       <div class="buttons">
-        <button type="button" class="logout" onclick={account.logout}>Log out</button>
+        <button type="button" class="logout" onclick={account.logout}>退出登录</button>
         {#if !account.temporary}
-          <button type="button" class="logout" onclick={account.logoutAll}>Log out everywhere</button>
+          <button type="button" class="logout" onclick={account.logoutAll}>所有设备都退出</button>
         {/if}
       </div>
     </div>
   {/if}
   <footer class="hint">
-    Kallisti: a Mumble server and client. <a href="https://kallisti.chat" target="_blank" rel="noreferrer">kallisti.chat</a>
+    Kallisti：一个 Mumble 服务器和客户端。 <a href="https://kallisti.chat" target="_blank" rel="noreferrer">kallisti.chat</a>
   </footer>
 </dialog>
 
@@ -518,6 +513,7 @@
     border-radius: 8px;
     background: var(--bg-main);
     color: var(--text);
+    accent-color: var(--accent-strong);
   }
   dialog::backdrop {
     background: rgb(0 0 0 / 0.6);
@@ -570,6 +566,7 @@
     font-weight: normal;
     text-transform: none;
     color: var(--text);
+    accent-color: var(--accent-strong);
   }
   select,
   .key {

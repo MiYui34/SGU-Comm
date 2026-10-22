@@ -189,3 +189,24 @@ func TestTheBuiltInServerIsTheDefault(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got.Builtin, want)
 	}
 }
+
+func TestScreenShareURL(t *testing.T) {
+	got, err := Parse(env(map[string]string{
+		"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "SCREEN_SHARE_URL": "https://meet.example.org/",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ScreenShareURL != "https://meet.example.org" {
+		t.Errorf("SCREEN_SHARE_URL %q", got.ScreenShareURL)
+	}
+	// A path would end up half-working in a frame, so it is refused up front.
+	for _, bad := range []string{"https://meet.example.org/room", "meet.example.org", "ftp://meet.example.org"} {
+		_, err := Parse(env(map[string]string{
+			"MUMBLE_HOST": "x", "ALLOWED_ORIGINS": "*", "SCREEN_SHARE_URL": bad,
+		}))
+		if err == nil {
+			t.Errorf("SCREEN_SHARE_URL %q: expected an error", bad)
+		}
+	}
+}

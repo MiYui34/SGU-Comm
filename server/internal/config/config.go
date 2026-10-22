@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -67,6 +68,10 @@ type Config struct {
 	// The Minecraft server, as players reach it (host:port): the status card
 	// reads its player count over the server list ping. Empty: no card data.
 	MinecraftAddr string
+	// The screen-sharing page (a self-hosted Jitsi Meet, say), as an origin
+	// like https://meet.example.org without a trailing slash. Empty: the
+	// feature is off and the page explains how to turn it on.
+	ScreenShareURL string
 }
 
 // list splits a comma-separated value, trims and drops empty and repeated
@@ -246,6 +251,14 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	if c.TextChannels = list(getenv("TEXT_CHANNELS")); len(c.TextChannels) == 0 {
 		c.TextChannels = []string{"general"}
+	}
+	// The sharing page is framed by ours, so only its origin is kept and a
+	// path (with a room name, say) is refused here rather than half-working.
+	if c.ScreenShareURL = strings.TrimSuffix(getenv("SCREEN_SHARE_URL"), "/"); c.ScreenShareURL != "" {
+		origin, err := url.Parse(c.ScreenShareURL)
+		if err != nil || (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.Path != "" {
+			return Config{}, errors.New("SCREEN_SHARE_URL must be an origin like https://meet.example.org")
+		}
 	}
 	if c.MumbleHost == "" {
 		if c.Builtin, err = parseBuiltin(getenv, c.DBPath); err != nil {

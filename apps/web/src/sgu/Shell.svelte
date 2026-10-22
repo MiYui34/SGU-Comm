@@ -21,6 +21,7 @@
   import type { ConnectionInfo } from "../lib/connectionInfo.svelte";
   import {
     playerOfName,
+    type ChannelGroup,
     type ConnectionStats,
     type NavKey,
     type Person,
@@ -42,6 +43,7 @@
   let {
     snapshot,
     rooms: roomsFromOutside,
+    groups,
     joinedRoomId: joinedFromOutside,
     stats,
     connectionInfo,
@@ -51,10 +53,12 @@
     people: peopleFromOutside,
     canCreate,
     onCreate,
+    onCreateIn,
     chat,
     onSendText,
     onOpenChat,
     onReadText,
+    screenShare,
     onUploadText,
     canWriteText,
     onReactText,
@@ -76,12 +80,15 @@
     onOpenModeration,
     canModerateServer = false,
     personActions,
+    blocked = [],
     roomActions,
     myId = null,
   }: {
     snapshot: SguState;
     // 接上真实语音时由外面给房间和当前房间；不给就自己管示例数据。
     rooms?: VoiceRoom[];
+    // 带分类的房间分组（接上真实语音时由外面算好）。
+    groups?: ChannelGroup[];
     joinedRoomId?: string | null;
     stats?: ConnectionStats | null;
     // 语音连接自己的统计，给顶栏那个小信号图标用。
@@ -94,6 +101,8 @@
     // 服务器说能建频道才显示「创建房间」。
     canCreate?: boolean;
     onCreate?: (name: string) => void;
+    // 在某个房间（有了子房间就成了分类）底下建新的。
+    onCreateIn?: (parentId: string, name: string) => void;
     // 文字频道：接上真实连接才有，没接上时聊天入口显示占位。
     chat?: TextState | null;
     onSendText?: (
@@ -121,6 +130,8 @@
     // 搜索消息、要某个频道的置顶列表。
     onSearchText?: (text: string) => void;
     onPinsText?: (channelId: number) => void;
+    /** 共享页的地址（自建 Jitsi Meet 之类）；null 表示这个部署没配。 */
+    screenShare?: string | null;
     // 谁在哪个频道打字（上游 lib/typing 的结构），和它算过期用的时刻。
     typers?: Readonly<Record<number, Readonly<Record<string, number>>>>;
     typingNow?: number;
@@ -139,6 +150,8 @@
     canModerateServer?: boolean;
     // 玩家页每一行能做的事（静音、踢出、封禁…）。
     personActions?: (session: number) => PersonAction[];
+    // 我屏蔽了的人：聊天里不显示他们说的话。
+    blocked?: readonly string[];
     // 房间卡片上的菜单（改名字、删掉）。
     roomActions?: (roomId: string) => RoomAction[];
   } = $props();
@@ -150,6 +163,7 @@
   let localMic = $state(true);
   let localSound = $state(true);
   let unread = $state(0);
+  let sharing = $state(false);
   // 每个频道各剩几条没看，左边栏的绿点用它。
   let unreadOf = $state<Record<number, number>>({});
 
@@ -308,12 +322,14 @@
       active = "chat";
     }}
     {rooms}
+    {groups}
     {joinedId}
     {meName}
     onJoin={join}
     {directs}
     canCreate={canCreate ?? true}
     onCreate={createRoom}
+    onCreateIn={onCreateIn}
     {roomActions}
   />
 
@@ -340,6 +356,8 @@
           {previewOf}
           {httpBase}
           extraChannels={directs}
+          names={people.map((person) => person.name)}
+          {blocked}
           focusChannel={chatChannel}
           tabs={false}
           thread={openThread}
@@ -481,6 +499,26 @@
     {predicted}
   />
 
+  <Drawer open={sharing} title="共享屏幕" wide onClose={() => (sharing = false)}>
+    {#if screenShare}
+      <div class="share">
+        <iframe
+          title="屏幕共享"
+          src={screenShare}
+          allow="camera; microphone; display-capture; fullscreen; autoplay"
+        ></iframe>
+        <p class="hint">在共享页里点开始共享，屏幕就会发出去。这个页面由你们自己的服务器提供，不经过我们。</p>
+      </div>
+    {:else}
+      <div class="share">
+        <p>这个服务器还没有接共享页。</p>
+        <p class="hint">
+          自建一个开源的会议服务（Jitsi Meet 或 Galène），把地址填进服务器的 <code>SCREEN_SHARE_URL</code>，这里就会出现它的画面。
+        </p>
+      </div>
+    {/if}
+  </Drawer>
+
   <VoiceBar
     roomName={joined?.name ?? null}
     count={joined?.members.length ?? 0}
@@ -490,10 +528,44 @@
     onToggleMic={toggleMic}
     onToggleSound={toggleSound}
     onLeave={leave}
+    onShare={joined === null ? undefined : () => (sharing = true)}
   />
 </div>
 
 <style>
+  /* 共享页：占满抽屉，下面的说明小一号，读得出来但不抢眼。 */
+  .share {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .share iframe {
+    width: 100%;
+    height: min(62vh, 520px);
+    border: 1px solid var(--sg-line);
+    border-radius: 10px;
+    background: #0d0f11;
+  }
+
+  .share p {
+    margin: 0;
+    font-size: 13px;
+  }
+
+  .share .hint {
+    color: var(--sg-muted);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .share code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--sg-panel);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
   .main {
     display: flex;
     grid-area: main;

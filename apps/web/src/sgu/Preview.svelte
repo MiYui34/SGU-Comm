@@ -4,7 +4,10 @@
   import { mockState } from "./mock";
   import Shell from "./Shell.svelte";
   import Ask from "./Ask.svelte";
-  import type { RoomAction } from "./types";
+  import SettingsDialog from "../components/SettingsDialog.svelte";
+  import Shortcuts from "../components/Shortcuts.svelte";
+  import { settings } from "../lib/settings.svelte";
+  import type { ChannelGroup, RoomAction } from "./types";
   import "./theme.css";
 
   // 预览页自己拿着这份聊天数据，表情、编辑、置顶就在这里改，
@@ -55,6 +58,22 @@
     { key: "edit", label: "改名字和说明", run: () => renameRoom(id) },
     { key: "delete", label: "删除房间", run: () => deleteRoom(id) },
   ];
+
+  // 房间按分类摆：大厅一个，其余归到「公共区」，都在这页里现改。
+  const catalogue = $derived<ChannelGroup[]>([
+    { id: "0", name: "", rooms: rooms.filter((room) => room.id === "lobby") },
+    { id: "1000", name: "公共区", rooms: rooms.filter((room) => room.id !== "lobby") },
+  ]);
+
+  function createIn(_parent: string, name: string) {
+    rooms = [...rooms, { id: `local-${rooms.length + 1}`, name, members: [] }];
+  }
+
+  // 设置页里那两扇门：声音与设备、键盘快捷键。预览页也给真面板，
+  // 否则按钮摆在那里点了没反应。
+  let prefsOpen = $state(false);
+  let keysOpen = $state(false);
+  const prefs = $derived(settings.value);
 
   function find(messageId: number): TextMessage | undefined {
     for (const list of Object.values(chat.messages)) {
@@ -120,6 +139,9 @@
   onJoin={join}
   onLeave={() => (joined = null)}
   {roomActions}
+  groups={catalogue}
+  onCreateIn={createIn}
+  screenShare={null}
   chat={chat as unknown as TextState}
   {myId}
   onSendText={send}
@@ -127,7 +149,26 @@
   onEditText={edit}
   onPinText={pin}
   onUploadText={async (file) => `preview-${file.size}`}
+  onOpenSettings={() => (prefsOpen = true)}
+  onOpenShortcuts={() => (keysOpen = true)}
 />
+
+{#if prefsOpen}
+  <div class="sgu-dialogs">
+    <SettingsDialog
+      settings={prefs}
+      level={-100}
+      onChange={settings.update}
+      onClose={() => (prefsOpen = false)}
+    />
+  </div>
+{/if}
+
+{#if keysOpen}
+  <div class="sgu-dialogs">
+    <Shortcuts onClose={() => (keysOpen = false)} />
+  </div>
+{/if}
 
 {#if renaming !== null}
   <Ask

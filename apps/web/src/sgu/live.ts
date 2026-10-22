@@ -54,6 +54,24 @@ export function watchStatus(onChange: (status: LiveStatus | null) => void, every
   };
 }
 
+// 部署方开了什么功能：现在只有「屏幕共享用哪个页面」。
+export type SiteConfig = {
+  /** 共享页的地址（如 https://meet.example.org）；null 表示没配。 */
+  screenShare: string | null;
+};
+
+export async function readConfig(fetcher: typeof fetch = fetch): Promise<SiteConfig> {
+  try {
+    const response = await fetcher("/api/config", { headers: { Accept: "application/json" } });
+    if (!response.ok) return { screenShare: null };
+    const answer = (await response.json()) as { screenShare?: unknown };
+    const url = typeof answer.screenShare === "string" && answer.screenShare !== "" ? answer.screenShare : null;
+    return { screenShare: url };
+  } catch {
+    return { screenShare: null };
+  }
+}
+
 // 一个样本：请求出去再回来用掉的时间（毫秒）。失败给 null。
 //
 // 这是浏览器到服务器自己的往返，不是玩家的游戏内 ping：游戏服的延迟

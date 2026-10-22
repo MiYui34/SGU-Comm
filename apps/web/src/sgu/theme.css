@@ -4,8 +4,11 @@
  * 独立的 token 前缀（--sg-）作用域限定在 .sgu-app 内，不会动到 app.css
  * 里 Kallisti 原有的深色 token；将来整屏替换时只要把 .sgu-app 挂到
  * 顶层容器上即可。
+ *
+ * 弹窗（SettingsDialog、Shortcuts 这些上游组件）在预览页里挂在 .sgu-app
+ * 外面，所以 token 同时给 .sgu-dialogs，免得弹窗套回 Discord 的深灰。
  */
-.sgu-app {
+:where(.sgu-app, .sgu-dialogs) {
   --sg-bg: #f4f1ea;
   --sg-panel: #efebe2;
   --sg-card: #fffdf8;
@@ -18,6 +21,10 @@
   --sg-green: #1f6b4a;
   --sg-green-soft: rgb(31 107 74 / 10%);
   --sg-red: #b8442f;
+  --sg-radius: 10px;
+  --sg-font:
+    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    system-ui, sans-serif;
   /* 上游组件用的是这一套名字，这里翻译成纸色，免得弹窗套着 Discord 的灰。 */
   --bg-rail: var(--sg-panel);
   --bg-main: var(--sg-card);
@@ -34,11 +41,10 @@
   --danger: var(--sg-red);
   --online: #3f9c6d;
   --idle: #c9a227;
-  --dnd: var(--sg-red);  --sg-radius: 10px;
-  --sg-font:
-    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
-    system-ui, sans-serif;
+  --dnd: var(--sg-red);
+}
 
+.sgu-app {
   display: grid;
   height: 100%;
   grid-template-columns: 236px minmax(0, 1fr) 300px;

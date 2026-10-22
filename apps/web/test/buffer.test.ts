@@ -22,6 +22,6 @@ describe("playoutFor", () => {
 
 describe("bufferLabel", () => {
   it("names the level and its delay", () => {
-    expect(bufferLabel("medium")).toBe("Medium (120 ms)");
+    expect(bufferLabel("medium")).toBe("中（120 ms）");
   });
 });

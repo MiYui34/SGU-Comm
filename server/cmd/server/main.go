@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -255,7 +256,10 @@ func run() error {
 	// else to the web app.
 	mux.Handle("/api/mc/status", &mcstatus.Status{Addr: cfg.MinecraftAddr})
 	mux.Handle("/api/ping", latency.Handler())
-	mux.Handle("/", site.New(b, cfg.WebDir))
+	// What the page needs to know about this deployment: the sharing page,
+	// if one is configured. Nothing secret lives here.
+	mux.Handle("/api/config", configHandler(cfg.ScreenShareURL))
+	mux.Handle("/", site.New(b, cfg.WebDir, site.ScreenShare{URL: cfg.ScreenShareURL}))
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.ListenPort))
 	if err != nil {
@@ -369,6 +373,25 @@ func publicBase(origins []string) string {
 		}
 	}
 	return ""
+}
+
+// configHandler tells the page what this deployment offers. The sharing
+// page is the only thing so far; without it the page shows how to set one
+// up instead of an empty frame.
+func configHandler(screenShare string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if err := json.NewEncoder(w).Encode(map[string]any{"screenShare": screenShare}); err != nil {
+			slog.Warn("config response", "error", err)
+		}
+	})
 }
 
 // fediLogin: logins with fediverse accounts, unless turned off or without

@@ -8,6 +8,7 @@
     onToggleMic,
     onToggleSound,
     onLeave,
+    onShare,
   }: {
     roomName: string | null;
     count: number;
@@ -17,6 +18,7 @@
     onToggleMic: () => void;
     onToggleSound: () => void;
     onLeave: () => void;
+    onShare?: () => void;
   } = $props();
 </script>
 
@@ -58,6 +60,9 @@
       <div class="sub">{count} 人</div>
     </div>
     <div class="right">
+      {#if onShare}
+        <button type="button" class="share" onclick={onShare}>共享屏幕</button>
+      {/if}
       <span class="ping">{Math.round(rtt)} ms</span>
       <button type="button" class="leave" onclick={onLeave}>离开语音</button>
     </div>
@@ -131,6 +136,23 @@
     align-items: center;
     gap: 14px;
     margin-left: auto;
+  }
+
+  /* 共享屏幕：和离开按钮并排，轻一点，免得抢了离开的注意力。 */
+  .share {
+    padding: 5px 10px;
+    border: 1px solid var(--sg-line);
+    border-radius: 7px;
+    background: var(--sg-card);
+    color: var(--sg-text);
+    font-family: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .share:hover {
+    border-color: var(--sg-green);
+    color: var(--sg-green);
   }
 
   .ping {

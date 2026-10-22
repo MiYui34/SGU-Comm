@@ -1,7 +1,12 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { TextState } from "../lib/textChannels";
   import { COMMON_EMOJI } from "../lib/reactions";
+  import { MENTION_ALL, SUGGESTIONS, suggestNames } from "../lib/mentions";
+  import { isBlocked } from "../lib/blocked";
+  import { listKey, replaceTyped, typedWord, type Typed } from "../lib/suggest";
+  import Suggestions from "../components/Suggestions.svelte";
+  import type { Suggestion } from "../components/Suggestions.svelte";
   import Lightbox from "../components/Lightbox.svelte";
   import { attachmentView, chatSrc, imageBox, lightboxOf, mediaRatio, videoPreload } from "../lib/media";
   import type { LinkPreview } from "../lib/linkPreview";
@@ -32,6 +37,8 @@
     typing = [],
     onTyping,
     extraChannels = [],
+    names = [],
+    blocked = [],
     previewOf,
     httpBase = "",
     canWrite = () => true,
@@ -78,6 +85,10 @@
     typing?: readonly string[];
     // 私信这类不在 text.channels 里的聊天，也要能切过去。
     extraChannels?: readonly { id: number; name: string }[];
+    // 能 @ 的人（服务器上所有名字，含不在语音里的）。
+    names?: readonly string[];
+    // 我屏蔽了的人：他们的话不显示（只影响我自己看到的）。
+    blocked?: readonly string[];
     // 我开始打字了：外面隔几秒报一次给服务器。
     onTyping?: () => void;
     // 消息里的链接由服务器抓成一张小卡；null 表示这个页面没有卡。
@@ -100,6 +111,66 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
   let picker = $state<HTMLInputElement | null>(null);
+  // 输入框里的 @名字 / #频道，补全列表跟着它走。
+  let area = $state<HTMLTextAreaElement | null>(null);
+  let typed = $state<Typed<"@" | "#"> | null>(null);
+  let typedActive = $state(0);
+
+  // 补全候选：@ 给人和 everyone/here，# 给频道。
+  const typedItems = $derived.by((): Suggestion[] => {
+    const word = typed;
+    if (word === null) return [];
+    if (word.kind === "@") {
+      const pool = [...MENTION_ALL, ...names];
+      return suggestNames(pool, word.query, myName)
+        .slice(0, SUGGESTIONS)
+        .map((name) => ({
+          key: `at-${name}`,
+          label: name,
+          insert: `@${/\s/.test(name) ? `"${name}"` : name}`,
+          kind: "user" as const,
+        }));
+    }
+    if (word.kind === "#") {
+      const query = word.query.toLowerCase();
+      return channels
+        .filter((channel) => query === "" || channel.name.toLowerCase().includes(query))
+        .slice(0, SUGGESTIONS)
+        .map((channel) => ({
+          key: `hash-${channel.id}`,
+          label: channel.name,
+          insert: `#${channel.name}`,
+          kind: "channel" as const,
+        }));
+    }
+    return [];
+  });
+
+  // 输入框里那个 @/# 已经写完、或者点到了外面，就把列表收掉。
+  function refreshTyped() {
+    const el = area;
+    if (el === null) {
+      typed = null;
+      return;
+    }
+    const word = typedWord(el.value, el.selectionStart ?? el.value.length);
+    typed = word !== null && (word.kind === "@" || word.kind === "#") ? { ...word, kind: word.kind } : null;
+    typedActive = 0;
+  }
+
+  function takeSuggestion(item: Suggestion) {
+    const el = area;
+    const word = typed;
+    typed = null;
+    if (el === null || word === null) return;
+    const caret = el.selectionStart ?? draft.length;
+    const next = replaceTyped(draft, word.start, caret, item.insert);
+    draft = next.text;
+    void tick().then(() => {
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+    });
+  }
   // 正在改的那条，和改到一半的内容。
   let editing = $state<number | null>(null);
   let editingText = $state("");
@@ -131,7 +202,12 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
       });
     }
   });
-  const lines = $derived(selected === null ? [] : recentLines(text, selected.id, 60, myId));
+  const lines = $derived(
+    (selected === null ? [] : recentLines(text, selected.id, 60, myId)).filter(
+      (line) => !isBlocked(blocked, line.author),
+    ),
+  );
+
   const writable = $derived(selected !== null && canWrite(selected.id));
 
   function countOf(channelId: number): number {
@@ -183,6 +259,25 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
   }
 
   function onKey(event: KeyboardEvent) {
+    // 补全列表开着的时候，方向键和回车归它用。
+    if (typed !== null && typedItems.length > 0) {
+      const move = listKey(event.key, typedItems.length, typedActive);
+      if (move === "pick") {
+        event.preventDefault();
+        takeSuggestion(typedItems[typedActive]!);
+        return;
+      }
+      if (move === "close") {
+        event.preventDefault();
+        typed = null;
+        return;
+      }
+      if (move !== null) {
+        event.preventDefault();
+        typedActive = move.active;
+        return;
+      }
+    }
     // 回车发送，Shift+回车换行。
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
@@ -442,16 +537,31 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
           <button type="button" class="clip" disabled={busy} onclick={() => picker?.click()}>附件</button>
           <input bind:this={picker} type="file" onchange={picked} hidden />
         {/if}
-        <textarea
-          bind:value={draft}
-          rows="1"
-          placeholder={selected === null ? "先选一个频道" : `在 ${selected.name} 里说点什么`}
-          disabled={selected === null}
-          oninput={() => {
-            if (draft.trim() !== "") onTyping?.();
-          }}
-          onkeydown={onKey}
-        ></textarea>
+        <div class="field">
+          <textarea
+            bind:this={area}
+            bind:value={draft}
+            rows="1"
+            placeholder={selected === null ? "先选一个频道" : `在 ${selected.name} 里说点什么`}
+            disabled={selected === null}
+            oninput={() => {
+              refreshTyped();
+              if (draft.trim() !== "") onTyping?.();
+            }}
+            onclick={refreshTyped}
+            onkeydown={onKey}
+            onblur={() => (typed = null)}
+          ></textarea>
+          {#if typed !== null && typedItems.length > 0}
+            <Suggestions
+              id="sgu-mention"
+              label={typed.kind === "@" ? "提到谁" : "去哪个频道"}
+              items={typedItems}
+              active={typedActive}
+              onPick={takeSuggestion}
+            />
+          {/if}
+        </div>
         <button
           type="button"
           class="send"
@@ -922,6 +1032,14 @@ let pending = $state<{ key: string; name: string; size: string } | null>(null);
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  /* 输入框和它的补全列表：列表挂在这块上，跟着输入框的宽度走。 */
+  .field {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-width: 0;
   }
 
   .chip {

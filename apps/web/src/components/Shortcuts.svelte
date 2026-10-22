@@ -7,20 +7,19 @@
   let dialog: HTMLDialogElement | undefined = $state();
   $effect(() => dialog?.showModal());
   const keys: [string, string][] = [
-    [`${MOD}+K`, "Find a channel or a person"],
-    ["Alt+↑ / Alt+↓", "Channel above / below"],
-    ["Alt+Shift+↑ / ↓", "Unread channel above / below"],
-    ["↑", "Edit your last message (empty message box)"],
-    ["Shift+Enter", "New line in a message"],
-    ["Esc", "Cancel a reply or an edit, close a dialog"],
-    [`${MOD}+/`, "This list"],
+    ["Alt+↑ / Alt+↓", "上一个 / 下一个频道"],
+    ["Alt+Shift+↑ / ↓", "跳到有未读的频道"],
+    ["↑", "编辑自己上一条消息（输入框是空的）"],
+    ["Shift+Enter", "换行"],
+    ["Esc", "取消回复或编辑，关掉弹窗"],
+    [`${MOD}+/`, "这个列表"],
   ];
 </script>
 
 <dialog bind:this={dialog} onclose={onClose} aria-labelledby="shortcuts-title">
   <header>
-    <h2 id="shortcuts-title">Keyboard shortcuts</h2>
-    <button type="button" class="close" onclick={() => dialog?.close()} aria-label="Close">×</button>
+    <h2 id="shortcuts-title">键盘快捷键</h2>
+    <button type="button" class="close" onclick={() => dialog?.close()} aria-label="关闭">×</button>
   </header>
   <dl>
     {#each keys as [key, what] (key)}

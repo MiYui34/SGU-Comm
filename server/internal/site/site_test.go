@@ -36,7 +36,7 @@ func get(t *testing.T, h http.Handler, path string, upgrade bool) *httptest.Resp
 }
 
 func TestWebSocketsGoToTheBridge(t *testing.T) {
-	h := New(bridge, webDir(t))
+	h := New(bridge, webDir(t), ScreenShare{})
 	for _, path := range []string{"/ws", "/"} {
 		if body := get(t, h, path, true).Body.String(); body != "bridge" {
 			t.Errorf("%s upgrade: got %q", path, body)
@@ -45,7 +45,7 @@ func TestWebSocketsGoToTheBridge(t *testing.T) {
 }
 
 func TestServesTheWebApp(t *testing.T) {
-	h := New(bridge, webDir(t))
+	h := New(bridge, webDir(t), ScreenShare{})
 	w := get(t, h, "/", false)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "app") {
 		t.Fatalf("index: %d %q", w.Code, w.Body.String())
@@ -68,7 +68,7 @@ func TestServesTheWebApp(t *testing.T) {
 }
 
 func TestUnknownPathsGetTheApp(t *testing.T) {
-	h := New(bridge, webDir(t))
+	h := New(bridge, webDir(t), ScreenShare{})
 	if body := get(t, h, "/some/route", false).Body.String(); !strings.Contains(body, "app") {
 		t.Errorf("fallback: %q", body)
 	}
@@ -78,7 +78,7 @@ func TestUnknownPathsGetTheApp(t *testing.T) {
 }
 
 func TestWithoutWebDirEverythingGoesToTheBridge(t *testing.T) {
-	h := New(bridge, "")
+	h := New(bridge, "", ScreenShare{})
 	if body := get(t, h, "/", false).Body.String(); body != "bridge" {
 		t.Errorf("got %q", body)
 	}
@@ -87,7 +87,7 @@ func TestWithoutWebDirEverythingGoesToTheBridge(t *testing.T) {
 func TestNoPathTraversal(t *testing.T) {
 	dir := webDir(t)
 	os.WriteFile(filepath.Join(filepath.Dir(dir), "secret.txt"), []byte("secret"), 0o644)
-	h := New(bridge, dir)
+	h := New(bridge, dir, ScreenShare{})
 	if body := get(t, h, "/../secret.txt", false).Body.String(); strings.Contains(body, "secret") {
 		t.Fatal("path traversal")
 	}
@@ -99,7 +99,7 @@ func TestAssetsAreGzipped(t *testing.T) {
 	big := bytes.Repeat([]byte("wasm wasm wasm "), 10_000)
 	os.WriteFile(filepath.Join(dir, "assets", "app-1.wasm"), big, 0o644)
 	os.WriteFile(filepath.Join(dir, "assets", "model-1.tar.gz"), []byte("\x1f\x8balready"), 0o644)
-	h := New(http.NotFoundHandler(), dir)
+	h := New(http.NotFoundHandler(), dir, ScreenShare{})
 	get := func(path, enc string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", path, nil)
 		if enc != "" {
@@ -128,5 +128,25 @@ func TestAssetsAreGzipped(t *testing.T) {
 	}
 	if w := get("/assets/missing.js", "gzip"); w.Code != 404 {
 		t.Fatalf("missing: %d", w.Code)
+	}
+}
+
+func TestTheFramePolicyAllowsTheSharingPage(t *testing.T) {
+	dir := webDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := New(http.NotFoundHandler(), dir, ScreenShare{URL: "https://meet.example.org"})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src https://meet.example.org") {
+		t.Errorf("frame-src missing from %q", csp)
+	}
+	// Without the page, no origin is allowed in a frame.
+	off := New(http.NotFoundHandler(), dir, ScreenShare{})
+	w = httptest.NewRecorder()
+	off.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if csp := w.Header().Get("Content-Security-Policy"); strings.Contains(csp, "frame-src") {
+		t.Errorf("frame-src should be absent from %q", csp)
 	}
 }

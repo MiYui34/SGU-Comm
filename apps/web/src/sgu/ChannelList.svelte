@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { initialOf, playerColor, type RoomAction, type VoiceRoom } from "./types";
+  import { initialOf, playerColor, type ChannelGroup, type RoomAction, type VoiceRoom } from "./types";
 
   // 左栏：文字频道在上，语音房间在下。点文字频道换中间的消息，
   // 点语音房间就是走进去说话。
@@ -11,11 +11,13 @@
     onSelect,
     directs = [],
     rooms,
+    groups,
     joinedId,
     meName,
     onJoin,
     canCreate = true,
     onCreate,
+    onCreateIn,
     roomActions,
   }: {
     channels: { id: number; name: string }[];
@@ -26,24 +28,29 @@
     // 私信：和某个人的一对一聊天，和文字频道一样点开。
     directs?: { id: number; name: string }[];
     rooms: VoiceRoom[];
+    // 带分类的分组；不给就把 rooms 排成一组。
+    groups?: ChannelGroup[];
     joinedId: string | null;
     meName: string;
     onJoin: (roomId: string) => void;
     canCreate?: boolean;
     onCreate?: (name: string) => void;
+    // 在某个房间（以后就成了分类）底下建子房间。
+    onCreateIn?: (parentId: string, name: string) => void;
     roomActions?: (roomId: string) => RoomAction[];
   } = $props();
 
   let menuFor = $state<string | null>(null);
-  let creating = $state(false);
-  let draft = $state("");
+  // 正在建房间：parent 是建在谁底下（"0" 就是根）。
+  let creating = $state<{ parent: string; name: string } | null>(null);
   let field = $state<HTMLInputElement | null>(null);
   // 人多的房间默认只列前二十个，展开过的记在这里。
   let opened = $state<Record<string, boolean>>({});
 
-  async function startCreating() {
-    creating = true;
-    draft = "";
+  const listed = $derived<ChannelGroup[]>(groups ?? [{ id: "0", name: "", rooms }]);
+
+  async function startCreating(parent: string) {
+    creating = { parent, name: "" };
     menuFor = null;
     await tick();
     field?.focus();
@@ -51,11 +58,13 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    const name = draft.trim();
+    const open = creating;
+    if (open === null) return;
+    const name = open.name.trim();
     if (name === "") return;
-    onCreate?.(name);
-    creating = false;
-    draft = "";
+    if (open.parent === "0") onCreate?.(name);
+    else onCreateIn?.(open.parent, name);
+    creating = null;
   }
 
   const membersIn = (room: VoiceRoom) =>
@@ -133,11 +142,29 @@
     <div class="group-head">
       <span>语音房间</span>
       {#if canCreate}
-        <button type="button" class="add" aria-label="创建房间" onclick={startCreating}>＋</button>
+        <button type="button" class="add" aria-label="创建房间" onclick={() => startCreating("0")}>＋</button>
       {/if}
     </div>
 
-    {#each rooms as room (room.id)}
+    {#snippet make(parent: string)}
+      {#if creating !== null && creating.parent === parent}
+        <form class="make" onsubmit={submit}>
+          <input
+            bind:this={field}
+            bind:value={creating.name}
+            placeholder={parent === "0" ? "房间名字" : "子房间名字"}
+            maxlength="24"
+            aria-label="房间名字"
+          />
+          <div class="make-acts">
+            <button type="submit" class="ok" disabled={creating.name.trim() === ""}>创建</button>
+            <button type="button" class="no" onclick={() => (creating = null)}>取消</button>
+          </div>
+        </form>
+      {/if}
+    {/snippet}
+
+    {#snippet card(room: VoiceRoom)}
       <div class="slot">
         <button
           type="button"
@@ -155,7 +182,7 @@
           <span class="count">{membersIn(room)}</span>
         </button>
 
-        {#if (roomActions?.(room.id) ?? []).length > 0}
+        {#if (roomActions?.(room.id) ?? []).length > 0 || (canCreate && onCreateIn !== undefined)}
           <button
             type="button"
             class="more"
@@ -177,6 +204,9 @@
                   {action.label}
                 </button>
               {/each}
+              {#if canCreate && onCreateIn !== undefined}
+                <button type="button" onclick={() => startCreating(room.id)}>在下面建子房间</button>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -197,23 +227,35 @@
           </div>
         {/if}
       </div>
+    {/snippet}
+
+    {#each listed as group (group.id)}
+      {#if group.name !== ""}
+        <div class="cat">
+          <span class="cat-name">{group.name}</span>
+          {#if canCreate && onCreateIn !== undefined}
+            <button
+              type="button"
+              class="add"
+              aria-label={`在 ${group.name} 里建房间`}
+              onclick={() => startCreating(group.id)}
+            >
+              ＋
+            </button>
+          {/if}
+        </div>
+      {/if}
+      {#each group.rooms as room (room.id)}
+        {@render card(room)}
+      {/each}
+      {@render make(group.id)}
     {/each}
 
-    {#if creating}
-      <form class="make" onsubmit={submit}>
-        <input
-          bind:this={field}
-          bind:value={draft}
-          placeholder="房间名字"
-          maxlength="24"
-          aria-label="房间名字"
-        />
-        <div class="make-acts">
-          <button type="submit" class="ok" disabled={draft.trim() === ""}>创建</button>
-          <button type="button" class="no" onclick={() => (creating = false)}>取消</button>
-        </div>
-      </form>
+    {#if listed.every((group) => group.rooms.length === 0) && creating === null}
+      <p class="none">还没有房间</p>
     {/if}
+
+    {@render make("0")}
   </div>
 </aside>
 
@@ -259,6 +301,27 @@
   .add:hover {
     background: rgb(44 38 29 / 7%);
     color: var(--sg-text);
+  }
+
+  /* 分类：比房间低一层的标题，房间排在它下面。 */
+  .cat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px 3px 9px;
+    color: var(--sg-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .cat-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cat .add {
+    margin-left: auto;
   }
 
   .row {
